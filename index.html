@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeteoNexus | Active Telemetry</title>
+    
+    <link rel="manifest" id="manifest-placeholder">
+    <meta name="theme-color" content="#0f172a">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0f172a; --card-bg: #1e293b; --card-border: #334155;
+            --text-primary: #f8fafc; --text-secondary: #94a3b8;
+            --accent-teal: #14b8a6; --accent-blue: #3b82f6; 
+            --accent-purple: #a855f7; --accent-orange: #f59e0b; 
+            --accent-red: #ef4444; --accent-pink: #ec4899; 
+            --success-color: #22c55e;
+            --font-ui: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: var(--font-ui); background-color: var(--bg-color);
+            color: var(--text-primary); margin: 0; padding: 20px; min-height: 100vh;
+        }
+        .dashboard-wrapper { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+        header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
+        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
+        
+        .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media (min-width: 1024px) { .grid-container { grid-template-columns: 350px 1fr; } }
+        
+        .card {
+            background-color: var(--card-bg); border: 1px solid var(--card-border);
+            border-radius: 12px; padding: 24px; position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); }
+        .main-status { text-align: center; padding: 30px 0; }
+        .status-icon { font-size: 4rem; margin-bottom: 15px; display: block; }
+        .status-text { font-size: 2rem; font-weight: 800; display: block; }
+        
+        .status-clear { color: var(--success-color); }
+        .status-rain { color: var(--accent-blue); }
+        .status-warn { color: var(--accent-yellow); }
+        .status-alert { color: var(--accent-red); }
+
+        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
+        .metric-item { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px; text-align: center; }
+        .metric-label { font-size: 0.75rem; color: var(--text-secondary); display: block; margin-bottom: 5px; }
+        .metric-value { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; }
+
+        .chart-wrapper { height: 350px; width: 100%; position: relative; }
+        
+        .audio-toggle {
+            cursor: pointer; background: rgba(255,255,255,0.05); 
+            padding: 8px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px;
+            font-size: 0.8rem; border: 1px solid var(--card-border); transition: 0.2s;
+        }
+        .audio-toggle.active { background: rgba(239, 68, 68, 0.2); border-color: var(--accent-red); color: var(--accent-red); }
+        .audio-toggle:hover { background: rgba(255,255,255,0.1); }
+
+        .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
+        .data-table { width: 100%; font-family: var(--font-mono); font-size: 0.85rem; border-collapse: collapse; }
+        .data-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .data-val { text-align: right; color: var(--text-primary); }
+        .status-ok { color: var(--success-color); font-weight: 700; }
+        .status-fail { color: var(--accent-red); font-weight: 700; }
+        .status-wait { color: var(--text-secondary); }
+
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        input { width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); color: var(--text-primary); padding: 10px; border-radius: 6px; font-family: var(--font-mono); }
+        button { border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .btn-primary { background: var(--accent-teal); color: #000; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-wrapper">
+        <header>
+            <div><h1><i class="fa-solid fa-satellite-dish"></i> MeteoNexus <span style="font-weight:300; opacity:0.6;">Active Telemetry</span></h1></div>
+            
+            <div id="audio-btn" class="audio-toggle" onclick="toggleAudio()">
+                <i class="fa-solid fa-volume-xmark" id="audio-icon"></i> <span id="audio-text">ALERTS OFF</span>
+            </div>
+        </header>
+
+        <div class="grid-container">
+            <div id="status-card" class="card">
+                <div class="card-header">
+                    <span class="card-title">Live Consensus</span>
+                    <div id="location-badge" style="font-size: 0.9rem; color: var(--accent-teal);">
+                        <i class="fa-solid fa-location-crosshairs"></i> Locating...
+                    </div>
+                </div>
+
+                <div class="main-status">
+                    <i id="status-icon" class="status-icon fa-solid fa-circle-notch fa-spin"></i>
+                    <span id="status-text" class="status-text">WAITING</span>
+                    <div id="weather-desc" style="margin-top:10px; color:var(--text-secondary);">--</div>
+                </div>
+
+                <div class="metrics-grid">
+                    <div class="metric-item"><span class="metric-label">Temp</span><div id="metric-temp" class="metric-value">--</div></div>
+                    <div class="metric-item"><span class="metric-label">Feels Like</span><div id="metric-feels" class="metric-value">--</div></div>
+                    <div class="metric-item"><span class="metric-label">Wind</span><div id="metric-wind" class="metric-value">--</div></div>
+                    <div class="metric-item"><span class="metric-label">Agreement</span><div id="metric-agree" class="metric-value" style="color:var(--accent-teal)">--</div></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Atmospheric Telemetry Fusion</span>
+                </div>
+                <div style="height: 400px; width: 100%; position: relative;">
+                    <canvas id="mainChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="telemetry-panel">
+            <div class="card">
+                <div class="card-header"><span class="card-title">Model Health Check</span></div>
+                <table class="data-table">
+                    <tr><td>ECMWF High-Res</td><td class="data-val" id="stat-eu"><span class="status-wait">Checking...</span></td></tr>
+                    <tr><td>GFS (USA)</td><td class="data-val" id="stat-us"><span class="status-wait">Checking...</span></td></tr>
+                    <tr><td>ICON (Germany)</td><td class="data-val" id="stat-de"><span class="status-wait">Checking...</span></td></tr>
+                    <tr><td>JMA (Japan)</td><td class="data-val" id="stat-jp"><span class="status-wait">Checking...</span></td></tr>
+                    <tr><td style="border-top: 1px solid var(--card-border); padding-top:10px;">Grid Location</td><td class="data-val" id="tel-meteo" style="border-top: 1px solid var(--card-border); padding-top:10px;">--</td></tr>
+                </table>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><span class="card-title">Calibration</span></div>
+                <div class="input-group">
+                    <input type="number" id="manual-lat" placeholder="Lat" step="any">
+                    <input type="number" id="manual-lon" placeholder="Lon" step="any">
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-primary" onclick="setManualLocation()">Update</button>
+                    <button style="background:var(--card-border); color:white;" onclick="resetToAuto()">Auto</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = {
+            weatherApi: 'https://api.open-meteo.com/v1/forecast',
+            geoApi: 'https://api.opencagedata.com/geocode/v1/json',
+            geoKey: 'dd1af4b5321540b682b1683b61e8c640',
+            sonarThreshold: 75
+        };
+
+        let state = {
+            mode: localStorage.getItem('ms_mode') || 'auto',
+            coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
+            chart: null,
+            audioEnabled: false,
+            lastPing: 0
+        };
+
+        // --- SONAR AUDIO ENGINE ---
+        function playSonarPing() {
+            if (!state.audioEnabled) return;
+            if (Date.now() - state.lastPing < 60000) return; 
+            
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.frequency.setValueAtTime(1200, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
+
+            gain.gain.setValueAtTime(0, ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+
+            osc.start();
+            osc.stop(ctx.currentTime + 0.6);
+            state.lastPing = Date.now();
+        }
+
+        function toggleAudio() {
+            state.audioEnabled = !state.audioEnabled;
+            const btn = document.getElementById('audio-btn');
+            const icon = document.getElementById('audio-icon');
+            const txt = document.getElementById('audio-text');
+
+            if (state.audioEnabled) {
+                btn.classList.add('active');
+                icon.className = 'fa-solid fa-volume-high fa-beat-fade';
+                txt.innerText = "SONAR ACTIVE";
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                ctx.resume().then(() => playSonarPing());
+            } else {
+                btn.classList.remove('active');
+                icon.className = 'fa-solid fa-volume-xmark';
+                txt.innerText = "ALERTS OFF";
+            }
+        }
+
+        // --- PWA SETUP ---
+        const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
+        const manifestBlob = new Blob([JSON.stringify({
+            "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone",
+            "background_color": "#0f172a", "theme_color": "#0f172a",
+            "icons": [{"src": iconBase64, "sizes": "512x512", "type": "image/svg+xml"}]
+        })], {type: 'application/json'});
+        document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
+
+        // --- CHART ENGINE ---
+        function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            if (state.chart) state.chart.destroy();
+
+            state.chart = new Chart(ctx, {
+                data: {
+                    labels: labels,
+                    datasets: [
+                        // --- SOLAR (Left Bar) ---
+                        {
+                            type: 'bar',
+                            label: 'Solar (W/m²)',
+                            data: solarData,
+                            backgroundColor: 'rgba(255, 165, 0, 0.4)', // Fixed Solid Look
+                            borderColor: 'rgba(255, 165, 0, 1)',      // Solid Border
+                            borderWidth: 1,
+                            categoryPercentage: 0.6, 
+                            barPercentage: 0.8,      
+                            order: 3,
+                            yAxisID: 'y_solar',
+                            grouped: true
+                        },
+                        // --- UV INDEX (Right Bar) ---
+                        {
+                            type: 'bar',
+                            label: 'UV Index',
+                            data: uvData,
+                            backgroundColor: 'rgba(168, 85, 247, 0.4)', // Fixed Solid Look
+                            borderColor: 'rgba(168, 85, 247, 1)',      // Solid Border
+                            borderWidth: 1,
+                            categoryPercentage: 0.6, 
+                            barPercentage: 0.8,      
+                            order: 2,
+                            yAxisID: 'y_uv',
+                            grouped: true
+                        },
+                        // --- RAIN MODELS (Uniform Width: 1.5px) ---
+                        { 
+                            type: 'line', label: 'ECMWF (Rain)', data: rainData.eu, 
+                            borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
+                        },
+                        { 
+                            type: 'line', label: 'GFS (Rain)', data: rainData.us, 
+                            borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
+                        },
+                        { 
+                            type: 'line', label: 'ICON (Rain)', data: rainData.de, 
+                            borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
+                        },
+                        { 
+                            type: 'line', label: 'JMA (Rain)', data: rainData.jp, 
+                            borderColor: '#ec4899', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { 
+                        // --- DYNAMIC HEADER ---
+                        title: {
+                            display: true,
+                            text: `ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, 
+                            color: '#94a3b8',
+                            font: { family: 'JetBrains Mono', size: 12 },
+                            align: 'start',
+                            padding: { bottom: 20 }
+                        },
+                        legend: { display: true, labels: { color: '#94a3b8', font: {family: 'JetBrains Mono', size: 10}, boxWidth: 8, usePointStyle: true } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) { label += ': '; }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y.toFixed(1);
+                                        if (context.dataset.yAxisID === 'y_solar') label += ' W/m²';
+                                        if (context.dataset.yAxisID === 'y_uv') label += ' Index';
+                                        if (context.dataset.yAxisID === 'y_rain') label += ' mm';
+                                    }
+                                    return label;
+                                },
+                                // --- UPDATED FOOTER: SNAPSHOT SUMMARY ---
+                                footer: function(tooltipItems) {
+                                    const index = tooltipItems[0].dataIndex;
+                                    const ag = hourlyAgreement[index]; // Rain Consensus
+                                    const uv = uvData[index];          // UV Index
+                                    const sol = solarData[index];      // Solar Radiation
+                                    
+                                    // Returns: "Rain%: 75% • UV: 2.5 • Solar: 450W"
+                                    return `\nRain%: ${ag.toFixed(0)}%  •  UV: ${uv.toFixed(1)}  •  Solar: ${sol.toFixed(0)}W`;
+                                }
+                            },
+                            footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
+                            footerColor: '#14b8a6', // Teal
+                            padding: 12
+                        }
+                    }, 
+                    scales: {
+                        x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } },
+                        y_rain: {
+                            type: 'linear', display: true, position: 'left',
+                            title: { display: true, text: 'Rain (mm)', color: '#64748b' },
+                            grid: { color: '#334155' },
+                            suggestedMax: 2 
+                        },
+                        y_solar: {
+                            type: 'linear', display: true, position: 'right',
+                            title: { display: true, text: 'Solar (W/m²)', color: 'rgba(255, 165, 0, 0.7)' },
+                            grid: { drawOnChartArea: false }, 
+                            suggestedMax: 1000
+                        },
+                        y_uv: {
+                            type: 'linear', display: false,
+                            min: 0, max: 15,
+                            grid: { drawOnChartArea: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateHealthStatus(elementId, dataArray) {
+            const el = document.getElementById(elementId);
+            if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
+                el.innerHTML = '<span class="status-fail">NO SIGNAL</span>';
+                return false;
+            } else {
+                el.innerHTML = '<span class="status-ok">ONLINE</span>';
+                return true;
+            }
+        }
+
+        // --- CORE LOGIC ---
+        async function fetchData(lat, lon) {
+            fetch(`${CONFIG.geoApi}?q=${lat}+${lon}&key=${CONFIG.geoKey}&no_annotations=1`)
+                .then(r => r.json())
+                .then(d => {
+                    const c = d.results[0].components;
+                    const name = c.city || c.town || c.municipality || 'Unknown';
+                    document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-dot"></i> ${name}`;
+                }).catch(() => {});
+
+            // Concurrent API Calls
+            const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`);
+            const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
+            const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`);
+
+            try {
+                const [resCurr, resFore, resSolar] = await Promise.all([p1, p2, p3]);
+                const dCurr = await resCurr.json();
+                const dFore = await resFore.json();
+                const dSolar = await resSolar.json();
+
+                // UI Update
+                const curr = dCurr.current;
+                document.getElementById('tel-meteo').innerText = `${dCurr.latitude.toFixed(5)}, ${dCurr.longitude.toFixed(5)}`;
+                document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
+                document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
+                document.getElementById('metric-wind').innerText = curr.wind_speed_10m + ' km/h';
+                document.getElementById('weather-desc').innerText = `WMO Code: ${curr.weather_code}`;
+
+                // Process Rain Models
+                const h = dFore.hourly;
+                const rawEU = h.precipitation_ecmwf_ifs025; 
+                const rawUS = h.precipitation_gfs_seamless;
+                const rawDE = h.precipitation_icon_seamless;
+                const rawJP = h.precipitation_jma_seamless;
+
+                updateHealthStatus('stat-eu', rawEU);
+                updateHealthStatus('stat-us', rawUS);
+                updateHealthStatus('stat-de', rawDE);
+                updateHealthStatus('stat-jp', rawJP);
+
+                const clean = (arr) => arr.map(v => v === null ? 0 : v);
+                const nowHour = new Date().getHours();
+                
+                // --- SONAR LOGIC ---
+                const rainEU = rawEU[nowHour] || 0;
+                const rainUS = rawUS[nowHour] || 0;
+                const rainDE = rawDE[nowHour] || 0;
+                const rainJP = rawJP[nowHour] || 0;
+
+                let votes = 0;
+                if (rainEU > 0.1) votes++;
+                if (rainUS > 0.1) votes++;
+                if (rainDE > 0.1) votes++;
+                if (rainJP > 0.1) votes++;
+
+                const agreement = (votes / 4) * 100;
+                document.getElementById('metric-agree').innerText = `${agreement}%`;
+
+                const icon = document.getElementById('status-icon');
+                const text = document.getElementById('status-text');
+
+                if (votes >= 3) { 
+                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
+                    text.innerText = "RAIN LIKELY";
+                    text.className = 'status-text status-alert';
+                    if (agreement >= CONFIG.sonarThreshold) playSonarPing();
+                } else if (votes >= 1) {
+                    icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn';
+                    text.innerText = "RAIN POSSIBLE";
+                    text.className = 'status-text status-warn';
+                } else {
+                    icon.className = 'status-icon fa-solid fa-sun status-clear';
+                    text.innerText = "ALL CLEAR";
+                    text.className = 'status-text status-clear';
+                }
+
+                // --- DATA PREP (24H Window) ---
+                const sliceWin = 24;
+                const times = h.time.slice(nowHour, nowHour + sliceWin).map(t => t.slice(11, 16));
+                
+                const rainData = {
+                    eu: clean(rawEU.slice(nowHour, nowHour + sliceWin)),
+                    us: clean(rawUS.slice(nowHour, nowHour + sliceWin)),
+                    de: clean(rawDE.slice(nowHour, nowHour + sliceWin)),
+                    jp: clean(rawJP.slice(nowHour, nowHour + sliceWin))
+                };
+
+                // --- NEW: Calculate Hourly Consensus (24h Window) ---
+                const hourlyAgreement = [];
+                for (let i = 0; i < sliceWin; i++) {
+                    let hVotes = 0;
+                    if (rainData.eu[i] > 0.1) hVotes++;
+                    if (rainData.us[i] > 0.1) hVotes++;
+                    if (rainData.de[i] > 0.1) hVotes++;
+                    if (rainData.jp[i] > 0.1) hVotes++;
+                    hourlyAgreement.push((hVotes / 4) * 100);
+                }
+
+                const solarData = clean(dSolar.hourly.shortwave_radiation.slice(nowHour, nowHour + sliceWin));
+                const uvData = clean(dSolar.hourly.uv_index.slice(nowHour, nowHour + sliceWin));
+
+                // Render Integrated Chart with Agreement Data
+                renderChart(times, rainData, solarData, uvData, agreement, hourlyAgreement);
+
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Init
+        function runApp() {
+            if (state.mode === 'manual' && state.coords.lat) {
+                document.getElementById('manual-lat').value = state.coords.lat;
+                document.getElementById('manual-lon').value = state.coords.lon;
+                fetchData(state.coords.lat, state.coords.lon);
+            } else {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(p => {
+                        const lat = p.coords.latitude; const lon = p.coords.longitude;
+                        fetchData(lat, lon);
+                    });
+                }
+            }
+        }
+
+        function setManualLocation() {
+            const lat = parseFloat(document.getElementById('manual-lat').value);
+            const lon = parseFloat(document.getElementById('manual-lon').value);
+            state.mode = 'manual'; state.coords = { lat, lon };
+            localStorage.setItem('ms_mode', 'manual');
+            localStorage.setItem('ms_coords', JSON.stringify(state.coords));
+            runApp();
+        }
+
+        function resetToAuto() {
+            localStorage.removeItem('ms_mode');
+            state.mode = 'auto';
+            runApp();
+        }
+
+        runApp();
+        setInterval(runApp, 60000); 
+
+    </script>
+</body>
+</html>
