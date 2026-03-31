@@ -54,7 +54,6 @@
         .status-warn { color: #facc15; }
         .status-alert { color: var(--accent-red); }
 
-        /* UPGRADE: 3x2 Grid for enhanced telemetry */
         .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
         .metric-item { background: rgba(255,255,255,0.03); padding: 12px 5px; border-radius: 8px; text-align: center; }
         .metric-label { font-size: 0.70rem; color: var(--text-secondary); display: block; margin-bottom: 5px; text-transform: uppercase;}
@@ -221,7 +220,6 @@
             "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
         ];
 
-        // UPGRADE: WMO Code Decoder Ring
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
             45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
@@ -234,7 +232,20 @@
             95: 'Thunderstorm', 96: 'Thunderstorm + Hail', 99: 'Heavy Thunderstorm + Hail'
         };
 
-        // Helper to convert degrees to Compass point
+        const WMO_ICONS = {
+            0: 'fa-sun', 1: 'fa-sun',
+            2: 'fa-cloud-sun', 3: 'fa-cloud',
+            45: 'fa-smog', 48: 'fa-smog', 
+            51: 'fa-cloud-rain', 53: 'fa-cloud-rain', 55: 'fa-cloud-showers-heavy',
+            56: 'fa-cloud-meatball', 57: 'fa-cloud-meatball',
+            61: 'fa-cloud-rain', 63: 'fa-cloud-showers-heavy', 65: 'fa-cloud-showers-water',
+            66: 'fa-cloud-meatball', 67: 'fa-cloud-meatball',
+            71: 'fa-snowflake', 73: 'fa-snowflake', 75: 'fa-snowflake', 77: 'fa-snowflake',
+            80: 'fa-cloud-rain', 81: 'fa-cloud-showers-heavy', 82: 'fa-cloud-showers-water',
+            85: 'fa-snowflake', 86: 'fa-snowflake',
+            95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
+        };
+
         function getWindDirection(deg) {
             const val = Math.floor((deg / 22.5) + 0.5);
             const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -494,8 +505,7 @@
                 badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${display}`;
             }
 
-            // UPGRADE: Added wind_direction_10m to payload
-            const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&timezone=auto`);
+            const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`);
             const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
             const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`);
 
@@ -524,19 +534,19 @@
                     } catch(e) { nowIndex = new Date().getHours(); }
                 }
 
-                // UI DOM Mapping with Unlocked Sensors
                 document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
                 document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
                 document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
                 
                 const windDir = getWindDirection(curr.wind_direction_10m);
-                document.getElementById('metric-wind').innerText = `${curr.wind_speed_10m}km/h ${windDir}`;
+                document.getElementById('metric-wind').innerHTML = `
+                    ${curr.wind_speed_10m}<span style="font-size:0.7rem;">km/h</span> ${windDir} 
+                    <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg); display:inline-block; margin-left:4px; color:var(--accent-blue);"></i>
+                `;
                 
-                // Decode WMO code
                 const conditionStr = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
                 document.getElementById('weather-desc').innerText = conditionStr;
 
-                // Max UV in next 24h
                 const sliceWin = 24;
                 const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
                 const maxUV = Math.max(...uvData);
@@ -570,6 +580,13 @@
 
                 const icon = document.getElementById('status-icon');
                 const text = document.getElementById('status-text');
+                
+                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
+                
+                if (curr.is_day === 0) {
+                    if (baseIconClass === 'fa-sun') baseIconClass = 'fa-moon';
+                    if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon';
+                }
 
                 if (votes >= 3) { 
                     icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
@@ -581,8 +598,8 @@
                     text.innerText = "RAIN POSSIBLE";
                     text.className = 'status-text status-warn';
                 } else {
-                    icon.className = 'status-icon fa-solid fa-sun status-clear';
-                    text.innerText = "ALL CLEAR";
+                    icon.className = `status-icon fa-solid ${baseIconClass} status-clear`;
+                    text.innerText = "ATMOSPHERE STABLE";
                     text.className = 'status-text status-clear';
                 }
 
