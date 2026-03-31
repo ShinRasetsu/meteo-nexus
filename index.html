@@ -54,10 +54,11 @@
         .status-warn { color: #facc15; }
         .status-alert { color: var(--accent-red); }
 
-        .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
-        .metric-item { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px; text-align: center; }
-        .metric-label { font-size: 0.75rem; color: var(--text-secondary); display: block; margin-bottom: 5px; }
-        .metric-value { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; }
+        /* UPGRADE: 3x2 Grid for enhanced telemetry */
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+        .metric-item { background: rgba(255,255,255,0.03); padding: 12px 5px; border-radius: 8px; text-align: center; }
+        .metric-label { font-size: 0.70rem; color: var(--text-secondary); display: block; margin-bottom: 5px; text-transform: uppercase;}
+        .metric-value { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; }
 
         .audio-toggle {
             cursor: pointer; background: rgba(255,255,255,0.05); 
@@ -98,7 +99,6 @@
         .search-item:hover { background: rgba(20, 184, 166, 0.15); }
         .search-item:last-child { border-bottom: none; }
 
-        /* Minimal UI Time Display */
         .time-display {
             display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
             font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; 
@@ -135,14 +135,16 @@
                 <div class="main-status">
                     <i id="status-icon" class="status-icon fa-solid fa-circle-notch fa-spin"></i>
                     <span id="status-text" class="status-text">WAITING</span>
-                    <div id="weather-desc" style="margin-top:10px; color:var(--text-secondary);">--</div>
+                    <div id="weather-desc" style="margin-top:10px; color:var(--text-secondary); font-family: var(--font-mono); font-size: 0.9rem;">--</div>
                 </div>
 
                 <div class="metrics-grid">
                     <div class="metric-item"><span class="metric-label">Temp</span><div id="metric-temp" class="metric-value">--</div></div>
                     <div class="metric-item"><span class="metric-label">Feels Like</span><div id="metric-feels" class="metric-value">--</div></div>
+                    <div class="metric-item"><span class="metric-label">Humidity</span><div id="metric-hum" class="metric-value">--</div></div>
                     <div class="metric-item"><span class="metric-label">Wind</span><div id="metric-wind" class="metric-value">--</div></div>
                     <div class="metric-item"><span class="metric-label">Agreement</span><div id="metric-agree" class="metric-value" style="color:var(--accent-teal)">--</div></div>
+                    <div class="metric-item"><span class="metric-label">Peak UV</span><div id="metric-uv" class="metric-value" style="color:var(--accent-purple)">--</div></div>
                 </div>
             </div>
 
@@ -219,6 +221,26 @@
             "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
         ];
 
+        // UPGRADE: WMO Code Decoder Ring
+        const WMO_CODES = {
+            0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
+            45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
+            56: 'Light Freezing Drizzle', 57: 'Dense Freezing Drizzle',
+            61: 'Slight Rain', 63: 'Moderate Rain', 65: 'Heavy Rain',
+            66: 'Light Freezing Rain', 67: 'Heavy Freezing Rain',
+            71: 'Slight Snow Fall', 73: 'Moderate Snow Fall', 75: 'Heavy Snow Fall', 77: 'Snow Grains',
+            80: 'Slight Rain Showers', 81: 'Moderate Rain Showers', 82: 'Violent Rain Showers',
+            85: 'Slight Snow Showers', 86: 'Heavy Snow Showers',
+            95: 'Thunderstorm', 96: 'Thunderstorm + Hail', 99: 'Heavy Thunderstorm + Hail'
+        };
+
+        // Helper to convert degrees to Compass point
+        function getWindDirection(deg) {
+            const val = Math.floor((deg / 22.5) + 0.5);
+            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+            return arr[(val % 16)];
+        }
+
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
@@ -229,7 +251,6 @@
             lastPing: 0
         };
 
-        // --- Real-Time Local Clock Engine ---
         function runLiveClock() {
             if (!state.targetTimezone) return;
             try {
@@ -239,13 +260,11 @@
                 });
                 document.getElementById('local-time-text').innerText = timeString;
             } catch(e) {
-                // PATCH: Prevent exception from halting the setInterval loop
                 document.getElementById('local-time-text').innerText = "SYNC ERR";
             }
         }
         setInterval(runLiveClock, 1000);
 
-        // --- PART 1: Local Country Prediction Engine ---
         const searchCountry = document.getElementById('search-country');
         const countryResults = document.getElementById('country-results');
 
@@ -255,9 +274,7 @@
                 countryResults.style.display = 'none'; 
                 return; 
             }
-            
             const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(query)).slice(0, 6);
-            
             if (filtered.length > 0) {
                 countryResults.innerHTML = filtered.map(c => 
                     `<div class="search-item" onclick="selectCountry('${c}')"><i class="fa-solid fa-flag" style="color:var(--accent-teal); margin-right:5px;"></i> ${c}</div>`
@@ -275,7 +292,6 @@
             triggerCitySearch(); 
         }
 
-        // --- PART 2: City Geospatial Engine ---
         const searchCity = document.getElementById('search-city');
         const cityResults = document.getElementById('city-results');
         let searchTimeout;
@@ -286,7 +302,6 @@
             clearTimeout(searchTimeout);
             const cityQuery = searchCity.value.trim();
             const countryContext = searchCountry.value.trim();
-            
             if (cityQuery.length < 3) { 
                 cityResults.style.display = 'none'; 
                 return; 
@@ -301,12 +316,10 @@
 
                 if (data.results && data.results.length > 0) {
                     let results = data.results;
-
                     if (countryContext.length > 0) {
                         const targetCountry = countryContext.toLowerCase();
                         results = results.filter(r => r.country && r.country.toLowerCase().includes(targetCountry));
                     }
-
                     results = results.slice(0, 8); 
 
                     if (results.length > 0) {
@@ -324,9 +337,7 @@
                 } else {
                     cityResults.style.display = 'none';
                 }
-            } catch (err) {
-                console.error("Geospatial Engine error", err);
-            }
+            } catch (err) { console.error("Geospatial Engine error", err); }
         }
 
         function applyNewLocation(lat, lon, cityName, countryName) {
@@ -334,10 +345,8 @@
             state.coords = { lat, lon };
             localStorage.setItem('ms_mode', 'manual');
             localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-            
             searchCity.value = cityName;
             searchCountry.value = countryName || searchCountry.value; 
-            
             cityResults.style.display = 'none';
             fetchData(lat, lon, true); 
         }
@@ -347,7 +356,6 @@
             if (!e.target.closest('#city-wrapper')) cityResults.style.display = 'none';
         });
 
-        // --- Audio Notification Engine ---
         function playSonarPing() {
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return; 
@@ -384,7 +392,6 @@
             }
         }
 
-        // --- Chart.js Rendering Engine ---
         const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
         const manifestBlob = new Blob([JSON.stringify({
             "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone",
@@ -473,9 +480,7 @@
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
                         let country = d.countryName || '';
-                        
                         country = country.replace(/\s*\(the\)\s*/gi, '');
-                        
                         badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
                         document.getElementById('search-city').value = city;
                         document.getElementById('search-country').value = country;
@@ -489,7 +494,8 @@
                 badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${display}`;
             }
 
-            const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`);
+            // UPGRADE: Added wind_direction_10m to payload
+            const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&timezone=auto`);
             const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
             const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`);
 
@@ -505,26 +511,37 @@
                 }
 
                 const curr = dCurr.current;
-                document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
-                document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
-                document.getElementById('metric-wind').innerText = curr.wind_speed_10m + ' km/h';
-                document.getElementById('weather-desc').innerText = `WMO Code: ${curr.weather_code}`;
-
                 const h = dFore.hourly;
+                const hSol = dSolar.hourly;
                 
                 const targetTimePrefix = curr.time.substring(0, 13);
                 let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
                 
-                // PATCH: Bulletproof Timezone Fallback
                 if (nowIndex === -1) {
                     try {
                         const localTargetTime = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone }));
                         nowIndex = localTargetTime.getHours(); 
-                    } catch(e) {
-                        nowIndex = new Date().getHours(); 
-                    }
+                    } catch(e) { nowIndex = new Date().getHours(); }
                 }
+
+                // UI DOM Mapping with Unlocked Sensors
+                document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
+                document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
+                document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
                 
+                const windDir = getWindDirection(curr.wind_direction_10m);
+                document.getElementById('metric-wind').innerText = `${curr.wind_speed_10m}km/h ${windDir}`;
+                
+                // Decode WMO code
+                const conditionStr = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
+                document.getElementById('weather-desc').innerText = conditionStr;
+
+                // Max UV in next 24h
+                const sliceWin = 24;
+                const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
+                const maxUV = Math.max(...uvData);
+                document.getElementById('metric-uv').innerText = maxUV.toFixed(1);
+
                 const rawEU = h.precipitation_ecmwf_ifs025; 
                 const rawUS = h.precipitation_gfs_seamless;
                 const rawDE = h.precipitation_icon_seamless;
@@ -569,7 +586,6 @@
                     text.className = 'status-text status-clear';
                 }
 
-                const sliceWin = 24;
                 const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => t.slice(11, 16));
                 
                 const rainData = {
@@ -589,14 +605,12 @@
                     hourlyAgreement.push((hVotes / 4) * 100);
                 }
 
-                const solarData = clean(dSolar.hourly.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
-                const uvData = clean(dSolar.hourly.uv_index.slice(nowIndex, nowIndex + sliceWin));
+                const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
 
                 renderChart(times, rainData, solarData, uvData, agreement, hourlyAgreement);
             } catch (e) { console.error(e); }
         }
 
-        // PATCH: Search Notification UI Fallback
         function runApp() {
             if (state.mode === 'manual' && state.coords.lat) {
                 fetchData(state.coords.lat, state.coords.lon, false); 
