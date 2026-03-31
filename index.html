@@ -534,77 +534,20 @@
                     } catch(e) { nowIndex = new Date().getHours(); }
                 }
 
-                document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
-                document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
-                document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
-                
-                const windDir = getWindDirection(curr.wind_direction_10m);
-                document.getElementById('metric-wind').innerHTML = `
-                    ${curr.wind_speed_10m}<span style="font-size:0.7rem;">km/h</span> ${windDir} 
-                    <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg); display:inline-block; margin-left:4px; color:var(--accent-blue);"></i>
-                `;
-                
-                const conditionStr = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
-                document.getElementById('weather-desc').innerText = conditionStr;
-
+                // 1. Data Cleaning & Array Slicing
                 const sliceWin = 24;
-                const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
-                const maxUV = Math.max(...uvData);
-                document.getElementById('metric-uv').innerText = maxUV.toFixed(1);
-
+                const clean = (arr) => arr.map(v => v === null ? 0 : v);
+                
                 const rawEU = h.precipitation_ecmwf_ifs025; 
                 const rawUS = h.precipitation_gfs_seamless;
                 const rawDE = h.precipitation_icon_seamless;
                 const rawJP = h.precipitation_jma_seamless;
-
+                
                 updateHealthStatus('stat-eu', rawEU);
                 updateHealthStatus('stat-us', rawUS);
                 updateHealthStatus('stat-de', rawDE);
                 updateHealthStatus('stat-jp', rawJP);
 
-                const clean = (arr) => arr.map(v => v === null ? 0 : v);
-                
-                const rainEU = rawEU[nowIndex] || 0;
-                const rainUS = rawUS[nowIndex] || 0;
-                const rainDE = rawDE[nowIndex] || 0;
-                const rainJP = rawJP[nowIndex] || 0;
-
-                let votes = 0;
-                if (rainEU > 0.1) votes++;
-                if (rainUS > 0.1) votes++;
-                if (rainDE > 0.1) votes++;
-                if (rainJP > 0.1) votes++;
-
-                const agreement = (votes / 4) * 100;
-                document.getElementById('metric-agree').innerText = `${agreement}%`;
-
-                const icon = document.getElementById('status-icon');
-                const text = document.getElementById('status-text');
-                
-                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
-                
-                if (curr.is_day === 0) {
-                    if (baseIconClass === 'fa-sun') baseIconClass = 'fa-moon';
-                    if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon';
-                }
-
-                if (votes >= 3) { 
-                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
-                    text.innerText = "RAIN LIKELY";
-                    text.className = 'status-text status-alert';
-                    if (agreement >= CONFIG.sonarThreshold) playSonarPing();
-                } else if (votes >= 1) {
-                    icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn';
-                    text.innerText = "RAIN POSSIBLE";
-                    text.className = 'status-text status-warn';
-                } else {
-                    icon.className = `status-icon fa-solid ${baseIconClass} status-clear`;
-                    text.innerText = "ATMOSPHERE STABLE";
-                    text.className = 'status-text status-clear';
-                }
-
-                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => t.slice(11, 16));
-                
                 const rainData = {
                     eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)),
                     us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)),
@@ -612,6 +555,17 @@
                     jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin))
                 };
 
+                const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
+                const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
+                
+                // --- PATCH 3: Chart Temporal Ambiguity (Midnight Crossing Fix) ---
+                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => {
+                    const timeStr = t.slice(11, 16);
+                    if (timeStr === "00:00") return "00:00 (TMRW)";
+                    return timeStr;
+                });
+
+                // 2. Telemetry Calculations
                 const hourlyAgreement = [];
                 for (let i = 0; i < sliceWin; i++) {
                     let hVotes = 0;
@@ -622,9 +576,72 @@
                     hourlyAgreement.push((hVotes / 4) * 100);
                 }
 
-                const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
+                const currentAgreement = hourlyAgreement[0] || 0;
+                let currentVotes = (currentAgreement / 100) * 4;
 
-                renderChart(times, rainData, solarData, uvData, agreement, hourlyAgreement);
+                // --- PATCH 1: Dead Zone Predictive Lookahead ---
+                let incomingRain = false;
+                for (let i = 1; i <= 3; i++) {
+                    if (hourlyAgreement[i] >= 75) {
+                        incomingRain = true;
+                        break;
+                    }
+                }
+
+                // --- PATCH 2: Contextual Peak UV Extraction ---
+                const maxUV = Math.max(...uvData);
+                const maxUVIndex = uvData.indexOf(maxUV);
+                const maxUVTime = times[maxUVIndex].replace(" (TMRW)", ""); // Clean time string for HUD
+
+                // 3. UI DOM Mapping
+                document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
+                document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
+                document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
+                document.getElementById('metric-agree').innerText = `${currentAgreement.toFixed(0)}%`;
+                
+                // Inject exact time context into UV block
+                document.getElementById('metric-uv').innerHTML = `${maxUV.toFixed(1)} <span style="font-size:0.7rem; color:var(--text-secondary); font-weight:400;">@${maxUVTime}</span>`;
+                
+                const windDir = getWindDirection(curr.wind_direction_10m);
+                document.getElementById('metric-wind').innerHTML = `
+                    ${curr.wind_speed_10m}<span style="font-size:0.7rem;">km/h</span> ${windDir} 
+                    <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg); display:inline-block; margin-left:4px; color:var(--accent-blue);"></i>
+                `;
+                
+                const conditionStr = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
+                document.getElementById('weather-desc').innerText = conditionStr;
+
+                // 4. Status Icon & Text Engine
+                const icon = document.getElementById('status-icon');
+                const text = document.getElementById('status-text');
+                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
+                
+                if (curr.is_day === 0) {
+                    if (baseIconClass === 'fa-sun') baseIconClass = 'fa-moon';
+                    if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon';
+                }
+
+                if (currentVotes >= 3) { 
+                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
+                    text.innerText = "RAIN LIKELY";
+                    text.className = 'status-text status-alert';
+                    if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
+                } else if (incomingRain) {
+                    // Override with Predictive Lookahead Alert
+                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-warn';
+                    text.innerText = "INCOMING RAIN (1-3H)";
+                    text.className = 'status-text status-warn';
+                } else if (currentVotes >= 1) {
+                    icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn';
+                    text.innerText = "RAIN POSSIBLE";
+                    text.className = 'status-text status-warn';
+                } else {
+                    icon.className = `status-icon fa-solid ${baseIconClass} status-clear`;
+                    text.innerText = "ATMOSPHERE STABLE";
+                    text.className = 'status-text status-clear';
+                }
+
+                renderChart(times, rainData, solarData, uvData, currentAgreement, hourlyAgreement);
             } catch (e) { console.error(e); }
         }
 
