@@ -239,7 +239,8 @@
                 });
                 document.getElementById('local-time-text').innerText = timeString;
             } catch(e) {
-                document.getElementById('local-time-text').innerText = "--:--:--";
+                // PATCH: Prevent exception from halting the setInterval loop
+                document.getElementById('local-time-text').innerText = "SYNC ERR";
             }
         }
         setInterval(runLiveClock, 1000);
@@ -513,7 +514,16 @@
                 
                 const targetTimePrefix = curr.time.substring(0, 13);
                 let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
-                if (nowIndex === -1) nowIndex = new Date().getHours(); 
+                
+                // PATCH: Bulletproof Timezone Fallback
+                if (nowIndex === -1) {
+                    try {
+                        const localTargetTime = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone }));
+                        nowIndex = localTargetTime.getHours(); 
+                    } catch(e) {
+                        nowIndex = new Date().getHours(); 
+                    }
+                }
                 
                 const rawEU = h.precipitation_ecmwf_ifs025; 
                 const rawUS = h.precipitation_gfs_seamless;
@@ -586,6 +596,7 @@
             } catch (e) { console.error(e); }
         }
 
+        // PATCH: Search Notification UI Fallback
         function runApp() {
             if (state.mode === 'manual' && state.coords.lat) {
                 fetchData(state.coords.lat, state.coords.lon, false); 
@@ -599,8 +610,12 @@
                             fetchData(p.coords.latitude, p.coords.longitude, false); 
                         },
                         () => {
-                            document.getElementById('status-text').innerText = "OPEN IN BROWSER";
-                            document.getElementById('location-badge').innerText = "GPS BLOCKED";
+                            document.getElementById('status-icon').className = 'status-icon fa-solid fa-map-location-dot status-warn';
+                            document.getElementById('status-text').innerText = "SEARCH LOCATION";
+                            document.getElementById('status-text').className = 'status-text status-warn';
+                            document.getElementById('weather-desc').innerText = "GPS blocked. Please use Geospatial Targeting below.";
+                            document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> GPS BLOCKED`;
+                            document.getElementById('local-time-text').innerText = "--:--:--";
                         },
                         { timeout: 10000, enableHighAccuracy: true }
                     );
