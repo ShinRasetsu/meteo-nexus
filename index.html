@@ -22,13 +22,15 @@
             --success-color: #22c55e;
             --font-ui: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
         }
+
         * { box-sizing: border-box; }
+        
         body {
             font-family: var(--font-ui); background-color: var(--bg-color);
             color: var(--text-primary); margin: 0; padding: 20px; min-height: 100vh;
         }
+        
         .dashboard-wrapper { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
-
         header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
         h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
         
@@ -43,13 +45,13 @@
 
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); }
+        
         .main-status { text-align: center; padding: 30px 0; }
         .status-icon { font-size: 4rem; margin-bottom: 15px; display: block; }
         .status-text { font-size: 2rem; font-weight: 800; display: block; }
-        
         .status-clear { color: var(--success-color); }
         .status-rain { color: var(--accent-blue); }
-        .status-warn { color: var(--accent-yellow); }
+        .status-warn { color: #facc15; }
         .status-alert { color: var(--accent-red); }
 
         .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
@@ -57,8 +59,6 @@
         .metric-label { font-size: 0.75rem; color: var(--text-secondary); display: block; margin-bottom: 5px; }
         .metric-value { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; }
 
-        .chart-wrapper { height: 350px; width: 100%; position: relative; }
-        
         .audio-toggle {
             cursor: pointer; background: rgba(255,255,255,0.05); 
             padding: 8px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px;
@@ -69,6 +69,7 @@
 
         .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
+        
         .data-table { width: 100%; font-family: var(--font-mono); font-size: 0.85rem; border-collapse: collapse; }
         .data-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
         .data-val { text-align: right; color: var(--text-primary); }
@@ -76,10 +77,26 @@
         .status-fail { color: var(--accent-red); font-weight: 700; }
         .status-wait { color: var(--text-secondary); }
 
-        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
-        input { width: 100%; background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); color: var(--text-primary); padding: 10px; border-radius: 6px; font-family: var(--font-mono); }
-        button { border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; width: 100%; }
+        input { 
+            background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); 
+            color: var(--text-primary); padding: 10px; border-radius: 6px; 
+            font-family: var(--font-mono); font-size: 0.85rem; width: 100%;
+        }
+        input:focus { border-color: var(--accent-teal); outline: none; }
+        
+        button { border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
         .btn-primary { background: var(--accent-teal); color: #000; }
+        .btn-primary:hover { filter: brightness(1.1); }
+
+        .search-results {
+            position: absolute; top: 45px; left: 0; right: 0; background: var(--card-bg);
+            border: 1px solid var(--accent-teal); border-radius: 6px; z-index: 1000;
+            max-height: 250px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
+        }
+        .search-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--card-border); font-size: 0.85rem; transition: background 0.2s; font-family: var(--font-mono); }
+        .search-item:hover { background: rgba(20, 184, 166, 0.15); }
+        .search-item:last-child { border-bottom: none; }
     </style>
 </head>
 <body>
@@ -139,14 +156,27 @@
             </div>
 
             <div class="card">
-                <div class="card-header"><span class="card-title">Calibration</span></div>
+                <div class="card-header"><span class="card-title">Geospatial_Targeting</span></div>
+                
                 <div class="input-group">
+                    <div id="country-wrapper" style="flex: 1; position: relative;">
+                        <input type="text" id="search-country" placeholder="Country" autocomplete="off">
+                        <div id="country-results" class="search-results" style="display:none;"></div>
+                    </div>
+                    
+                    <div id="city-wrapper" style="flex: 2; position: relative;">
+                        <input type="text" id="search-city" placeholder="City / Location" autocomplete="off">
+                        <div id="city-results" class="search-results" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="input-group" style="margin-top:15px;">
                     <input type="number" id="manual-lat" placeholder="Lat" step="any">
                     <input type="number" id="manual-lon" placeholder="Lon" step="any">
                 </div>
                 <div style="display:flex; gap:10px;">
-                    <button class="btn-primary" onclick="setManualLocation()">Update</button>
-                    <button style="background:var(--card-border); color:white;" onclick="resetToAuto()">Auto</button>
+                    <button class="btn-primary" onclick="setManualLocation()" style="flex:1;">Update Coords</button>
+                    <button style="background:var(--card-border); color:white;" onclick="resetToAuto()">Auto GPS</button>
                 </div>
             </div>
         </div>
@@ -155,10 +185,26 @@
     <script>
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
-            geoApi: 'https://api.opencagedata.com/geocode/v1/json',
-            geoKey: 'dd1af4b5321540b682b1683b61e8c640',
+            geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
+            reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client', // Keyless API
             sonarThreshold: 75
         };
+
+        const GLOBAL_COUNTRIES = [
+            "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
+            "Bahamas", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Belize", "Bolivia", "Bosnia", "Botswana", "Brazil", "Bulgaria",
+            "Cambodia", "Cameroon", "Canada", "Chile", "China", "Colombia", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic",
+            "Denmark", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Estonia", "Ethiopia",
+            "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Guatemala", "Honduras", "Hungary",
+            "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan",
+            "Kazakhstan", "Kenya", "Kuwait", "Latvia", "Lebanon", "Lithuania", "Luxembourg",
+            "Madagascar", "Malaysia", "Maldives", "Mexico", "Moldova", "Monaco", "Mongolia", "Morocco", "Myanmar",
+            "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Nigeria", "Norway", "Oman",
+            "Pakistan", "Panama", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
+            "Romania", "Russia", "Saudi Arabia", "Senegal", "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain", "Sri Lanka", "Sweden", "Switzerland", "Syria",
+            "Taiwan", "Tanzania", "Thailand", "Tunisia", "Turkey", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
+            "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
+        ];
 
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
@@ -168,25 +214,122 @@
             lastPing: 0
         };
 
-        // --- SONAR AUDIO ENGINE ---
+        // --- PART 1: Local Country Prediction Engine ---
+        const searchCountry = document.getElementById('search-country');
+        const countryResults = document.getElementById('country-results');
+
+        searchCountry.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            if (query.length < 1) { 
+                countryResults.style.display = 'none'; 
+                return; 
+            }
+            
+            const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(query)).slice(0, 6);
+            
+            if (filtered.length > 0) {
+                countryResults.innerHTML = filtered.map(c => 
+                    `<div class="search-item" onclick="selectCountry('${c}')"><i class="fa-solid fa-flag" style="color:var(--accent-teal); margin-right:5px;"></i> ${c}</div>`
+                ).join('');
+                countryResults.style.display = 'block';
+            } else {
+                countryResults.style.display = 'none';
+            }
+        });
+
+        function selectCountry(country) {
+            searchCountry.value = country;
+            countryResults.style.display = 'none';
+            document.getElementById('search-city').focus();
+            triggerCitySearch(); 
+        }
+
+        // --- PART 2: City Geospatial Engine ---
+        const searchCity = document.getElementById('search-city');
+        const cityResults = document.getElementById('city-results');
+        let searchTimeout;
+
+        searchCity.addEventListener('input', triggerCitySearch);
+
+        function triggerCitySearch() {
+            clearTimeout(searchTimeout);
+            const cityQuery = searchCity.value.trim();
+            const countryContext = searchCountry.value.trim();
+            
+            if (cityQuery.length < 3) { 
+                cityResults.style.display = 'none'; 
+                return; 
+            }
+            searchTimeout = setTimeout(() => execSearch(cityQuery, countryContext), 500);
+        }
+
+        async function execSearch(cityQuery, countryContext) {
+            try {
+                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQuery)}&count=50&language=en&format=json`);
+                const data = await res.json();
+
+                if (data.results && data.results.length > 0) {
+                    let results = data.results;
+
+                    if (countryContext.length > 0) {
+                        const targetCountry = countryContext.toLowerCase();
+                        results = results.filter(r => r.country && r.country.toLowerCase().includes(targetCountry));
+                    }
+
+                    results = results.slice(0, 8); 
+
+                    if (results.length > 0) {
+                        cityResults.innerHTML = results.map(res => {
+                            const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
+                            return `<div class="search-item" onclick="applyNewLocation(${res.latitude}, ${res.longitude}, '${res.name}', '${res.country}')">
+                                        <i class="fa-solid fa-map-pin" style="color:var(--accent-teal); margin-right:5px;"></i> ${locName}
+                                    </div>`;
+                        }).join('');
+                        cityResults.style.display = 'block';
+                    } else {
+                        cityResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>';
+                        cityResults.style.display = 'block';
+                    }
+                } else {
+                    cityResults.style.display = 'none';
+                }
+            } catch (err) {
+                console.error("Geospatial Engine error", err);
+            }
+        }
+
+        function applyNewLocation(lat, lon, cityName, countryName) {
+            state.mode = 'manual';
+            state.coords = { lat, lon };
+            localStorage.setItem('ms_mode', 'manual');
+            localStorage.setItem('ms_coords', JSON.stringify(state.coords));
+            
+            searchCity.value = cityName;
+            searchCountry.value = countryName || searchCountry.value; 
+            
+            cityResults.style.display = 'none';
+            fetchData(lat, lon, true); 
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#country-wrapper')) countryResults.style.display = 'none';
+            if (!e.target.closest('#city-wrapper')) cityResults.style.display = 'none';
+        });
+
+        // --- Audio Notification Engine ---
         function playSonarPing() {
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return; 
-            
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-
             osc.connect(gain);
             gain.connect(ctx.destination);
-
             osc.frequency.setValueAtTime(1200, ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
-
             gain.gain.setValueAtTime(0, ctx.currentTime);
             gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
             gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-
             osc.start();
             osc.stop(ctx.currentTime + 0.6);
             state.lastPing = Date.now();
@@ -197,7 +340,6 @@
             const btn = document.getElementById('audio-btn');
             const icon = document.getElementById('audio-icon');
             const txt = document.getElementById('audio-text');
-
             if (state.audioEnabled) {
                 btn.classList.add('active');
                 icon.className = 'fa-solid fa-volume-high fa-beat-fade';
@@ -211,7 +353,7 @@
             }
         }
 
-        // --- PWA SETUP ---
+        // --- Chart.js Rendering Engine ---
         const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
         const manifestBlob = new Blob([JSON.stringify({
             "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone",
@@ -220,75 +362,26 @@
         })], {type: 'application/json'});
         document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
 
-        // --- CHART ENGINE ---
         function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
-
             state.chart = new Chart(ctx, {
                 data: {
                     labels: labels,
                     datasets: [
-                        // --- SOLAR (Left Bar) ---
-                        {
-                            type: 'bar',
-                            label: 'Solar (W/m²)',
-                            data: solarData,
-                            backgroundColor: 'rgba(255, 165, 0, 0.4)', // Fixed Solid Look
-                            borderColor: 'rgba(255, 165, 0, 1)',      // Solid Border
-                            borderWidth: 1,
-                            categoryPercentage: 0.6, 
-                            barPercentage: 0.8,      
-                            order: 3,
-                            yAxisID: 'y_solar',
-                            grouped: true
-                        },
-                        // --- UV INDEX (Right Bar) ---
-                        {
-                            type: 'bar',
-                            label: 'UV Index',
-                            data: uvData,
-                            backgroundColor: 'rgba(168, 85, 247, 0.4)', // Fixed Solid Look
-                            borderColor: 'rgba(168, 85, 247, 1)',      // Solid Border
-                            borderWidth: 1,
-                            categoryPercentage: 0.6, 
-                            barPercentage: 0.8,      
-                            order: 2,
-                            yAxisID: 'y_uv',
-                            grouped: true
-                        },
-                        // --- RAIN MODELS (Uniform Width: 1.5px) ---
-                        { 
-                            type: 'line', label: 'ECMWF (Rain)', data: rainData.eu, 
-                            borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
-                        },
-                        { 
-                            type: 'line', label: 'GFS (Rain)', data: rainData.us, 
-                            borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
-                        },
-                        { 
-                            type: 'line', label: 'ICON (Rain)', data: rainData.de, 
-                            borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
-                        },
-                        { 
-                            type: 'line', label: 'JMA (Rain)', data: rainData.jp, 
-                            borderColor: '#ec4899', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' 
-                        }
+                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: 'rgba(255, 165, 0, 0.4)', borderColor: 'rgba(255, 165, 0, 1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
+                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: 'rgba(168, 85, 247, 0.4)', borderColor: 'rgba(168, 85, 247, 1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
+                        { type: 'line', label: 'ECMWF (Rain)', data: rainData.eu, borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'GFS (Rain)', data: rainData.us, borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'ICON (Rain)', data: rainData.de, borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'JMA (Rain)', data: rainData.jp, borderColor: '#ec4899', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
-                        // --- DYNAMIC HEADER ---
-                        title: {
-                            display: true,
-                            text: `ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, 
-                            color: '#94a3b8',
-                            font: { family: 'JetBrains Mono', size: 12 },
-                            align: 'start',
-                            padding: { bottom: 20 }
-                        },
+                        title: { display: true, text: `ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, color: '#94a3b8', font: { family: 'JetBrains Mono', size: 12 }, align: 'start', padding: { bottom: 20 } },
                         legend: { display: true, labels: { color: '#94a3b8', font: {family: 'JetBrains Mono', size: 10}, boxWidth: 8, usePointStyle: true } },
                         tooltip: {
                             callbacks: {
@@ -303,41 +396,23 @@
                                     }
                                     return label;
                                 },
-                                // --- UPDATED FOOTER: SNAPSHOT SUMMARY ---
                                 footer: function(tooltipItems) {
                                     const index = tooltipItems[0].dataIndex;
-                                    const ag = hourlyAgreement[index]; // Rain Consensus
-                                    const uv = uvData[index];          // UV Index
-                                    const sol = solarData[index];      // Solar Radiation
-                                    
-                                    // Returns: "Rain%: 75% • UV: 2.5 • Solar: 450W"
+                                    const ag = hourlyAgreement[index];
+                                    const uv = uvData[index];
+                                    const sol = solarData[index];
                                     return `\nRain%: ${ag.toFixed(0)}%  •  UV: ${uv.toFixed(1)}  •  Solar: ${sol.toFixed(0)}W`;
                                 }
                             },
                             footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
-                            footerColor: '#14b8a6', // Teal
-                            padding: 12
+                            footerColor: '#14b8a6', padding: 12
                         }
                     }, 
                     scales: {
                         x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } },
-                        y_rain: {
-                            type: 'linear', display: true, position: 'left',
-                            title: { display: true, text: 'Rain (mm)', color: '#64748b' },
-                            grid: { color: '#334155' },
-                            suggestedMax: 2 
-                        },
-                        y_solar: {
-                            type: 'linear', display: true, position: 'right',
-                            title: { display: true, text: 'Solar (W/m²)', color: 'rgba(255, 165, 0, 0.7)' },
-                            grid: { drawOnChartArea: false }, 
-                            suggestedMax: 1000
-                        },
-                        y_uv: {
-                            type: 'linear', display: false,
-                            min: 0, max: 15,
-                            grid: { drawOnChartArea: false }
-                        }
+                        y_rain: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Rain (mm)', color: '#64748b' }, grid: { color: '#334155' }, suggestedMax: 2 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar (W/m²)', color: 'rgba(255, 165, 0, 0.7)' }, grid: { drawOnChartArea: false }, suggestedMax: 1000 },
+                        y_uv: { type: 'linear', display: false, min: 0, max: 15, grid: { drawOnChartArea: false } }
                     }
                 }
             });
@@ -354,17 +429,35 @@
             }
         }
 
-        // --- CORE LOGIC ---
-        async function fetchData(lat, lon) {
-            fetch(`${CONFIG.geoApi}?q=${lat}+${lon}&key=${CONFIG.geoKey}&no_annotations=1`)
-                .then(r => r.json())
-                .then(d => {
-                    const c = d.results[0].components;
-                    const name = c.city || c.town || c.municipality || 'Unknown';
-                    document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-dot"></i> ${name}`;
-                }).catch(() => {});
+        async function fetchData(lat, lon, skipReverseGeo = false) {
+            const badge = document.getElementById('location-badge');
+            document.getElementById('tel-meteo').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+            
+            document.getElementById('manual-lat').value = lat.toFixed(5);
+            document.getElementById('manual-lon').value = lon.toFixed(5);
 
-            // Concurrent API Calls
+            if (!skipReverseGeo) {
+                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
+                    .then(r => r.json())
+                    .then(d => {
+                        const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
+                        let country = d.countryName || '';
+                        
+                        country = country.replace(/\s*\(the\)\s*/gi, '');
+                        
+                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
+                        document.getElementById('search-city').value = city;
+                        document.getElementById('search-country').value = country;
+                    }).catch(() => {
+                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+                    });
+            } else {
+                const knownCity = document.getElementById('search-city').value;
+                const knownCountry = document.getElementById('search-country').value;
+                const display = [knownCity, knownCountry].filter(Boolean).join(', ');
+                badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${display}`;
+            }
+
             const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`);
             const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
             const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`);
@@ -375,16 +468,19 @@
                 const dFore = await resFore.json();
                 const dSolar = await resSolar.json();
 
-                // UI Update
                 const curr = dCurr.current;
-                document.getElementById('tel-meteo').innerText = `${dCurr.latitude.toFixed(5)}, ${dCurr.longitude.toFixed(5)}`;
                 document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
                 document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
                 document.getElementById('metric-wind').innerText = curr.wind_speed_10m + ' km/h';
                 document.getElementById('weather-desc').innerText = `WMO Code: ${curr.weather_code}`;
 
-                // Process Rain Models
                 const h = dFore.hourly;
+                
+                // --- TIMING FIX: Synchronize index to target location's local time ---
+                const targetTimePrefix = curr.time.substring(0, 13); // e.g. "2026-04-01T06"
+                let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
+                if (nowIndex === -1) nowIndex = new Date().getHours(); // Failsafe fallback
+                
                 const rawEU = h.precipitation_ecmwf_ifs025; 
                 const rawUS = h.precipitation_gfs_seamless;
                 const rawDE = h.precipitation_icon_seamless;
@@ -396,13 +492,12 @@
                 updateHealthStatus('stat-jp', rawJP);
 
                 const clean = (arr) => arr.map(v => v === null ? 0 : v);
-                const nowHour = new Date().getHours();
                 
-                // --- SONAR LOGIC ---
-                const rainEU = rawEU[nowHour] || 0;
-                const rainUS = rawUS[nowHour] || 0;
-                const rainDE = rawDE[nowHour] || 0;
-                const rainJP = rawJP[nowHour] || 0;
+                // --- Swap out local nowHour for target nowIndex ---
+                const rainEU = rawEU[nowIndex] || 0;
+                const rainUS = rawUS[nowIndex] || 0;
+                const rainDE = rawDE[nowIndex] || 0;
+                const rainJP = rawJP[nowIndex] || 0;
 
                 let votes = 0;
                 if (rainEU > 0.1) votes++;
@@ -431,18 +526,16 @@
                     text.className = 'status-text status-clear';
                 }
 
-                // --- DATA PREP (24H Window) ---
                 const sliceWin = 24;
-                const times = h.time.slice(nowHour, nowHour + sliceWin).map(t => t.slice(11, 16));
+                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => t.slice(11, 16));
                 
                 const rainData = {
-                    eu: clean(rawEU.slice(nowHour, nowHour + sliceWin)),
-                    us: clean(rawUS.slice(nowHour, nowHour + sliceWin)),
-                    de: clean(rawDE.slice(nowHour, nowHour + sliceWin)),
-                    jp: clean(rawJP.slice(nowHour, nowHour + sliceWin))
+                    eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)),
+                    us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)),
+                    de: clean(rawDE.slice(nowIndex, nowIndex + sliceWin)),
+                    jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin))
                 };
 
-                // --- NEW: Calculate Hourly Consensus (24h Window) ---
                 const hourlyAgreement = [];
                 for (let i = 0; i < sliceWin; i++) {
                     let hVotes = 0;
@@ -453,29 +546,26 @@
                     hourlyAgreement.push((hVotes / 4) * 100);
                 }
 
-                const solarData = clean(dSolar.hourly.shortwave_radiation.slice(nowHour, nowHour + sliceWin));
-                const uvData = clean(dSolar.hourly.uv_index.slice(nowHour, nowHour + sliceWin));
+                const solarData = clean(dSolar.hourly.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
+                const uvData = clean(dSolar.hourly.uv_index.slice(nowIndex, nowIndex + sliceWin));
 
-                // Render Integrated Chart with Agreement Data
                 renderChart(times, rainData, solarData, uvData, agreement, hourlyAgreement);
-
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { console.error(e); }
         }
 
-        // Init
         function runApp() {
             if (state.mode === 'manual' && state.coords.lat) {
-                document.getElementById('manual-lat').value = state.coords.lat;
-                document.getElementById('manual-lon').value = state.coords.lon;
-                fetchData(state.coords.lat, state.coords.lon);
+                fetchData(state.coords.lat, state.coords.lon, false); 
             } else {
                 if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(p => {
-                        const lat = p.coords.latitude; const lon = p.coords.longitude;
-                        fetchData(lat, lon);
-                    });
+                    navigator.geolocation.getCurrentPosition(
+                        p => { fetchData(p.coords.latitude, p.coords.longitude, false); },
+                        () => {
+                            document.getElementById('status-text').innerText = "OPEN IN BROWSER";
+                            document.getElementById('location-badge').innerText = "GPS BLOCKED";
+                        },
+                        { timeout: 10000, enableHighAccuracy: true }
+                    );
                 }
             }
         }
@@ -483,21 +573,24 @@
         function setManualLocation() {
             const lat = parseFloat(document.getElementById('manual-lat').value);
             const lon = parseFloat(document.getElementById('manual-lon').value);
-            state.mode = 'manual'; state.coords = { lat, lon };
-            localStorage.setItem('ms_mode', 'manual');
-            localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-            runApp();
+            if(lat && lon) {
+                state.mode = 'manual'; state.coords = { lat, lon };
+                localStorage.setItem('ms_mode', 'manual');
+                localStorage.setItem('ms_coords', JSON.stringify(state.coords));
+                fetchData(lat, lon, false);
+            }
         }
 
         function resetToAuto() {
             localStorage.removeItem('ms_mode');
             state.mode = 'auto';
+            document.getElementById('search-city').value = "";
+            document.getElementById('search-country').value = "";
             runApp();
         }
 
         runApp();
         setInterval(runApp, 60000); 
-
     </script>
 </body>
 </html>
