@@ -43,8 +43,8 @@
             box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
         }
 
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+        .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); margin-top: 2px;}
         
         .main-status { text-align: center; padding: 30px 0; }
         .status-icon { font-size: 4rem; margin-bottom: 15px; display: block; }
@@ -97,6 +97,14 @@
         .search-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--card-border); font-size: 0.85rem; transition: background 0.2s; font-family: var(--font-mono); }
         .search-item:hover { background: rgba(20, 184, 166, 0.15); }
         .search-item:last-child { border-bottom: none; }
+
+        /* Minimal UI Time Display */
+        .time-display {
+            display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+            font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; 
+            color: var(--text-secondary); justify-content: flex-end; width: 100%;
+        }
+        .time-display i { color: var(--accent-blue); opacity: 0.8; }
     </style>
 </head>
 <body>
@@ -114,8 +122,13 @@
             <div id="status-card" class="card">
                 <div class="card-header">
                     <span class="card-title">Live Consensus</span>
-                    <div id="location-badge" style="font-size: 0.9rem; color: var(--accent-teal);">
-                        <i class="fa-solid fa-location-crosshairs"></i> Locating...
+                    <div style="text-align: right;">
+                        <div id="location-badge" style="font-size: 0.9rem; color: var(--accent-teal);">
+                            <i class="fa-solid fa-location-crosshairs"></i> Locating...
+                        </div>
+                        <div class="time-display">
+                            <i class="fa-regular fa-clock"></i> <span id="local-time-text">--:--:--</span>
+                        </div>
                     </div>
                 </div>
 
@@ -186,7 +199,7 @@
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
-            reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client', // Keyless API
+            reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75
         };
 
@@ -209,10 +222,27 @@
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
+            autoCoords: null,
+            targetTimezone: null, 
             chart: null,
             audioEnabled: false,
             lastPing: 0
         };
+
+        // --- Real-Time Local Clock Engine ---
+        function runLiveClock() {
+            if (!state.targetTimezone) return;
+            try {
+                const timeString = new Date().toLocaleTimeString('en-US', {
+                    timeZone: state.targetTimezone,
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+                });
+                document.getElementById('local-time-text').innerText = timeString;
+            } catch(e) {
+                document.getElementById('local-time-text').innerText = "--:--:--";
+            }
+        }
+        setInterval(runLiveClock, 1000);
 
         // --- PART 1: Local Country Prediction Engine ---
         const searchCountry = document.getElementById('search-country');
@@ -468,6 +498,11 @@
                 const dFore = await resFore.json();
                 const dSolar = await resSolar.json();
 
+                if (dCurr.timezone) {
+                    state.targetTimezone = dCurr.timezone;
+                    runLiveClock(); 
+                }
+
                 const curr = dCurr.current;
                 document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
                 document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
@@ -476,10 +511,9 @@
 
                 const h = dFore.hourly;
                 
-                // --- TIMING FIX: Synchronize index to target location's local time ---
-                const targetTimePrefix = curr.time.substring(0, 13); // e.g. "2026-04-01T06"
+                const targetTimePrefix = curr.time.substring(0, 13);
                 let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
-                if (nowIndex === -1) nowIndex = new Date().getHours(); // Failsafe fallback
+                if (nowIndex === -1) nowIndex = new Date().getHours(); 
                 
                 const rawEU = h.precipitation_ecmwf_ifs025; 
                 const rawUS = h.precipitation_gfs_seamless;
@@ -493,7 +527,6 @@
 
                 const clean = (arr) => arr.map(v => v === null ? 0 : v);
                 
-                // --- Swap out local nowHour for target nowIndex ---
                 const rainEU = rawEU[nowIndex] || 0;
                 const rainUS = rawUS[nowIndex] || 0;
                 const rainDE = rawDE[nowIndex] || 0;
@@ -557,9 +590,14 @@
             if (state.mode === 'manual' && state.coords.lat) {
                 fetchData(state.coords.lat, state.coords.lon, false); 
             } else {
-                if (navigator.geolocation) {
+                if (state.autoCoords) {
+                    fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
+                } else if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
-                        p => { fetchData(p.coords.latitude, p.coords.longitude, false); },
+                        p => { 
+                            state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
+                            fetchData(p.coords.latitude, p.coords.longitude, false); 
+                        },
                         () => {
                             document.getElementById('status-text').innerText = "OPEN IN BROWSER";
                             document.getElementById('location-badge').innerText = "GPS BLOCKED";
@@ -584,6 +622,7 @@
         function resetToAuto() {
             localStorage.removeItem('ms_mode');
             state.mode = 'auto';
+            state.autoCoords = null; 
             document.getElementById('search-city').value = "";
             document.getElementById('search-country').value = "";
             runApp();
