@@ -183,7 +183,7 @@
                 <div class="hud-panel"><div class="hud-label">Ground Speed</div><div class="hud-value" id="hud-speed">--</div><div class="hud-sub">km/h</div></div>
                 <div class="hud-panel"><div class="hud-label">Heading Vector</div><div class="hud-value" id="hud-heading">--°</div><div class="hud-sub" id="hud-compass">N/A</div></div>
                 <div class="hud-panel"><div class="hud-label">Max Speed</div><div class="hud-value" id="hud-max">0.0</div><div class="hud-sub">km/h (session)</div></div>
-                <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h (60-sample)</div></div>
+                <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div>                <div class="hud-sub">km/h (trip avg)</div></div>
             </div>
             <div style="display:flex; justify-content:flex-end; margin-bottom:15px;">
                 <button onclick="resetTrip()" style="background:rgba(239,68,68,0.15); color:var(--accent-red); border:1px solid var(--accent-red); padding:7px 16px; border-radius:6px; font-size:0.8rem; font-family:var(--font-mono); cursor:pointer;">
@@ -209,7 +209,7 @@
             vectorUpdateIntervalMs: 60000,
             gridDistanceDeltaKm: 2.0,
             gridTimeDeltaMs: 300000,
-            movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg
+            movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg (Welford filter)
             testMode: false
         };
 
@@ -269,7 +269,9 @@
             currentMotion: { lat: 0, lon: 0, speedKph: 0, gpsHeading: null },
             wakeLock: null,
             maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0.0,
-            speedHistory: JSON.parse(localStorage.getItem('ms_speedHistory')) || []  // rolling 60-sample window
+            // Welford online algorithm state — two scalars, no array
+            weldfordCount: parseInt(localStorage.getItem('ms_wCount')) || 0,
+            welfordMean:  parseFloat(localStorage.getItem('ms_wMean')) || 0.0
         };
 
         // FUNCTIONS — Utilities
@@ -712,10 +714,13 @@
                 localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
             }
 
-            // Accumulate all samples — no FIFO cap. Array grows until resetTrip() is called.
+            // SPEED TELEMETRY — Welford online mean (full trip, O(1), no array, no stringify)
+            // Formula: mean += (x - mean) / count  — numerically stable, no floating-point drift
             if (state.currentMotion.speedKph > CONFIG.movingSpeedMinKph) {
-                state.speedHistory.push(state.currentMotion.speedKph);
-                localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
+                state.welfordCount++;
+                state.welfordMean += (state.currentMotion.speedKph - state.welfordMean) / state.welfordCount;
+                localStorage.setItem('ms_wCount', state.welfordCount);
+                localStorage.setItem('ms_wMean', state.welfordMean);
             }
 
             updateHUD();
@@ -761,10 +766,7 @@
             document.getElementById('hud-speed').innerText = state.currentMotion.speedKph.toFixed(1);
             document.getElementById('hud-max').innerText = state.maxSpeed.toFixed(1);
 
-            // Compute average from rolling window
-            const avgVal = state.speedHistory.length > 0
-                ? (state.speedHistory.reduce((a, b) => a + b, 0) / state.speedHistory.length).toFixed(1)
-                : "0.0";
+            const avgVal = state.welfordCount > 0 ? state.welfordMean.toFixed(1) : "0.0";
             document.getElementById('hud-avg').innerText = avgVal;
 
             if (activeHeading !== null) {
@@ -846,9 +848,11 @@
         // FUNCTIONS — Trip Reset (flushes speed history from memory + localStorage)
         function resetTrip() {
             state.maxSpeed = 0;
-            state.speedHistory = [];
+            state.welfordCount = 0;
+            state.welfordMean = 0.0;
             localStorage.removeItem('ms_maxSpeed');
-            localStorage.removeItem('ms_speedHistory');
+            localStorage.removeItem('ms_wCount');
+            localStorage.removeItem('ms_wMean');
             updateHUD();
         }
 
@@ -867,12 +871,14 @@
         function resetToAuto() {
             localStorage.removeItem('ms_mode');
             localStorage.removeItem('ms_maxSpeed');
-            localStorage.removeItem('ms_speedHistory');
+            localStorage.removeItem('ms_wCount');
+            localStorage.removeItem('ms_wMean');
             state.mode = 'auto';
             state.autoCoords = null;
             state.lastGridFetchTime = 0;
             state.maxSpeed = 0;
-            state.speedHistory = [];
+            state.welfordCount = 0;
+            state.welfordMean = 0.0;
             document.getElementById('search-city').value = "";
             document.getElementById('search-country').value = "";
             updateHUD();
