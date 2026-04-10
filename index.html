@@ -185,6 +185,11 @@
                 <div class="hud-panel"><div class="hud-label">Max Speed</div><div class="hud-value" id="hud-max">0.0</div><div class="hud-sub">km/h (session)</div></div>
                 <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h (60-sample)</div></div>
             </div>
+            <div style="display:flex; justify-content:flex-end; margin-bottom:15px;">
+                <button onclick="resetTrip()" style="background:rgba(239,68,68,0.15); color:var(--accent-red); border:1px solid var(--accent-red); padding:7px 16px; border-radius:6px; font-size:0.8rem; font-family:var(--font-mono); cursor:pointer;">
+                    <i class="fa-solid fa-rotate-left"></i> RESET TRIP
+                </button>
+            </div>
 
             <div class="vector-blocks" id="vector-container">
                 <div style="text-align:center; padding: 20px; color:var(--text-secondary); font-family:var(--font-mono); font-size:0.85rem;">
@@ -841,6 +846,15 @@
                         </div>`);
                 });
             } catch(err) { console.error(`Vector API Error: ${err.message}`); }
+        }
+
+        // FUNCTIONS — Trip Reset (flushes speed history from memory + localStorage)
+        function resetTrip() {
+            state.maxSpeed = 0;
+            state.speedHistory = [];
+            localStorage.removeItem('ms_maxSpeed');
+            localStorage.removeItem('ms_speedHistory');
+            updateHUD();
         }
 
         // FUNCTIONS — Manual Location
