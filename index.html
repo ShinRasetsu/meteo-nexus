@@ -182,8 +182,8 @@
             <div class="hud-grid">
                 <div class="hud-panel"><div class="hud-label">Ground Speed</div><div class="hud-value" id="hud-speed">--</div><div class="hud-sub">km/h</div></div>
                 <div class="hud-panel"><div class="hud-label">Heading Vector</div><div class="hud-value" id="hud-heading">--°</div><div class="hud-sub" id="hud-compass">N/A</div></div>
-                <div class="hud-panel"><div class="hud-label">Max Speed</div><div class="hud-value" id="hud-max">0.0</div><div class="hud-sub">km/h</div></div>
-                <div class="hud-panel"><div class="hud-label">Moving Average</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h</div></div>
+                <div class="hud-panel"><div class="hud-label">Max Speed</div><div class="hud-value" id="hud-max">0.0</div><div class="hud-sub">km/h (session)</div></div>
+                <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h (60-sample)</div></div>
             </div>
 
             <div class="vector-blocks" id="vector-container">
@@ -195,15 +195,18 @@
     </div>
 
     <script>
+        // CONFIG
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75,
-            vectorUpdateIntervalMs: 60000, 
-            gridDistanceDeltaKm: 2.0,      
-            gridTimeDeltaMs: 300000,       
-            testMode: false 
+            vectorUpdateIntervalMs: 60000,
+            gridDistanceDeltaKm: 2.0,
+            gridTimeDeltaMs: 300000,
+            speedHistoryMaxSamples: 60, // rolling window size
+            movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg
+            testMode: false
         };
 
         const GLOBAL_COUNTRIES = [
@@ -246,51 +249,68 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
+        // STATE — fixed: removed totalMovingSpeed/movingSpeedCount, added speedHistory rolling window
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
             autoCoords: null,
-            targetTimezone: null, 
+            targetTimezone: null,
             chart: null,
             audioEnabled: false,
             lastPing: 0,
             watchId: null,
             lastGridFetchTime: 0,
             lastVectorFetchTime: 0,
-            magHeading: null, 
+            magHeading: null,
             currentMotion: { lat: 0, lon: 0, speedKph: 0, gpsHeading: null },
             wakeLock: null,
-            
-            // Speed Telemetry Data
-            maxSpeed: 0,
-            totalMovingSpeed: 0,
-            movingSpeedCount: 0
+            maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0.0,
+            speedHistory: JSON.parse(localStorage.getItem('ms_speedHistory')) || []  // rolling 60-sample window
         };
 
+        // FUNCTIONS — Utilities
         function getWindDirection(deg) {
             if (deg === null || deg === undefined) return "N/A";
             const val = Math.floor((deg / 22.5) + 0.5);
-            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+            const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
             return arr[(val % 16)];
         }
 
         function getDistanceKm(lat1, lon1, lat2, lon2) {
-            const R = 6371; 
+            const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
+        function projectCoordinate(lat, lon, distanceKm, headingDeg) {
+            const R = 6371;
+            const lat1 = lat * Math.PI / 180;
+            const lon1 = lon * Math.PI / 180;
+            const brng = headingDeg * Math.PI / 180;
+            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distanceKm / R) +
+                         Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(brng));
+            const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(distanceKm / R) * Math.cos(lat1),
+                         Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2));
+            return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
+        }
+
+        // FUNCTIONS — Clock
         function runLiveClock() {
             if (!state.targetTimezone) return;
             try {
-                const timeString = new Date().toLocaleTimeString('en-US', { timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-                document.getElementById('local-time-text').innerText = timeString;
+                const t = new Date().toLocaleTimeString('en-US', {
+                    timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+                });
+                document.getElementById('local-time-text').innerText = t;
             } catch(e) { document.getElementById('local-time-text').innerText = "SYNC ERR"; }
         }
         setInterval(runLiveClock, 1000);
 
+        // FUNCTIONS — Search
         const searchCountry = document.getElementById('search-country');
         const countryResults = document.getElementById('country-results');
         const searchCity = document.getElementById('search-city');
@@ -298,53 +318,66 @@
         let searchTimeout;
 
         searchCountry.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase().trim();
-            if (query.length < 1) { countryResults.style.display = 'none'; return; }
-            const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(query)).slice(0, 6);
+            const q = e.target.value.toLowerCase().trim();
+            if (q.length < 1) { countryResults.style.display = 'none'; return; }
+            const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(q)).slice(0, 6);
             if (filtered.length > 0) {
-                countryResults.innerHTML = filtered.map(c => `<div class="search-item" onclick="selectCountry('${c}')"><i class="fa-solid fa-flag" style="color:var(--accent-teal); margin-right:5px;"></i> ${c}</div>`).join('');
+                countryResults.innerHTML = filtered.map(c =>
+                    `<div class="search-item" onclick="selectCountry('${c}')"><i class="fa-solid fa-flag" style="color:var(--accent-teal); margin-right:5px;"></i> ${c}</div>`
+                ).join('');
                 countryResults.style.display = 'block';
             } else { countryResults.style.display = 'none'; }
         });
 
-        function selectCountry(country) { searchCountry.value = country; countryResults.style.display = 'none'; document.getElementById('search-city').focus(); triggerCitySearch(); }
+        function selectCountry(country) {
+            searchCountry.value = country;
+            countryResults.style.display = 'none';
+            document.getElementById('search-city').focus();
+            triggerCitySearch();
+        }
+
         searchCity.addEventListener('input', triggerCitySearch);
 
         function triggerCitySearch() {
             clearTimeout(searchTimeout);
-            const cityQuery = searchCity.value.trim(); const countryContext = searchCountry.value.trim();
-            if (cityQuery.length < 3) { cityResults.style.display = 'none'; return; }
-            searchTimeout = setTimeout(() => execSearch(cityQuery, countryContext), 500);
+            const cityQ = searchCity.value.trim();
+            const ctryQ = searchCountry.value.trim();
+            if (cityQ.length < 3) { cityResults.style.display = 'none'; return; }
+            searchTimeout = setTimeout(() => execSearch(cityQ, ctryQ), 500);
         }
 
-        async function execSearch(cityQuery, countryContext) {
+        async function execSearch(cityQ, ctryQ) {
             try {
-                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQuery)}&count=50&language=en&format=json`);
+                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQ)}&count=50&language=en&format=json`);
                 const data = await res.json();
                 if (data.results && data.results.length > 0) {
                     let results = data.results;
-                    if (countryContext.length > 0) {
-                        const targetCountry = countryContext.toLowerCase();
-                        results = results.filter(r => r.country && r.country.toLowerCase().includes(targetCountry));
+                    if (ctryQ.length > 0) {
+                        results = results.filter(r => r.country && r.country.toLowerCase().includes(ctryQ.toLowerCase()));
                     }
-                    results = results.slice(0, 8); 
+                    results = results.slice(0, 8);
                     if (results.length > 0) {
-                        cityResults.innerHTML = results.map(res => {
-                            const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
-                            return `<div class="search-item" onclick="applyNewLocation(${res.latitude}, ${res.longitude}, '${res.name}', '${res.country}')"><i class="fa-solid fa-map-pin" style="color:var(--accent-teal); margin-right:5px;"></i> ${locName}</div>`;
+                        cityResults.innerHTML = results.map(r => {
+                            const loc = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
+                            return `<div class="search-item" onclick="applyNewLocation(${r.latitude}, ${r.longitude}, '${r.name}', '${r.country}')"><i class="fa-solid fa-map-pin" style="color:var(--accent-teal); margin-right:5px;"></i> ${loc}</div>`;
                         }).join('');
                         cityResults.style.display = 'block';
-                    } else { cityResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>'; cityResults.style.display = 'block'; }
+                    } else {
+                        cityResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>';
+                        cityResults.style.display = 'block';
+                    }
                 } else { cityResults.style.display = 'none'; }
-            } catch (err) {}
+            } catch(err) {}
         }
 
         function applyNewLocation(lat, lon, cityName, countryName) {
             state.mode = 'manual'; state.coords = { lat, lon };
-            localStorage.setItem('ms_mode', 'manual'); localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-            searchCity.value = cityName; searchCountry.value = countryName || searchCountry.value; 
+            localStorage.setItem('ms_mode', 'manual');
+            localStorage.setItem('ms_coords', JSON.stringify(state.coords));
+            searchCity.value = cityName;
+            searchCountry.value = countryName || searchCountry.value;
             cityResults.style.display = 'none';
-            fetchData(lat, lon, true); 
+            fetchData(lat, lon, true);
         }
 
         document.addEventListener('click', (e) => {
@@ -352,9 +385,10 @@
             if (!e.target.closest('#city-wrapper')) cityResults.style.display = 'none';
         });
 
+        // FUNCTIONS — Audio
         function playSonarPing() {
             if (!state.audioEnabled) return;
-            if (Date.now() - state.lastPing < 60000) return; 
+            if (Date.now() - state.lastPing < 60000) return;
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = ctx.createOscillator(); const gain = ctx.createGain();
             osc.connect(gain); gain.connect(ctx.destination);
@@ -369,28 +403,40 @@
 
         function toggleAudio() {
             state.audioEnabled = !state.audioEnabled;
-            const btn = document.getElementById('audio-btn'); const icon = document.getElementById('audio-icon'); const txt = document.getElementById('audio-text');
+            const btn = document.getElementById('audio-btn');
+            const icon = document.getElementById('audio-icon');
+            const txt = document.getElementById('audio-text');
             if (state.audioEnabled) {
-                btn.classList.add('active'); icon.className = 'fa-solid fa-volume-high fa-beat-fade'; txt.innerText = "SONAR ACTIVE";
+                btn.classList.add('active');
+                icon.className = 'fa-solid fa-volume-high fa-beat-fade';
+                txt.innerText = "SONAR ACTIVE";
                 new (window.AudioContext || window.webkitAudioContext)().resume().then(() => playSonarPing());
             } else {
-                btn.classList.remove('active'); icon.className = 'fa-solid fa-volume-xmark'; txt.innerText = "ALERTS OFF";
+                btn.classList.remove('active');
+                icon.className = 'fa-solid fa-volume-xmark';
+                txt.innerText = "ALERTS OFF";
             }
         }
 
+        // FUNCTIONS — PWA Manifest
         const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
-        const manifestBlob = new Blob([JSON.stringify({ "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone", "background_color": "#0f172a", "theme_color": "#0f172a", "icons": [{"src": iconBase64, "sizes": "512x512", "type": "image/svg+xml"}] })], {type: 'application/json'});
+        const manifestBlob = new Blob([JSON.stringify({
+            "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href,
+            "display": "standalone", "background_color": "#0f172a", "theme_color": "#0f172a",
+            "icons": [{ "src": iconBase64, "sizes": "512x512", "type": "image/svg+xml" }]
+        })], { type: 'application/json' });
         document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
 
+        // FUNCTIONS — Chart
         function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
             state.chart = new Chart(ctx, {
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [
-                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: 'rgba(255, 165, 0, 0.4)', borderColor: 'rgba(255, 165, 0, 1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
-                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: 'rgba(168, 85, 247, 0.4)', borderColor: 'rgba(168, 85, 247, 1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
+                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: 'rgba(255,165,0,0.4)', borderColor: 'rgba(255,165,0,1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
+                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: 'rgba(168,85,247,0.4)', borderColor: 'rgba(168,85,247,1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
                         { type: 'line', label: 'ECMWF (Rain)', data: rainData.eu, borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'GFS (Rain)', data: rainData.us, borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'ICON (Rain)', data: rainData.de, borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
@@ -398,40 +444,53 @@
                     ]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-                    plugins: { 
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
                         title: { display: true, text: `ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, color: '#94a3b8', font: { family: 'JetBrains Mono', size: 12 }, align: 'start', padding: { bottom: 20 } },
-                        legend: { display: true, labels: { color: '#94a3b8', font: {family: 'JetBrains Mono', size: 10}, boxWidth: 8, usePointStyle: true } },
+                        legend: { display: true, labels: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 }, boxWidth: 8, usePointStyle: true } },
                         tooltip: {
                             callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || ''; if (label) label += ': ';
-                                    if (context.parsed.y !== null) { label += context.parsed.y.toFixed(1); if (context.dataset.yAxisID === 'y_solar') label += ' W/m²'; if (context.dataset.yAxisID === 'y_uv') label += ' Index'; if (context.dataset.yAxisID === 'y_rain') label += ' mm'; }
-                                    return label;
+                                label: (ctx) => {
+                                    let lbl = ctx.dataset.label ? ctx.dataset.label + ': ' : '';
+                                    if (ctx.parsed.y !== null) {
+                                        lbl += ctx.parsed.y.toFixed(1);
+                                        if (ctx.dataset.yAxisID === 'y_solar') lbl += ' W/m²';
+                                        if (ctx.dataset.yAxisID === 'y_uv') lbl += ' Index';
+                                        if (ctx.dataset.yAxisID === 'y_rain') lbl += ' mm';
+                                    }
+                                    return lbl;
                                 },
-                                footer: function(tooltipItems) {
-                                    const index = tooltipItems[0].dataIndex; const ag = hourlyAgreement[index]; const uv = uvData[index]; const sol = solarData[index];
-                                    return `\nRain%: ${ag.toFixed(0)}%  •  UV: ${uv.toFixed(1)}  •  Solar: ${sol.toFixed(0)}W`;
+                                footer: (items) => {
+                                    const i = items[0].dataIndex;
+                                    return `\nRain%: ${hourlyAgreement[i].toFixed(0)}%  •  UV: ${uvData[i].toFixed(1)}  •  Solar: ${solarData[i].toFixed(0)}W`;
                                 }
-                            }, footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' }, footerColor: '#14b8a6', padding: 12
+                            },
+                            footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
+                            footerColor: '#14b8a6', padding: 12
                         }
-                    }, 
+                    },
                     scales: {
                         x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } },
                         y_rain: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Rain (mm)', color: '#64748b' }, grid: { color: '#334155' }, suggestedMax: 2 },
-                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar (W/m²)', color: 'rgba(255, 165, 0, 0.7)' }, grid: { drawOnChartArea: false }, suggestedMax: 1000 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar (W/m²)', color: 'rgba(255,165,0,0.7)' }, grid: { drawOnChartArea: false }, suggestedMax: 1000 },
                         y_uv: { type: 'linear', display: false, min: 0, max: 15, grid: { drawOnChartArea: false } }
                     }
                 }
             });
         }
 
+        // FUNCTIONS — Health Check
         function updateHealthStatus(elementId, dataArray) {
             const el = document.getElementById(elementId);
-            if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) { el.innerHTML = '<span class="status-fail">NO SIGNAL</span>'; return false; } 
-            else { el.innerHTML = '<span class="status-ok">ONLINE</span>'; return true; }
+            if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
+                el.innerHTML = '<span class="status-fail">NO SIGNAL</span>'; return false;
+            } else {
+                el.innerHTML = '<span class="status-ok">ONLINE</span>'; return true;
+            }
         }
 
+        // MAIN LOOP — Weather Fetch
         async function fetchData(lat, lon, skipReverseGeo = false) {
             const badge = document.getElementById('location-badge');
             document.getElementById('tel-meteo').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
@@ -443,12 +502,16 @@
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        let country = d.countryName || ''; country = country.replace(/\s*\(the\)\s*/gi, '');
+                        let country = (d.countryName || '').replace(/\s*\(the\)\s*/gi, '');
                         badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
-                        document.getElementById('search-city').value = city; document.getElementById('search-country').value = country;
-                    }).catch(() => { badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`; });
+                        document.getElementById('search-city').value = city;
+                        document.getElementById('search-country').value = country;
+                    }).catch(() => {
+                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+                    });
             } else {
-                const knownCity = document.getElementById('search-city').value; const knownCountry = document.getElementById('search-country').value;
+                const knownCity = document.getElementById('search-city').value;
+                const knownCountry = document.getElementById('search-country').value;
                 badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${[knownCity, knownCountry].filter(Boolean).join(', ')}`;
             }
 
@@ -458,75 +521,110 @@
 
             try {
                 const [resCurr, resFore, resSolar] = await Promise.all([p1, p2, p3]);
-                const dCurr = await resCurr.json(); const dFore = await resFore.json(); const dSolar = await resSolar.json();
+                const dCurr = await resCurr.json();
+                const dFore = await resFore.json();
+                const dSolar = await resSolar.json();
 
                 if (dCurr.timezone) { state.targetTimezone = dCurr.timezone; runLiveClock(); }
 
                 const curr = dCurr.current; const h = dFore.hourly; const hSol = dSolar.hourly;
                 const targetTimePrefix = curr.time.substring(0, 13);
                 let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
-                if (nowIndex === -1) { try { nowIndex = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone })).getHours(); } catch(e) { nowIndex = new Date().getHours(); } }
+                if (nowIndex === -1) {
+                    try { nowIndex = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone })).getHours(); }
+                    catch(e) { nowIndex = new Date().getHours(); }
+                }
 
-                const sliceWin = 24; const clean = (arr) => arr.map(v => v === null ? 0 : v);
-                const rawEU = h.precipitation_ecmwf_ifs025; const rawUS = h.precipitation_gfs_seamless; const rawDE = h.precipitation_icon_seamless; const rawJP = h.precipitation_jma_seamless;
-                
-                updateHealthStatus('stat-eu', rawEU); updateHealthStatus('stat-us', rawUS); updateHealthStatus('stat-de', rawDE); updateHealthStatus('stat-jp', rawJP);
+                const sliceWin = 24;
+                const clean = arr => arr.map(v => v === null ? 0 : v);
+                const rawEU = h.precipitation_ecmwf_ifs025;
+                const rawUS = h.precipitation_gfs_seamless;
+                const rawDE = h.precipitation_icon_seamless;
+                const rawJP = h.precipitation_jma_seamless;
 
-                const rainData = { eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)), us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)), de: clean(rawDE.slice(nowIndex, nowIndex + sliceWin)), jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin)) };
+                updateHealthStatus('stat-eu', rawEU);
+                updateHealthStatus('stat-us', rawUS);
+                updateHealthStatus('stat-de', rawDE);
+                updateHealthStatus('stat-jp', rawJP);
+
+                const rainData = {
+                    eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)),
+                    us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)),
+                    de: clean(rawDE.slice(nowIndex, nowIndex + sliceWin)),
+                    jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin))
+                };
                 const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
                 const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
-                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => { const timeStr = t.slice(11, 16); return timeStr === "00:00" ? "00:00 (TMRW)" : timeStr; });
+                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => {
+                    const ts = t.slice(11, 16);
+                    return ts === "00:00" ? "00:00 (TMRW)" : ts;
+                });
 
                 const hourlyAgreement = [];
                 for (let i = 0; i < sliceWin; i++) {
-                    let hVotes = 0; if (rainData.eu[i] > 0.1) hVotes++; if (rainData.us[i] > 0.1) hVotes++; if (rainData.de[i] > 0.1) hVotes++; if (rainData.jp[i] > 0.1) hVotes++;
-                    hourlyAgreement.push((hVotes / 4) * 100);
+                    let votes = 0;
+                    if (rainData.eu[i] > 0.1) votes++;
+                    if (rainData.us[i] > 0.1) votes++;
+                    if (rainData.de[i] > 0.1) votes++;
+                    if (rainData.jp[i] > 0.1) votes++;
+                    hourlyAgreement.push((votes / 4) * 100);
                 }
 
-                const currentAgreement = hourlyAgreement[0] || 0; let currentVotes = (currentAgreement / 100) * 4;
-                let incomingRain = false; for (let i = 1; i <= 3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
+                const currentAgreement = hourlyAgreement[0] || 0;
+                const currentVotes = (currentAgreement / 100) * 4;
+                let incomingRain = false;
+                for (let i = 1; i <= 3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
 
-                const maxUV = Math.max(...uvData); const maxUVIndex = uvData.indexOf(maxUV); const maxUVTime = times[maxUVIndex].replace(" (TMRW)", ""); 
+                const maxUV = Math.max(...uvData);
+                const maxUVTime = times[uvData.indexOf(maxUV)].replace(" (TMRW)", "");
 
                 document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
                 document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
                 document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
                 document.getElementById('metric-agree').innerText = `${currentAgreement.toFixed(0)}%`;
                 document.getElementById('metric-uv').innerHTML = `${maxUV.toFixed(1)} <span style="font-size:0.7rem; color:var(--text-secondary); font-weight:400;">@${maxUVTime}</span>`;
-                
+
                 if (state.mode === 'manual' || state.currentMotion.speedKph === 0) {
                     const windDir = getWindDirection(curr.wind_direction_10m);
-                    document.getElementById('metric-wind').innerHTML = `${curr.wind_speed_10m}<span style="font-size:0.7rem;">km/h</span> ${windDir} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg); display:inline-block; margin-left:4px; color:var(--accent-blue);"></i>`;
+                    document.getElementById('metric-wind').innerHTML = `${curr.wind_speed_10m}<span style="font-size:0.7rem;">km/h</span> ${windDir} <i class="fa-solid fa-arrow-up" style="transform:rotate(${curr.wind_direction_10m}deg); display:inline-block; margin-left:4px; color:var(--accent-blue);"></i>`;
                 }
 
                 document.getElementById('weather-desc').innerText = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
 
-                const icon = document.getElementById('status-icon'); const text = document.getElementById('status-text');
-                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
-                if (curr.is_day === 0) { if (baseIconClass === 'fa-sun') baseIconClass = 'fa-moon'; if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon'; }
+                const icon = document.getElementById('status-icon');
+                const text = document.getElementById('status-text');
+                let baseIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
+                if (curr.is_day === 0) {
+                    if (baseIcon === 'fa-sun') baseIcon = 'fa-moon';
+                    if (baseIcon === 'fa-cloud-sun') baseIcon = 'fa-cloud-moon';
+                }
 
-                if (currentVotes >= 3) { 
-                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert'; text.innerText = "RAIN LIKELY"; text.className = 'status-text status-alert';
+                if (currentVotes >= 3) {
+                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
+                    text.innerText = "RAIN LIKELY"; text.className = 'status-text status-alert';
                     if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
                 } else if (incomingRain) {
-                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-warn'; text.innerText = "INCOMING RAIN (1-3H)"; text.className = 'status-text status-warn';
+                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-warn';
+                    text.innerText = "INCOMING RAIN (1-3H)"; text.className = 'status-text status-warn';
                 } else if (currentVotes >= 1) {
-                    icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn'; text.innerText = "RAIN POSSIBLE"; text.className = 'status-text status-warn';
+                    icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn';
+                    text.innerText = "RAIN POSSIBLE"; text.className = 'status-text status-warn';
                 } else {
-                    icon.className = `status-icon fa-solid ${baseIconClass} status-clear`; text.innerText = "ATMOSPHERE STABLE"; text.className = 'status-text status-clear';
+                    icon.className = `status-icon fa-solid ${baseIcon} status-clear`;
+                    text.innerText = "ATMOSPHERE STABLE"; text.className = 'status-text status-clear';
                 }
 
                 renderChart(times, rainData, solarData, uvData, currentAgreement, hourlyAgreement);
-            } catch (e) { console.error(e); }
+            } catch(e) { console.error(e); }
         }
 
+        // FUNCTIONS — Wake Lock
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     state.wakeLock = await navigator.wakeLock.request('screen');
                     document.getElementById('wakelock-indicator').style.color = 'var(--accent-teal)';
                     document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye"></i> Display Locked ON';
-                    
                     state.wakeLock.addEventListener('release', () => {
                         document.getElementById('wakelock-indicator').style.color = 'var(--text-secondary)';
                         document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye-slash"></i> Display Auto-Sleep';
@@ -534,26 +632,23 @@
                 } else {
                     document.getElementById('wakelock-indicator').style.display = 'none';
                 }
-            } catch (err) {
-                console.warn(`Wake Lock error: ${err.name}, ${err.message}`);
+            } catch(err) {
                 document.getElementById('wakelock-indicator').style.color = 'var(--accent-orange)';
                 document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> WakeLock Denied';
             }
         }
+
         document.addEventListener('visibilitychange', async () => {
-            if (state.wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
+            if (state.wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
+        // FUNCTIONS — Sensor Fusion (Compass)
         function initSensorFusion() {
-            const handleOrientation = (event) => {
+            const handleOrientation = (e) => {
                 let heading = null;
-                if (event.webkitCompassHeading !== undefined) { heading = event.webkitCompassHeading; }
-                else if (event.absolute && event.alpha !== null) { heading = 360 - event.alpha; } 
-
-                if (heading !== null) {
-                    state.magHeading = heading;
-                    updateHUD(); 
-                }
+                if (e.webkitCompassHeading !== undefined) { heading = e.webkitCompassHeading; }
+                else if (e.absolute && e.alpha !== null) { heading = 360 - e.alpha; }
+                if (heading !== null) { state.magHeading = heading; updateHUD(); }
             };
             window.addEventListener("deviceorientationabsolute", handleOrientation, true);
             window.addEventListener("deviceorientation", handleOrientation, true);
@@ -561,74 +656,82 @@
 
         function unlockStrictSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission().then(response => { if (response == 'granted') initSensorFusion(); }).catch(() => {});
+                DeviceOrientationEvent.requestPermission()
+                    .then(r => { if (r === 'granted') initSensorFusion(); })
+                    .catch(() => {});
             }
         }
 
+        // MAIN LOOP — GPS Tracking
         function initTracking() {
             if (!navigator.geolocation) {
                 document.getElementById('gps-status').innerHTML = '<span style="color:var(--accent-red)">Hardware Unsupported</span>';
                 return;
             }
-
             state.watchId = navigator.geolocation.watchPosition(
-                position => processVectorTelemetry(position),
-                error => {
-                    console.warn(`GPS Stream Alert: ${error.message} (Code: ${error.code})`);
-                    let errorMsg = "Signal Weak";
-                    if (error.code === 1) errorMsg = "Permission Denied";
-                    if (error.code === 3) errorMsg = "Hardware Timeout";
-                    
-                    document.getElementById('gps-status').innerHTML = `<span style="color:var(--accent-orange)"><i class="fa-solid fa-triangle-exclamation"></i> ${errorMsg}</span>`;
-                    
+                pos => processVectorTelemetry(pos),
+                err => {
+                    let msg = "Signal Weak";
+                    if (err.code === 1) msg = "Permission Denied";
+                    if (err.code === 3) msg = "Hardware Timeout";
+                    document.getElementById('gps-status').innerHTML = `<span style="color:var(--accent-orange)"><i class="fa-solid fa-triangle-exclamation"></i> ${msg}</span>`;
                     if (state.mode === 'auto' && !state.autoCoords) {
                         document.getElementById('status-icon').className = 'status-icon fa-solid fa-satellite-dish fa-fade status-warn';
-                        document.getElementById('status-text').innerText = error.code === 1 ? "GPS BLOCKED" : "AWAITING SATELLITE";
+                        document.getElementById('status-text').innerText = err.code === 1 ? "GPS BLOCKED" : "AWAITING SATELLITE";
                         document.getElementById('status-text').className = 'status-text status-warn';
-                        document.getElementById('weather-desc').innerText = error.code === 1 ? "Check browser permissions." : "Move to open sky or use Manual Targeting.";
-                        document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> ${errorMsg.toUpperCase()}`;
+                        document.getElementById('weather-desc').innerText = err.code === 1 ? "Check browser permissions." : "Move to open sky or use Manual Targeting.";
+                        document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> ${msg.toUpperCase()}`;
                     }
                 },
                 { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
             );
         }
 
+        // MAIN LOOP — GPS Position Handler + Speed Telemetry
         async function processVectorTelemetry(position) {
             document.getElementById('gps-status').innerHTML = '<span style="color:var(--success-color)"><i class="fa-solid fa-satellite"></i> Tracking Active</span>';
-            
-            let speedMps = position.coords.speed; let heading = position.coords.heading;
+
+            let speedMps = position.coords.speed;
+            let heading = position.coords.heading;
+
+            // TEST MODE override
             if (CONFIG.testMode && (speedMps === null || speedMps === 0)) { speedMps = 16.6; heading = 45; }
 
-            state.currentMotion.lat = position.coords.latitude; 
+            state.currentMotion.lat = position.coords.latitude;
             state.currentMotion.lon = position.coords.longitude;
-            state.currentMotion.speedKph = speedMps !== null ? speedMps * 3.6 : 0; 
+            state.currentMotion.speedKph = speedMps !== null ? speedMps * 3.6 : 0;
             state.currentMotion.gpsHeading = heading;
-            
-            // SPEED TELEMETRY CALCULATIONS
+
+            // SPEED TELEMETRY — Max Speed (persisted via localStorage)
             if (state.currentMotion.speedKph > state.maxSpeed) {
                 state.maxSpeed = state.currentMotion.speedKph;
+                localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
             }
-            
-            // Calculate Moving Average (Only when > 3km/h to exclude stops/traffic)
-            if (state.currentMotion.speedKph > 3.0) {
-                state.totalMovingSpeed += state.currentMotion.speedKph;
-                state.movingSpeedCount++;
+
+            // SPEED TELEMETRY — Rolling 60-sample moving average (only when actually moving)
+            // Excludes samples <= CONFIG.movingSpeedMinKph to filter stops and slow traffic
+            if (state.currentMotion.speedKph > CONFIG.movingSpeedMinKph) {
+                state.speedHistory.push(state.currentMotion.speedKph);
+                if (state.speedHistory.length > CONFIG.speedHistoryMaxSamples) {
+                    state.speedHistory.shift(); // drop oldest sample
+                }
+                localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
             }
 
             updateHUD();
 
             const now = Date.now();
 
+            // AUTO MODE — trigger grid fetch on distance delta or time delta
             if (state.mode === 'auto') {
                 let triggerGridUpdate = false;
                 if (!state.autoCoords) {
                     triggerGridUpdate = true;
                 } else {
-                    const distMovedKm = getDistanceKm(state.autoCoords.lat, state.autoCoords.lon, state.currentMotion.lat, state.currentMotion.lon);
-                    if (distMovedKm >= CONFIG.gridDistanceDeltaKm) triggerGridUpdate = true; 
-                    if (now - state.lastGridFetchTime > CONFIG.gridTimeDeltaMs) triggerGridUpdate = true; 
+                    const dist = getDistanceKm(state.autoCoords.lat, state.autoCoords.lon, state.currentMotion.lat, state.currentMotion.lon);
+                    if (dist >= CONFIG.gridDistanceDeltaKm) triggerGridUpdate = true;
+                    if (now - state.lastGridFetchTime > CONFIG.gridTimeDeltaMs) triggerGridUpdate = true;
                 }
-
                 if (triggerGridUpdate) {
                     state.autoCoords = { lat: state.currentMotion.lat, lon: state.currentMotion.lon };
                     state.lastGridFetchTime = now;
@@ -636,38 +739,39 @@
                 }
             }
 
+            // VECTOR PREDICTION — use GPS heading when moving, MAG compass when stationary
             const validHeading = (state.currentMotion.speedKph > 5) ? state.currentMotion.gpsHeading : state.magHeading;
-            if (validHeading !== null && (now - state.lastVectorFetchTime >= CONFIG.vectorUpdateIntervalMs)) { 
-                state.lastVectorFetchTime = now; 
-                await executeVectorPrediction(validHeading); 
+            if (validHeading !== null && (now - state.lastVectorFetchTime >= CONFIG.vectorUpdateIntervalMs)) {
+                state.lastVectorFetchTime = now;
+                await executeVectorPrediction(validHeading);
             }
         }
 
+        // FUNCTIONS — HUD Update
         function updateHUD() {
             let activeHeading = null;
             let sensorTag = "N/A";
 
             if (state.currentMotion.speedKph > 5 && state.currentMotion.gpsHeading !== null) {
-                activeHeading = state.currentMotion.gpsHeading;
-                sensorTag = "GPS";
+                activeHeading = state.currentMotion.gpsHeading; sensorTag = "GPS";
             } else if (state.magHeading !== null) {
-                activeHeading = state.magHeading;
-                sensorTag = "MAG";
+                activeHeading = state.magHeading; sensorTag = "MAG";
             }
 
-            // Update 2x2 Telemetry Grid
             document.getElementById('hud-speed').innerText = state.currentMotion.speedKph.toFixed(1);
             document.getElementById('hud-max').innerText = state.maxSpeed.toFixed(1);
-            
-            const avgVal = state.movingSpeedCount > 0 ? (state.totalMovingSpeed / state.movingSpeedCount).toFixed(1) : "0.0";
+
+            // Compute average from rolling window
+            const avgVal = state.speedHistory.length > 0
+                ? (state.speedHistory.reduce((a, b) => a + b, 0) / state.speedHistory.length).toFixed(1)
+                : "0.0";
             document.getElementById('hud-avg').innerText = avgVal;
-            
+
             if (activeHeading !== null) {
                 document.getElementById('hud-heading').innerText = `${activeHeading.toFixed(0)}°`;
                 document.getElementById('hud-compass').innerText = `${getWindDirection(activeHeading)} (${sensorTag})`;
-                
                 if (state.mode === 'auto' && state.currentMotion.speedKph > 0) {
-                    document.getElementById('metric-wind').innerHTML = `${state.currentMotion.speedKph.toFixed(1)}<span style="font-size:0.7rem;">km/h (SYS)</span> ${getWindDirection(activeHeading)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${activeHeading}deg); display:inline-block; margin-left:4px; color:var(--accent-teal);"></i>`;
+                    document.getElementById('metric-wind').innerHTML = `${state.currentMotion.speedKph.toFixed(1)}<span style="font-size:0.7rem;">km/h (SYS)</span> ${getWindDirection(activeHeading)} <i class="fa-solid fa-arrow-up" style="transform:rotate(${activeHeading}deg); display:inline-block; margin-left:4px; color:var(--accent-teal);"></i>`;
                 }
             } else {
                 document.getElementById('hud-heading').innerText = `--°`;
@@ -675,86 +779,104 @@
             }
         }
 
-        function projectCoordinate(lat, lon, distanceKm, headingDeg) {
-            const R = 6371; const d = distanceKm; const lat1 = lat * Math.PI / 180; const lon1 = lon * Math.PI / 180; const brng = headingDeg * Math.PI / 180;
-            let lat2 = Math.asin(Math.sin(lat1) * Math.cos(d / R) + Math.cos(lat1) * Math.sin(d / R) * Math.cos(brng));
-            let lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(d / R) * Math.cos(lat1), Math.cos(d / R) - Math.sin(lat1) * Math.sin(lat2));
-            return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
-        }
-
+        // FUNCTIONS — Vector Prediction
         async function executeVectorPrediction(activeHeading) {
-            const projectionSpeed = state.currentMotion.speedKph < 10 ? 60 : state.currentMotion.speedKph; 
+            const projSpeed = state.currentMotion.speedKph < 10 ? 60 : state.currentMotion.speedKph;
             const hdg = activeHeading;
-            
-            const vectors = [ { id: 'curr', type: 'CURRENT', offsetMin: 0, heading: hdg }, { id: 'fwd15', type: 'AHEAD +15M', offsetMin: 15, heading: hdg }, { id: 'fwd30', type: 'AHEAD +30M', offsetMin: 30, heading: hdg }, { id: 'aft15', type: 'TAIL -15M', offsetMin: 15, heading: (hdg + 180) % 360 } ];
-            const coords = [];
-            
-            vectors.forEach(v => {
-                const distanceKm = projectionSpeed * (v.offsetMin / 60); const proj = projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, distanceKm, v.heading);
-                v.distanceKm = distanceKm; coords.push(proj);
+
+            const vectors = [
+                { id: 'curr',  type: 'CURRENT',  offsetMin: 0,  heading: hdg },
+                { id: 'fwd15', type: 'AHEAD +15M', offsetMin: 15, heading: hdg },
+                { id: 'fwd30', type: 'AHEAD +30M', offsetMin: 30, heading: hdg },
+                { id: 'aft15', type: 'TAIL -15M',  offsetMin: 15, heading: (hdg + 180) % 360 }
+            ];
+
+            const coords = vectors.map(v => {
+                const distKm = projSpeed * (v.offsetMin / 60);
+                v.distanceKm = distKm;
+                return projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, distKm, v.heading);
             });
 
-            const lats = coords.map(c => c.lat.toFixed(4)).join(','); const lons = coords.map(c => c.lon.toFixed(4)).join(',');
+            const lats = coords.map(c => c.lat.toFixed(4)).join(',');
+            const lons = coords.map(c => c.lon.toFixed(4)).join(',');
             const url = `${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=precipitation&timezone=auto`;
-            
-            try {
-                const res = await fetch(url); let data = await res.json(); if (!Array.isArray(data)) data = [data]; 
-                const container = document.getElementById('vector-container'); container.innerHTML = '';
 
-                vectors.forEach((v, index) => {
-                    const rainMm = data[index].current.precipitation; 
-                    let statusHtml = ''; 
+            try {
+                const res = await fetch(url);
+                let data = await res.json();
+                if (!Array.isArray(data)) data = [data];
+                const container = document.getElementById('vector-container');
+                container.innerHTML = '';
+
+                vectors.forEach((v, i) => {
+                    const rainMm = data[i].current.precipitation;
+                    let statusHtml = '';
                     let borderClass = 'border-green';
-                    
-                    // STANDARDIZED RAIN INTENSITY SCALING
-                    if (rainMm > 7.5) { // Heavy Rain
+
+                    if (rainMm > 7.5) {
                         borderClass = 'border-red';
                         statusHtml = `<span class="status-alert"><i class="fa-solid fa-cloud-showers-water"></i> Heavy Rain</span>`;
-                    } else if (rainMm > 2.5) { // Moderate Rain
+                    } else if (rainMm > 2.5) {
                         borderClass = 'border-orange';
                         statusHtml = `<span class="status-warn" style="color:var(--accent-orange)"><i class="fa-solid fa-cloud-showers-heavy"></i> Mod. Rain</span>`;
-                    } else if (rainMm > 0.1) { // Light Rain
+                    } else if (rainMm > 0.1) {
                         borderClass = 'border-blue';
                         statusHtml = `<span class="status-warn" style="color:var(--accent-blue)"><i class="fa-solid fa-cloud-rain"></i> Light Rain</span>`;
-                    } else { // Clear
-                        borderClass = (v.id.startsWith('aft')) ? 'border-dim' : 'border-green';
+                    } else {
+                        borderClass = v.id.startsWith('aft') ? 'border-dim' : 'border-green';
                         statusHtml = `<span class="status-ok" style="${v.id.startsWith('aft') ? 'color:var(--text-secondary)' : ''}"><i class="fa-solid fa-sun"></i> Clear</span>`;
                     }
 
-                    // For the intercept warning logic
+                    // Intercept warning: rain ahead but clear now
                     if (v.id.startsWith('fwd') && rainMm > 2.5 && data[0].current.precipitation <= 2.5) {
                         statusHtml = `<span class="status-alert"><i class="fa-solid fa-triangle-exclamation"></i> INTERCEPT ETA: ${v.offsetMin}M</span>`;
                         borderClass = 'border-red';
                     }
 
-                    const html = `
+                    container.insertAdjacentHTML('beforeend', `
                         <div class="vector-row ${borderClass}">
-                            <div class="vector-time" style="color: ${v.id.startsWith('aft') ? 'var(--text-secondary)' : 'var(--text-primary)'}">${v.type.split(' ')[1] || 'NOW'}</div>
+                            <div class="vector-time" style="color:${v.id.startsWith('aft') ? 'var(--text-secondary)' : 'var(--text-primary)'}">${v.type.split(' ')[1] || 'NOW'}</div>
                             <div class="vector-status">${statusHtml}</div>
                             <div class="vector-data">${rainMm.toFixed(1)} mm<br><span style="font-size:0.75rem">${v.distanceKm > 0 ? v.distanceKm.toFixed(1) + 'km' : 'Origin'}</span></div>
-                        </div>`;
-                    container.insertAdjacentHTML('beforeend', html);
+                        </div>`);
                 });
-            } catch (err) { console.error(`Vector API Error: ${err.message}`); }
+            } catch(err) { console.error(`Vector API Error: ${err.message}`); }
         }
 
+        // FUNCTIONS — Manual Location
         function setManualLocation() {
-            const lat = parseFloat(document.getElementById('manual-lat').value); const lon = parseFloat(document.getElementById('manual-lon').value);
-            if(lat && lon) {
-                state.mode = 'manual'; state.coords = { lat, lon }; localStorage.setItem('ms_mode', 'manual'); localStorage.setItem('ms_coords', JSON.stringify(state.coords));
+            const lat = parseFloat(document.getElementById('manual-lat').value);
+            const lon = parseFloat(document.getElementById('manual-lon').value);
+            if (lat && lon) {
+                state.mode = 'manual'; state.coords = { lat, lon };
+                localStorage.setItem('ms_mode', 'manual');
+                localStorage.setItem('ms_coords', JSON.stringify(state.coords));
                 fetchData(lat, lon, false);
             }
         }
 
         function resetToAuto() {
-            localStorage.removeItem('ms_mode'); state.mode = 'auto'; state.autoCoords = null; state.lastGridFetchTime = 0;
-            document.getElementById('search-city').value = ""; document.getElementById('search-country').value = "";
-            
-            // Reset Speed Counters
-            state.maxSpeed = 0; state.totalMovingSpeed = 0; state.movingSpeedCount = 0; updateHUD();
+            localStorage.removeItem('ms_mode');
+            localStorage.removeItem('ms_maxSpeed');
+            localStorage.removeItem('ms_speedHistory');
+            state.mode = 'auto';
+            state.autoCoords = null;
+            state.lastGridFetchTime = 0;
+            state.maxSpeed = 0;
+            state.speedHistory = [];
+            document.getElementById('search-city').value = "";
+            document.getElementById('search-country').value = "";
+            updateHUD();
 
             if (state.currentMotion && state.currentMotion.lat !== 0) {
-                processVectorTelemetry({coords: {latitude: state.currentMotion.lat, longitude: state.currentMotion.lon, speed: state.currentMotion.speedKph/3.6, heading: state.currentMotion.gpsHeading}});
+                processVectorTelemetry({
+                    coords: {
+                        latitude: state.currentMotion.lat,
+                        longitude: state.currentMotion.lon,
+                        speed: state.currentMotion.speedKph / 3.6,
+                        heading: state.currentMotion.gpsHeading
+                    }
+                });
             } else {
                 document.getElementById('status-icon').className = 'status-icon fa-solid fa-satellite-dish fa-fade status-warn';
                 document.getElementById('status-text').innerText = "ACQUIRING SATELLITE";
@@ -763,20 +885,24 @@
             }
         }
 
+        // INIT
         window.onload = () => {
-            requestWakeLock(); 
-            initTracking();    
-            initSensorFusion(); 
-            
+            requestWakeLock();
+            initTracking();
+            initSensorFusion();
+
             document.addEventListener('touchstart', unlockStrictSensors, { once: true });
             document.addEventListener('click', unlockStrictSensors, { once: true });
 
             if (state.mode === 'manual' && state.coords.lat) {
-                fetchData(state.coords.lat, state.coords.lon, false); 
+                fetchData(state.coords.lat, state.coords.lon, false);
             }
-            setInterval(() => { if(state.mode === 'manual') fetchData(state.coords.lat, state.coords.lon, false); }, 60000); 
-        };
 
+            // Manual mode refresh every 60s
+            setInterval(() => {
+                if (state.mode === 'manual') fetchData(state.coords.lat, state.coords.lon, false);
+            }, 60000);
+        };
     </script>
 </body>
 </html>
