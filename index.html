@@ -13,7 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     
     <style>
-        /* Core variables and theming */
+        /* UI Color Palette & Typography Variables */
         :root {
             --bg-color: #0f172a; --card-bg: #1e293b; --card-border: #334155;
             --text-primary: #f8fafc; --text-secondary: #94a3b8;
@@ -24,23 +24,23 @@
             --font-ui: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
         }
 
+        /* Core Resets */
         * { box-sizing: border-box; }
-        
         body { font-family: var(--font-ui); background-color: var(--bg-color); color: var(--text-primary); margin: 0; padding: 20px; min-height: 100vh; overflow-x: hidden; }
+        
+        /* Layout Grid */
         .dashboard-wrapper { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
         header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
         h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
-        
-        /* Grid layout system */
         .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 1024px) { .grid-container { grid-template-columns: 350px 1fr; } }
         
-        /* Component styling */
+        /* Panel Containers */
         .card { background-color: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 24px; position: relative; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
         .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
         .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); margin-top: 2px;}
         
-        /* Status and metrics */
+        /* Weather Status Displays */
         .main-status { text-align: center; padding: 30px 0; }
         .status-icon { font-size: 4rem; margin-bottom: 15px; display: block; }
         .status-text { font-size: 2rem; font-weight: 800; display: block; }
@@ -49,19 +49,22 @@
         .status-warn { color: #facc15; }
         .status-alert { color: var(--accent-red); }
 
+        /* Realtime Metrics */
         .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
         .metric-item { background: rgba(255,255,255,0.03); padding: 12px 5px; border-radius: 8px; text-align: center; }
         .metric-label { font-size: 0.70rem; color: var(--text-secondary); display: block; margin-bottom: 5px; text-transform: uppercase;}
         .metric-value { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; }
 
-        /* Interactive UI */
+        /* Sonar Controls */
         .audio-toggle { cursor: pointer; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; border: 1px solid var(--card-border); transition: 0.2s; }
         .audio-toggle.active { background: rgba(239, 68, 68, 0.2); border-color: var(--accent-red); color: var(--accent-red); }
         .audio-toggle:hover { background: rgba(255,255,255,0.1); }
 
+        /* Sub-Grids */
         .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
         
+        /* Health Status Tables */
         .data-table { width: 100%; font-family: var(--font-mono); font-size: 0.85rem; border-collapse: collapse; }
         .data-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
         .data-val { text-align: right; color: var(--text-primary); }
@@ -69,36 +72,39 @@
         .status-fail { color: var(--accent-red); font-weight: 700; }
         .status-wait { color: var(--text-secondary); }
 
+        /* OSRM Search Inputs */
         .input-group { display: flex; gap: 10px; margin-bottom: 15px; width: 100%; }
         input { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); color: var(--text-primary); padding: 10px; border-radius: 6px; font-family: var(--font-mono); font-size: 0.85rem; width: 100%; }
         input:focus { border-color: var(--accent-teal); outline: none; }
-        
         button { border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
         .btn-primary { background: var(--accent-teal); color: #000; }
         .btn-primary:hover { filter: brightness(1.1); box-shadow: 0 0 15px rgba(20, 184, 166, 0.4); }
 
-        /* Search inputs and dropdowns */
+        /* Search Dropdowns */
         .search-results { position: absolute; top: 45px; left: 0; right: 0; background: var(--card-bg); border: 1px solid var(--accent-teal); border-radius: 6px; z-index: 1000; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
         .search-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--card-border); font-size: 0.85rem; transition: background 0.2s; font-family: var(--font-mono); }
         .search-item:hover { background: rgba(20, 184, 166, 0.15); }
         .search-item:last-child { border-bottom: none; }
 
+        /* Info Tags */
         .time-display { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); justify-content: flex-end; width: 100%; }
         .time-display i { color: var(--accent-blue); opacity: 0.8; }
 
-        /* Telemetry HUD display */
+        /* Telemetry Radar HUD */
         .hud-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
         .hud-panel { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 8px; padding: 15px; text-align: center; }
         .hud-value { font-family: var(--font-mono); font-size: 2rem; font-weight: 800; line-height: 1; margin: 10px 0; color: var(--accent-teal); }
         .hud-label { font-size: 0.70rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600; }
         .hud-sub { font-size: 0.70rem; color: var(--text-secondary); font-family: var(--font-mono); }
         
+        /* Prediction Nodes */
         .vector-blocks { display: flex; flex-direction: column; gap: 15px; }
         .vector-row { display: grid; grid-template-columns: 100px 1fr 100px; align-items: center; background: rgba(255,255,255,0.03); border-radius: 8px; padding: 15px; border-left: 6px solid var(--card-border); }
         .vector-time { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; }
         .vector-status { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
         .vector-data { text-align: right; font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-secondary); }
         
+        /* Node Borders */
         .border-green { border-left-color: var(--success-color); }
         .border-red { border-left-color: var(--accent-red); background: rgba(239, 68, 68, 0.05); }
         .border-orange { border-left-color: var(--accent-orange); }
@@ -164,17 +170,17 @@
             </div>
 
             <div class="card">
-                <div class="card-header"><span class="card-title">Geospatial Targeting</span></div>
+                <div class="card-header"><span class="card-title">Navigation & Targeting</span></div>
                 <div class="input-group">
-                    <div id="country-wrapper" style="flex: 1; position: relative;"><input type="text" id="search-country" placeholder="Country" autocomplete="off"><div id="country-results" class="search-results" style="display:none;"></div></div>
-                    <div id="city-wrapper" style="flex: 2; position: relative;"><input type="text" id="search-city" placeholder="City / Location" autocomplete="off"><div id="city-results" class="search-results" style="display:none;"></div></div>
+                    <div id="dest-wrapper" style="flex: 1; position: relative;">
+                        <input type="text" id="search-dest" placeholder="Set Destination (City/Location)" autocomplete="off">
+                        <div id="dest-results" class="search-results" style="display:none;"></div>
+                    </div>
                 </div>
-                <div class="input-group" style="margin-top:15px;">
-                    <input type="number" id="manual-lat" placeholder="Lat" step="any">
-                    <input type="number" id="manual-lon" placeholder="Lon" step="any">
-                </div>
+                <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-secondary); margin-bottom:15px;" id="dest-status">No destination set. Defaulting to free-roam kinematic cone.</div>
+                
                 <div style="display:flex; gap:10px;">
-                    <button class="btn-primary" onclick="setManualLocation()" style="flex:1;">Update Coords</button>
+                    <button class="btn-primary" onclick="clearDestination()" style="flex:1; background:rgba(239,68,68,0.2); color:var(--accent-red); border:1px solid var(--accent-red);">Clear Route</button>
                     <button style="background:var(--card-border); color:white;" onclick="resetToAuto()">Auto GPS <i class="fa-solid fa-crosshairs"></i></button>
                 </div>
             </div>
@@ -182,7 +188,7 @@
 
         <div class="card">
             <div class="card-header">
-                <span class="card-title">Live Sensor Fusion Radar (GPS + MAG)</span>
+                <span class="card-title">Live Spatial Fusion Radar</span>
                 <span id="gps-status" style="color:var(--accent-orange); font-family:var(--font-mono); font-size:0.85rem;"><i class="fa-solid fa-satellite fa-fade"></i> Acquiring Lock...</span>
             </div>
 
@@ -193,7 +199,8 @@
                 <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h (60-sample)</div></div>
             </div>
             
-            <div style="display:flex; justify-content:flex-end; margin-bottom:15px;">
+            <div style="display:flex; justify-content:space-between; align-items: center; margin-bottom:15px;">
+                <div id="radar-mode" style="font-family:var(--font-mono); font-size:0.8rem; font-weight:700; color:var(--text-secondary);">[MODE: FREEROAM CONE]</div>
                 <button onclick="resetTrip()" style="background:rgba(239,68,68,0.15); color:var(--accent-red); border:1px solid var(--accent-red); padding:7px 16px; border-radius:6px; font-size:0.8rem; font-family:var(--font-mono); cursor:pointer;">
                     <i class="fa-solid fa-rotate-left"></i> RESET TRIP
                 </button>
@@ -201,43 +208,29 @@
 
             <div class="vector-blocks" id="vector-container">
                 <div style="text-align:center; padding: 20px; color:var(--text-secondary); font-family:var(--font-mono); font-size:0.85rem;">
-                    Awaiting movement or compass alignment to generate spatial arrays.
+                    Awaiting movement to generate spatial arrays.
                 </div>
             </div>
         </div>
     </div>
-
-    <script>
+<script>
         // CORE CONFIGURATION
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
+            osrmApi: 'https://router.project-osrm.org/route/v1/driving/',
             sonarThreshold: 75,
             vectorUpdateIntervalMs: 60000,
             gridDistanceDeltaKm: 2.0,
             gridTimeDeltaMs: 300000,
-            speedHistoryMaxSamples: 60, // Fixed: 60 samples caps array size preventing memory leaks
-            movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg
+            speedHistoryMaxSamples: 60, // Fixed: O(1) memory bound
+            movingSpeedMinKph: 3.0,
+            sinuosityFactor: 1.35, // Adjusts vector prediction for highway curves
             testMode: false
         };
 
-        const GLOBAL_COUNTRIES = [
-            "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
-            "Bahamas", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Belize", "Bolivia", "Bosnia", "Botswana", "Brazil", "Bulgaria",
-            "Cambodia", "Cameroon", "Canada", "Chile", "China", "Colombia", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic",
-            "Denmark", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Estonia", "Ethiopia",
-            "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Guatemala", "Honduras", "Hungary",
-            "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan",
-            "Kazakhstan", "Kenya", "Kuwait", "Latvia", "Lebanon", "Lithuania", "Luxembourg",
-            "Madagascar", "Malaysia", "Maldives", "Mexico", "Moldova", "Monaco", "Mongolia", "Morocco", "Myanmar",
-            "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Nigeria", "Norway", "Oman",
-            "Pakistan", "Panama", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
-            "Romania", "Russia", "Saudi Arabia", "Senegal", "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain", "Sri Lanka", "Sweden", "Switzerland", "Syria",
-            "Taiwan", "Tanzania", "Thailand", "Tunisia", "Turkey", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
-            "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
-        ];
-
+        // Standard WMO mappings
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
             45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
@@ -278,7 +271,8 @@
             currentMotion: { lat: 0, lon: 0, speedKph: 0, gpsHeading: null },
             wakeLock: null,
             maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0.0,
-            speedHistory: JSON.parse(localStorage.getItem('ms_speedHistory')) || []  // Capped window protects browser heap
+            speedHistory: JSON.parse(localStorage.getItem('ms_speedHistory')) || [],
+            destination: JSON.parse(localStorage.getItem('ms_dest')) || null // Persists OSRM state
         };
 
         // UTILITIES
@@ -293,9 +287,7 @@
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
@@ -304,10 +296,8 @@
             const lat1 = lat * Math.PI / 180;
             const lon1 = lon * Math.PI / 180;
             const brng = headingDeg * Math.PI / 180;
-            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distanceKm / R) +
-                         Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(brng));
-            const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(distanceKm / R) * Math.cos(lat1),
-                         Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2));
+            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distanceKm / R) + Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(brng));
+            const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(distanceKm / R) * Math.cos(lat1), Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2));
             return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
         }
 
@@ -315,87 +305,70 @@
         function runLiveClock() {
             if (!state.targetTimezone) return;
             try {
-                const t = new Date().toLocaleTimeString('en-US', {
-                    timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
-                });
+                const t = new Date().toLocaleTimeString('en-US', { timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
                 document.getElementById('local-time-text').innerText = t;
             } catch(e) { document.getElementById('local-time-text').innerText = "SYNC ERR"; }
         }
         setInterval(runLiveClock, 1000);
 
-        // SEARCH FUNCTIONALITY
-        const searchCountry = document.getElementById('search-country');
-        const countryResults = document.getElementById('country-results');
-        const searchCity = document.getElementById('search-city');
-        const cityResults = document.getElementById('city-results');
+        // DESTINATION SEARCH LOGIC
+        const searchDest = document.getElementById('search-dest');
+        const destResults = document.getElementById('dest-results');
         let searchTimeout;
 
-        searchCountry.addEventListener('input', (e) => {
-            const q = e.target.value.toLowerCase().trim();
-            if (q.length < 1) { countryResults.style.display = 'none'; return; }
-            const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(q)).slice(0, 6);
-            if (filtered.length > 0) {
-                countryResults.innerHTML = filtered.map(c =>
-                    `<div class="search-item" onclick="selectCountry('${c}')"><i class="fa-solid fa-flag" style="color:var(--accent-teal); margin-right:5px;"></i> ${c}</div>`
-                ).join('');
-                countryResults.style.display = 'block';
-            } else { countryResults.style.display = 'none'; }
-        });
-
-        function selectCountry(country) {
-            searchCountry.value = country;
-            countryResults.style.display = 'none';
-            document.getElementById('search-city').focus();
-            triggerCitySearch();
+        if (searchDest) {
+            searchDest.addEventListener('input', () => {
+                clearTimeout(searchTimeout);
+                const q = searchDest.value.trim();
+                if (q.length < 3) { destResults.style.display = 'none'; return; }
+                searchTimeout = setTimeout(() => execDestSearch(q), 500);
+            });
         }
 
-        searchCity.addEventListener('input', triggerCitySearch);
-
-        function triggerCitySearch() {
-            clearTimeout(searchTimeout);
-            const cityQ = searchCity.value.trim();
-            const ctryQ = searchCountry.value.trim();
-            if (cityQ.length < 3) { cityResults.style.display = 'none'; return; }
-            searchTimeout = setTimeout(() => execSearch(cityQ, ctryQ), 500);
-        }
-
-        async function execSearch(cityQ, ctryQ) {
+        async function execDestSearch(q) {
             try {
-                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQ)}&count=50&language=en&format=json`);
+                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(q)}&count=8&language=en&format=json`);
                 const data = await res.json();
                 if (data.results && data.results.length > 0) {
-                    let results = data.results;
-                    if (ctryQ.length > 0) {
-                        results = results.filter(r => r.country && r.country.toLowerCase().includes(ctryQ.toLowerCase()));
-                    }
-                    results = results.slice(0, 8);
-                    if (results.length > 0) {
-                        cityResults.innerHTML = results.map(r => {
-                            const loc = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
-                            return `<div class="search-item" onclick="applyNewLocation(${r.latitude}, ${r.longitude}, '${r.name}', '${r.country}')"><i class="fa-solid fa-map-pin" style="color:var(--accent-teal); margin-right:5px;"></i> ${loc}</div>`;
-                        }).join('');
-                        cityResults.style.display = 'block';
-                    } else {
-                        cityResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>';
-                        cityResults.style.display = 'block';
-                    }
-                } else { cityResults.style.display = 'none'; }
+                    destResults.innerHTML = data.results.map(r => {
+                        const loc = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
+                        return `<div class="search-item" onclick="setDestination(${r.latitude}, ${r.longitude}, '${loc.replace(/'/g, "\\'")}')"><i class="fa-solid fa-flag-checkered" style="color:var(--accent-teal); margin-right:5px;"></i> ${loc}</div>`;
+                    }).join('');
+                    destResults.style.display = 'block';
+                } else {
+                    destResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>';
+                    destResults.style.display = 'block';
+                }
             } catch(err) {}
         }
 
-        function applyNewLocation(lat, lon, cityName, countryName) {
-            state.mode = 'manual'; state.coords = { lat, lon };
-            localStorage.setItem('ms_mode', 'manual');
-            localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-            searchCity.value = cityName;
-            searchCountry.value = countryName || searchCountry.value;
-            cityResults.style.display = 'none';
-            fetchData(lat, lon, true);
+        function setDestination(lat, lon, name) {
+            state.destination = { lat, lon, name };
+            localStorage.setItem('ms_dest', JSON.stringify(state.destination));
+            searchDest.value = name;
+            destResults.style.display = 'none';
+            document.getElementById('dest-status').innerHTML = `<span style="color:var(--success-color)"><i class="fa-solid fa-route"></i> OSRM Routing Engaged to: ${name}</span>`;
+            state.lastVectorFetchTime = 0; // Force vector refresh
+        }
+
+        function clearDestination() {
+            state.destination = null;
+            localStorage.removeItem('ms_dest');
+            if (searchDest) searchDest.value = '';
+            document.getElementById('dest-status').innerHTML = "No destination set. Defaulting to free-roam kinematic cone.";
+            state.lastVectorFetchTime = 0;
         }
 
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('#country-wrapper')) countryResults.style.display = 'none';
-            if (!e.target.closest('#city-wrapper')) cityResults.style.display = 'none';
+            if (destResults && !e.target.closest('#dest-wrapper')) destResults.style.display = 'none';
+        });
+
+        // INIT DESTINATION UI
+        window.addEventListener('DOMContentLoaded', () => {
+            if (state.destination && document.getElementById('dest-status')) {
+                document.getElementById('search-dest').value = state.destination.name;
+                document.getElementById('dest-status').innerHTML = `<span style="color:var(--success-color)"><i class="fa-solid fa-route"></i> OSRM Routing Engaged to: ${state.destination.name}</span>`;
+            }
         });
 
         // AUDIO SYSTEM
@@ -433,11 +406,7 @@
 
         // PWA MANIFEST
         const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
-        const manifestBlob = new Blob([JSON.stringify({
-            "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href,
-            "display": "standalone", "background_color": "#0f172a", "theme_color": "#0f172a",
-            "icons": [{ "src": iconBase64, "sizes": "512x512", "type": "image/svg+xml" }]
-        })], { type: 'application/json' });
+        const manifestBlob = new Blob([JSON.stringify({ "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone", "background_color": "#0f172a", "theme_color": "#0f172a", "icons": [{ "src": iconBase64, "sizes": "512x512", "type": "image/svg+xml" }] })], { type: 'application/json' });
         document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
 
         // CHART RENDERER
@@ -450,15 +419,14 @@
                     datasets: [
                         { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: 'rgba(255,165,0,0.4)', borderColor: 'rgba(255,165,0,1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
                         { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: 'rgba(168,85,247,0.4)', borderColor: 'rgba(168,85,247,1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
-                        { type: 'line', label: 'ECMWF (Rain)', data: rainData.eu, borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'GFS (Rain)', data: rainData.us, borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'ICON (Rain)', data: rainData.de, borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'JMA (Rain)', data: rainData.jp, borderColor: '#ec4899', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
+                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'GFS', data: rainData.us, borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'ICON', data: rainData.de, borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'JMA', data: rainData.jp, borderColor: '#ec4899', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
                     ]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
                     plugins: {
                         title: { display: true, text: `ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, color: '#94a3b8', font: { family: 'JetBrains Mono', size: 12 }, align: 'start', padding: { bottom: 20 } },
                         legend: { display: true, labels: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 }, boxWidth: 8, usePointStyle: true } },
@@ -466,21 +434,12 @@
                             callbacks: {
                                 label: (ctx) => {
                                     let lbl = ctx.dataset.label ? ctx.dataset.label + ': ' : '';
-                                    if (ctx.parsed.y !== null) {
-                                        lbl += ctx.parsed.y.toFixed(1);
-                                        if (ctx.dataset.yAxisID === 'y_solar') lbl += ' W/m²';
-                                        if (ctx.dataset.yAxisID === 'y_uv') lbl += ' Index';
-                                        if (ctx.dataset.yAxisID === 'y_rain') lbl += ' mm';
-                                    }
+                                    if (ctx.parsed.y !== null) { lbl += ctx.parsed.y.toFixed(1); if (ctx.dataset.yAxisID === 'y_solar') lbl += ' W/m²'; if (ctx.dataset.yAxisID === 'y_uv') lbl += ' Index'; if (ctx.dataset.yAxisID === 'y_rain') lbl += ' mm'; }
                                     return lbl;
                                 },
-                                footer: (items) => {
-                                    const i = items[0].dataIndex;
-                                    return `\nRain%: ${hourlyAgreement[i].toFixed(0)}%  •  UV: ${uvData[i].toFixed(1)}  •  Solar: ${solarData[i].toFixed(0)}W`;
-                                }
+                                footer: (items) => { const i = items[0].dataIndex; return `\nRain%: ${hourlyAgreement[i].toFixed(0)}%  •  UV: ${uvData[i].toFixed(1)}  •  Solar: ${solarData[i].toFixed(0)}W`; }
                             },
-                            footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
-                            footerColor: '#14b8a6', padding: 12
+                            footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' }, footerColor: '#14b8a6', padding: 12
                         }
                     },
                     scales: {
@@ -495,36 +454,20 @@
 
         function updateHealthStatus(elementId, dataArray) {
             const el = document.getElementById(elementId);
-            if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
-                el.innerHTML = '<span class="status-fail">NO SIGNAL</span>'; return false;
-            } else {
-                el.innerHTML = '<span class="status-ok">ONLINE</span>'; return true;
-            }
+            if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) { el.innerHTML = '<span class="status-fail">NO SIGNAL</span>'; return false; }
+            else { el.innerHTML = '<span class="status-ok">ONLINE</span>'; return true; }
         }
 
         // WEATHER DATA FETCH PIPELINE
         async function fetchData(lat, lon, skipReverseGeo = false) {
             const badge = document.getElementById('location-badge');
             document.getElementById('tel-meteo').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-            document.getElementById('manual-lat').value = lat.toFixed(5);
-            document.getElementById('manual-lon').value = lon.toFixed(5);
-
+            
             if (!skipReverseGeo) {
-                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
-                    .then(r => r.json())
-                    .then(d => {
-                        const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        let country = (d.countryName || '').replace(/\s*\(the\)\s*/gi, '');
-                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
-                        document.getElementById('search-city').value = city;
-                        document.getElementById('search-country').value = country;
-                    }).catch(() => {
-                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
-                    });
-            } else {
-                const knownCity = document.getElementById('search-city').value;
-                const knownCountry = document.getElementById('search-country').value;
-                badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${[knownCity, knownCountry].filter(Boolean).join(', ')}`;
+                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`).then(r => r.json()).then(d => {
+                    const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
+                    badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
+                }).catch(() => { badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`; });
             }
 
             const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`);
@@ -533,62 +476,40 @@
 
             try {
                 const [resCurr, resFore, resSolar] = await Promise.all([p1, p2, p3]);
-                const dCurr = await resCurr.json();
-                const dFore = await resFore.json();
-                const dSolar = await resSolar.json();
+                const dCurr = await resCurr.json(); const dFore = await resFore.json(); const dSolar = await resSolar.json();
 
                 if (dCurr.timezone) { state.targetTimezone = dCurr.timezone; runLiveClock(); }
 
                 const curr = dCurr.current; const h = dFore.hourly; const hSol = dSolar.hourly;
                 const targetTimePrefix = curr.time.substring(0, 13);
                 let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
-                if (nowIndex === -1) {
-                    try { nowIndex = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone })).getHours(); }
-                    catch(e) { nowIndex = new Date().getHours(); }
-                }
+                if (nowIndex === -1) { try { nowIndex = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone })).getHours(); } catch(e) { nowIndex = new Date().getHours(); } }
 
-                const sliceWin = 24;
-                const clean = arr => arr.map(v => v === null ? 0 : v);
-                const rawEU = h.precipitation_ecmwf_ifs025;
-                const rawUS = h.precipitation_gfs_seamless;
-                const rawDE = h.precipitation_icon_seamless;
-                const rawJP = h.precipitation_jma_seamless;
+                const sliceWin = 24; const clean = arr => arr.map(v => v === null ? 0 : v);
+                const rawEU = h.precipitation_ecmwf_ifs025; const rawUS = h.precipitation_gfs_seamless; const rawDE = h.precipitation_icon_seamless; const rawJP = h.precipitation_jma_seamless;
 
-                updateHealthStatus('stat-eu', rawEU);
-                updateHealthStatus('stat-us', rawUS);
-                updateHealthStatus('stat-de', rawDE);
-                updateHealthStatus('stat-jp', rawJP);
+                updateHealthStatus('stat-eu', rawEU); updateHealthStatus('stat-us', rawUS); updateHealthStatus('stat-de', rawDE); updateHealthStatus('stat-jp', rawJP);
 
-                const rainData = {
-                    eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)),
-                    us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)),
-                    de: clean(rawDE.slice(nowIndex, nowIndex + sliceWin)),
-                    jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin))
-                };
+                const rainData = { eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)), us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)), de: clean(rawDE.slice(nowIndex, nowIndex + sliceWin)), jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin)) };
                 const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
                 const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
-                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => {
-                    const ts = t.slice(11, 16);
-                    return ts === "00:00" ? "00:00 (TMRW)" : ts;
-                });
+                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => { const ts = t.slice(11, 16); return ts === "00:00" ? "00:00 (TMRW)" : ts; });
 
                 const hourlyAgreement = [];
                 for (let i = 0; i < sliceWin; i++) {
-                    let votes = 0;
-                    if (rainData.eu[i] > 0.1) votes++;
-                    if (rainData.us[i] > 0.1) votes++;
-                    if (rainData.de[i] > 0.1) votes++;
-                    if (rainData.jp[i] > 0.1) votes++;
-                    hourlyAgreement.push((votes / 4) * 100);
+                    let regionalWeight = 0;
+                    // Regional Weighting Fix for SE Asia Operation
+                    if (rainData.jp[i] > 0.1) regionalWeight += 0.40; // JMA
+                    if (rainData.eu[i] > 0.1) regionalWeight += 0.35; // ECMWF
+                    if (rainData.us[i] > 0.1) regionalWeight += 0.15; // GFS
+                    if (rainData.de[i] > 0.1) regionalWeight += 0.10; // ICON
+                    hourlyAgreement.push(regionalWeight * 100);
                 }
 
                 const currentAgreement = hourlyAgreement[0] || 0;
-                const currentVotes = (currentAgreement / 100) * 4;
-                let incomingRain = false;
-                for (let i = 1; i <= 3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
+                let incomingRain = false; for (let i = 1; i <= 3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
 
-                const maxUV = Math.max(...uvData);
-                const maxUVTime = times[uvData.indexOf(maxUV)].replace(" (TMRW)", "");
+                const maxUV = Math.max(...uvData); const maxUVTime = times[uvData.indexOf(maxUV)].replace(" (TMRW)", "");
 
                 document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
                 document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
@@ -603,22 +524,18 @@
 
                 document.getElementById('weather-desc').innerText = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
 
-                const icon = document.getElementById('status-icon');
-                const text = document.getElementById('status-text');
+                const icon = document.getElementById('status-icon'); const text = document.getElementById('status-text');
                 let baseIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
-                if (curr.is_day === 0) {
-                    if (baseIcon === 'fa-sun') baseIcon = 'fa-moon';
-                    if (baseIcon === 'fa-cloud-sun') baseIcon = 'fa-cloud-moon';
-                }
+                if (curr.is_day === 0) { if (baseIcon === 'fa-sun') baseIcon = 'fa-moon'; if (baseIcon === 'fa-cloud-sun') baseIcon = 'fa-cloud-moon'; }
 
-                if (currentVotes >= 3) {
+                if (currentAgreement >= 75) {
                     icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
                     text.innerText = "RAIN LIKELY"; text.className = 'status-text status-alert';
                     if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
                 } else if (incomingRain) {
                     icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-warn';
                     text.innerText = "INCOMING RAIN (1-3H)"; text.className = 'status-text status-warn';
-                } else if (currentVotes >= 1) {
+                } else if (currentAgreement >= 25) {
                     icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn';
                     text.innerText = "RAIN POSSIBLE"; text.className = 'status-text status-warn';
                 } else {
@@ -635,26 +552,14 @@
             try {
                 if ('wakeLock' in navigator) {
                     state.wakeLock = await navigator.wakeLock.request('screen');
-                    document.getElementById('wakelock-indicator').style.color = 'var(--accent-teal)';
-                    document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye"></i> Display Locked ON';
-                    state.wakeLock.addEventListener('release', () => {
-                        document.getElementById('wakelock-indicator').style.color = 'var(--text-secondary)';
-                        document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye-slash"></i> Display Auto-Sleep';
-                    });
-                } else {
-                    document.getElementById('wakelock-indicator').style.display = 'none';
-                }
-            } catch(err) {
-                document.getElementById('wakelock-indicator').style.color = 'var(--accent-orange)';
-                document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> WakeLock Denied';
-            }
+                    document.getElementById('wakelock-indicator').style.color = 'var(--accent-teal)'; document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye"></i> Display Locked ON';
+                    state.wakeLock.addEventListener('release', () => { document.getElementById('wakelock-indicator').style.color = 'var(--text-secondary)'; document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye-slash"></i> Display Auto-Sleep'; });
+                } else { document.getElementById('wakelock-indicator').style.display = 'none'; }
+            } catch(err) { document.getElementById('wakelock-indicator').style.color = 'var(--accent-orange)'; document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> WakeLock Denied'; }
         }
+        document.addEventListener('visibilitychange', async () => { if (state.wakeLock !== null && document.visibilityState === 'visible') requestWakeLock(); });
 
-        document.addEventListener('visibilitychange', async () => {
-            if (state.wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
-        });
-
-        // SENSOR FUSION INITIALIZATION
+        // SENSOR FUSION (Compass Hardware Integration)
         function initSensorFusion() {
             const handleOrientation = (e) => {
                 let heading = null;
@@ -668,38 +573,29 @@
 
         function unlockStrictSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(r => { if (r === 'granted') initSensorFusion(); })
-                    .catch(() => {});
+                DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') initSensorFusion(); }).catch(() => {});
             }
         }
 
         // ACTIVE GPS TRACKING
         function initTracking() {
-            if (!navigator.geolocation) {
-                document.getElementById('gps-status').innerHTML = '<span style="color:var(--accent-red)">Hardware Unsupported</span>';
-                return;
-            }
+            if (!navigator.geolocation) { document.getElementById('gps-status').innerHTML = '<span style="color:var(--accent-red)">Hardware Unsupported</span>'; return; }
             state.watchId = navigator.geolocation.watchPosition(
                 pos => processVectorTelemetry(pos),
                 err => {
-                    let msg = "Signal Weak";
-                    if (err.code === 1) msg = "Permission Denied";
-                    if (err.code === 3) msg = "Hardware Timeout";
+                    let msg = "Signal Weak"; if (err.code === 1) msg = "Permission Denied"; if (err.code === 3) msg = "Hardware Timeout";
                     document.getElementById('gps-status').innerHTML = `<span style="color:var(--accent-orange)"><i class="fa-solid fa-triangle-exclamation"></i> ${msg}</span>`;
                     if (state.mode === 'auto' && !state.autoCoords) {
                         document.getElementById('status-icon').className = 'status-icon fa-solid fa-satellite-dish fa-fade status-warn';
                         document.getElementById('status-text').innerText = err.code === 1 ? "GPS BLOCKED" : "AWAITING SATELLITE";
                         document.getElementById('status-text').className = 'status-text status-warn';
-                        document.getElementById('weather-desc').innerText = err.code === 1 ? "Check browser permissions." : "Move to open sky or use Manual Targeting.";
                         document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> ${msg.toUpperCase()}`;
                     }
-                },
-                { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
+                }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
             );
         }
 
-        // TELEMETRY VECTOR PROCESSING (FIXED)
+        // TELEMETRY VECTOR PROCESSING
         async function processVectorTelemetry(position) {
             document.getElementById('gps-status').innerHTML = '<span style="color:var(--success-color)"><i class="fa-solid fa-satellite"></i> Tracking Active</span>';
 
@@ -713,34 +609,21 @@
             state.currentMotion.speedKph = speedMps !== null ? speedMps * 3.6 : 0;
             state.currentMotion.gpsHeading = heading;
 
-            // Update Max Session Speed
-            if (state.currentMotion.speedKph > state.maxSpeed) {
-                state.maxSpeed = state.currentMotion.speedKph;
-                localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
-            }
+            if (state.currentMotion.speedKph > state.maxSpeed) { state.maxSpeed = state.currentMotion.speedKph; localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString()); }
 
-            // EXPLOIT FIX: FIFO CAP APPLIED
-            // Pushes speed to array and shifts oldest, enforcing O(1) memory bound
             if (state.currentMotion.speedKph > CONFIG.movingSpeedMinKph) {
                 state.speedHistory.push(state.currentMotion.speedKph);
-                
-                // Drop oldest sample if buffer limit is hit
-                if (state.speedHistory.length > CONFIG.speedHistoryMaxSamples) {
-                    state.speedHistory.shift(); 
-                }
-                
+                if (state.speedHistory.length > CONFIG.speedHistoryMaxSamples) { state.speedHistory.shift(); }
                 localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
             }
 
             updateHUD();
-
             const now = Date.now();
 
             if (state.mode === 'auto') {
                 let triggerGridUpdate = false;
-                if (!state.autoCoords) {
-                    triggerGridUpdate = true;
-                } else {
+                if (!state.autoCoords) { triggerGridUpdate = true; } 
+                else {
                     const dist = getDistanceKm(state.autoCoords.lat, state.autoCoords.lon, state.currentMotion.lat, state.currentMotion.lon);
                     if (dist >= CONFIG.gridDistanceDeltaKm) triggerGridUpdate = true;
                     if (now - state.lastGridFetchTime > CONFIG.gridTimeDeltaMs) triggerGridUpdate = true;
@@ -752,19 +635,25 @@
                 }
             }
 
-            const validHeading = (state.currentMotion.speedKph > 5) ? state.currentMotion.gpsHeading : state.magHeading;
-            if (validHeading !== null && (now - state.lastVectorFetchTime >= CONFIG.vectorUpdateIntervalMs)) {
+            // Magnetic EMI Fix: Hard 12km/h escape velocity threshold
+            let activeHeading = null;
+            if (state.currentMotion.speedKph > 12 && state.currentMotion.gpsHeading !== null) {
+                activeHeading = state.currentMotion.gpsHeading;
+            } else if (state.magHeading !== null) {
+                activeHeading = state.magHeading;
+            }
+
+            if (activeHeading !== null && (now - state.lastVectorFetchTime >= CONFIG.vectorUpdateIntervalMs)) {
                 state.lastVectorFetchTime = now;
-                await executeVectorPrediction(validHeading);
+                await executeVectorPrediction(activeHeading);
             }
         }
 
-        // HUD DATA BINDING
         function updateHUD() {
             let activeHeading = null;
             let sensorTag = "N/A";
 
-            if (state.currentMotion.speedKph > 5 && state.currentMotion.gpsHeading !== null) {
+            if (state.currentMotion.speedKph > 12 && state.currentMotion.gpsHeading !== null) {
                 activeHeading = state.currentMotion.gpsHeading; sensorTag = "GPS";
             } else if (state.magHeading !== null) {
                 activeHeading = state.magHeading; sensorTag = "MAG";
@@ -773,10 +662,7 @@
             document.getElementById('hud-speed').innerText = state.currentMotion.speedKph.toFixed(1);
             document.getElementById('hud-max').innerText = state.maxSpeed.toFixed(1);
 
-            // Compute dynamic moving average from bounded memory stack
-            const avgVal = state.speedHistory.length > 0
-                ? (state.speedHistory.reduce((a, b) => a + b, 0) / state.speedHistory.length).toFixed(1)
-                : "0.0";
+            const avgVal = state.speedHistory.length > 0 ? (state.speedHistory.reduce((a, b) => a + b, 0) / state.speedHistory.length).toFixed(1) : "0.0";
             document.getElementById('hud-avg').innerText = avgVal;
 
             if (activeHeading !== null) {
@@ -786,69 +672,118 @@
                     document.getElementById('metric-wind').innerHTML = `${state.currentMotion.speedKph.toFixed(1)}<span style="font-size:0.7rem;">km/h (SYS)</span> ${getWindDirection(activeHeading)} <i class="fa-solid fa-arrow-up" style="transform:rotate(${activeHeading}deg); display:inline-block; margin-left:4px; color:var(--accent-teal);"></i>`;
                 }
             } else {
-                document.getElementById('hud-heading').innerText = `--°`;
-                document.getElementById('hud-compass').innerText = `N/A`;
+                document.getElementById('hud-heading').innerText = `--°`; document.getElementById('hud-compass').innerText = `N/A`;
             }
         }
 
-        // GEO-SPATIAL FORECAST
+        // HYBRID SPATIAL FUSION RADAR (OSRM + KINEMATIC CONE)
         async function executeVectorPrediction(activeHeading) {
             const projSpeed = state.currentMotion.speedKph < 10 ? 60 : state.currentMotion.speedKph;
-            const hdg = activeHeading;
+            
+            let base15 = null;
+            let base30 = null;
+            let radarMode = "[MODE: FREEROAM CONE]";
 
-            const vectors = [
-                { id: 'curr',  type: 'CURRENT',  offsetMin: 0,  heading: hdg },
-                { id: 'fwd15', type: 'AHEAD +15M', offsetMin: 15, heading: hdg },
-                { id: 'fwd30', type: 'AHEAD +30M', offsetMin: 30, heading: hdg },
-                { id: 'aft15', type: 'TAIL -15M',  offsetMin: 15, heading: (hdg + 180) % 360 }
+            // 1. Attempt OSRM Routing if Destination is Set
+            if (state.destination) {
+                try {
+                    const osrmUrl = `${CONFIG.osrmApi}${state.currentMotion.lon},${state.currentMotion.lat};${state.destination.lon},${state.destination.lat}?overview=false&steps=true`;
+                    const res = await fetch(osrmUrl);
+                    const data = await res.json();
+                    
+                    if (data.code === 'Ok' && data.routes.length > 0) {
+                        let currentDur = 0;
+                        const steps = data.routes[0].legs[0].steps;
+                        
+                        for (let step of steps) {
+                            currentDur += step.duration;
+                            if (!base15 && currentDur >= 900) {
+                                base15 = { lat: step.maneuver.location[1], lon: step.maneuver.location[0], heading: step.maneuver.bearing_after || activeHeading, dist: step.distance / 1000 };
+                            }
+                            if (!base30 && currentDur >= 1800) {
+                                base30 = { lat: step.maneuver.location[1], lon: step.maneuver.location[0], heading: step.maneuver.bearing_after || activeHeading, dist: step.distance / 1000 };
+                            }
+                        }
+                        // If route is shorter than 15/30m, cap it at destination
+                        if (!base15) base15 = { lat: state.destination.lat, lon: state.destination.lon, heading: activeHeading, dist: data.routes[0].distance / 1000 };
+                        if (!base30) base30 = { lat: state.destination.lat, lon: state.destination.lon, heading: activeHeading, dist: data.routes[0].distance / 1000 };
+                        
+                        radarMode = "[MODE: OSRM ROUTING]";
+                    }
+                } catch(e) { console.warn("OSRM Route Failed. Falling back to Kinematic Cone.", e); }
+            }
+
+            // 2. Kinematic Fallback if OSRM Failed or No Destination Set
+            if (!base15) {
+                const dist15 = (projSpeed * 0.25) / CONFIG.sinuosityFactor;
+                base15 = { ...projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, dist15, activeHeading), heading: activeHeading, dist: dist15 };
+            }
+            if (!base30) {
+                const dist30 = (projSpeed * 0.50) / CONFIG.sinuosityFactor;
+                base30 = { ...projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, dist30, activeHeading), heading: activeHeading, dist: dist30 };
+            }
+
+            document.getElementById('radar-mode').innerText = radarMode;
+            document.getElementById('radar-mode').style.color = (radarMode === "[MODE: OSRM ROUTING]") ? "var(--success-color)" : "var(--text-secondary)";
+
+            // 3. Generate Probability Cone Arrays (Center, Left 25°, Right 25°)
+            const temporalVectors = [
+                { id: 'curr',  type: 'CURRENT',    offsetMin: 0,  base: { lat: state.currentMotion.lat, lon: state.currentMotion.lon, heading: activeHeading, dist: 0 } },
+                { id: 'fwd15', type: 'AHEAD +15M', offsetMin: 15, base: base15 },
+                { id: 'fwd30', type: 'AHEAD +30M', offsetMin: 30, base: base30 }
             ];
 
-            const coords = vectors.map(v => {
-                const distKm = projSpeed * (v.offsetMin / 60);
-                v.distanceKm = distKm;
-                return projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, distKm, v.heading);
+            let allCoords = [];
+            
+            temporalVectors.forEach(tv => {
+                if (tv.offsetMin === 0) {
+                    allCoords.push({ lat: tv.base.lat, lon: tv.base.lon });
+                } else {
+                    // Generate spatial fusion cone around the target node
+                    allCoords.push({ lat: tv.base.lat, lon: tv.base.lon }); // Center Node
+                    allCoords.push(projectCoordinate(tv.base.lat, tv.base.lon, 2.0, tv.base.heading - 25)); // Left Node (2km spread)
+                    allCoords.push(projectCoordinate(tv.base.lat, tv.base.lon, 2.0, tv.base.heading + 25)); // Right Node (2km spread)
+                }
             });
 
-            const lats = coords.map(c => c.lat.toFixed(4)).join(',');
-            const lons = coords.map(c => c.lon.toFixed(4)).join(',');
+            // 4. Multi-Node API Request
+            const lats = allCoords.map(c => c.lat.toFixed(4)).join(',');
+            const lons = allCoords.map(c => c.lon.toFixed(4)).join(',');
             const url = `${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=precipitation&timezone=auto`;
 
             try {
                 const res = await fetch(url);
                 let data = await res.json();
-                if (!Array.isArray(data)) data = [data];
+                if (!Array.isArray(data)) data = [data]; 
+
                 const container = document.getElementById('vector-container');
                 container.innerHTML = '';
 
-                vectors.forEach((v, i) => {
-                    const rainMm = data[i].current.precipitation;
-                    let statusHtml = '';
-                    let borderClass = 'border-green';
-
-                    if (rainMm > 7.5) {
-                        borderClass = 'border-red';
-                        statusHtml = `<span class="status-alert"><i class="fa-solid fa-cloud-showers-water"></i> Heavy Rain</span>`;
-                    } else if (rainMm > 2.5) {
-                        borderClass = 'border-orange';
-                        statusHtml = `<span class="status-warn" style="color:var(--accent-orange)"><i class="fa-solid fa-cloud-showers-heavy"></i> Mod. Rain</span>`;
-                    } else if (rainMm > 0.1) {
-                        borderClass = 'border-blue';
-                        statusHtml = `<span class="status-warn" style="color:var(--accent-blue)"><i class="fa-solid fa-cloud-rain"></i> Light Rain</span>`;
-                    } else {
-                        borderClass = v.id.startsWith('aft') ? 'border-dim' : 'border-green';
-                        statusHtml = `<span class="status-ok" style="${v.id.startsWith('aft') ? 'color:var(--text-secondary)' : ''}"><i class="fa-solid fa-sun"></i> Clear</span>`;
+                // 5. Extract Maximum Values from the Cone
+                let dataIndex = 0;
+                temporalVectors.forEach(tv => {
+                    let maxRainMm = 0;
+                    const pointsToCheck = tv.offsetMin === 0 ? 1 : 3;
+                    
+                    for (let i = 0; i < pointsToCheck; i++) {
+                        if (data[dataIndex] && data[dataIndex].current) {
+                            const rain = data[dataIndex].current.precipitation;
+                            if (rain > maxRainMm) maxRainMm = rain;
+                        }
+                        dataIndex++;
                     }
 
-                    if (v.id.startsWith('fwd') && rainMm > 2.5 && data[0].current.precipitation <= 2.5) {
-                        statusHtml = `<span class="status-alert"><i class="fa-solid fa-triangle-exclamation"></i> INTERCEPT ETA: ${v.offsetMin}M</span>`;
-                        borderClass = 'border-red';
-                    }
+                    let statusHtml = ''; let borderClass = 'border-green';
+                    if (maxRainMm > 7.5) { borderClass = 'border-red'; statusHtml = `<span class="status-alert"><i class="fa-solid fa-cloud-showers-water"></i> Heavy Rain</span>`; } 
+                    else if (maxRainMm > 2.5) { borderClass = 'border-orange'; statusHtml = `<span class="status-warn" style="color:var(--accent-orange)"><i class="fa-solid fa-cloud-showers-heavy"></i> Mod. Rain</span>`; } 
+                    else if (maxRainMm > 0.1) { borderClass = 'border-blue'; statusHtml = `<span class="status-warn" style="color:var(--accent-blue)"><i class="fa-solid fa-cloud-rain"></i> Light Rain</span>`; } 
+                    else { borderClass = 'border-green'; statusHtml = `<span class="status-ok"><i class="fa-solid fa-sun"></i> Clear</span>`; }
 
                     container.insertAdjacentHTML('beforeend', `
                         <div class="vector-row ${borderClass}">
-                            <div class="vector-time" style="color:${v.id.startsWith('aft') ? 'var(--text-secondary)' : 'var(--text-primary)'}">${v.type.split(' ')[1] || 'NOW'}</div>
+                            <div class="vector-time" style="color:var(--text-primary)">${tv.type.split(' ')[1] || 'NOW'}</div>
                             <div class="vector-status">${statusHtml}</div>
-                            <div class="vector-data">${rainMm.toFixed(1)} mm<br><span style="font-size:0.75rem">${v.distanceKm > 0 ? v.distanceKm.toFixed(1) + 'km' : 'Origin'}</span></div>
+                            <div class="vector-data">${maxRainMm.toFixed(1)} mm<br><span style="font-size:0.75rem">${tv.base.dist > 0 ? tv.base.dist.toFixed(1) + 'km' : 'Origin'}</span></div>
                         </div>`);
                 });
             } catch(err) { console.error(`Vector API Error: ${err.message}`); }
@@ -856,47 +791,20 @@
 
         // MEMORY PURGE 
         function resetTrip() {
-            state.maxSpeed = 0;
-            state.speedHistory = [];
-            localStorage.removeItem('ms_maxSpeed');
-            localStorage.removeItem('ms_speedHistory');
-            updateHUD();
-        }
-
-        // LOCATIONAL CONTROL Overrides
-        function setManualLocation() {
-            const lat = parseFloat(document.getElementById('manual-lat').value);
-            const lon = parseFloat(document.getElementById('manual-lon').value);
-            if (lat && lon) {
-                state.mode = 'manual'; state.coords = { lat, lon };
-                localStorage.setItem('ms_mode', 'manual');
-                localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-                fetchData(lat, lon, false);
-            }
+            state.maxSpeed = 0; state.speedHistory = [];
+            localStorage.removeItem('ms_maxSpeed'); localStorage.removeItem('ms_speedHistory'); updateHUD();
         }
 
         function resetToAuto() {
-            localStorage.removeItem('ms_mode');
-            localStorage.removeItem('ms_maxSpeed');
-            localStorage.removeItem('ms_speedHistory');
-            state.mode = 'auto';
-            state.autoCoords = null;
-            state.lastGridFetchTime = 0;
-            state.maxSpeed = 0;
-            state.speedHistory = [];
-            document.getElementById('search-city').value = "";
-            document.getElementById('search-country').value = "";
+            localStorage.removeItem('ms_mode'); localStorage.removeItem('ms_maxSpeed'); localStorage.removeItem('ms_speedHistory');
+            state.mode = 'auto'; state.autoCoords = null; state.lastGridFetchTime = 0; state.maxSpeed = 0; state.speedHistory = [];
+            const searchDestEl = document.getElementById('search-dest');
+            if(searchDestEl) searchDestEl.value = ""; 
+            clearDestination(); 
             updateHUD();
 
             if (state.currentMotion && state.currentMotion.lat !== 0) {
-                processVectorTelemetry({
-                    coords: {
-                        latitude: state.currentMotion.lat,
-                        longitude: state.currentMotion.lon,
-                        speed: state.currentMotion.speedKph / 3.6,
-                        heading: state.currentMotion.gpsHeading
-                    }
-                });
+                processVectorTelemetry({ coords: { latitude: state.currentMotion.lat, longitude: state.currentMotion.lon, speed: state.currentMotion.speedKph / 3.6, heading: state.currentMotion.gpsHeading } });
             } else {
                 document.getElementById('status-icon').className = 'status-icon fa-solid fa-satellite-dish fa-fade status-warn';
                 document.getElementById('status-text').innerText = "ACQUIRING SATELLITE";
@@ -907,20 +815,10 @@
 
         // SYSTEM START
         window.onload = () => {
-            requestWakeLock();
-            initTracking();
-            initSensorFusion();
-
+            requestWakeLock(); initTracking(); initSensorFusion();
+            
             document.addEventListener('touchstart', unlockStrictSensors, { once: true });
             document.addEventListener('click', unlockStrictSensors, { once: true });
-
-            if (state.mode === 'manual' && state.coords.lat) {
-                fetchData(state.coords.lat, state.coords.lon, false);
-            }
-
-            setInterval(() => {
-                if (state.mode === 'manual') fetchData(state.coords.lat, state.coords.lon, false);
-            }, 60000);
         };
     </script>
 </body>
