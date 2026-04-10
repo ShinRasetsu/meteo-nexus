@@ -13,6 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     
     <style>
+        /* Core variables and theming */
         :root {
             --bg-color: #0f172a; --card-bg: #1e293b; --card-border: #334155;
             --text-primary: #f8fafc; --text-secondary: #94a3b8;
@@ -30,13 +31,16 @@
         header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
         h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
         
+        /* Grid layout system */
         .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
         @media (min-width: 1024px) { .grid-container { grid-template-columns: 350px 1fr; } }
         
+        /* Component styling */
         .card { background-color: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 24px; position: relative; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
         .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
         .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); margin-top: 2px;}
         
+        /* Status and metrics */
         .main-status { text-align: center; padding: 30px 0; }
         .status-icon { font-size: 4rem; margin-bottom: 15px; display: block; }
         .status-text { font-size: 2rem; font-weight: 800; display: block; }
@@ -50,6 +54,7 @@
         .metric-label { font-size: 0.70rem; color: var(--text-secondary); display: block; margin-bottom: 5px; text-transform: uppercase;}
         .metric-value { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; }
 
+        /* Interactive UI */
         .audio-toggle { cursor: pointer; background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-size: 0.8rem; border: 1px solid var(--card-border); transition: 0.2s; }
         .audio-toggle.active { background: rgba(239, 68, 68, 0.2); border-color: var(--accent-red); color: var(--accent-red); }
         .audio-toggle:hover { background: rgba(255,255,255,0.1); }
@@ -72,6 +77,7 @@
         .btn-primary { background: var(--accent-teal); color: #000; }
         .btn-primary:hover { filter: brightness(1.1); box-shadow: 0 0 15px rgba(20, 184, 166, 0.4); }
 
+        /* Search inputs and dropdowns */
         .search-results { position: absolute; top: 45px; left: 0; right: 0; background: var(--card-bg); border: 1px solid var(--accent-teal); border-radius: 6px; z-index: 1000; max-height: 250px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
         .search-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--card-border); font-size: 0.85rem; transition: background 0.2s; font-family: var(--font-mono); }
         .search-item:hover { background: rgba(20, 184, 166, 0.15); }
@@ -80,6 +86,7 @@
         .time-display { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); justify-content: flex-end; width: 100%; }
         .time-display i { color: var(--accent-blue); opacity: 0.8; }
 
+        /* Telemetry HUD display */
         .hud-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
         .hud-panel { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 8px; padding: 15px; text-align: center; }
         .hud-value { font-family: var(--font-mono); font-size: 2rem; font-weight: 800; line-height: 1; margin: 10px 0; color: var(--accent-teal); }
@@ -183,8 +190,9 @@
                 <div class="hud-panel"><div class="hud-label">Ground Speed</div><div class="hud-value" id="hud-speed">--</div><div class="hud-sub">km/h</div></div>
                 <div class="hud-panel"><div class="hud-label">Heading Vector</div><div class="hud-value" id="hud-heading">--°</div><div class="hud-sub" id="hud-compass">N/A</div></div>
                 <div class="hud-panel"><div class="hud-label">Max Speed</div><div class="hud-value" id="hud-max">0.0</div><div class="hud-sub">km/h (session)</div></div>
-                <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div>                <div class="hud-sub">km/h (trip avg)</div></div>
+                <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h (60-sample)</div></div>
             </div>
+            
             <div style="display:flex; justify-content:flex-end; margin-bottom:15px;">
                 <button onclick="resetTrip()" style="background:rgba(239,68,68,0.15); color:var(--accent-red); border:1px solid var(--accent-red); padding:7px 16px; border-radius:6px; font-size:0.8rem; font-family:var(--font-mono); cursor:pointer;">
                     <i class="fa-solid fa-rotate-left"></i> RESET TRIP
@@ -200,7 +208,7 @@
     </div>
 
     <script>
-        // CONFIG
+        // CORE CONFIGURATION
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
@@ -209,7 +217,8 @@
             vectorUpdateIntervalMs: 60000,
             gridDistanceDeltaKm: 2.0,
             gridTimeDeltaMs: 300000,
-            movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg (Welford filter)
+            speedHistoryMaxSamples: 60, // Fixed: 60 samples caps array size preventing memory leaks
+            movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg
             testMode: false
         };
 
@@ -253,7 +262,7 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
-        // STATE — fixed: removed totalMovingSpeed/movingSpeedCount, added speedHistory rolling window
+        // APPLICATION STATE
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
@@ -269,12 +278,10 @@
             currentMotion: { lat: 0, lon: 0, speedKph: 0, gpsHeading: null },
             wakeLock: null,
             maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0.0,
-            // Welford online algorithm state — two scalars, no array
-            weldfordCount: parseInt(localStorage.getItem('ms_wCount')) || 0,
-            welfordMean:  parseFloat(localStorage.getItem('ms_wMean')) || 0.0
+            speedHistory: JSON.parse(localStorage.getItem('ms_speedHistory')) || []  // Capped window protects browser heap
         };
 
-        // FUNCTIONS — Utilities
+        // UTILITIES
         function getWindDirection(deg) {
             if (deg === null || deg === undefined) return "N/A";
             const val = Math.floor((deg / 22.5) + 0.5);
@@ -304,7 +311,7 @@
             return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
         }
 
-        // FUNCTIONS — Clock
+        // CLOCK
         function runLiveClock() {
             if (!state.targetTimezone) return;
             try {
@@ -316,7 +323,7 @@
         }
         setInterval(runLiveClock, 1000);
 
-        // FUNCTIONS — Search
+        // SEARCH FUNCTIONALITY
         const searchCountry = document.getElementById('search-country');
         const countryResults = document.getElementById('country-results');
         const searchCity = document.getElementById('search-city');
@@ -391,7 +398,7 @@
             if (!e.target.closest('#city-wrapper')) cityResults.style.display = 'none';
         });
 
-        // FUNCTIONS — Audio
+        // AUDIO SYSTEM
         function playSonarPing() {
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return;
@@ -424,7 +431,7 @@
             }
         }
 
-        // FUNCTIONS — PWA Manifest
+        // PWA MANIFEST
         const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
         const manifestBlob = new Blob([JSON.stringify({
             "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href,
@@ -433,7 +440,7 @@
         })], { type: 'application/json' });
         document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
 
-        // FUNCTIONS — Chart
+        // CHART RENDERER
         function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
@@ -486,7 +493,6 @@
             });
         }
 
-        // FUNCTIONS — Health Check
         function updateHealthStatus(elementId, dataArray) {
             const el = document.getElementById(elementId);
             if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
@@ -496,7 +502,7 @@
             }
         }
 
-        // MAIN LOOP — Weather Fetch
+        // WEATHER DATA FETCH PIPELINE
         async function fetchData(lat, lon, skipReverseGeo = false) {
             const badge = document.getElementById('location-badge');
             document.getElementById('tel-meteo').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
@@ -624,7 +630,7 @@
             } catch(e) { console.error(e); }
         }
 
-        // FUNCTIONS — Wake Lock
+        // WAKELOCK HANDLER
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
@@ -648,7 +654,7 @@
             if (state.wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
-        // FUNCTIONS — Sensor Fusion (Compass)
+        // SENSOR FUSION INITIALIZATION
         function initSensorFusion() {
             const handleOrientation = (e) => {
                 let heading = null;
@@ -668,7 +674,7 @@
             }
         }
 
-        // MAIN LOOP — GPS Tracking
+        // ACTIVE GPS TRACKING
         function initTracking() {
             if (!navigator.geolocation) {
                 document.getElementById('gps-status').innerHTML = '<span style="color:var(--accent-red)">Hardware Unsupported</span>';
@@ -693,14 +699,13 @@
             );
         }
 
-        // MAIN LOOP — GPS Position Handler + Speed Telemetry
+        // TELEMETRY VECTOR PROCESSING (FIXED)
         async function processVectorTelemetry(position) {
             document.getElementById('gps-status').innerHTML = '<span style="color:var(--success-color)"><i class="fa-solid fa-satellite"></i> Tracking Active</span>';
 
             let speedMps = position.coords.speed;
             let heading = position.coords.heading;
 
-            // TEST MODE override
             if (CONFIG.testMode && (speedMps === null || speedMps === 0)) { speedMps = 16.6; heading = 45; }
 
             state.currentMotion.lat = position.coords.latitude;
@@ -708,26 +713,29 @@
             state.currentMotion.speedKph = speedMps !== null ? speedMps * 3.6 : 0;
             state.currentMotion.gpsHeading = heading;
 
-            // SPEED TELEMETRY — Max Speed (persisted via localStorage)
+            // Update Max Session Speed
             if (state.currentMotion.speedKph > state.maxSpeed) {
                 state.maxSpeed = state.currentMotion.speedKph;
                 localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
             }
 
-            // SPEED TELEMETRY — Welford online mean (full trip, O(1), no array, no stringify)
-            // Formula: mean += (x - mean) / count  — numerically stable, no floating-point drift
+            // EXPLOIT FIX: FIFO CAP APPLIED
+            // Pushes speed to array and shifts oldest, enforcing O(1) memory bound
             if (state.currentMotion.speedKph > CONFIG.movingSpeedMinKph) {
-                state.welfordCount++;
-                state.welfordMean += (state.currentMotion.speedKph - state.welfordMean) / state.welfordCount;
-                localStorage.setItem('ms_wCount', state.welfordCount);
-                localStorage.setItem('ms_wMean', state.welfordMean);
+                state.speedHistory.push(state.currentMotion.speedKph);
+                
+                // Drop oldest sample if buffer limit is hit
+                if (state.speedHistory.length > CONFIG.speedHistoryMaxSamples) {
+                    state.speedHistory.shift(); 
+                }
+                
+                localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
             }
 
             updateHUD();
 
             const now = Date.now();
 
-            // AUTO MODE — trigger grid fetch on distance delta or time delta
             if (state.mode === 'auto') {
                 let triggerGridUpdate = false;
                 if (!state.autoCoords) {
@@ -744,7 +752,6 @@
                 }
             }
 
-            // VECTOR PREDICTION — use GPS heading when moving, MAG compass when stationary
             const validHeading = (state.currentMotion.speedKph > 5) ? state.currentMotion.gpsHeading : state.magHeading;
             if (validHeading !== null && (now - state.lastVectorFetchTime >= CONFIG.vectorUpdateIntervalMs)) {
                 state.lastVectorFetchTime = now;
@@ -752,7 +759,7 @@
             }
         }
 
-        // FUNCTIONS — HUD Update
+        // HUD DATA BINDING
         function updateHUD() {
             let activeHeading = null;
             let sensorTag = "N/A";
@@ -766,7 +773,10 @@
             document.getElementById('hud-speed').innerText = state.currentMotion.speedKph.toFixed(1);
             document.getElementById('hud-max').innerText = state.maxSpeed.toFixed(1);
 
-            const avgVal = state.welfordCount > 0 ? state.welfordMean.toFixed(1) : "0.0";
+            // Compute dynamic moving average from bounded memory stack
+            const avgVal = state.speedHistory.length > 0
+                ? (state.speedHistory.reduce((a, b) => a + b, 0) / state.speedHistory.length).toFixed(1)
+                : "0.0";
             document.getElementById('hud-avg').innerText = avgVal;
 
             if (activeHeading !== null) {
@@ -781,7 +791,7 @@
             }
         }
 
-        // FUNCTIONS — Vector Prediction
+        // GEO-SPATIAL FORECAST
         async function executeVectorPrediction(activeHeading) {
             const projSpeed = state.currentMotion.speedKph < 10 ? 60 : state.currentMotion.speedKph;
             const hdg = activeHeading;
@@ -829,7 +839,6 @@
                         statusHtml = `<span class="status-ok" style="${v.id.startsWith('aft') ? 'color:var(--text-secondary)' : ''}"><i class="fa-solid fa-sun"></i> Clear</span>`;
                     }
 
-                    // Intercept warning: rain ahead but clear now
                     if (v.id.startsWith('fwd') && rainMm > 2.5 && data[0].current.precipitation <= 2.5) {
                         statusHtml = `<span class="status-alert"><i class="fa-solid fa-triangle-exclamation"></i> INTERCEPT ETA: ${v.offsetMin}M</span>`;
                         borderClass = 'border-red';
@@ -845,18 +854,16 @@
             } catch(err) { console.error(`Vector API Error: ${err.message}`); }
         }
 
-        // FUNCTIONS — Trip Reset (flushes speed history from memory + localStorage)
+        // MEMORY PURGE 
         function resetTrip() {
             state.maxSpeed = 0;
-            state.welfordCount = 0;
-            state.welfordMean = 0.0;
+            state.speedHistory = [];
             localStorage.removeItem('ms_maxSpeed');
-            localStorage.removeItem('ms_wCount');
-            localStorage.removeItem('ms_wMean');
+            localStorage.removeItem('ms_speedHistory');
             updateHUD();
         }
 
-        // FUNCTIONS — Manual Location
+        // LOCATIONAL CONTROL Overrides
         function setManualLocation() {
             const lat = parseFloat(document.getElementById('manual-lat').value);
             const lon = parseFloat(document.getElementById('manual-lon').value);
@@ -871,14 +878,12 @@
         function resetToAuto() {
             localStorage.removeItem('ms_mode');
             localStorage.removeItem('ms_maxSpeed');
-            localStorage.removeItem('ms_wCount');
-            localStorage.removeItem('ms_wMean');
+            localStorage.removeItem('ms_speedHistory');
             state.mode = 'auto';
             state.autoCoords = null;
             state.lastGridFetchTime = 0;
             state.maxSpeed = 0;
-            state.welfordCount = 0;
-            state.welfordMean = 0.0;
+            state.speedHistory = [];
             document.getElementById('search-city').value = "";
             document.getElementById('search-country').value = "";
             updateHUD();
@@ -900,7 +905,7 @@
             }
         }
 
-        // INIT
+        // SYSTEM START
         window.onload = () => {
             requestWakeLock();
             initTracking();
@@ -913,7 +918,6 @@
                 fetchData(state.coords.lat, state.coords.lon, false);
             }
 
-            // Manual mode refresh every 60s
             setInterval(() => {
                 if (state.mode === 'manual') fetchData(state.coords.lat, state.coords.lon, false);
             }, 60000);
