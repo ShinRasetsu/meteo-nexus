@@ -209,7 +209,6 @@
             vectorUpdateIntervalMs: 60000,
             gridDistanceDeltaKm: 2.0,
             gridTimeDeltaMs: 300000,
-            speedHistoryMaxSamples: 60, // rolling window size
             movingSpeedMinKph: 3.0,     // exclude stops/traffic from avg
             testMode: false
         };
@@ -713,13 +712,9 @@
                 localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
             }
 
-            // SPEED TELEMETRY — Rolling 60-sample moving average (only when actually moving)
-            // Excludes samples <= CONFIG.movingSpeedMinKph to filter stops and slow traffic
+            // Accumulate all samples — no FIFO cap. Array grows until resetTrip() is called.
             if (state.currentMotion.speedKph > CONFIG.movingSpeedMinKph) {
                 state.speedHistory.push(state.currentMotion.speedKph);
-                if (state.speedHistory.length > CONFIG.speedHistoryMaxSamples) {
-                    state.speedHistory.shift(); // drop oldest sample
-                }
                 localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
             }
 
