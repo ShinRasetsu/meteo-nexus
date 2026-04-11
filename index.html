@@ -391,19 +391,34 @@
         if (error) setMsg('login-msg', `<i class="fa-solid fa-xmark"></i> ${error.message}`, 'err');
     }
 
-    async function doRegister() {
-        const email = document.getElementById('reg-email').value.trim();
-        const pass  = document.getElementById('reg-pass').value;
-        const pass2 = document.getElementById('reg-pass2').value;
-        if (!email || !pass || !pass2) { setMsg('reg-msg', '⚠ Fill in all fields.', 'err'); return; }
-        if (pass !== pass2)  { setMsg('reg-msg', '⚠ Passwords do not match.', 'err'); return; }
-        if (pass.length < 6) { setMsg('reg-msg', '⚠ Min. 6 characters required.', 'err'); return; }
-        setLoading('btn-register', true);
-        const { error } = await sb.auth.signUp({ email, password: pass });
-        setLoading('btn-register', false);
-        if (error) setMsg('reg-msg', `<i class="fa-solid fa-xmark"></i> ${error.message}`, 'err');
-        else setMsg('reg-msg', '<i class="fa-solid fa-envelope"></i> Check your email to confirm registration.', 'ok');
+async function doRegister() {
+    const email = document.getElementById('reg-email').value.trim();
+    const pass  = document.getElementById('reg-pass').value;
+    const pass2 = document.getElementById('reg-pass2').value;
+    
+    if (!email || !pass || !pass2) { setMsg('reg-msg', '⚠ Fill in all fields.', 'err'); return; }
+    if (pass !== pass2)  { setMsg('reg-msg', '⚠ Passwords do not match.', 'err'); return; }
+    if (pass.length < 6) { setMsg('reg-msg', '⚠ Min. 6 characters required.', 'err'); return; }
+    
+    setLoading('btn-register', true);
+    
+    // Inject the explicit redirect URL into the signUp payload
+    const { error } = await sb.auth.signUp({ 
+        email: email, 
+        password: pass,
+        options: {
+            emailRedirectTo: PROD_URL
+        }
+    });
+    
+    setLoading('btn-register', false);
+    
+    if (error) {
+        setMsg('reg-msg', `<i class="fa-solid fa-xmark"></i> ${error.message}`, 'err');
+    } else {
+        setMsg('reg-msg', '<i class="fa-solid fa-envelope"></i> Check your email to confirm registration.', 'ok');
     }
+}
 
     async function doGoogleLogin() {
         const { error } = await sb.auth.signInWithOAuth({
