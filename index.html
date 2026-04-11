@@ -11,7 +11,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
@@ -178,7 +177,6 @@
 </head>
 <body>
 
-    <!-- ===================== AUTH OVERLAY ===================== -->
     <div id="auth-overlay">
         <div class="auth-box">
             <div class="auth-logo">
@@ -191,33 +189,31 @@
                 <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
             </div>
 
-            <!-- LOGIN FORM -->
-<div id="form-login">
-    <div class="auth-field">
-        <label>Email</label>
-        <input type="email" id="login-email" placeholder="operator@domain.com" autocomplete="username">
-    </div>
-    <div class="auth-field">
-        <label>Password</label>
-        <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
-    </div>
-    
-    <div style="text-align: right; margin-top: -10px; margin-bottom: 12px;">
-        <span onclick="doResetPassword()" style="color: var(--accent-teal); font-size: 0.75rem; cursor: pointer; font-family: var(--font-mono); font-weight: 600;">[ INIT / RESET PASSWORD ]</span>
-    </div>
+            <div id="form-login">
+                <div class="auth-field">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="operator@domain.com" autocomplete="username">
+                </div>
+                <div class="auth-field">
+                    <label>Password</label>
+                    <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+                </div>
+                
+                <div style="text-align: right; margin-top: -10px; margin-bottom: 12px;">
+                    <span onclick="doResetPassword()" style="color: var(--accent-teal); font-size: 0.75rem; cursor: pointer; font-family: var(--font-mono); font-weight: 600;">[ INIT / RESET PASSWORD ]</span>
+                </div>
 
-    <button class="btn-auth btn-email" id="btn-login" onclick="doLogin()">
-        <i class="fa-solid fa-right-to-bracket"></i> LOGIN
-    </button>
-    <div class="auth-divider">— or —</div>
-    <button class="btn-auth btn-google" onclick="doGoogleLogin()">
-        <svg class="google-logo" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
-        Continue with Google
-    </button>
-    <div id="login-msg" class="auth-msg"></div>
-</div>
+                <button class="btn-auth btn-email" id="btn-login" onclick="doLogin()">
+                    <i class="fa-solid fa-right-to-bracket"></i> LOGIN
+                </button>
+                <div class="auth-divider">— or —</div>
+                <button class="btn-auth btn-google" onclick="doGoogleLogin()">
+                    <svg class="google-logo" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
+                    Continue with Google
+                </button>
+                <div id="login-msg" class="auth-msg"></div>
+            </div>
 
-            <!-- REGISTER FORM -->
             <div id="form-register" style="display:none">
                 <div class="auth-field">
                     <label>Email</label>
@@ -244,7 +240,6 @@
         </div>
     </div>
 
-    <!-- ===================== DASHBOARD ===================== -->
     <div class="dashboard-wrapper" id="app" style="display:none">
         <header>
             <div>
@@ -358,6 +353,9 @@
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15aGNuYnF6YWZ5Z3FuZnh5a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzMwMDMsImV4cCI6MjA5MTQwOTAwM30.UhE9uQ3bkw3b1HLoHVB1uQilysYzbcXyYlIwmxTl1G0';
     const { createClient } = supabase;
     const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    
+    // Deployment target enforced to prevent localhost rollback
+    const PROD_URL = 'https://shinrasetsu.github.io/meteo-nexus/';
 
     // ===================== AUTH UI =====================
     function switchTab(tab) {
@@ -391,7 +389,6 @@
         const { error } = await sb.auth.signInWithPassword({ email, password: pass });
         setLoading('btn-login', false);
         if (error) setMsg('login-msg', `<i class="fa-solid fa-xmark"></i> ${error.message}`, 'err');
-        // success → onAuthStateChange fires → showApp()
     }
 
     async function doRegister() {
@@ -411,18 +408,56 @@
     async function doGoogleLogin() {
         const { error } = await sb.auth.signInWithOAuth({
             provider: 'google',
-            options: { redirectTo: window.location.href }
+            options: { redirectTo: PROD_URL }
         });
         if (error) alert('Google OAuth error: ' + error.message);
+    }
+    
+    async function doResetPassword() {
+        const emailInput = document.getElementById('login-email').value.trim();
+        if (!emailInput) { 
+            setMsg('login-msg', 'ERR: Target email required to initialize password.', 'err'); 
+            return; 
+        }
+
+        const { data, error } = await sb.auth.resetPasswordForEmail(emailInput, {
+            redirectTo: PROD_URL
+        });
+
+        if (error) {
+            setMsg('login-msg', "ERR: " + error.message, 'err');
+        } else {
+            setMsg('login-msg', "SYS: Recovery link dispatched to operator email.", 'ok');
+        }
     }
 
     async function doLogout() {
         await sb.auth.signOut();
-        // onAuthStateChange fires → showAuth()
     }
 
     // ===================== SESSION GATE =====================
-    sb.auth.onAuthStateChange((event, session) => {
+    // Process on initial DOM load
+    sb.auth.getSession().then(({ data: { session } }) => {
+        if (session && session.user) showApp(session.user);
+        else showAuth();
+    });
+
+    // Intercept event shifts
+    sb.auth.onAuthStateChange(async (event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            const newPassword = prompt("SYS: Enter new password for " + session.user.email);
+            if (newPassword && newPassword.length >= 6) {
+                const { error } = await sb.auth.updateUser({ password: newPassword });
+                if (error) {
+                    alert("ERR Updating Password: " + error.message);
+                } else {
+                    alert("SYS: Password successfully initialized. You may now login via Email/Password.");
+                }
+            } else {
+                alert("ERR: Password update aborted or insufficient length (Min. 6).");
+            }
+        }
+        
         if (session && session.user) showApp(session.user);
         else showAuth();
     });
@@ -514,11 +549,11 @@
 
     // ===================== STATE =====================
     let state = {
-        mode:        localStorage.getItem('ms_mode') || 'auto',
-        coords:      JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
-        autoCoords:  null,
+        mode:          localStorage.getItem('ms_mode') || 'auto',
+        coords:        JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
+        autoCoords:    null,
         targetTimezone: null,
-        chart:       null,
+        chart:         null,
         audioEnabled: false,
         lastPing:    0,
         watchId:     null,
