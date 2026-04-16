@@ -8,13 +8,13 @@
     <meta name="theme-color" content="#000000">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ===================== HUD VARIABLES ===================== */
+        /* ===================== TACTICAL HUD VARIABLES ===================== */
         :root {
-            --bg-base: #020617;        
-            --bg-panel: #0f172a;       
+            --bg-base: #020617;        /* OLED Near-Black */
+            --bg-panel: #0f172a;       /* Dark Slate */
             --bg-inset: #000000;
             --border-dim: #334155;
             --border-glow: #00e5ff;
@@ -22,11 +22,11 @@
             --txt-main: #f8fafc;
             --txt-muted: #64748b;
             
-            --sys-cyan: #00e5ff;       
-            --sys-green: #00e676;      
-            --sys-amber: #ffea00;      
-            --sys-red: #ff1744;        
-            --sys-magenta: #d500f9;    
+            --sys-cyan: #00e5ff;       /* Nominal / Speed */
+            --sys-green: #00e676;      /* Success / GPS Lock */
+            --sys-amber: #ffea00;      /* Warning / Temp */
+            --sys-red: #ff1744;        /* Alert / Rain */
+            --sys-magenta: #d500f9;    /* UV / Radiation */
 
             --font-ui: 'Chakra Petch', sans-serif;
             --font-data: 'JetBrains Mono', monospace;
@@ -41,70 +41,54 @@
             margin: 0; padding: 12px;
             min-height: 100vh;
             overflow-x: hidden;
-            text-transform: uppercase; 
+            text-transform: uppercase; /* HUD aesthetic */
         }
 
-        /* ===================== LEGACY AUTHENTICATION TERMINAL ===================== */
+        /* ===================== AUTHENTICATION TERMINAL ===================== */
         #auth-overlay {
-            position: fixed; inset: 0; background: rgba(10,15,30,0.97);
+            position: fixed; inset: 0; background: rgba(2,6,23,0.95);
+            backdrop-filter: blur(8px);
             display: flex; align-items: center; justify-content: center;
-            z-index: 9999; padding: 20px; text-transform: none; /* Override HUD global text-transform */
+            z-index: 9999; padding: 20px;
         }
         .auth-box {
-            background: #111827; border: 1px solid #1e3a5f;
-            border-radius: 20px; padding: 40px 36px; width: 100%; max-width: 420px;
-            box-shadow: 0 0 60px rgba(20,184,166,0.08), 0 25px 50px -12px rgba(0,0,0,0.8);
-            font-family: 'Inter', sans-serif;
-            color: #f0f6ff;
+            background: var(--bg-inset);
+            border: 2px solid var(--border-glow);
+            border-radius: 4px; padding: 40px; width: 100%; max-width: 460px;
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.15), inset 0 0 10px rgba(0, 229, 255, 0.1);
         }
-        .auth-logo { text-align: center; margin-bottom: 28px; }
-        .auth-logo h1 { font-size: 1.6rem; margin: 0 0 6px; font-weight: 800; color: #f0f6ff; font-family: 'Inter', sans-serif; }
-        .auth-logo p { color: #7a90a8; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin: 0; }
+        .auth-logo h1 { font-family: var(--font-data); font-size: 2rem; color: var(--sys-cyan); text-align: center; margin-bottom: 5px; }
+        .auth-logo p { font-size: 0.8rem; color: var(--txt-muted); text-align: center; margin-bottom: 30px; letter-spacing: 2px; }
         
-        .auth-tabs { display: flex; margin-bottom: 28px; border-radius: 8px; overflow: hidden; border: 1px solid #1e2d45; }
+        .auth-tabs { display: flex; border: 1px solid var(--border-dim); margin-bottom: 20px; }
         .auth-tab {
-            flex: 1; padding: 10px; text-align: center; cursor: pointer;
-            font-size: 0.85rem; font-weight: 600; background: transparent;
-            color: #7a90a8; border: none; transition: 0.2s; font-family: 'Inter', sans-serif; text-transform: uppercase;
+            flex: 1; padding: 12px; background: transparent; color: var(--txt-muted);
+            border: none; font-family: var(--font-data); font-weight: 700; cursor: pointer;
+            transition: 0.2s;
         }
-        .auth-tab.active { background: #14b8a6; color: #000; }
+        .auth-tab.active { background: var(--sys-cyan); color: #000; }
         
-        .auth-field { margin-bottom: 16px; text-align: left; }
-        .auth-field label { display: block; font-size: 0.78rem; color: #7a90a8; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
+        .auth-field { margin-bottom: 20px; }
+        .auth-field label { display: block; color: var(--sys-cyan); font-size: 0.75rem; margin-bottom: 8px; font-weight: 700; letter-spacing: 1px;}
         .auth-field input {
-            width: 100%; padding: 11px 14px; background: rgba(0,0,0,0.35);
-            border: 1px solid #1e2d45; border-radius: 8px;
-            color: #f0f6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; transition: border-color 0.2s;
+            width: 100%; padding: 14px; background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border-dim); color: var(--txt-main);
+            font-family: var(--font-data); font-size: 1rem; border-radius: 2px;
         }
-        .auth-field input:focus { outline: none; border-color: #14b8a6; box-shadow: 0 0 0 3px rgba(20,184,166,0.15); }
+        .auth-field input:focus { outline: none; border-color: var(--sys-cyan); background: rgba(0,229,255,0.05); }
         
         .btn-auth {
-            width: 100%; padding: 12px; border: none; border-radius: 8px;
-            font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: 0.2s;
-            font-family: 'Inter', sans-serif; margin-bottom: 12px; position: relative; overflow: hidden;
+            width: 100%; padding: 16px; border: none; font-family: var(--font-data); font-weight: 800;
+            font-size: 1rem; cursor: pointer; border-radius: 2px; margin-bottom: 12px;
+            letter-spacing: 1px; transition: 0.2s;
         }
-        .btn-email { background: #14b8a6; color: #000; }
-        .btn-email:hover { filter: brightness(1.1); box-shadow: 0 0 24px rgba(20,184,166,0.4); }
-        .btn-google {
-            background: rgba(255,255,255,0.05); color: #f0f6ff;
-            border: 1px solid #1e2d45; display: flex; align-items: center; justify-content: center; gap: 10px;
-        }
-        .btn-google:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+        .btn-email { background: var(--sys-cyan); color: #000; }
+        .btn-email:hover { box-shadow: 0 0 15px var(--sys-cyan); }
+        .btn-google { background: transparent; border: 1px solid var(--border-dim); color: var(--txt-main); }
         
-        .auth-divider { text-align: center; color: #7a90a8; font-size: 0.75rem; margin: 4px 0 12px; font-family: 'JetBrains Mono', monospace; }
-        .auth-msg { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; text-align: center; min-height: 20px; margin-top: 8px; }
-        .auth-msg.err { color: #ef4444; }
-        .auth-msg.ok  { color: #22c55e; }
-        .google-logo { width: 18px; height: 18px; }
-
-        .ripple-host { position: relative; overflow: hidden; }
-        .ripple-host .ripple-fx {
-            position: absolute; border-radius: 50%;
-            background: rgba(255,255,255,0.18);
-            transform: scale(0); animation: ripple-anim 0.55s linear;
-            pointer-events: none;
-        }
-        @keyframes ripple-anim { to { transform: scale(4); opacity: 0; } }
+        .auth-msg { font-family: var(--font-data); font-size: 0.8rem; text-align: center; height: 20px; margin-top: 10px; }
+        .auth-msg.err { color: var(--sys-red); }
+        .auth-msg.ok  { color: var(--sys-green); }
 
         /* ===================== HUD GRID LAYOUT ===================== */
         .dashboard-wrapper { max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
@@ -130,6 +114,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             position: relative;
         }
+        /* Top-left corner accent */
         .panel::before {
             content: ''; position: absolute; top: -1px; left: -1px;
             width: 15px; height: 15px; border-top: 2px solid var(--sys-cyan); border-left: 2px solid var(--sys-cyan);
@@ -171,6 +156,7 @@
         .m-lbl { font-size: 0.6rem; color: var(--txt-muted); letter-spacing: 1px; margin-bottom: 4px; }
         .m-val { font-family: var(--font-data); font-size: 1.1rem; font-weight: 700; color: var(--txt-main); }
         
+        /* Colored Overrides */
         #metric-temp { color: var(--sys-amber); }
         #metric-hum { color: var(--sys-cyan); }
         #metric-uv { color: var(--sys-magenta); }
@@ -189,7 +175,6 @@
         .b-green { border-left-color: var(--sys-green); }
         .b-red { border-left-color: var(--sys-red); background: rgba(255,23,68,0.1); }
         .b-amber { border-left-color: var(--sys-amber); }
-        .b-cyan { border-left-color: var(--sys-cyan); }
 
         /* ===================== CHART & RADAR ===================== */
         .chart-wrapper { height: 300px; width: 100%; position: relative; margin-top: 15px; }
@@ -233,41 +218,25 @@
 <div id="auth-overlay">
     <div class="auth-box">
         <div class="auth-logo">
-            <h1><i class="fa-solid fa-satellite-dish" style="color:#14b8a6"></i> MeteoNexus</h1>
-            <p>Active Telemetry Platform — Authenticate to Continue</p>
+            <h1>SYS.AUTH</h1>
+            <p>METEONEXUS TELEMETRY LINK</p>
         </div>
         <div class="auth-tabs">
             <button class="auth-tab active" onclick="switchTab('login')">LOGIN</button>
-            <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
+            <button class="auth-tab" onclick="switchTab('register')">INIT</button>
         </div>
         <div id="form-login">
-            <div class="auth-field"><label>Email</label><input type="email" id="login-email" placeholder="operator@domain.com" autocomplete="username" tabindex="1"></div>
-            <div class="auth-field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" tabindex="2"></div>
-            <div style="text-align:right;margin-top:-10px;margin-bottom:12px;">
-                <span onclick="doResetPassword()" style="color:#14b8a6;font-size:0.75rem;cursor:pointer;font-family:'JetBrains Mono',monospace;font-weight:600;">[ INIT / RESET PASSWORD ]</span>
-            </div>
-            <button class="btn-auth btn-email ripple-host" id="btn-login" onclick="addRipple(event,this);doLogin()" tabindex="3">
-                <i class="fa-solid fa-right-to-bracket"></i> LOGIN
-            </button>
-            <div class="auth-divider">— or —</div>
-            <button class="btn-auth btn-google ripple-host" onclick="addRipple(event,this);doGoogleLogin()">
-                <svg class="google-logo" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
-                Continue with Google
-            </button>
+            <div class="auth-field"><label>Operator ID</label><input type="email" id="login-email" placeholder="EMAIL@DOMAIN.COM" tabindex="1"></div>
+            <div class="auth-field"><label>Passcode</label><input type="password" id="login-pass" placeholder="••••••••" tabindex="2"></div>
+            <button class="btn-auth btn-email" id="btn-login" onclick="doLogin()" tabindex="3">ESTABLISH LINK</button>
+            <button class="btn-auth btn-google" onclick="doGoogleLogin()">OAUTH OVERRIDE</button>
             <div id="login-msg" class="auth-msg"></div>
         </div>
         <div id="form-register" style="display:none">
-            <div class="auth-field"><label>Email</label><input type="email" id="reg-email" placeholder="operator@domain.com" autocomplete="username" tabindex="4"></div>
-            <div class="auth-field"><label>Password</label><input type="password" id="reg-pass" placeholder="Min. 6 characters" autocomplete="new-password" tabindex="5"></div>
-            <div class="auth-field"><label>Confirm Password</label><input type="password" id="reg-pass2" placeholder="Repeat password" autocomplete="new-password" tabindex="6"></div>
-            <button class="btn-auth btn-email ripple-host" id="btn-register" onclick="addRipple(event,this);doRegister()" tabindex="7">
-                <i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT
-            </button>
-            <div class="auth-divider">— or —</div>
-            <button class="btn-auth btn-google ripple-host" onclick="addRipple(event,this);doGoogleLogin()">
-                <svg class="google-logo" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
-                Continue with Google
-            </button>
+            <div class="auth-field"><label>Operator ID</label><input type="email" id="reg-email" placeholder="EMAIL@DOMAIN.COM" tabindex="4"></div>
+            <div class="auth-field"><label>Passcode</label><input type="password" id="reg-pass" placeholder="MIN 6 CHARACTERS" tabindex="5"></div>
+            <div class="auth-field"><label>Verify Passcode</label><input type="password" id="reg-pass2" placeholder="VERIFY" tabindex="6"></div>
+            <button class="btn-auth btn-email" id="btn-register" onclick="doRegister()" tabindex="7">ALLOCATE</button>
             <div id="reg-msg" class="auth-msg"></div>
         </div>
     </div>
@@ -445,17 +414,6 @@ let state = {
     radarVals:          [0.5, 0.5, 0.5, 0.5, 0.5]
 };
 
-// ===================== RIPPLE EFFECT (LEGACY UI COMPATIBILITY) =====================
-function addRipple(e, btn) {
-    const r = document.createElement('span');
-    r.className = 'ripple-fx';
-    const rect = btn.getBoundingClientRect();
-    const s = Math.max(rect.width, rect.height);
-    r.style.cssText = `width:${s}px;height:${s}px;left:${e.clientX - rect.left - s/2}px;top:${e.clientY - rect.top - s/2}px`;
-    btn.appendChild(r);
-    setTimeout(() => r.remove(), 600);
-}
-
 // ===================== AUTHENTICATION LOGIC =====================
 function switchTab(tab) {
     document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
@@ -474,9 +432,11 @@ document.querySelectorAll('.auth-field input').forEach((input, index, inputs) =>
         if (e.key === 'Enter' || e.key === 'Tab') {
             e.preventDefault();
             const next = inputs[index + 1];
+            // If next input belongs to same form, focus it
             if (next && next.closest('div[id^="form"]') === input.closest('div[id^="form"]')) {
                 next.focus();
             } else {
+                // Execute submission based on active form
                 if (input.closest('#form-login')) doLogin();
                 if (input.closest('#form-register')) doRegister();
             }
@@ -487,42 +447,31 @@ document.querySelectorAll('.auth-field input').forEach((input, index, inputs) =>
 async function doLogin() {
     const email = document.getElementById('login-email').value.trim();
     const pass  = document.getElementById('login-pass').value;
-    if (!email || !pass) { setMsg('login-msg', 'Error: Missing parameters', 'err'); return; }
-    document.getElementById('btn-login').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> LINKING...';
+    if (!email || !pass) { setMsg('login-msg', 'ERR: MISSING PARAMS', 'err'); return; }
+    document.getElementById('btn-login').innerText = "LINKING...";
     const { error } = await sb.auth.signInWithPassword({ email, password: pass });
-    document.getElementById('btn-login').innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> LOGIN';
-    if (error) setMsg('login-msg', `Error: ${error.message}`, 'err');
+    document.getElementById('btn-login').innerText = "ESTABLISH LINK";
+    if (error) setMsg('login-msg', `ERR: ${error.message.toUpperCase()}`, 'err');
 }
-
 async function doRegister() {
     const email = document.getElementById('reg-email').value.trim();
     const pass  = document.getElementById('reg-pass').value;
     const pass2 = document.getElementById('reg-pass2').value;
-    if (!email || !pass || !pass2) { setMsg('reg-msg', 'Error: Missing parameters', 'err'); return; }
-    if (pass !== pass2)  { setMsg('reg-msg', 'Error: Password mismatch', 'err'); return; }
-    if (pass.length < 6) { setMsg('reg-msg', 'Error: Min 6 characters', 'err'); return; }
+    if (!email || !pass || !pass2) { setMsg('reg-msg', 'ERR: MISSING PARAMS', 'err'); return; }
+    if (pass !== pass2)  { setMsg('reg-msg', 'ERR: HASH MISMATCH', 'err'); return; }
+    if (pass.length < 6) { setMsg('reg-msg', 'ERR: MIN 6 CHAR', 'err'); return; }
     
-    document.getElementById('btn-register').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ALLOCATING...';
+    document.getElementById('btn-register').innerText = "ALLOCATING...";
     const { error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: PROD_URL } });
-    document.getElementById('btn-register').innerHTML = '<i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT';
+    document.getElementById('btn-register').innerText = "ALLOCATE";
     
-    if (error) setMsg('reg-msg', `Error: ${error.message}`, 'err');
-    else setMsg('reg-msg', 'Awaiting email verification.', 'ok');
+    if (error) setMsg('reg-msg', `ERR: ${error.message.toUpperCase()}`, 'err');
+    else setMsg('reg-msg', 'AWAITING EMAIL VERIFICATION.', 'ok');
 }
-
 async function doGoogleLogin() {
     const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: PROD_URL } });
     if (error) alert('OAUTH ERR: ' + error.message);
 }
-
-async function doResetPassword() {
-    const emailInput = document.getElementById('login-email').value.trim();
-    if (!emailInput) { setMsg('login-msg', 'ERR: Target email required.', 'err'); return; }
-    const { error } = await sb.auth.resetPasswordForEmail(emailInput, { redirectTo: PROD_URL });
-    if (error) setMsg('login-msg', 'ERR: ' + error.message, 'err');
-    else setMsg('login-msg', 'SYS: Recovery link dispatched.', 'ok');
-}
-
 async function doLogout() { await sb.auth.signOut(); }
 
 sb.auth.getSession().then(({ data: { session } }) => {
