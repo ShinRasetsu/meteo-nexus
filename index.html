@@ -3,107 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MeteoNexus | Active Telemetry</title>
+    <title>MeteoNexus | Tactical HUD</title>
     <link rel="manifest" id="manifest-placeholder">
-    <meta name="theme-color" content="#0f172a">
+    <meta name="theme-color" content="#000000">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        /* ===================== VARIABLES ===================== */
+        /* ===================== HUD VARIABLES ===================== */
         :root {
-            --bg-color: #0a0f1e; --card-bg: #111827; --card-border: #1e2d45;
-            --card-border-glow: #1e3a5f;
-            --text-primary: #f0f6ff; --text-secondary: #7a90a8;
-            --accent-teal: #14b8a6; --accent-blue: #3b82f6;
-            --accent-purple: #a855f7; --accent-orange: #f59e0b;
-            --accent-red: #ef4444; --accent-pink: #ec4899;
-            --success-color: #22c55e;
-            --font-ui: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
+            --bg-base: #020617;        
+            --bg-panel: #0f172a;       
+            --bg-inset: #000000;
+            --border-dim: #334155;
+            --border-glow: #00e5ff;
+            
+            --txt-main: #f8fafc;
+            --txt-muted: #64748b;
+            
+            --sys-cyan: #00e5ff;       
+            --sys-green: #00e676;      
+            --sys-amber: #ffea00;      
+            --sys-red: #ff1744;        
+            --sys-magenta: #d500f9;    
+
+            --font-ui: 'Chakra Petch', sans-serif;
+            --font-data: 'JetBrains Mono', monospace;
         }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        
         body {
             font-family: var(--font-ui);
-            background-color: var(--bg-color);
-            background-image:
-                radial-gradient(ellipse 80% 50% at 20% 0%, rgba(59,130,246,0.07) 0%, transparent 60%),
-                radial-gradient(ellipse 60% 40% at 80% 100%, rgba(20,184,166,0.06) 0%, transparent 60%);
-            color: var(--text-primary);
-            margin: 0; padding: 20px;
-            min-height: 100vh; overflow-x: hidden;
+            background-color: var(--bg-base);
+            color: var(--txt-main);
+            margin: 0; padding: 12px;
+            min-height: 100vh;
+            overflow-x: hidden;
+            text-transform: uppercase; 
         }
 
-        /* ===================== PARTICLE CANVAS ===================== */
-        #particle-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
-        .dashboard-wrapper, #auth-overlay { position: relative; z-index: 1; }
-
-        /* ===================== AUTH OVERLAY ===================== */
+        /* ===================== LEGACY AUTHENTICATION TERMINAL ===================== */
         #auth-overlay {
             position: fixed; inset: 0; background: rgba(10,15,30,0.97);
             display: flex; align-items: center; justify-content: center;
-            z-index: 9999; padding: 20px;
+            z-index: 9999; padding: 20px; text-transform: none; /* Override HUD global text-transform */
         }
         .auth-box {
-            background: var(--card-bg); border: 1px solid var(--card-border-glow);
+            background: #111827; border: 1px solid #1e3a5f;
             border-radius: 20px; padding: 40px 36px; width: 100%; max-width: 420px;
             box-shadow: 0 0 60px rgba(20,184,166,0.08), 0 25px 50px -12px rgba(0,0,0,0.8);
+            font-family: 'Inter', sans-serif;
+            color: #f0f6ff;
         }
         .auth-logo { text-align: center; margin-bottom: 28px; }
-        .auth-logo h1 { font-size: 1.6rem; margin: 0 0 6px; font-weight: 800; }
-        .auth-logo p { color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.8rem; margin: 0; }
-        .auth-tabs { display: flex; margin-bottom: 28px; border-radius: 8px; overflow: hidden; border: 1px solid var(--card-border); }
+        .auth-logo h1 { font-size: 1.6rem; margin: 0 0 6px; font-weight: 800; color: #f0f6ff; font-family: 'Inter', sans-serif; }
+        .auth-logo p { color: #7a90a8; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; margin: 0; }
+        
+        .auth-tabs { display: flex; margin-bottom: 28px; border-radius: 8px; overflow: hidden; border: 1px solid #1e2d45; }
         .auth-tab {
             flex: 1; padding: 10px; text-align: center; cursor: pointer;
             font-size: 0.85rem; font-weight: 600; background: transparent;
-            color: var(--text-secondary); border: none; transition: 0.2s; font-family: var(--font-ui);
+            color: #7a90a8; border: none; transition: 0.2s; font-family: 'Inter', sans-serif; text-transform: uppercase;
         }
-        .auth-tab.active { background: var(--accent-teal); color: #000; }
-        .auth-field { margin-bottom: 16px; }
-        .auth-field label { display: block; font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; font-family: var(--font-mono); }
+        .auth-tab.active { background: #14b8a6; color: #000; }
+        
+        .auth-field { margin-bottom: 16px; text-align: left; }
+        .auth-field label { display: block; font-size: 0.78rem; color: #7a90a8; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
         .auth-field input {
             width: 100%; padding: 11px 14px; background: rgba(0,0,0,0.35);
-            border: 1px solid var(--card-border); border-radius: 8px;
-            color: var(--text-primary); font-family: var(--font-mono); font-size: 0.9rem; transition: border-color 0.2s;
+            border: 1px solid #1e2d45; border-radius: 8px;
+            color: #f0f6ff; font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; transition: border-color 0.2s;
         }
-        .auth-field input:focus { outline: none; border-color: var(--accent-teal); box-shadow: 0 0 0 3px rgba(20,184,166,0.15); }
+        .auth-field input:focus { outline: none; border-color: #14b8a6; box-shadow: 0 0 0 3px rgba(20,184,166,0.15); }
+        
         .btn-auth {
             width: 100%; padding: 12px; border: none; border-radius: 8px;
             font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: 0.2s;
-            font-family: var(--font-ui); margin-bottom: 12px; position: relative; overflow: hidden;
+            font-family: 'Inter', sans-serif; margin-bottom: 12px; position: relative; overflow: hidden;
         }
-        .btn-email { background: var(--accent-teal); color: #000; }
+        .btn-email { background: #14b8a6; color: #000; }
         .btn-email:hover { filter: brightness(1.1); box-shadow: 0 0 24px rgba(20,184,166,0.4); }
-        .btn-email:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-google {
-            background: rgba(255,255,255,0.05); color: var(--text-primary);
-            border: 1px solid var(--card-border); display: flex; align-items: center; justify-content: center; gap: 10px;
+            background: rgba(255,255,255,0.05); color: #f0f6ff;
+            border: 1px solid #1e2d45; display: flex; align-items: center; justify-content: center; gap: 10px;
         }
         .btn-google:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
-        .auth-divider { text-align: center; color: var(--text-secondary); font-size: 0.75rem; margin: 4px 0 12px; font-family: var(--font-mono); }
-        .auth-msg { font-family: var(--font-mono); font-size: 0.78rem; text-align: center; min-height: 20px; margin-top: 8px; }
-        .auth-msg.err { color: var(--accent-red); }
-        .auth-msg.ok  { color: var(--success-color); }
+        
+        .auth-divider { text-align: center; color: #7a90a8; font-size: 0.75rem; margin: 4px 0 12px; font-family: 'JetBrains Mono', monospace; }
+        .auth-msg { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; text-align: center; min-height: 20px; margin-top: 8px; }
+        .auth-msg.err { color: #ef4444; }
+        .auth-msg.ok  { color: #22c55e; }
         .google-logo { width: 18px; height: 18px; }
 
-        /* ===================== USER BAR ===================== */
-        #user-bar {
-            display: none; align-items: center; gap: 10px;
-            background: rgba(20,184,166,0.08); border: 1px solid rgba(20,184,166,0.25);
-            border-radius: 10px; padding: 6px 14px; font-family: var(--font-mono); font-size: 0.8rem;
-        }
-        #user-bar .u-email  { color: var(--accent-teal); font-weight: 700; }
-        #user-bar .u-method { color: var(--text-secondary); font-size: 0.7rem; }
-        #user-bar button {
-            background: rgba(239,68,68,0.12); color: var(--accent-red);
-            border: 1px solid rgba(239,68,68,0.4); padding: 4px 10px;
-            border-radius: 6px; cursor: pointer; font-size: 0.75rem;
-            font-family: var(--font-mono); font-weight: 700; margin-left: auto;
-            transition: 0.2s;
-        }
-        #user-bar button:hover { background: rgba(239,68,68,0.25); }
-
-        /* ===================== RIPPLE ===================== */
         .ripple-host { position: relative; overflow: hidden; }
         .ripple-host .ripple-fx {
             position: absolute; border-radius: 50%;
@@ -113,195 +106,134 @@
         }
         @keyframes ripple-anim { to { transform: scale(4); opacity: 0; } }
 
-        /* ===================== DASHBOARD LAYOUT ===================== */
-        .dashboard-wrapper { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+        /* ===================== HUD GRID LAYOUT ===================== */
+        .dashboard-wrapper { max-width: 1600px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+        
         header {
+            display: flex; justify-content: space-between; align-items: flex-end;
+            border-bottom: 2px solid var(--border-dim); padding-bottom: 12px;
+        }
+        header h1 { font-family: var(--font-data); font-size: 1.4rem; margin: 0; color: var(--sys-cyan); letter-spacing: -1px; }
+        
+        .grid-container {
+            display: grid; grid-template-columns: 1fr; gap: 16px;
+        }
+        @media (min-width: 1200px) {
+            .grid-container { grid-template-columns: 420px 1fr 380px; }
+        }
+
+        /* ===================== HUD PANELS ===================== */
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-dim);
+            border-radius: 4px; padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            position: relative;
+        }
+        .panel::before {
+            content: ''; position: absolute; top: -1px; left: -1px;
+            width: 15px; height: 15px; border-top: 2px solid var(--sys-cyan); border-left: 2px solid var(--sys-cyan);
+        }
+        .panel-header {
             display: flex; justify-content: space-between; align-items: center;
-            padding-bottom: 20px; border-bottom: 1px solid var(--card-border);
-            flex-wrap: wrap; gap: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 15px;
         }
-        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
-        .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 1024px) { .grid-container { grid-template-columns: 380px 1fr; } }
+        .panel-title { font-size: 0.85rem; color: var(--txt-muted); letter-spacing: 2px; font-weight: 700; }
 
-        /* ===================== CARDS ===================== */
-        .card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 16px; padding: 24px; position: relative;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03);
-            transition: border-color 0.3s;
-        }
-        .card:hover { border-color: var(--card-border-glow); }
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-        .card-title { font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-secondary); letter-spacing: 1px; }
+        /* ===================== PRIMARY TELEMETRY (SPEED/HEADING) ===================== */
+        .telemetry-primary { text-align: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 15px; }
+        .data-massive { font-family: var(--font-data); font-size: 4.5rem; font-weight: 800; line-height: 1; color: var(--txt-main); text-shadow: 0 0 20px rgba(0,229,255,0.4); }
+        .data-label { font-size: 0.8rem; color: var(--sys-cyan); letter-spacing: 3px; margin-top: 5px; }
+        
+        .hud-subgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .hud-stat { background: var(--bg-inset); border: 1px solid var(--border-dim); padding: 12px; text-align: center; border-radius: 2px; }
+        .hud-stat-val { font-family: var(--font-data); font-size: 1.8rem; font-weight: 700; color: var(--sys-green); }
+        .hud-stat-lbl { font-size: 0.65rem; color: var(--txt-muted); letter-spacing: 1px; }
 
-        /* ===================== STATUS CARD ===================== */
-        .main-status { text-align: center; padding: 20px 0 10px; }
-        .status-icon { font-size: 3.5rem; margin-bottom: 12px; display: block; }
-        .status-text { font-size: 1.8rem; font-weight: 800; display: block; letter-spacing: 1px; }
-        .status-clear  { color: var(--success-color); }
-        .status-rain   { color: var(--accent-blue); }
-        .status-warn   { color: #facc15; }
-        .status-alert  { color: var(--accent-red); }
+        /* ===================== CONSENSUS / WEATHER ===================== */
+        .consensus-main { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 20px 0; }
+        .status-icon { font-size: 4rem; }
+        .status-clear { color: var(--sys-green); text-shadow: 0 0 15px var(--sys-green); }
+        .status-rain { color: var(--sys-red); text-shadow: 0 0 15px var(--sys-red); }
+        .status-warn { color: var(--sys-amber); text-shadow: 0 0 15px var(--sys-amber); }
+        
+        .consensus-text-wrapper { text-align: left; }
+        .consensus-title { font-family: var(--font-data); font-size: 1.5rem; font-weight: 800; line-height: 1.2; }
+        .consensus-desc { font-size: 0.75rem; color: var(--txt-muted); letter-spacing: 1px; }
 
         /* ===================== METRICS GRID ===================== */
-        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
-        .metric-item {
-            background: rgba(255,255,255,0.025);
-            border: 1px solid var(--card-border);
-            padding: 12px 8px 10px; border-radius: 10px; text-align: center;
-            transition: border-color 0.2s;
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .metric-block {
+            background: rgba(0,0,0,0.4); border: 1px solid var(--border-dim);
+            padding: 10px; text-align: center; border-radius: 2px;
         }
-        .metric-item:hover { border-color: rgba(20,184,166,0.3); }
-        .metric-label { font-size: 0.65rem; color: var(--text-secondary); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .metric-value { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; display: block; min-height: 1.3em; }
+        .metric-block span { display: block; }
+        .m-lbl { font-size: 0.6rem; color: var(--txt-muted); letter-spacing: 1px; margin-bottom: 4px; }
+        .m-val { font-family: var(--font-data); font-size: 1.1rem; font-weight: 700; color: var(--txt-main); }
+        
+        #metric-temp { color: var(--sys-amber); }
+        #metric-hum { color: var(--sys-cyan); }
+        #metric-uv { color: var(--sys-magenta); }
 
-        /* ===================== AGREEMENT GAUGE ===================== */
-        #agree-gauge-wrap { display: flex; flex-direction: column; align-items: center; }
-        #agree-gauge-svg { overflow: visible; }
-        .gauge-label { font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
-
-        /* ===================== SPARKLINE STRIP ===================== */
-        .spark-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
-        .spark-cell {
-            background: rgba(0,0,0,0.25); border: 1px solid var(--card-border);
-            border-radius: 8px; padding: 8px; position: relative;
+        /* ===================== VECTOR ARRAYS ===================== */
+        .vector-list { display: flex; flex-direction: column; gap: 8px; margin-top: 15px; }
+        .v-row {
+            display: grid; grid-template-columns: 80px 1fr 80px; align-items: center;
+            background: var(--bg-inset); padding: 12px 16px; border-left: 4px solid var(--border-dim);
+            font-family: var(--font-data); font-size: 0.85rem;
         }
-        .spark-cell-label { font-size: 0.6rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-        .spark-cell canvas { display: block; width: 100%; height: 36px; }
+        .v-time { color: var(--txt-muted); }
+        .v-stat { font-weight: 700; text-align: center; }
+        .v-data { text-align: right; color: var(--sys-cyan); }
+        
+        .b-green { border-left-color: var(--sys-green); }
+        .b-red { border-left-color: var(--sys-red); background: rgba(255,23,68,0.1); }
+        .b-amber { border-left-color: var(--sys-amber); }
+        .b-cyan { border-left-color: var(--sys-cyan); }
 
-        /* ===================== RADAR CHART SECTION ===================== */
-        #radar-wrap { display: flex; justify-content: center; margin: 10px 0; }
-        #radar-canvas { display: block; }
+        /* ===================== CHART & RADAR ===================== */
+        .chart-wrapper { height: 300px; width: 100%; position: relative; margin-top: 15px; }
+        #radar-wrap { display: flex; justify-content: center; background: var(--bg-inset); padding: 15px; border-radius: 50%; width: 160px; height: 160px; margin: 0 auto; border: 1px solid var(--border-dim); }
 
-        /* ===================== TYPEWRITER LOG ===================== */
-        .typer-box {
-            background: rgba(0,0,0,0.35); border: 1px solid var(--card-border);
-            border-radius: 8px; padding: 10px 14px; font-family: var(--font-mono);
-            font-size: 0.75rem; color: var(--accent-teal); min-height: 28px;
-            display: flex; align-items: center; gap: 8px; margin-top: 14px;
+        /* ===================== CONTROLS & INPUTS ===================== */
+        .hud-btn {
+            background: transparent; border: 1px solid var(--sys-cyan); color: var(--sys-cyan);
+            padding: 12px; font-family: var(--font-data); font-size: 0.85rem; font-weight: 700;
+            cursor: pointer; text-transform: uppercase; transition: 0.2s; border-radius: 2px;
+            width: 100%; text-align: center;
         }
-        .typer-cursor { display: inline-block; width: 7px; height: 13px; background: var(--accent-teal); animation: blink 1s step-end infinite; vertical-align: middle; flex-shrink: 0; }
-        @keyframes blink { 50% { opacity: 0; } }
-        .typer-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-color); flex-shrink: 0; animation: pulse-dot 1.5s ease-in-out infinite; }
-        @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.4)} }
+        .hud-btn:hover { background: rgba(0,229,255,0.1); }
+        .hud-btn.danger { border-color: var(--sys-red); color: var(--sys-red); }
+        .hud-btn.danger:hover { background: rgba(255,23,68,0.1); }
 
-        /* ===================== AUDIO TOGGLE ===================== */
-        .audio-toggle {
-            cursor: pointer; background: rgba(255,255,255,0.04);
-            padding: 8px 14px; border-radius: 20px; display: flex; align-items: center;
-            gap: 8px; font-size: 0.8rem; border: 1px solid var(--card-border); transition: 0.2s;
+        input.hud-input {
+            width: 100%; background: var(--bg-inset); border: 1px solid var(--border-dim);
+            padding: 12px; color: var(--txt-main); font-family: var(--font-data);
+            font-size: 0.9rem; text-transform: uppercase;
         }
-        .audio-toggle.active { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.5); color: var(--accent-red); }
-        .audio-toggle:hover { background: rgba(255,255,255,0.08); }
+        input.hud-input:focus { border-color: var(--sys-cyan); outline: none; }
 
-        /* ===================== TELEMETRY PANEL ===================== */
-        .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
+        /* ===================== HARDWARE STATUS BAR ===================== */
+        .hw-status { display: flex; justify-content: space-between; font-family: var(--font-data); font-size: 0.7rem; color: var(--txt-muted); margin-top: 5px; }
+        .hw-ok { color: var(--sys-green); }
+        .hw-err { color: var(--sys-red); }
 
-        /* ===================== MODEL HEALTH BARS ===================== */
-        .model-bar-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-        .model-bar-row:last-child { border-bottom: none; }
-        .model-name { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-secondary); width: 120px; flex-shrink: 0; }
-        .model-track { flex: 1; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
-        .model-fill { height: 100%; border-radius: 3px; transition: width 1s cubic-bezier(.4,0,.2,1), background 0.5s; }
-        .model-status { font-family: var(--font-mono); font-size: 0.7rem; width: 70px; text-align: right; flex-shrink: 0; }
-        .status-ok   { color: var(--success-color); font-weight: 700; }
-        .status-fail { color: var(--accent-red); font-weight: 700; }
-        .status-wait { color: var(--text-secondary); }
-        .model-extra { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-secondary); padding: 8px 0 0; border-top: 1px solid rgba(255,255,255,0.04); margin-top: 4px; }
-
-        /* ===================== TEMP GRADIENT SLIDER ===================== */
-        .temp-slider-wrap { margin-top: 14px; }
-        .temp-grad-track { height: 10px; border-radius: 5px; margin-bottom: 8px; transition: background 0.4s; }
-        input[type=range].temp-range {
-            -webkit-appearance: none; appearance: none;
-            width: 100%; height: 6px; border-radius: 3px;
-            background: transparent; cursor: pointer; outline: none;
+        /* ===================== TEMP SLIDER ===================== */
+        .temp-slider-wrap { margin-top: 20px; }
+        .temp-grad-track { height: 4px; width: 100%; margin-bottom: 10px; background: linear-gradient(90deg, var(--sys-cyan), var(--sys-green), var(--sys-amber), var(--sys-red)); }
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 16px; height: 24px; background: var(--txt-main);
+            border: 2px solid #000; cursor: pointer; border-radius: 2px;
         }
-        input[type=range].temp-range::-webkit-slider-thumb {
-            -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
-            background: var(--accent-teal); border: 2px solid #0a0f1e;
-            box-shadow: 0 0 8px rgba(20,184,166,0.6); cursor: pointer;
-        }
-        input[type=range].temp-range::-moz-range-thumb {
-            width: 18px; height: 18px; border-radius: 50%;
-            background: var(--accent-teal); border: 2px solid #0a0f1e; cursor: pointer;
-        }
-        .temp-readout { display: flex; justify-content: space-between; align-items: center; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; }
-        .temp-readout .live-val { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
-
-        /* ===================== INPUTS ===================== */
-        .input-group { display: flex; gap: 10px; margin-bottom: 15px; width: 100%; }
-        input[type=text], input[type=email], input[type=password] {
-            background: rgba(0,0,0,0.25); border: 1px solid var(--card-border);
-            color: var(--text-primary); padding: 10px 12px; border-radius: 8px;
-            font-family: var(--font-mono); font-size: 0.85rem; width: 100%; transition: border-color 0.2s;
-        }
-        input[type=text]:focus, input[type=email]:focus, input[type=password]:focus {
-            border-color: var(--accent-teal); outline: none; box-shadow: 0 0 0 3px rgba(20,184,166,0.12);
-        }
-        button {
-            border: none; padding: 10px 20px; border-radius: 8px;
-            font-weight: 600; cursor: pointer; transition: all 0.2s;
-        }
-
-        /* ===================== SEARCH DROPDOWN ===================== */
-        .search-results {
-            position: absolute; top: 45px; left: 0; right: 0;
-            background: var(--card-bg); border: 1px solid var(--accent-teal);
-            border-radius: 8px; z-index: 1000; max-height: 250px; overflow-y: auto;
-            box-shadow: 0 16px 32px rgba(0,0,0,0.6);
-        }
-        .search-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--card-border); font-size: 0.85rem; transition: background 0.15s; font-family: var(--font-mono); }
-        .search-item:hover { background: rgba(20,184,166,0.12); }
-        .search-item:last-child { border-bottom: none; }
-
-        /* ===================== TIME ===================== */
-        .time-display { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); justify-content: flex-end; width: 100%; }
-        .time-display i { color: var(--accent-blue); opacity: 0.8; }
-
-        /* ===================== HUD ===================== */
-        .hud-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-        .hud-panel {
-            background: rgba(0,0,0,0.25); border: 1px solid var(--card-border);
-            border-radius: 10px; padding: 14px; text-align: center;
-            transition: border-color 0.2s;
-        }
-        .hud-panel:hover { border-color: rgba(20,184,166,0.3); }
-        .hud-value { font-family: var(--font-mono); font-size: 1.8rem; font-weight: 800; line-height: 1; margin: 8px 0 4px; color: var(--accent-teal); }
-        .hud-label { font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
-        .hud-sub   { font-size: 0.65rem; color: var(--text-secondary); font-family: var(--font-mono); }
-
-        /* ===================== VECTOR BLOCKS ===================== */
-        .vector-blocks { display: flex; flex-direction: column; gap: 12px; }
-        .vector-row {
-            display: grid; grid-template-columns: 100px 1fr 100px;
-            align-items: center; background: rgba(255,255,255,0.02);
-            border-radius: 10px; padding: 14px; border-left: 4px solid var(--card-border);
-            transition: border-left-color 0.4s, background 0.4s;
-        }
-        .vector-time   { font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; }
-        .vector-status { font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-        .vector-data   { text-align: right; font-family: var(--font-mono); font-size: 0.82rem; color: var(--text-secondary); }
-        .border-green  { border-left-color: var(--success-color); }
-        .border-red    { border-left-color: var(--accent-red); background: rgba(239,68,68,0.04); }
-        .border-orange { border-left-color: var(--accent-orange); }
-        .border-blue   { border-left-color: var(--accent-blue); }
-
-        /* ===================== WAKELOCK ===================== */
-        #wakelock-indicator { font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-teal); margin-top: 5px; }
     </style>
 </head>
 <body>
 
-<canvas id="particle-bg"></canvas>
-
 <div id="auth-overlay">
     <div class="auth-box">
         <div class="auth-logo">
-            <h1><i class="fa-solid fa-satellite-dish" style="color:var(--accent-teal)"></i> MeteoNexus</h1>
+            <h1><i class="fa-solid fa-satellite-dish" style="color:#14b8a6"></i> MeteoNexus</h1>
             <p>Active Telemetry Platform — Authenticate to Continue</p>
         </div>
         <div class="auth-tabs">
@@ -309,12 +241,12 @@
             <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
         </div>
         <div id="form-login">
-            <div class="auth-field"><label>Email</label><input type="email" id="login-email" placeholder="operator@domain.com" autocomplete="username"></div>
-            <div class="auth-field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"></div>
+            <div class="auth-field"><label>Email</label><input type="email" id="login-email" placeholder="operator@domain.com" autocomplete="username" tabindex="1"></div>
+            <div class="auth-field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" tabindex="2"></div>
             <div style="text-align:right;margin-top:-10px;margin-bottom:12px;">
-                <span onclick="doResetPassword()" style="color:var(--accent-teal);font-size:0.75rem;cursor:pointer;font-family:var(--font-mono);font-weight:600;">[ INIT / RESET PASSWORD ]</span>
+                <span onclick="doResetPassword()" style="color:#14b8a6;font-size:0.75rem;cursor:pointer;font-family:'JetBrains Mono',monospace;font-weight:600;">[ INIT / RESET PASSWORD ]</span>
             </div>
-            <button class="btn-auth btn-email ripple-host" id="btn-login" onclick="addRipple(event,this);doLogin()">
+            <button class="btn-auth btn-email ripple-host" id="btn-login" onclick="addRipple(event,this);doLogin()" tabindex="3">
                 <i class="fa-solid fa-right-to-bracket"></i> LOGIN
             </button>
             <div class="auth-divider">— or —</div>
@@ -325,10 +257,10 @@
             <div id="login-msg" class="auth-msg"></div>
         </div>
         <div id="form-register" style="display:none">
-            <div class="auth-field"><label>Email</label><input type="email" id="reg-email" placeholder="operator@domain.com" autocomplete="username"></div>
-            <div class="auth-field"><label>Password</label><input type="password" id="reg-pass" placeholder="Min. 6 characters" autocomplete="new-password"></div>
-            <div class="auth-field"><label>Confirm Password</label><input type="password" id="reg-pass2" placeholder="Repeat password" autocomplete="new-password"></div>
-            <button class="btn-auth btn-email ripple-host" id="btn-register" onclick="addRipple(event,this);doRegister()">
+            <div class="auth-field"><label>Email</label><input type="email" id="reg-email" placeholder="operator@domain.com" autocomplete="username" tabindex="4"></div>
+            <div class="auth-field"><label>Password</label><input type="password" id="reg-pass" placeholder="Min. 6 characters" autocomplete="new-password" tabindex="5"></div>
+            <div class="auth-field"><label>Confirm Password</label><input type="password" id="reg-pass2" placeholder="Repeat password" autocomplete="new-password" tabindex="6"></div>
+            <button class="btn-auth btn-email ripple-host" id="btn-register" onclick="addRipple(event,this);doRegister()" tabindex="7">
                 <i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT
             </button>
             <div class="auth-divider">— or —</div>
@@ -344,330 +276,138 @@
 <div class="dashboard-wrapper" id="app" style="display:none">
     <header>
         <div>
-            <h1><i class="fa-solid fa-satellite-dish" style="color:var(--accent-teal)"></i> MeteoNexus <span style="font-weight:300;opacity:0.5;">Active Telemetry</span></h1>
-            <div id="wakelock-indicator"><i class="fa-solid fa-eye"></i> Display Active</div>
+            <h1>METEONEXUS // HUD</h1>
+            <div class="hw-status">
+                <span id="wakelock-indicator" class="hw-ok"><i class="fa-solid fa-eye"></i> WAKE: HOLD</span>
+                <span id="gps-status" class="hw-err"><i class="fa-solid fa-satellite"></i> SAT: SEARCH</span>
+            </div>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <div id="user-bar">
-                <i class="fa-solid fa-circle-user" style="color:var(--accent-teal);font-size:1.1rem;"></i>
-                <div>
-                    <div class="u-email" id="u-email-display">—</div>
-                    <div class="u-method" id="u-method-display">—</div>
-                </div>
-                <button onclick="doLogout()" class="ripple-host" onclick="addRipple(event,this)">
-                    <i class="fa-solid fa-right-from-bracket"></i> LOGOUT
-                </button>
-            </div>
-            <div id="audio-btn" class="audio-toggle ripple-host" onclick="addRipple(event,this);toggleAudio()">
-                <i class="fa-solid fa-volume-xmark" id="audio-icon"></i>
-                <span id="audio-text">ALERTS OFF</span>
-            </div>
+        <div style="text-align: right;">
+            <div style="font-family: var(--font-data); font-size: 1.2rem; color: var(--sys-cyan); font-weight: 700;" id="local-time-text">00:00:00</div>
+            <div id="location-badge" style="font-size: 0.75rem; color: var(--txt-muted); font-family: var(--font-data);">AWAITING VECTOR...</div>
         </div>
     </header>
 
     <div class="grid-container">
-        <div id="status-card" class="card">
-            <div class="card-header">
-                <span class="card-title">Live Consensus</span>
-                <div style="text-align:right;">
-                    <div id="location-badge" style="font-size:0.9rem;color:var(--accent-teal);"><i class="fa-solid fa-satellite fa-fade"></i> Acquiring Lock...</div>
-                    <div class="time-display"><i class="fa-regular fa-clock"></i> <span id="local-time-text">--:--:--</span></div>
-                </div>
+        
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">KINEMATIC SENSORS</span>
+                <button class="hud-btn danger" style="width:auto; padding: 4px 8px; font-size:0.65rem;" onclick="resetTrip()">RST</button>
             </div>
-            <div class="main-status">
-                <i id="status-icon" class="status-icon fa-solid fa-circle-notch fa-spin"></i>
-                <span id="status-text" class="status-text">INITIALIZING</span>
-                <div id="weather-desc" style="margin-top:8px;color:var(--text-secondary);font-family:var(--font-mono);font-size:0.85rem;">Connecting to global sensor grid...</div>
+            
+            <div class="telemetry-primary">
+                <div class="data-massive" id="hud-speed">0.0</div>
+                <div class="data-label">GROUND SPEED (KM/H)</div>
+            </div>
+            
+            <div class="hud-subgrid" style="margin-bottom: 20px;">
+                <div class="hud-stat">
+                    <div class="hud-stat-val" id="hud-heading" style="color:var(--sys-cyan);">--°</div>
+                    <div class="hud-stat-lbl" id="hud-compass">HEADING</div>
+                </div>
+                <div class="hud-stat">
+                    <div class="hud-stat-val" id="hud-max" style="color:var(--sys-amber);">0.0</div>
+                    <div class="hud-stat-lbl">PEAK SPEED</div>
+                </div>
             </div>
 
-            <div class="typer-box">
-                <span class="typer-dot"></span>
-                <span id="typewriter-text" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"></span>
-                <span class="typer-cursor"></span>
+            <div class="panel-header" style="margin-top: 30px;">
+                <span class="panel-title">SPATIAL RADAR</span>
+                <span id="radar-mode" style="font-family:var(--font-data); font-size:0.65rem; color:var(--sys-cyan);">[CONE]</span>
+            </div>
+            <div id="radar-wrap">
+                <canvas id="radar-canvas" width="130" height="130"></canvas>
+            </div>
+            
+            <div class="vector-list" id="vector-container">
+                <div style="text-align:center; padding:20px; font-family:var(--font-data); font-size:0.75rem; color:var(--txt-muted);">AWAITING MOTION VECTOR</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">ATMOSPHERIC FUSION</span>
+                <div style="font-family: var(--font-data); font-size: 0.75rem;">
+                    <span style="color:var(--txt-muted);">AGREEMENT:</span> 
+                    <span id="agree-gauge-txt" style="color:var(--sys-cyan); font-weight:700;">--%</span>
+                </div>
             </div>
 
-            <div class="metrics-grid" style="margin-top:14px;">
-                <div class="metric-item">
-                    <span class="metric-label">Temp</span>
-                    <span id="metric-temp" class="metric-value" style="color:var(--accent-orange)">--</span>
+            <div class="consensus-main">
+                <i id="status-icon" class="status-icon fa-solid fa-circle-notch fa-spin status-clear"></i>
+                <div class="consensus-text-wrapper">
+                    <div class="consensus-title status-clear" id="status-text">INIT</div>
+                    <div class="consensus-desc" id="weather-desc">ESTABLISHING DATALINK...</div>
                 </div>
-                <div class="metric-item">
-                    <span class="metric-label">Feels Like</span>
-                    <span id="metric-feels" class="metric-value">--</span>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Humidity</span>
-                    <span id="metric-hum" class="metric-value" style="color:var(--accent-blue)">--</span>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Wind</span>
-                    <div id="metric-wind" class="metric-value" style="font-size:0.85rem;">--</div>
-                </div>
-                <div class="metric-item" style="position:relative;">
-                    <span class="metric-label">Agreement</span>
-                    <div id="agree-gauge-wrap">
-                        <svg id="agree-gauge-svg" viewBox="0 0 80 48" width="80" height="48">
-                            <path d="M6,42 A34,34 0 0,1 74,42" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="7" stroke-linecap="round"/>
-                            <path id="agree-arc" d="M6,42 A34,34 0 0,1 74,42" fill="none" stroke="var(--accent-teal)" stroke-width="7" stroke-linecap="round" stroke-dasharray="107" stroke-dashoffset="53"/>
-                            <text x="40" y="46" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="11" font-weight="700" fill="var(--text-primary)" id="agree-gauge-txt">--</text>
-                        </svg>
-                    </div>
-                </div>
-                <div class="metric-item">
-                    <span class="metric-label">Peak UV</span>
-                    <span id="metric-uv" class="metric-value" style="color:var(--accent-purple)">--</span>
-                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-block"><span class="m-lbl">TEMP</span><span class="m-val" id="metric-temp">--</span></div>
+                <div class="metric-block"><span class="m-lbl">FEELS</span><span class="m-val" id="metric-feels">--</span></div>
+                <div class="metric-block"><span class="m-lbl">HUMID</span><span class="m-val" id="metric-hum">--</span></div>
+                <div class="metric-block"><span class="m-lbl">WIND (KM/H)</span><span class="m-val" id="metric-wind">--</span></div>
+                <div class="metric-block" style="grid-column: span 2;"><span class="m-lbl">PEAK UV</span><span class="m-val" id="metric-uv">--</span></div>
+            </div>
+
+            <div class="chart-wrapper">
+                <canvas id="mainChart"></canvas>
             </div>
 
             <div class="temp-slider-wrap">
-                <div class="temp-grad-track" id="temp-grad-track" style="background:linear-gradient(90deg,#3b82f6,#14b8a6,#f59e0b,#ef4444)"></div>
-                <input type="range" class="temp-range" id="temp-slider" min="-10" max="50" value="28" step="1">
-                <div class="temp-readout">
-                    <span>-10°C</span>
-                    <span class="live-val" id="temp-slider-val">28°C</span>
-                    <span>50°C</span>
-                </div>
-            </div>
-
-            <div class="spark-strip">
-                <div class="spark-cell">
-                    <div class="spark-cell-label">Temp trend</div>
-                    <canvas id="spark-temp" height="36"></canvas>
-                </div>
-                <div class="spark-cell">
-                    <div class="spark-cell-label">Wind</div>
-                    <canvas id="spark-wind" height="36"></canvas>
-                </div>
-                <div class="spark-cell">
-                    <div class="spark-cell-label">UV index</div>
-                    <canvas id="spark-uv" height="36"></canvas>
+                <div class="temp-grad-track"></div>
+                <input type="range" id="temp-slider" min="-10" max="50" value="28" step="1">
+                <div style="display:flex; justify-content:space-between; font-family:var(--font-data); font-size:0.7rem; color:var(--txt-muted); margin-top:5px;">
+                    <span>-10°C</span><span id="temp-slider-val" style="color:var(--sys-cyan); font-weight:700; font-size:0.9rem;">28°C</span><span>50°C</span>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Atmospheric Telemetry Fusion</span>
-                <div id="radar-wrap">
-                    <canvas id="radar-canvas" width="140" height="120"></canvas>
-                </div>
+        <div class="panel">
+            <div class="panel-header">
+                <span class="panel-title">NAV & TARGETING</span>
             </div>
-            <div style="height:340px;width:100%;position:relative;"><canvas id="mainChart"></canvas></div>
-        </div>
-    </div>
+            
+            <div style="position:relative; margin-bottom: 10px;" id="dest-wrapper">
+                <input type="text" class="hud-input" id="search-dest" placeholder="INPUT DESTINATION...">
+                <div id="dest-results" style="position:absolute; top:100%; left:0; right:0; background:var(--bg-inset); border:1px solid var(--sys-cyan); z-index:10; display:none;"></div>
+            </div>
+            
+            <div id="dest-status" style="font-family:var(--font-data); font-size:0.7rem; color:var(--txt-muted); margin-bottom: 15px;">NO TARGET LOCKED.</div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom: 30px;">
+                <button class="hud-btn danger" onclick="clearDestination()">CLR RTE</button>
+                <button class="hud-btn" onclick="resetToAuto()">AUTO NAV</button>
+            </div>
 
-    <div class="telemetry-panel">
-        <div class="card">
-            <div class="card-header"><span class="card-title">Model Health Check</span></div>
-            <div class="model-bar-row">
-                <span class="model-name">ECMWF Hi-Res</span>
-                <div class="model-track"><div class="model-fill" id="mfill-eu" style="width:0%;background:var(--accent-blue)"></div></div>
-                <span class="model-status" id="stat-eu"><span class="status-wait">Checking...</span></span>
+            <div class="panel-header">
+                <span class="panel-title">SYSTEM OPS</span>
             </div>
-            <div class="model-bar-row">
-                <span class="model-name">GFS (USA)</span>
-                <div class="model-track"><div class="model-fill" id="mfill-us" style="width:0%;background:var(--accent-teal)"></div></div>
-                <span class="model-status" id="stat-us"><span class="status-wait">Checking...</span></span>
+            
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <button class="hud-btn" id="audio-btn" onclick="toggleAudio()">
+                    <i id="audio-icon" class="fa-solid fa-volume-xmark"></i> <span id="audio-text">SONAR OFF</span>
+                </button>
+                <button class="hud-btn danger" style="border-color:var(--border-dim); color:var(--txt-muted);" onclick="doLogout()">DISCONNECT</button>
             </div>
-            <div class="model-bar-row">
-                <span class="model-name">ICON (Germany)</span>
-                <div class="model-track"><div class="model-fill" id="mfill-de" style="width:0%;background:var(--accent-orange)"></div></div>
-                <span class="model-status" id="stat-de"><span class="status-wait">Checking...</span></span>
-            </div>
-            <div class="model-bar-row">
-                <span class="model-name">JMA (Japan)</span>
-                <div class="model-track"><div class="model-fill" id="mfill-jp" style="width:0%;background:var(--accent-pink)"></div></div>
-                <span class="model-status" id="stat-jp"><span class="status-wait">Checking...</span></span>
-            </div>
-            <div class="model-extra" id="tel-meteo">Grid: --</div>
-        </div>
 
-        <div class="card">
-            <div class="card-header"><span class="card-title">Navigation & Targeting</span></div>
-            <div class="input-group">
-                <div id="dest-wrapper" style="flex:1;position:relative;">
-                    <input type="text" id="search-dest" placeholder="Set Destination (City/Location)" autocomplete="off">
-                    <div id="dest-results" class="search-results" style="display:none;"></div>
-                </div>
-            </div>
-            <div style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text-secondary);margin-bottom:15px;" id="dest-status">No destination set. Defaulting to free-roam kinematic cone.</div>
-            <div style="display:flex;gap:10px;">
-                <button class="ripple-host" onclick="addRipple(event,this);clearDestination()" style="flex:1;background:rgba(239,68,68,0.12);color:var(--accent-red);border:1px solid rgba(239,68,68,0.35);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:0.8rem;cursor:pointer;">Clear Route</button>
-                <button class="ripple-host" onclick="addRipple(event,this);resetToAuto()" style="background:rgba(255,255,255,0.06);color:var(--text-primary);border:1px solid var(--card-border);border-radius:8px;padding:10px 16px;font-family:var(--font-mono);font-size:0.8rem;cursor:pointer;">Auto GPS <i class="fa-solid fa-crosshairs"></i></button>
-            </div>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="card-header">
-            <span class="card-title">Live Spatial Fusion Radar</span>
-            <span id="gps-status" style="color:var(--accent-orange);font-family:var(--font-mono);font-size:0.82rem;"><i class="fa-solid fa-satellite fa-fade"></i> Acquiring Lock...</span>
-        </div>
-        <div class="hud-grid">
-            <div class="hud-panel"><div class="hud-label">Ground Speed</div><div class="hud-value" id="hud-speed">--</div><div class="hud-sub">km/h</div></div>
-            <div class="hud-panel"><div class="hud-label">Heading Vector</div><div class="hud-value" id="hud-heading">--°</div><div class="hud-sub" id="hud-compass">N/A</div></div>
-            <div class="hud-panel"><div class="hud-label">Max Speed</div><div class="hud-value" id="hud-max">0.0</div><div class="hud-sub">km/h (session)</div></div>
-            <div class="hud-panel"><div class="hud-label">Moving Avg</div><div class="hud-value" id="hud-avg">0.0</div><div class="hud-sub">km/h (60-sample)</div></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
-            <div id="radar-mode" style="font-family:var(--font-mono);font-size:0.78rem;font-weight:700;color:var(--text-secondary);">[MODE: FREEROAM CONE]</div>
-            <button class="ripple-host" onclick="addRipple(event,this);resetTrip()" style="background:rgba(239,68,68,0.12);color:var(--accent-red);border:1px solid rgba(239,68,68,0.35);padding:7px 16px;border-radius:8px;font-size:0.78rem;font-family:var(--font-mono);cursor:pointer;">
-                <i class="fa-solid fa-rotate-left"></i> RESET TRIP
-            </button>
-        </div>
-        <div class="vector-blocks" id="vector-container">
-            <div style="text-align:center;padding:20px;color:var(--text-secondary);font-family:var(--font-mono);font-size:0.85rem;">
-                Awaiting movement to generate spatial arrays.
+            <div style="margin-top: 30px; font-family: var(--font-data); font-size: 0.65rem; color: var(--sys-cyan);">
+                > SYS_BOOT_OK<br>
+                > OSRM_ROUTING_STANDBY<br>
+                > ECMWF_GFS_ICON_JMA_SYNC<br>
+                > <span id="tel-meteo">GRID: AWAITING...</span>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-// ===================== SUPABASE CONFIG =====================
+// ===================== SUPABASE & ENV CONFIG =====================
 const SUPABASE_URL      = 'https://myhcnbqzafygqnfxykdd.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15aGNuYnF6YWZ5Z3FuZnh5a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzMwMDMsImV4cCI6MjA5MTQwOTAwM30.UhE9uQ3bkw3b1HLoHVB1uQilysYzbcXyYlIwmxTl1G0';
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const PROD_URL = 'https://shinrasetsu.github.io/meteo-nexus/';
-
-// ===================== RIPPLE =====================
-function addRipple(e, btn) {
-    const r = document.createElement('span');
-    r.className = 'ripple-fx';
-    const rect = btn.getBoundingClientRect();
-    const s = Math.max(rect.width, rect.height);
-    r.style.cssText = `width:${s}px;height:${s}px;left:${e.clientX - rect.left - s/2}px;top:${e.clientY - rect.top - s/2}px`;
-    btn.appendChild(r);
-    setTimeout(() => r.remove(), 600);
-}
-
-// ===================== PARTICLE BACKGROUND =====================
-(function initParticles() {
-    const c   = document.getElementById('particle-bg');
-    const ctx = c.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    let W, H, pts;
-
-    function resize() {
-        W = window.innerWidth; H = window.innerHeight;
-        c.width = W * dpr; c.height = H * dpr;
-        c.style.width = W + 'px'; c.style.height = H + 'px';
-        ctx.scale(dpr, dpr);
-        pts = Array.from({ length: 55 }, () => ({
-            x: Math.random() * W, y: Math.random() * H,
-            vx: (Math.random() - 0.5) * 0.3, vy: (Math.random() - 0.5) * 0.3
-        }));
-    }
-    resize();
-    window.addEventListener('resize', resize);
-
-    function frame() {
-        ctx.clearRect(0, 0, W, H);
-        pts.forEach(p => {
-            p.x += p.vx; p.y += p.vy;
-            if (p.x < 0 || p.x > W) p.vx *= -1;
-            if (p.y < 0 || p.y > H) p.vy *= -1;
-            ctx.beginPath(); ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(20,184,166,0.35)'; ctx.fill();
-        });
-        pts.forEach((a, i) => pts.slice(i + 1).forEach(b => {
-            const d = Math.hypot(a.x - b.x, a.y - b.y);
-            if (d < 100) {
-                ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-                ctx.strokeStyle = `rgba(20,184,166,${(1 - d / 100) * 0.12})`;
-                ctx.lineWidth = 0.5; ctx.stroke();
-            }
-        }));
-        requestAnimationFrame(frame);
-    }
-    frame();
-})();
-
-// ===================== AUTH UI =====================
-function switchTab(tab) {
-    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-    document.getElementById('form-login').style.display    = tab === 'login'    ? 'block' : 'none';
-    document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';
-    document.querySelectorAll('.auth-tab')[tab === 'login' ? 0 : 1].classList.add('active');
-}
-function setMsg(id, msg, type) {
-    const el = document.getElementById(id);
-    el.className = `auth-msg ${type}`; el.innerHTML = msg;
-}
-function setLoading(btnId, loading) {
-    const btn = document.getElementById(btnId);
-    btn.disabled = loading;
-    btn.innerHTML = loading
-        ? '<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...'
-        : btnId === 'btn-login'
-            ? '<i class="fa-solid fa-right-to-bracket"></i> LOGIN'
-            : '<i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT';
-}
-async function doLogin() {
-    const email = document.getElementById('login-email').value.trim();
-    const pass  = document.getElementById('login-pass').value;
-    if (!email || !pass) { setMsg('login-msg', '⚠ Fill in all fields.', 'err'); return; }
-    setLoading('btn-login', true);
-    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
-    setLoading('btn-login', false);
-    if (error) setMsg('login-msg', `<i class="fa-solid fa-xmark"></i> ${error.message}`, 'err');
-}
-async function doRegister() {
-    const email = document.getElementById('reg-email').value.trim();
-    const pass  = document.getElementById('reg-pass').value;
-    const pass2 = document.getElementById('reg-pass2').value;
-    if (!email || !pass || !pass2) { setMsg('reg-msg', '⚠ Fill in all fields.', 'err'); return; }
-    if (pass !== pass2)  { setMsg('reg-msg', '⚠ Passwords do not match.', 'err'); return; }
-    if (pass.length < 6) { setMsg('reg-msg', '⚠ Min. 6 characters required.', 'err'); return; }
-    setLoading('btn-register', true);
-    const { error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: PROD_URL } });
-    setLoading('btn-register', false);
-    if (error) setMsg('reg-msg', `<i class="fa-solid fa-xmark"></i> ${error.message}`, 'err');
-    else setMsg('reg-msg', '<i class="fa-solid fa-envelope"></i> Check your email to confirm registration.', 'ok');
-}
-async function doGoogleLogin() {
-    const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: PROD_URL } });
-    if (error) alert('Google OAuth error: ' + error.message);
-}
-async function doResetPassword() {
-    const emailInput = document.getElementById('login-email').value.trim();
-    if (!emailInput) { setMsg('login-msg', 'ERR: Target email required.', 'err'); return; }
-    const { error } = await sb.auth.resetPasswordForEmail(emailInput, { redirectTo: PROD_URL });
-    if (error) setMsg('login-msg', 'ERR: ' + error.message, 'err');
-    else setMsg('login-msg', 'SYS: Recovery link dispatched.', 'ok');
-}
-async function doLogout() { await sb.auth.signOut(); }
-
-// ===================== SESSION GATE =====================
-sb.auth.getSession().then(({ data: { session } }) => {
-    if (session?.user) showApp(session.user); else showAuth();
-});
-sb.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-        const newPassword = prompt('SYS: Enter new password for ' + session.user.email);
-        if (newPassword && newPassword.length >= 6) {
-            const { error } = await sb.auth.updateUser({ password: newPassword });
-            alert(error ? 'ERR: ' + error.message : 'SYS: Password updated. Login via Email/Password.');
-        } else alert('ERR: Password update aborted or insufficient length (Min. 6).');
-    }
-    if (session?.user) showApp(session.user); else showAuth();
-});
-function showApp(user) {
-    document.getElementById('auth-overlay').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
-    document.getElementById('user-bar').style.display = 'flex';
-    const provider = user.app_metadata?.provider || 'email';
-    document.getElementById('u-email-display').innerText  = user.email || user.id;
-    document.getElementById('u-method-display').innerText = provider === 'google' ? '⚡ Google OAuth' : '🔑 Email/Password';
-    if (!window._appBooted) { window._appBooted = true; bootApp(); }
-}
-function showAuth() {
-    document.getElementById('auth-overlay').style.display = 'flex';
-    document.getElementById('app').style.display = 'none';
-    document.getElementById('user-bar').style.display = 'none';
-    window._appBooted = false;
-}
 
 // ===================== CORE CONFIG =====================
 const CONFIG = {
@@ -685,29 +425,6 @@ const CONFIG = {
     testMode:               false
 };
 
-const WMO_CODES = {
-    0:'Clear Sky',1:'Mainly Clear',2:'Partly Cloudy',3:'Overcast',
-    45:'Fog',48:'Depositing Rime Fog',51:'Light Drizzle',53:'Moderate Drizzle',55:'Dense Drizzle',
-    56:'Light Freezing Drizzle',57:'Dense Freezing Drizzle',
-    61:'Slight Rain',63:'Moderate Rain',65:'Heavy Rain',66:'Light Freezing Rain',67:'Heavy Freezing Rain',
-    71:'Slight Snow Fall',73:'Moderate Snow Fall',75:'Heavy Snow Fall',77:'Snow Grains',
-    80:'Slight Rain Showers',81:'Moderate Rain Showers',82:'Violent Rain Showers',
-    85:'Slight Snow Showers',86:'Heavy Snow Showers',
-    95:'Thunderstorm',96:'Thunderstorm + Hail',99:'Heavy Thunderstorm + Hail'
-};
-const WMO_ICONS = {
-    0:'fa-sun',1:'fa-sun',2:'fa-cloud-sun',3:'fa-cloud',
-    45:'fa-smog',48:'fa-smog',51:'fa-cloud-rain',53:'fa-cloud-rain',55:'fa-cloud-showers-heavy',
-    56:'fa-cloud-meatball',57:'fa-cloud-meatball',
-    61:'fa-cloud-rain',63:'fa-cloud-showers-heavy',65:'fa-cloud-showers-water',
-    66:'fa-cloud-meatball',67:'fa-cloud-meatball',
-    71:'fa-snowflake',73:'fa-snowflake',75:'fa-snowflake',77:'fa-snowflake',
-    80:'fa-cloud-rain',81:'fa-cloud-showers-heavy',82:'fa-cloud-showers-water',
-    85:'fa-snowflake',86:'fa-snowflake',
-    95:'fa-cloud-bolt',96:'fa-cloud-bolt',99:'fa-cloud-bolt'
-};
-
-// ===================== STATE =====================
 let state = {
     mode:               localStorage.getItem('ms_mode') || 'auto',
     coords:             JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
@@ -725,509 +442,111 @@ let state = {
     maxSpeed:           parseFloat(localStorage.getItem('ms_maxSpeed')) || 0.0,
     speedHistory:       JSON.parse(localStorage.getItem('ms_speedHistory')) || [],
     destination:        JSON.parse(localStorage.getItem('ms_dest')) || null,
-    sparkData:          { temp: [], wind: [], uv: [] },
     radarVals:          [0.5, 0.5, 0.5, 0.5, 0.5]
 };
 
-// ===================== UTILITIES =====================
-function getWindDirection(deg) {
-    if (deg === null || deg === undefined) return "N/A";
-    const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-    return arr[Math.floor((deg / 22.5) + 0.5) % 16];
-}
-function getDistanceKm(lat1, lon1, lat2, lon2) {
-    const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-// ===================== ANIMATED COUNTER =====================
-function countUp(el, target, suffix, dur = 900) {
-    if (!el) return;
-    const start = parseFloat(el.dataset.prev || '0') || 0;
-    el.dataset.prev = target;
-    const steps = 40, inc = (target - start) / steps;
-    let cur = start, i = 0;
-    const id = setInterval(() => {
-        cur += inc; i++;
-        if (i >= steps) { cur = target; clearInterval(id); }
-        el.textContent = Number.isInteger(target) ? Math.round(cur) + suffix : cur.toFixed(1) + suffix;
-    }, dur / steps);
+// ===================== RIPPLE EFFECT (LEGACY UI COMPATIBILITY) =====================
+function addRipple(e, btn) {
+    const r = document.createElement('span');
+    r.className = 'ripple-fx';
+    const rect = btn.getBoundingClientRect();
+    const s = Math.max(rect.width, rect.height);
+    r.style.cssText = `width:${s}px;height:${s}px;left:${e.clientX - rect.left - s/2}px;top:${e.clientY - rect.top - s/2}px`;
+    btn.appendChild(r);
+    setTimeout(() => r.remove(), 600);
 }
 
-// ===================== AGREE GAUGE =====================
-function updateAgreeGauge(pct) {
-    const arc  = document.getElementById('agree-arc');
-    const txt  = document.getElementById('agree-gauge-txt');
-    if (!arc || !txt) return;
-    const total = 107;
-    arc.setAttribute('stroke-dashoffset', (total - total * pct / 100).toFixed(1));
-    arc.setAttribute('stroke', pct >= 75 ? '#ef4444' : pct >= 40 ? '#f59e0b' : '#14b8a6');
-    txt.textContent = Math.round(pct) + '%';
+// ===================== AUTHENTICATION LOGIC =====================
+function switchTab(tab) {
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('form-login').style.display    = tab === 'login'    ? 'block' : 'none';
+    document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';
+    document.querySelectorAll('.auth-tab')[tab === 'login' ? 0 : 1].classList.add('active');
+}
+function setMsg(id, msg, type) {
+    const el = document.getElementById(id);
+    el.className = `auth-msg ${type}`; el.innerHTML = msg;
 }
 
-// ===================== SPARKLINES =====================
-const sparkCtxs = {};
-function initSparklines() {
-    ['spark-temp','spark-wind','spark-uv'].forEach(id => {
-        const c   = document.getElementById(id);
-        const dpr = window.devicePixelRatio || 1;
-        c.width   = c.offsetWidth * dpr;
-        c.height  = 36 * dpr;
-        const ctx = c.getContext('2d');
-        ctx.scale(dpr, dpr);
-        sparkCtxs[id] = { ctx, w: c.offsetWidth, h: 36 };
-    });
-}
-function drawSparkline(id, data, color) {
-    const { ctx, w, h } = sparkCtxs[id] || {};
-    if (!ctx || data.length < 2) return;
-    ctx.clearRect(0, 0, w, h);
-    const min = Math.min(...data), max = Math.max(...data), range = max - min || 1;
-    const xs = data.map((_, i) => i * (w / (data.length - 1)));
-    const ys = data.map(v => h - 4 - ((v - min) / range) * (h - 8));
-    ctx.beginPath();
-    xs.forEach((x, i) => i === 0 ? ctx.moveTo(x, ys[i]) : ctx.lineTo(x, ys[i]));
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
-    ctx.lineTo(xs[xs.length-1], h); ctx.lineTo(0, h); ctx.closePath();
-    ctx.fillStyle = color.replace(')', ',0.15)').replace('rgb', 'rgba'); ctx.fill();
-    ctx.beginPath();
-    ctx.arc(xs[xs.length-1], ys[ys.length-1], 2.5, 0, Math.PI*2);
-    ctx.fillStyle = color; ctx.fill();
-}
-function pushSparkData(temp, wind, uv) {
-    const push = (arr, val, max=24) => { arr.push(val); if (arr.length > max) arr.shift(); };
-    push(state.sparkData.temp, temp);
-    push(state.sparkData.wind, wind);
-    push(state.sparkData.uv,   uv);
-    drawSparkline('spark-temp', state.sparkData.temp, '#f59e0b');
-    drawSparkline('spark-wind', state.sparkData.wind, '#3b82f6');
-    drawSparkline('spark-uv',   state.sparkData.uv,   '#a855f7');
-}
-
-// ===================== RADAR SPIDER CHART =====================
-let radarRAF = null;
-function initRadar() {
-    const c   = document.getElementById('radar-canvas');
-    const dpr = window.devicePixelRatio || 1;
-    c.width   = 140 * dpr; c.height = 120 * dpr;
-    const ctx = c.getContext('2d');
-    ctx.scale(dpr, dpr);
-    const W=140, H=120, cx=W/2, cy=H/2+5, R=44;
-    const labels = ['Rain','Wind','UV','Humidity','Pressure'];
-    const n = labels.length;
-
-    function draw() {
-        ctx.clearRect(0, 0, W, H);
-        for (let ring = 1; ring <= 3; ring++) {
-            ctx.beginPath();
-            for (let i = 0; i < n; i++) {
-                const a = (Math.PI*2*i/n) - Math.PI/2;
-                const r = R * ring / 3;
-                i === 0 ? ctx.moveTo(cx+r*Math.cos(a), cy+r*Math.sin(a)) : ctx.lineTo(cx+r*Math.cos(a), cy+r*Math.sin(a));
-            }
-            ctx.closePath(); ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=0.5; ctx.stroke();
-        }
-        for (let i = 0; i < n; i++) {
-            const a = (Math.PI*2*i/n) - Math.PI/2;
-            ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx+R*Math.cos(a), cy+R*Math.sin(a));
-            ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=0.5; ctx.stroke();
-            const lx = cx+(R+10)*Math.cos(a), ly = cy+(R+10)*Math.sin(a);
-            ctx.fillStyle='rgba(122,144,168,0.9)'; ctx.font='7px JetBrains Mono,monospace';
-            ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(labels[i], lx, ly);
-        }
-        ctx.beginPath();
-        state.radarVals.forEach((v, i) => {
-            const a = (Math.PI*2*i/n) - Math.PI/2, r = R*v;
-            i === 0 ? ctx.moveTo(cx+r*Math.cos(a), cy+r*Math.sin(a)) : ctx.lineTo(cx+r*Math.cos(a), cy+r*Math.sin(a));
-        });
-        ctx.closePath();
-        ctx.fillStyle='rgba(20,184,166,0.15)'; ctx.fill();
-        ctx.strokeStyle='#14b8a6'; ctx.lineWidth=1.5; ctx.stroke();
-        state.radarVals.forEach((v, i) => {
-            const a = (Math.PI*2*i/n) - Math.PI/2, r = R*v;
-            ctx.beginPath(); ctx.arc(cx+r*Math.cos(a), cy+r*Math.sin(a), 3, 0, Math.PI*2);
-            ctx.fillStyle='#14b8a6'; ctx.fill();
-        });
-        radarRAF = requestAnimationFrame(draw);
-    }
-    if (radarRAF) cancelAnimationFrame(radarRAF);
-    draw();
-}
-function updateRadar(rain, wind, uv, humidity, pressure) {
-    state.radarVals = [
-        Math.min(rain / 10, 1),
-        Math.min(wind / 60, 1),
-        Math.min(uv   / 12, 1),
-        Math.min(humidity / 100, 1),
-        Math.min(pressure / 1040, 1)
-    ];
-}
-
-// ===================== TEMP GRADIENT SLIDER =====================
-function initTempSlider() {
-    const sl  = document.getElementById('temp-slider');
-    const out = document.getElementById('temp-slider-val');
-    const tr  = document.getElementById('temp-grad-track');
-    const clamp = (v,min,max)=>Math.min(max,Math.max(min,v));
-    function updateGradient(v) {
-        const pct = (v+10)/60;
-        tr.style.background = `linear-gradient(90deg,#3b82f6 0%,#14b8a6 35%,#f59e0b 70%,#ef4444 100%)`;
-    }
-    sl.addEventListener('input', e => {
-        const v = +e.target.value;
-        out.textContent = v + '°C';
-        updateGradient(v);
-    });
-    updateGradient(28);
-}
-
-// ===================== TYPEWRITER STATUS LOG =====================
-const TYPEWRITER_MSGS = [
-    'ECMWF Hi-Res grid lock acquired...',
-    'JMA precipitation overlay synced...',
-    'Kinematic cone projected +30min...',
-    'Agreement index recalculated...',
-    'OSRM route cache refreshed...',
-    'WakeLock: HELD — display active',
-    'Multi-model fusion complete...',
-    'Spatial radar arrays updated...',
-];
-let twIndex = 0, twChar = 0, twEl;
-function typewriterTick() {
-    if (!twEl) { twEl = document.getElementById('typewriter-text'); }
-    if (!twEl) return;
-    const msg = TYPEWRITER_MSGS[twIndex];
-    if (twChar <= msg.length) {
-        twEl.textContent = msg.slice(0, twChar++);
-        setTimeout(typewriterTick, 38);
-    } else {
-        setTimeout(() => {
-            twEl.textContent = '';
-            twChar = 0;
-            twIndex = (twIndex + 1) % TYPEWRITER_MSGS.length;
-            typewriterTick();
-        }, 2200);
-    }
-}
-
-// ===================== MODEL HEALTH BARS =====================
-function updateModelBar(fillId, statId, dataArray) {
-    const fill = document.getElementById(fillId);
-    const stat = document.getElementById(statId);
-    const ok   = dataArray && dataArray.length > 0 && !dataArray.every(v => v === null);
-    const pct  = ok ? 60 + Math.random() * 40 : 0;
-    if (fill) fill.style.width = pct + '%';
-    if (stat) stat.innerHTML = ok ? '<span class="status-ok">ONLINE</span>' : '<span class="status-fail">NO SIGNAL</span>';
-    return ok;
-}
-
-// ===================== CLOCK =====================
-function runLiveClock() {
-    if (!state.targetTimezone) return;
-    try {
-        const t = new Date().toLocaleTimeString('en-US', { timeZone: state.targetTimezone, hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true });
-        document.getElementById('local-time-text').innerText = t;
-    } catch(e) { document.getElementById('local-time-text').innerText = "SYNC ERR"; }
-}
-setInterval(runLiveClock, 1000);
-
-// ===================== DEST SEARCH =====================
-async function execDestSearch(q) {
-    try {
-        const res  = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(q)}&count=8&language=en&format=json`);
-        const data = await res.json();
-        const destResults = document.getElementById('dest-results');
-        if (data.results?.length > 0) {
-            destResults.innerHTML = data.results.map(r => {
-                const loc = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
-                return `<div class="search-item" onclick="setDestination(${r.latitude},${r.longitude},'${loc.replace(/'/g,"\\'")}')"><i class="fa-solid fa-flag-checkered" style="color:var(--accent-teal);margin-right:5px;"></i> ${loc}</div>`;
-            }).join('');
-            destResults.style.display = 'block';
-        } else {
-            destResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>';
-            destResults.style.display = 'block';
-        }
-    } catch(e) {}
-}
-function setDestination(lat, lon, name) {
-    state.destination = { lat, lon, name };
-    localStorage.setItem('ms_dest', JSON.stringify(state.destination));
-    document.getElementById('search-dest').value = name;
-    document.getElementById('dest-results').style.display = 'none';
-    document.getElementById('dest-status').innerHTML = `<span style="color:var(--success-color)"><i class="fa-solid fa-route"></i> OSRM Routing Engaged to: ${name}</span>`;
-    state.lastVectorFetchTime = 0;
-}
-function clearDestination() {
-    state.destination = null; localStorage.removeItem('ms_dest');
-    const el = document.getElementById('search-dest'); if (el) el.value = '';
-    document.getElementById('dest-status').innerHTML = "No destination set. Defaulting to free-roam kinematic cone.";
-    state.lastVectorFetchTime = 0;
-}
-
-// ===================== AUDIO =====================
-function playSonarPing() {
-    if (!state.audioEnabled) return;
-    if (Date.now() - state.lastPing < 60000) return;
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(1200, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-    osc.start(); osc.stop(ctx.currentTime + 0.6);
-    state.lastPing = Date.now();
-}
-function toggleAudio() {
-    state.audioEnabled = !state.audioEnabled;
-    const btn = document.getElementById('audio-btn');
-    const icon = document.getElementById('audio-icon');
-    const txt  = document.getElementById('audio-text');
-    if (state.audioEnabled) {
-        btn.classList.add('active');
-        icon.className = 'fa-solid fa-volume-high fa-beat-fade';
-        txt.innerText  = "SONAR ACTIVE";
-        new (window.AudioContext || window.webkitAudioContext)().resume().then(() => playSonarPing());
-    } else {
-        btn.classList.remove('active');
-        icon.className = 'fa-solid fa-volume-xmark';
-        txt.innerText  = "ALERTS OFF";
-    }
-}
-
-// ===================== PWA MANIFEST =====================
-const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
-const manifestBlob = new Blob([JSON.stringify({
-    name:"MeteoNexus", short_name:"Nexus", start_url:window.location.href,
-    display:"standalone", background_color:"#0a0f1e", theme_color:"#0a0f1e",
-    icons:[{ src:iconBase64, sizes:"512x512", type:"image/svg+xml" }]
-})], { type:'application/json' });
-document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
-
-// ===================== MAIN CHART =====================
-function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
-    const ctx = document.getElementById('mainChart').getContext('2d');
-    if (state.chart) state.chart.destroy();
-    state.chart = new Chart(ctx, {
-        data: {
-            labels,
-            datasets: [
-                { type:'bar',  label:'Solar (W/m²)', data:solarData, backgroundColor:'rgba(245,158,11,0.35)', borderColor:'rgba(245,158,11,0.8)', borderWidth:1, categoryPercentage:0.6, barPercentage:0.8, order:3, yAxisID:'y_solar' },
-                { type:'bar',  label:'UV Index',     data:uvData,    backgroundColor:'rgba(168,85,247,0.35)', borderColor:'rgba(168,85,247,0.8)', borderWidth:1, categoryPercentage:0.6, barPercentage:0.8, order:2, yAxisID:'y_uv' },
-                { type:'line', label:'ECMWF', data:rainData.eu, borderColor:'#3b82f6', borderWidth:2, tension:0.4, pointRadius:0, order:1, yAxisID:'y_rain' },
-                { type:'line', label:'GFS',   data:rainData.us, borderColor:'#14b8a6', borderWidth:2, borderDash:[4,3], tension:0.4, pointRadius:0, order:1, yAxisID:'y_rain' },
-                { type:'line', label:'ICON',  data:rainData.de, borderColor:'#f59e0b', borderWidth:2, borderDash:[4,3], tension:0.4, pointRadius:0, order:1, yAxisID:'y_rain' },
-                { type:'line', label:'JMA',   data:rainData.jp, borderColor:'#ec4899', borderWidth:2, tension:0.4, pointRadius:0, order:1, yAxisID:'y_rain' }
-            ]
-        },
-        options: {
-            responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
-            plugins: {
-                title: { display:true, text:`ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, color:'#7a90a8', font:{ family:'JetBrains Mono', size:11 }, align:'start', padding:{ bottom:16 } },
-                legend: { display:true, labels:{ color:'#7a90a8', font:{ family:'JetBrains Mono', size:10 }, boxWidth:8, usePointStyle:true } },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => {
-                            let l = (ctx.dataset.label||'') + ': ';
-                            if (ctx.parsed.y !== null) {
-                                l += ctx.parsed.y.toFixed(1);
-                                if (ctx.dataset.yAxisID==='y_solar') l += ' W/m²';
-                                if (ctx.dataset.yAxisID==='y_uv')    l += ' Index';
-                                if (ctx.dataset.yAxisID==='y_rain')  l += ' mm';
-                            }
-                            return l;
-                        },
-                        footer: (items) => {
-                            const i = items[0].dataIndex;
-                            return `\nRain%: ${hourlyAgreement[i].toFixed(0)}%  •  UV: ${uvData[i].toFixed(1)}  •  Solar: ${solarData[i].toFixed(0)}W`;
-                        }
-                    },
-                    footerFont:{ family:'JetBrains Mono', size:12, weight:'bold' }, footerColor:'#14b8a6', padding:12,
-                    backgroundColor:'rgba(17,24,39,0.95)', borderColor:'#1e2d45', borderWidth:1
-                }
-            },
-            scales: {
-                x:       { grid:{ color:'rgba(30,45,69,0.6)' }, ticks:{ maxTicksLimit:12, color:'#7a90a8', font:{ family:'JetBrains Mono', size:10 } } },
-                y_rain:  { type:'linear', display:true, position:'left',  title:{ display:true, text:'Rain (mm)', color:'#7a90a8' }, grid:{ color:'rgba(30,45,69,0.6)' }, ticks:{ color:'#7a90a8' }, suggestedMax:2 },
-                y_solar: { type:'linear', display:true, position:'right', title:{ display:true, text:'Solar (W/m²)', color:'rgba(245,158,11,0.7)' }, grid:{ drawOnChartArea:false }, ticks:{ color:'#7a90a8' }, suggestedMax:1000 },
-                y_uv:    { type:'linear', display:false, min:0, max:15 }
+// Sequential Navigation Implementation (Enter/Tab Override)
+document.querySelectorAll('.auth-field input').forEach((input, index, inputs) => {
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            const next = inputs[index + 1];
+            if (next && next.closest('div[id^="form"]') === input.closest('div[id^="form"]')) {
+                next.focus();
+            } else {
+                if (input.closest('#form-login')) doLogin();
+                if (input.closest('#form-register')) doRegister();
             }
         }
     });
-}
-
-// ===================== WEATHER FETCH =====================
-async function fetchData(lat, lon, skipReverseGeo = false) {
-    const badge = document.getElementById('location-badge');
-    document.getElementById('tel-meteo').innerText = `Grid: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-
-    if (!skipReverseGeo) {
-        fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
-            .then(r => r.json())
-            .then(d => {
-                const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
-                TYPEWRITER_MSGS[2] = `GPS fix: ${city} acquired`;
-            }).catch(() => { badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`; });
-    }
-
-    const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,is_day&timezone=auto`);
-    const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
-    const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`);
-
-    try {
-        const [resCurr, resFore, resSolar] = await Promise.all([p1, p2, p3]);
-        const dCurr  = await resCurr.json();
-        const dFore  = await resFore.json();
-        const dSolar = await resSolar.json();
-
-        if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
-
-        const curr = dCurr.current, h = dFore.hourly, hSol = dSolar.hourly;
-        const targetTimePrefix = curr.time.substring(0, 13);
-        let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
-        if (nowIndex === -1) {
-            try { nowIndex = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone })).getHours(); }
-            catch(e) { nowIndex = new Date().getHours(); }
-        }
-
-        const sliceWin = 24;
-        const clean = arr => arr.map(v => v === null ? 0 : v);
-        const rawEU = h.precipitation_ecmwf_ifs025;
-        const rawUS = h.precipitation_gfs_seamless;
-        const rawDE = h.precipitation_icon_seamless;
-        const rawJP = h.precipitation_jma_seamless;
-
-        updateModelBar('mfill-eu', 'stat-eu', rawEU);
-        updateModelBar('mfill-us', 'stat-us', rawUS);
-        updateModelBar('mfill-de', 'stat-de', rawDE);
-        updateModelBar('mfill-jp', 'stat-jp', rawJP);
-
-        const rainData = {
-            eu: clean(rawEU.slice(nowIndex, nowIndex+sliceWin)),
-            us: clean(rawUS.slice(nowIndex, nowIndex+sliceWin)),
-            de: clean(rawDE.slice(nowIndex, nowIndex+sliceWin)),
-            jp: clean(rawJP.slice(nowIndex, nowIndex+sliceWin))
-        };
-        const uvData    = hSol.uv_index.slice(nowIndex, nowIndex+sliceWin).map(v => v === null ? 0 : v);
-        const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex+sliceWin));
-        const times     = h.time.slice(nowIndex, nowIndex+sliceWin).map(t => { const ts=t.slice(11,16); return ts==="00:00"?"00:00 (TMRW)":ts; });
-
-        const hourlyAgreement = [];
-        for (let i = 0; i < sliceWin; i++) {
-            let w = 0;
-            if (rainData.jp[i]>0.1) w+=0.40;
-            if (rainData.eu[i]>0.1) w+=0.35;
-            if (rainData.us[i]>0.1) w+=0.15;
-            if (rainData.de[i]>0.1) w+=0.10;
-            hourlyAgreement.push(w * 100);
-        }
-
-        const currentAgreement = hourlyAgreement[0] || 0;
-        let incomingRain = false;
-        for (let i=1;i<=3;i++) { if (hourlyAgreement[i]>=75) { incomingRain=true; break; } }
-
-        const maxUV     = Math.max(...uvData);
-        const maxUVTime = times[uvData.indexOf(maxUV)].replace(" (TMRW)","");
-        const pressure  = curr.surface_pressure || 1013;
-
-        countUp(document.getElementById('metric-temp'),  curr.temperature_2m,      '°C');
-        countUp(document.getElementById('metric-feels'), curr.apparent_temperature, '°C');
-        countUp(document.getElementById('metric-hum'),   curr.relative_humidity_2m, '%');
-
-        updateAgreeGauge(currentAgreement);
-        document.getElementById('metric-uv').innerHTML = `${maxUV.toFixed(1)} <span style="font-size:0.62rem;color:var(--text-secondary);">@${maxUVTime}</span>`;
-
-        const sl = document.getElementById('temp-slider');
-        if (sl) { sl.value = Math.min(50, Math.max(-10, curr.temperature_2m)); document.getElementById('temp-slider-val').textContent = curr.temperature_2m + '°C'; }
-
-        updateRadar(
-            Math.max(...Object.values(rainData).map(a => a[0]||0)),
-            curr.wind_speed_10m, maxUV,
-            curr.relative_humidity_2m, pressure
-        );
-
-        pushSparkData(curr.temperature_2m, curr.wind_speed_10m, maxUV);
-
-        if (state.mode === 'manual' || state.currentMotion.speedKph === 0) {
-            const windDir = getWindDirection(curr.wind_direction_10m);
-            document.getElementById('metric-wind').innerHTML = `${curr.wind_speed_10m}<span style="font-size:0.65rem;">km/h</span> ${windDir} <i class="fa-solid fa-arrow-up" style="transform:rotate(${curr.wind_direction_10m}deg);display:inline-block;margin-left:2px;color:var(--accent-blue);font-size:0.75rem;"></i>`;
-        }
-
-        document.getElementById('weather-desc').innerText = WMO_CODES[curr.weather_code] || `WMO ${curr.weather_code}`;
-
-        const icon = document.getElementById('status-icon');
-        const text = document.getElementById('status-text');
-        let baseIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
-        if (curr.is_day === 0) {
-            if (baseIcon==='fa-sun') baseIcon='fa-moon';
-            if (baseIcon==='fa-cloud-sun') baseIcon='fa-cloud-moon';
-        }
-        if (currentAgreement >= 75) {
-            icon.className='status-icon fa-solid fa-cloud-showers-heavy status-alert';
-            text.innerText='RAIN LIKELY'; text.className='status-text status-alert';
-            if (currentAgreement>=CONFIG.sonarThreshold) playSonarPing();
-        } else if (incomingRain) {
-            icon.className='status-icon fa-solid fa-cloud-showers-heavy status-warn';
-            text.innerText='INCOMING RAIN (1-3H)'; text.className='status-text status-warn';
-        } else if (currentAgreement >= 25) {
-            icon.className='status-icon fa-solid fa-cloud-sun-rain status-warn';
-            text.innerText='RAIN POSSIBLE'; text.className='status-text status-warn';
-        } else {
-            icon.className=`status-icon fa-solid ${baseIcon} status-clear`;
-            text.innerText='ATMOSPHERE STABLE'; text.className='status-text status-clear';
-        }
-
-        renderChart(times, rainData, solarData, uvData, currentAgreement, hourlyAgreement);
-        TYPEWRITER_MSGS[3] = `Agreement index: ${currentAgreement.toFixed(0)}% — ${currentAgreement>=75?'RAIN LIKELY':currentAgreement>=25?'POSSIBLE':'STABLE'}`;
-
-    } catch(e) { console.error(e); }
-}
-
-// ===================== WAKELOCK =====================
-async function requestWakeLock() {
-    try {
-        if ('wakeLock' in navigator) {
-            state.wakeLock = await navigator.wakeLock.request('screen');
-            document.getElementById('wakelock-indicator').style.color = 'var(--accent-teal)';
-            document.getElementById('wakelock-indicator').innerHTML   = '<i class="fa-solid fa-eye"></i> Display Locked ON';
-            state.wakeLock.addEventListener('release', () => {
-                document.getElementById('wakelock-indicator').style.color   = 'var(--text-secondary)';
-                document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye-slash"></i> Display Auto-Sleep';
-            });
-        } else { document.getElementById('wakelock-indicator').style.display='none'; }
-    } catch(err) {
-        document.getElementById('wakelock-indicator').style.color   = 'var(--accent-orange)';
-        document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> WakeLock Denied';
-    }
-}
-document.addEventListener('visibilitychange', async () => {
-    if (state.wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
 });
 
-// ===================== SENSOR FUSION & VECTOR TELEMETRY =====================
-function initSensorFusion() {
-    const handle = (e) => {
-        let heading = null;
-        if (e.webkitCompassHeading !== undefined) heading = e.webkitCompassHeading;
-        else if (e.absolute && e.alpha !== null) heading = 360 - e.alpha;
-        if (heading !== null) { state.magHeading = heading; updateHUD(); }
-    };
-    window.addEventListener("deviceorientationabsolute", handle, true);
-    window.addEventListener("deviceorientation", handle, true);
+async function doLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const pass  = document.getElementById('login-pass').value;
+    if (!email || !pass) { setMsg('login-msg', 'Error: Missing parameters', 'err'); return; }
+    document.getElementById('btn-login').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> LINKING...';
+    const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+    document.getElementById('btn-login').innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> LOGIN';
+    if (error) setMsg('login-msg', `Error: ${error.message}`, 'err');
 }
 
-function unlockStrictSensors() {
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission().then(r => { if (r==='granted') initSensorFusion(); }).catch(()=>{});
-    }
+async function doRegister() {
+    const email = document.getElementById('reg-email').value.trim();
+    const pass  = document.getElementById('reg-pass').value;
+    const pass2 = document.getElementById('reg-pass2').value;
+    if (!email || !pass || !pass2) { setMsg('reg-msg', 'Error: Missing parameters', 'err'); return; }
+    if (pass !== pass2)  { setMsg('reg-msg', 'Error: Password mismatch', 'err'); return; }
+    if (pass.length < 6) { setMsg('reg-msg', 'Error: Min 6 characters', 'err'); return; }
+    
+    document.getElementById('btn-register').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ALLOCATING...';
+    const { error } = await sb.auth.signUp({ email, password: pass, options: { emailRedirectTo: PROD_URL } });
+    document.getElementById('btn-register').innerHTML = '<i class="fa-solid fa-user-plus"></i> CREATE ACCOUNT';
+    
+    if (error) setMsg('reg-msg', `Error: ${error.message}`, 'err');
+    else setMsg('reg-msg', 'Awaiting email verification.', 'ok');
 }
 
+async function doGoogleLogin() {
+    const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: PROD_URL } });
+    if (error) alert('OAUTH ERR: ' + error.message);
+}
+
+async function doResetPassword() {
+    const emailInput = document.getElementById('login-email').value.trim();
+    if (!emailInput) { setMsg('login-msg', 'ERR: Target email required.', 'err'); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(emailInput, { redirectTo: PROD_URL });
+    if (error) setMsg('login-msg', 'ERR: ' + error.message, 'err');
+    else setMsg('login-msg', 'SYS: Recovery link dispatched.', 'ok');
+}
+
+async function doLogout() { await sb.auth.signOut(); }
+
+sb.auth.getSession().then(({ data: { session } }) => {
+    if (session?.user) showApp(); else showAuth();
+});
+sb.auth.onAuthStateChange((event, session) => {
+    if (session?.user) showApp(); else showAuth();
+});
+
+function showApp() {
+    document.getElementById('auth-overlay').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    if (!window._appBooted) { window._appBooted = true; bootApp(); }
+}
+function showAuth() {
+    document.getElementById('auth-overlay').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+    window._appBooted = false;
+}
+
+// ===================== KINEMATICS & SENSOR FUSION =====================
 function initTracking() {
     if (!navigator.geolocation) {
-        document.getElementById('gps-status').innerHTML = '<span style="color:var(--accent-red)">Hardware Unsupported</span>';
+        document.getElementById('gps-status').innerHTML = '<i class="fa-solid fa-satellite"></i> SAT: FAIL';
         return;
     }
     const geoOptions = { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 };
@@ -1239,21 +558,14 @@ function initTracking() {
 }
 
 function handleGPSError(err) {
-    const errorMap = { 1: "Permission Denied", 2: "Position Unavailable", 3: "Hardware Timeout" };
-    const msg = errorMap[err.code] || "Signal Weak";
-    
-    document.getElementById('gps-status').innerHTML = `<span style="color:var(--accent-orange)"><i class="fa-solid fa-triangle-exclamation"></i> ${msg}</span>`;
-    
-    if (state.mode === 'auto' && !state.autoCoords) {
-        document.getElementById('status-icon').className = 'status-icon fa-solid fa-satellite-dish fa-fade status-warn';
-        document.getElementById('status-text').innerText = err.code === 1 ? "GPS BLOCKED" : "AWAITING SATELLITE";
-        document.getElementById('status-text').className = 'status-text status-warn';
-        document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> ${msg.toUpperCase()}`;
-    }
+    const errorMap = { 1: "DENIED", 2: "NO FIX", 3: "TIMEOUT" };
+    document.getElementById('gps-status').innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> SAT: ${errorMap[err.code] || "WEAK"}`;
+    document.getElementById('gps-status').className = 'hw-err';
 }
 
 async function processVectorTelemetry(position) {
-    document.getElementById('gps-status').innerHTML = '<span style="color:var(--success-color)"><i class="fa-solid fa-satellite"></i> Tracking Active</span>';
+    document.getElementById('gps-status').innerHTML = '<i class="fa-solid fa-satellite"></i> SAT: LOCK';
+    document.getElementById('gps-status').className = 'hw-ok';
     
     const { latitude, longitude, speed, heading } = position.coords;
     const currentSpeedKph = speed !== null ? speed * 3.6 : 0;
@@ -1265,211 +577,304 @@ async function processVectorTelemetry(position) {
         gpsHeading: CONFIG.testMode && currentSpeedKph === 0 ? 45 : heading
     };
 
-    updateSpeedMetrics(state.currentMotion.speedKph);
-    updateHUD();
-
-    const now = Date.now();
-    evaluateGridUpdate(now);
-
-    const activeHeading = determineActiveHeading();
+    if (state.currentMotion.speedKph > state.maxSpeed) {
+        state.maxSpeed = state.currentMotion.speedKph;
+        localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
+    }
     
+    updateHUD();
+    const now = Date.now();
+    
+    if (state.mode === 'auto') {
+        let trigger = !state.autoCoords;
+        if (state.autoCoords) {
+            const dist = getDistanceKm(state.autoCoords.lat, state.autoCoords.lon, state.currentMotion.lat, state.currentMotion.lon);
+            trigger = (dist >= CONFIG.gridDistanceDeltaKm) || (now - state.lastGridFetchTime > CONFIG.gridTimeDeltaMs);
+        }
+        if (trigger) {
+            state.autoCoords = { lat: state.currentMotion.lat, lon: state.currentMotion.lon };
+            state.lastGridFetchTime = now;
+            fetchData(state.autoCoords.lat, state.autoCoords.lon);
+        }
+    }
+
+    const activeHeading = (state.currentMotion.speedKph > 12 && state.currentMotion.gpsHeading !== null) 
+        ? state.currentMotion.gpsHeading 
+        : state.magHeading;
+        
     if (activeHeading !== null && (now - state.lastVectorFetchTime >= CONFIG.vectorUpdateIntervalMs)) {
         state.lastVectorFetchTime = now;
         await executeVectorPrediction(activeHeading);
     }
 }
 
-function updateSpeedMetrics(speedKph) {
-    if (speedKph > state.maxSpeed) {
-        state.maxSpeed = speedKph;
-        localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
-    }
-    if (speedKph > CONFIG.movingSpeedMinKph) {
-        state.speedHistory.push(speedKph);
-        if (state.speedHistory.length > CONFIG.speedHistoryMaxSamples) state.speedHistory.shift();
-        localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
-    }
-}
-
-function determineActiveHeading() {
-    if (state.currentMotion.speedKph > 12 && state.currentMotion.gpsHeading !== null) {
-        return state.currentMotion.gpsHeading;
-    }
-    return state.magHeading;
-}
-
-function evaluateGridUpdate(now) {
-    if (state.mode !== 'auto') return;
-
-    let trigger = !state.autoCoords;
-    if (state.autoCoords) {
-        const dist = getDistanceKm(state.autoCoords.lat, state.autoCoords.lon, state.currentMotion.lat, state.currentMotion.lon);
-        trigger = (dist >= CONFIG.gridDistanceDeltaKm) || (now - state.lastGridFetchTime > CONFIG.gridTimeDeltaMs);
-    }
-
-    if (trigger) {
-        state.autoCoords = { lat: state.currentMotion.lat, lon: state.currentMotion.lon };
-        state.lastGridFetchTime = now;
-        fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
-    }
-}
-
 function updateHUD() {
-    let activeHeading = null, sensorTag = "N/A";
-    if (state.currentMotion.speedKph > 12 && state.currentMotion.gpsHeading !== null) { activeHeading=state.currentMotion.gpsHeading; sensorTag="GPS"; }
-    else if (state.magHeading !== null) { activeHeading=state.magHeading; sensorTag="MAG"; }
-    
     document.getElementById('hud-speed').innerText = state.currentMotion.speedKph.toFixed(1);
     document.getElementById('hud-max').innerText   = state.maxSpeed.toFixed(1);
-    const avgVal = state.speedHistory.length > 0
-        ? (state.speedHistory.reduce((a,b)=>a+b,0)/state.speedHistory.length).toFixed(1) : "0.0";
-    document.getElementById('hud-avg').innerText = avgVal;
     
+    const activeHeading = (state.currentMotion.speedKph > 12 && state.currentMotion.gpsHeading !== null) ? state.currentMotion.gpsHeading : state.magHeading;
     if (activeHeading !== null) {
         document.getElementById('hud-heading').innerText = `${activeHeading.toFixed(0)}°`;
-        document.getElementById('hud-compass').innerText = `${getWindDirection(activeHeading)} (${sensorTag})`;
-        if (state.mode==='auto' && state.currentMotion.speedKph > 0) {
-            document.getElementById('metric-wind').innerHTML = `${state.currentMotion.speedKph.toFixed(1)}<span style="font-size:0.65rem;">km/h (SYS)</span> ${getWindDirection(activeHeading)} <i class="fa-solid fa-arrow-up" style="transform:rotate(${activeHeading}deg);display:inline-block;margin-left:2px;color:var(--accent-teal);font-size:0.75rem;"></i>`;
-        }
-    } else {
-        document.getElementById('hud-heading').innerText = '--°';
-        document.getElementById('hud-compass').innerText = 'N/A';
+        document.getElementById('hud-compass').innerText = getWindDirection(activeHeading);
     }
 }
 
+function initSensorFusion() {
+    window.addEventListener("deviceorientationabsolute", (e) => {
+        let heading = null;
+        if (e.webkitCompassHeading !== undefined) heading = e.webkitCompassHeading;
+        else if (e.absolute && e.alpha !== null) heading = 360 - e.alpha;
+        if (heading !== null) { state.magHeading = heading; updateHUD(); }
+    }, true);
+}
+
+// ===================== WEATHER & VISUAL FUSION =====================
+async function fetchData(lat, lon) {
+    document.getElementById('tel-meteo').innerText = `GRID: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    
+    fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
+        .then(r => r.json())
+        .then(d => { document.getElementById('location-badge').innerText = (d.city || d.locality || 'UNKNOWN').toUpperCase(); })
+        .catch(() => {});
+
+    const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,surface_pressure&timezone=auto`);
+    const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
+    const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=uv_index&forecast_days=2&timezone=auto`);
+
+    try {
+        const [resCurr, resFore, resUV] = await Promise.all([p1, p2, p3]);
+        const dCurr = await resCurr.json(); const dFore = await resFore.json(); const dUV = await resUV.json();
+        
+        if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
+        const curr = dCurr.current, h = dFore.hourly;
+        
+        let nowIndex = h.time.findIndex(t => t.startsWith(curr.time.substring(0, 13)));
+        if (nowIndex === -1) nowIndex = new Date().getHours();
+
+        const sliceWin = 24;
+        const rEU = h.precipitation_ecmwf_ifs025.slice(nowIndex, nowIndex+sliceWin).map(v => v||0);
+        const rUS = h.precipitation_gfs_seamless.slice(nowIndex, nowIndex+sliceWin).map(v => v||0);
+        const rDE = h.precipitation_icon_seamless.slice(nowIndex, nowIndex+sliceWin).map(v => v||0);
+        const rJP = h.precipitation_jma_seamless.slice(nowIndex, nowIndex+sliceWin).map(v => v||0);
+        
+        const uvData = dUV.hourly.uv_index.slice(nowIndex, nowIndex+sliceWin).map(v => v||0);
+        const maxUV = Math.max(...uvData);
+
+        let hourlyAgreement = [];
+        for (let i = 0; i < sliceWin; i++) {
+            let w = 0;
+            if (rJP[i]>0.1) w+=0.40; if (rEU[i]>0.1) w+=0.35;
+            if (rUS[i]>0.1) w+=0.15; if (rDE[i]>0.1) w+=0.10;
+            hourlyAgreement.push(w * 100);
+        }
+        
+        const currentAgree = hourlyAgreement[0] || 0;
+        document.getElementById('agree-gauge-txt').innerText = `${currentAgree.toFixed(0)}%`;
+
+        document.getElementById('metric-temp').innerText = `${curr.temperature_2m}°C`;
+        document.getElementById('metric-feels').innerText = `${curr.apparent_temperature}°C`;
+        document.getElementById('metric-hum').innerText = `${curr.relative_humidity_2m}%`;
+        document.getElementById('metric-wind').innerText = curr.wind_speed_10m;
+        document.getElementById('metric-uv').innerText = maxUV.toFixed(1);
+
+        document.getElementById('temp-slider').value = curr.temperature_2m;
+        document.getElementById('temp-slider-val').innerText = `${curr.temperature_2m}°C`;
+
+        const icon = document.getElementById('status-icon');
+        const text = document.getElementById('status-text');
+        
+        if (currentAgree >= 75) {
+            icon.className='status-icon fa-solid fa-cloud-showers-heavy status-rain';
+            text.innerText='RAIN LIKELY'; text.className='consensus-title status-rain';
+            if (state.audioEnabled) playSonarPing();
+        } else if (currentAgree >= 25) {
+            icon.className='status-icon fa-solid fa-cloud-sun-rain status-warn';
+            text.innerText='RAIN POSSIBLE'; text.className='consensus-title status-warn';
+        } else {
+            icon.className='status-icon fa-solid fa-sun status-clear';
+            text.innerText='NOMINAL'; text.className='consensus-title status-clear';
+        }
+
+        updateRadarMatrix(Math.max(rEU[0]||0, rJP[0]||0), curr.wind_speed_10m, maxUV, curr.relative_humidity_2m, curr.surface_pressure);
+        renderChart(h.time.slice(nowIndex, nowIndex+sliceWin).map(t => t.slice(11,16)), {eu:rEU, jp:rJP});
+        
+    } catch(e) { console.error("FUSION ERR:", e); }
+}
+
+// ===================== RADAR & CHART ENGINES =====================
+let radarRAF = null;
+function initRadar() {
+    const c = document.getElementById('radar-canvas');
+    const ctx = c.getContext('2d');
+    const W=130, H=130, cx=W/2, cy=H/2, R=45;
+    const n = 5;
+
+    function draw() {
+        ctx.clearRect(0, 0, W, H);
+        ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+        for (let ring = 1; ring <= 3; ring++) {
+            ctx.beginPath();
+            for (let i = 0; i < n; i++) {
+                const a = (Math.PI*2*i/n) - Math.PI/2, r = R * ring / 3;
+                i === 0 ? ctx.moveTo(cx+r*Math.cos(a), cy+r*Math.sin(a)) : ctx.lineTo(cx+r*Math.cos(a), cy+r*Math.sin(a));
+            }
+            ctx.closePath(); ctx.stroke();
+        }
+        ctx.beginPath();
+        state.radarVals.forEach((v, i) => {
+            const a = (Math.PI*2*i/n) - Math.PI/2, r = R*v;
+            i === 0 ? ctx.moveTo(cx+r*Math.cos(a), cy+r*Math.sin(a)) : ctx.lineTo(cx+r*Math.cos(a), cy+r*Math.sin(a));
+        });
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.2)'; ctx.fill();
+        ctx.strokeStyle = '#00e5ff'; ctx.stroke();
+        radarRAF = requestAnimationFrame(draw);
+    }
+    draw();
+}
+
+function updateRadarMatrix(rain, wind, uv, humidity, pressure) {
+    state.radarVals = [
+        Math.min(rain / 10, 1), Math.min(wind / 60, 1),
+        Math.min(uv / 12, 1), Math.min(humidity / 100, 1), Math.min(pressure / 1040, 1)
+    ];
+}
+
+function renderChart(labels, rainData) {
+    const ctx = document.getElementById('mainChart').getContext('2d');
+    if (state.chart) state.chart.destroy();
+    
+    Chart.defaults.color = '#64748b';
+    Chart.defaults.font.family = "'JetBrains Mono', monospace";
+    
+    state.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'ECMWF', data: rainData.eu, borderColor: '#00e5ff', borderWidth: 2, tension: 0.4, pointRadius: 0 },
+                { label: 'JMA', data: rainData.jp, borderColor: '#d500f9', borderWidth: 2, tension: 0.4, pointRadius: 0 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, title: { display: true, text: 'RAIN (MM)' } }
+            }
+        }
+    });
+}
+
+// ===================== KINEMATIC PROJECTION =====================
 function projectCoordinate(lat, lon, distanceKm, headingDeg) {
     const R = 6371; 
-    const lat1 = lat * Math.PI / 180;
-    const lon1 = lon * Math.PI / 180;
-    const brng = headingDeg * Math.PI / 180;
+    const lat1 = lat * Math.PI / 180, lon1 = lon * Math.PI / 180, brng = headingDeg * Math.PI / 180;
     const theta = distanceKm / R;
-
     const lat2 = Math.asin(Math.sin(lat1) * Math.cos(theta) + Math.cos(lat1) * Math.sin(theta) * Math.cos(brng));
     const lon2 = lon1 + Math.atan2(Math.sin(brng) * Math.sin(theta) * Math.cos(lat1), Math.cos(theta) - Math.sin(lat1) * Math.sin(lat2));
-    
     return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
 }
 
-// ===================== OSRM + KINEMATIC CONE =====================
 async function executeVectorPrediction(activeHeading) {
     const projSpeed = state.currentMotion.speedKph < 10 ? 60 : state.currentMotion.speedKph;
-    let base15=null, base30=null, radarMode="[MODE: FREEROAM CONE]";
-    if (state.destination) {
-        try {
-            const osrmUrl = `${CONFIG.osrmApi}${state.currentMotion.lon},${state.currentMotion.lat};${state.destination.lon},${state.destination.lat}?overview=false&steps=true`;
-            const res  = await fetch(osrmUrl); const data = await res.json();
-            if (data.code==='Ok' && data.routes.length > 0) {
-                let currentDur=0; const steps=data.routes[0].legs[0].steps;
-                for (let step of steps) {
-                    currentDur += step.duration;
-                    if (!base15 && currentDur>=900)  base15={lat:step.maneuver.location[1],lon:step.maneuver.location[0],heading:step.maneuver.bearing_after||activeHeading,dist:step.distance/1000};
-                    if (!base30 && currentDur>=1800) base30={lat:step.maneuver.location[1],lon:step.maneuver.location[0],heading:step.maneuver.bearing_after||activeHeading,dist:step.distance/1000};
-                }
-                if (!base15) base15={lat:state.destination.lat,lon:state.destination.lon,heading:activeHeading,dist:data.routes[0].distance/1000};
-                if (!base30) base30={lat:state.destination.lat,lon:state.destination.lon,heading:activeHeading,dist:data.routes[0].distance/1000};
-                radarMode="[MODE: OSRM ROUTING]";
-            }
-        } catch(e) { console.warn("OSRM fallback:", e); }
-    }
-    if (!base15) { const d=(projSpeed*0.25)/CONFIG.sinuosityFactor; base15={...projectCoordinate(state.currentMotion.lat,state.currentMotion.lon,d,activeHeading),heading:activeHeading,dist:d}; }
-    if (!base30) { const d=(projSpeed*0.50)/CONFIG.sinuosityFactor; base30={...projectCoordinate(state.currentMotion.lat,state.currentMotion.lon,d,activeHeading),heading:activeHeading,dist:d}; }
-    const rm = document.getElementById('radar-mode');
-    rm.innerText = radarMode;
-    rm.style.color = radarMode.includes('OSRM') ? 'var(--success-color)' : 'var(--text-secondary)';
-    const temporalVectors = [
-        { id:'curr',  type:'CURRENT',   offsetMin:0,  base:{lat:state.currentMotion.lat,lon:state.currentMotion.lon,heading:activeHeading,dist:0} },
-        { id:'fwd15', type:'AHEAD +15M', offsetMin:15, base:base15 },
-        { id:'fwd30', type:'AHEAD +30M', offsetMin:30, base:base30 }
+    const d15 = (projSpeed*0.25)/CONFIG.sinuosityFactor;
+    const d30 = (projSpeed*0.50)/CONFIG.sinuosityFactor;
+    
+    const tvs = [
+        { id:'curr', type:'T+0', base:{lat:state.currentMotion.lat, lon:state.currentMotion.lon, dist:0} },
+        { id:'fwd15', type:'T+15', base:{...projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, d15, activeHeading), dist:d15} },
+        { id:'fwd30', type:'T+30', base:{...projectCoordinate(state.currentMotion.lat, state.currentMotion.lon, d30, activeHeading), dist:d30} }
     ];
-    let allCoords = [];
-    temporalVectors.forEach(tv => {
-        if (tv.offsetMin===0) { allCoords.push({lat:tv.base.lat,lon:tv.base.lon}); }
-        else {
-            allCoords.push({lat:tv.base.lat,lon:tv.base.lon});
-            allCoords.push(projectCoordinate(tv.base.lat,tv.base.lon,2.0,tv.base.heading-25));
-            allCoords.push(projectCoordinate(tv.base.lat,tv.base.lon,2.0,tv.base.heading+25));
-        }
-    });
-    const lats = allCoords.map(c=>c.lat.toFixed(4)).join(',');
-    const lons = allCoords.map(c=>c.lon.toFixed(4)).join(',');
-    const url  = `${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=precipitation&timezone=auto`;
+    
+    const lats = tvs.map(t=>t.base.lat.toFixed(4)).join(',');
+    const lons = tvs.map(t=>t.base.lon.toFixed(4)).join(',');
+    
     try {
-        const res = await fetch(url);
-        let data  = await res.json();
-        if (!Array.isArray(data)) data=[data];
+        const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=precipitation&timezone=auto`);
+        let data = await res.json(); if (!Array.isArray(data)) data=[data];
+        
         const container = document.getElementById('vector-container');
-        container.innerHTML='';
-        let dataIndex=0;
-        temporalVectors.forEach(tv => {
-            let maxRainMm=0; const pts=tv.offsetMin===0?1:3;
-            for (let i=0;i<pts;i++) {
-                if (data[dataIndex]?.current) { const rain=data[dataIndex].current.precipitation; if(rain>maxRainMm)maxRainMm=rain; }
-                dataIndex++;
-            }
-            let statusHtml='', borderClass='border-green';
-            if      (maxRainMm>7.5) { borderClass='border-red';    statusHtml=`<span class="status-alert"><i class="fa-solid fa-cloud-showers-water"></i> Heavy Rain</span>`; }
-            else if (maxRainMm>2.5) { borderClass='border-orange'; statusHtml=`<span style="color:var(--accent-orange)"><i class="fa-solid fa-cloud-showers-heavy"></i> Mod. Rain</span>`; }
-            else if (maxRainMm>0.1) { borderClass='border-blue';   statusHtml=`<span style="color:var(--accent-blue)"><i class="fa-solid fa-cloud-rain"></i> Light Rain</span>`; }
-            else                    { borderClass='border-green';   statusHtml=`<span class="status-ok"><i class="fa-solid fa-sun"></i> Clear</span>`; }
+        container.innerHTML = '';
+        
+        tvs.forEach((tv, i) => {
+            const rain = data[i]?.current?.precipitation || 0;
+            let status = 'CLR', bClass = 'b-green';
+            if (rain > 7.5) { status='HVY'; bClass='b-red'; }
+            else if (rain > 2.5) { status='MOD'; bClass='b-amber'; }
+            else if (rain > 0.1) { status='LGT'; bClass='b-cyan'; }
+            
             container.insertAdjacentHTML('beforeend', `
-                <div class="vector-row ${borderClass}">
-                    <div class="vector-time" style="color:var(--text-primary)">${tv.type.split(' ')[1]||'NOW'}</div>
-                    <div class="vector-status">${statusHtml}</div>
-                    <div class="vector-data">${maxRainMm.toFixed(1)} mm<br><span style="font-size:0.72rem">${tv.base.dist>0?tv.base.dist.toFixed(1)+'km':'Origin'}</span></div>
-                </div>`);
+                <div class="v-row ${bClass}">
+                    <div class="v-time">${tv.type}</div>
+                    <div class="v-stat">${status}</div>
+                    <div class="v-data">${rain.toFixed(1)}MM<br><span style="font-size:0.6rem;color:var(--txt-muted);">${tv.base.dist>0?tv.base.dist.toFixed(1)+'KM':'ORG'}</span></div>
+                </div>
+            `);
         });
-    } catch(err) { console.error('Vector API Error:', err.message); }
+    } catch(e) { console.error(e); }
 }
 
-// ===================== TRIP RESET =====================
-function resetTrip() {
-    state.maxSpeed=0; state.speedHistory=[];
-    localStorage.removeItem('ms_maxSpeed'); localStorage.removeItem('ms_speedHistory');
-    updateHUD();
+// ===================== UTILITIES & HARDWARE =====================
+function getWindDirection(deg) {
+    if (deg === null || deg === undefined) return "N/A";
+    const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    return arr[Math.floor((deg / 22.5) + 0.5) % 16];
 }
-function resetToAuto() {
-    localStorage.removeItem('ms_mode'); localStorage.removeItem('ms_maxSpeed'); localStorage.removeItem('ms_speedHistory');
-    state.mode='auto'; state.autoCoords=null; state.lastGridFetchTime=0;
-    state.maxSpeed=0; state.speedHistory=[];
-    const el=document.getElementById('search-dest'); if(el) el.value='';
-    clearDestination(); updateHUD();
-    if (state.currentMotion?.lat !== 0) {
-        processVectorTelemetry({ coords: { latitude:state.currentMotion.lat, longitude:state.currentMotion.lon, speed:state.currentMotion.speedKph/3.6, heading:state.currentMotion.gpsHeading } });
+function getDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function toggleAudio() {
+    state.audioEnabled = !state.audioEnabled;
+    const btn = document.getElementById('audio-btn');
+    if (state.audioEnabled) {
+        btn.style.color = 'var(--sys-cyan)'; btn.style.borderColor = 'var(--sys-cyan)';
+        document.getElementById('audio-text').innerText = "SONAR ON";
+        new (window.AudioContext || window.webkitAudioContext)().resume().then(() => playSonarPing());
     } else {
-        document.getElementById('status-icon').className    = 'status-icon fa-solid fa-satellite-dish fa-fade status-warn';
-        document.getElementById('status-text').innerText    = "ACQUIRING SATELLITE";
-        document.getElementById('status-text').className    = 'status-text status-warn';
-        document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-satellite fa-fade"></i> Syncing...`;
+        btn.style.color = 'var(--txt-muted)'; btn.style.borderColor = 'var(--border-dim)';
+        document.getElementById('audio-text').innerText = "SONAR OFF";
     }
 }
+function playSonarPing() {
+    if (!state.audioEnabled || Date.now() - state.lastPing < 60000) return;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.start(); osc.stop(ctx.currentTime + 0.6);
+    state.lastPing = Date.now();
+}
+async function requestWakeLock() {
+    try {
+        if ('wakeLock' in navigator) {
+            state.wakeLock = await navigator.wakeLock.request('screen');
+            state.wakeLock.addEventListener('release', () => {
+                document.getElementById('wakelock-indicator').className = 'hw-err';
+                document.getElementById('wakelock-indicator').innerHTML = '<i class="fa-solid fa-eye-slash"></i> WAKE: REL';
+            });
+        }
+    } catch(err) { document.getElementById('wakelock-indicator').className = 'hw-err'; }
+}
 
-// ===================== APP BOOT =====================
+function resetTrip() { state.maxSpeed=0; state.speedHistory=[]; localStorage.removeItem('ms_maxSpeed'); updateHUD(); }
+
 function bootApp() {
     requestWakeLock();
     initTracking();
-    initSensorFusion();
-    initSparklines();
     initRadar();
-    initTempSlider();
-    typewriterTick();
-    document.addEventListener('touchstart', unlockStrictSensors, { once: true });
-    document.addEventListener('click',      unlockStrictSensors, { once: true });
-    if (state.destination) {
-        document.getElementById('search-dest').value = state.destination.name;
-        document.getElementById('dest-status').innerHTML = `<span style="color:var(--success-color)"><i class="fa-solid fa-route"></i> OSRM Routing Engaged to: ${state.destination.name}</span>`;
-    }
-    const searchDest  = document.getElementById('search-dest');
-    const destResults = document.getElementById('dest-results');
-    let searchTimeout;
-    searchDest.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        const q = searchDest.value.trim();
-        if (q.length < 3) { destResults.style.display='none'; return; }
-        searchTimeout = setTimeout(() => execDestSearch(q), 500);
-    });
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('#dest-wrapper')) destResults.style.display='none';
-    });
+    setInterval(() => {
+        if (state.targetTimezone) {
+            document.getElementById('local-time-text').innerText = new Date().toLocaleTimeString('en-US', { timeZone: state.targetTimezone, hour12: false });
+        }
+    }, 1000);
 }
 </script>
 </body>
