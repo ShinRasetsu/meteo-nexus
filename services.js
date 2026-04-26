@@ -42,7 +42,7 @@ export async function fetchGridFallback(lat, lon, radiusKm) {
     const gridLon = lon + offset.dLon;
     
     try {
-      const url = `${CONFIG.weatherApi}?latitude=${gridLat}&longitude=${gridLon}&current=temperature_2m,weather_code`;
+      const url = `${CONFIG.weatherApi}?latitude=${gridLat}&longitude=${gridLon}&current=temperature_2m,weather_code,winddirection_10m`;
       const res = await fetch(url);
       if (!res.ok) continue;
       
@@ -61,10 +61,13 @@ export async function fetchGridFallback(lat, lon, radiusKm) {
 }
 
 export async function fetchWeather(){
-  if(!state.currentMotion.lat) return null;
+  const lat = state.mode === 'manual' ? state.coords.lat : state.currentMotion.lat;
+  const lon = state.mode === 'manual' ? state.coords.lon : state.currentMotion.lon;
+  
+  if(!lat || !lon) return null;
   
   try {
-    const url = `${CONFIG.weatherApi}?latitude=${state.currentMotion.lat}&longitude=${state.currentMotion.lon}&current=temperature_2m,weather_code`;
+    const url = `${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code,winddirection_10m&hourly=precipitation`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Primary API response invalid");
     
@@ -72,15 +75,20 @@ export async function fetchWeather(){
     if (!data.current) throw new Error("Missing current weather data");
     
     data.current.isFallback = false;
-    return data.current;
+    data.hourly = data.hourly || null;
+    return data;
   } catch (err) {
     console.warn("[Telemetry] Primary weather fetch failed, initiating grid fallback sequence...", err);
-    return await fetchGridFallback(state.currentMotion.lat, state.currentMotion.lon, CONFIG.gridDistanceDeltaKm);
+    return { current: await fetchGridFallback(lat, lon, CONFIG.gridDistanceDeltaKm) };
   }
 }
 
 export function initGPS(callback){
-  if(!navigator.geolocation) return;
+  if(!navigator.geolocation) {
+    console.error("Geolocation API blocked or unavailable.");
+    return;
+  }
+  
   state.watchId = navigator.geolocation.watchPosition(
     pos => {
       state.currentMotion.lat = pos.coords.latitude;
@@ -90,16 +98,23 @@ export function initGPS(callback){
 
       if(state.currentMotion.speedKph > state.maxSpeed){
         state.maxSpeed = state.currentMotion.speedKph;
+        localStorage.setItem('ms_maxSpeed', state.maxSpeed.toString());
       }
 
       state.speedHistory.push(state.currentMotion.speedKph);
       if(state.speedHistory.length > CONFIG.speedHistoryMaxSamples){
         state.speedHistory.shift();
       }
+      localStorage.setItem('ms_speedHistory', JSON.stringify(state.speedHistory));
+      
       callback();
     },
-    err => console.error("GPS Error:", err),
-    { enableHighAccuracy: true }
+    err => {
+      console.error("GPS Error:", err);
+      const elStatus = document.getElementById('status-text');
+      if (elStatus) elStatus.innerText = "GPS BLOCKED - USE MANUAL";
+    },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
   );
 }
 
