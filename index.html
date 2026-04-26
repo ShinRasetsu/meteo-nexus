@@ -59,7 +59,6 @@
         .google-btn:hover { background: #f1f1f1; transform: translateY(-1px); }
         .google-btn svg { width: 18px; height: 18px; }
 
-        /* Auth Error Display */
         #auth-error {
             display: none; margin-top: 15px; padding: 10px;
             background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red);
@@ -82,7 +81,6 @@
         header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
         h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
         
-        /* --- Layout: Flexbox Fallback & Grid Enhancement --- */
         .grid-container { display: flex; flex-wrap: wrap; gap: 20px; }
         .grid-container > * { width: 100%; }
         .telemetry-panel { display: flex; flex-wrap: wrap; gap: 20px; width: 100%; }
@@ -179,7 +177,7 @@
             <div class="auth-icon"><i class="fa-solid fa-satellite-dish"></i></div>
             <div class="auth-title">METEONEXUS TERMINAL</div>
             <div class="auth-sub">ENCRYPTED TELEMETRY ACCESS</div>
-            <button class="google-btn" onclick="signInWithGoogle()">
+            <button type="button" class="google-btn" onclick="signInWithGoogle()">
                 <svg><use href="#icon-google"></use></svg>
                 Continue with Google
             </button>
@@ -272,32 +270,44 @@
         const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15aGNuYnF6YWZ5Z3FuZnh5a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzMwMDMsImV4cCI6MjA5MTQwOTAwM30.UhE9uQ3bkw3b1HLoHVB1uQilysYzbcXyYlIwmxTl1G0';
         const supabase = supabase.createClient(SB_URL, SB_KEY);
 
-        // --- 2. Auth Functions ---
+        // --- Hardened Auth Module ---
         async function signInWithGoogle() {
             const errorBox = document.getElementById('auth-error');
             errorBox.style.display = 'none';
-            
-            if (window.location.protocol === 'file:') {
-                errorBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> <b>Protocol Error:</b> Cannot execute OAuth flow from a local <code>file://</code> URL. You must serve this application over HTTP.';
-                errorBox.style.display = 'block';
-                return;
-            }
 
-            // Enforced exact return path for GitHub Pages deployment
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: { redirectTo: 'https://shinrasetsu.github.io/meteo-nexus/' }
-            });
-            
-            if (error) {
-                errorBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> <b>Auth Failed:</b> ${error.message}`;
+            try {
+                if (!supabase || !supabase.auth) {
+                    throw new Error("Supabase initialization failure.");
+                }
+
+                // Execute OAuth with explicit callback context
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: { 
+                        // Ensures environment-agnostic redirection
+                        redirectTo: window.location.origin + window.location.pathname,
+                        queryParams: {
+                            access_type: 'offline',
+                            prompt: 'consent',
+                        }
+                    }
+                });
+
+                if (error) throw error;
+                
+                // If the provider doesn't auto-redirect, handle the returned URL
+                if (data?.url) window.location.assign(data.url);
+
+            } catch (err) {
+                console.error("AUTH_FATAL:", err);
+                errorBox.innerText = `ACCESS_DENIED: ${err.message}`;
                 errorBox.style.display = 'block';
             }
         }
 
         async function signOut() {
             await supabase.auth.signOut();
-            location.reload();
+            window.location.reload();
         }
 
         let clockInterval;
@@ -307,12 +317,10 @@
             const overlay = document.getElementById('auth-overlay');
             const content = document.getElementById('app-content');
             const profile = document.getElementById('profile-chip');
-            const errorBox = document.getElementById('auth-error');
 
             if (session) {
                 overlay.style.display = 'none';
                 content.style.display = 'block';
-                errorBox.style.display = 'none';
                 
                 const user = session.user;
                 profile.innerHTML = `
@@ -336,7 +344,12 @@
             }
         }
 
-        supabase.auth.onAuthStateChange((event, session) => handleAuthStateChange(session));
+        // Listener for Post-Redirect Session Recovery
+        supabase.auth.onAuthStateChange((event, session) => {
+            console.log("AUTH_EVENT:", event);
+            handleAuthStateChange(session);
+        });
+
         window.addEventListener('DOMContentLoaded', async () => {
             const { data: { session } } = await supabase.auth.getSession();
             handleAuthStateChange(session);
@@ -381,7 +394,7 @@
                 
                 updateUI(data.current, data.minutely_15, lat, lon, isAuto, ping);
             } catch(e) {
-                console.error(e);
+                console.error("DATA_FETCH_ERR:", e);
                 document.getElementById('link-status').innerHTML = '<span class="status-fail">FAILED</span>';
             }
         }
