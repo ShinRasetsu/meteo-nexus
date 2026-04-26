@@ -1,7 +1,7 @@
 // ==========================================
 // SERVICES.JS - APIs, Authentication, GPS, Audio
 // ==========================================
-import { CONFIG, SUPABASE_CONFIG, state, toKph } from './core.js';
+import { CONFIG, SUPABASE_CONFIG, state, toKph, getDistKm } from './core.js';
 
 const { createClient } = window.supabase;
 export const sb = createClient(SUPABASE_CONFIG.URL, SUPABASE_CONFIG.KEY);
@@ -29,12 +29,54 @@ export function initAuth(onLogin, onLogout){
   });
 }
 
+export async function fetchGridFallback(lat, lon, radiusKm) {
+  const offsets = [
+    { dLat: radiusKm / 111.32, dLon: 0 }, 
+    { dLat: -(radiusKm / 111.32), dLon: 0 }, 
+    { dLat: 0, dLon: radiusKm / (111.32 * Math.cos(lat * (Math.PI / 180))) }, 
+    { dLat: 0, dLon: -(radiusKm / (111.32 * Math.cos(lat * (Math.PI / 180)))) } 
+  ];
+
+  for (const offset of offsets) {
+    const gridLat = lat + offset.dLat;
+    const gridLon = lon + offset.dLon;
+    
+    try {
+      const url = `${CONFIG.weatherApi}?latitude=${gridLat}&longitude=${gridLon}&current=temperature_2m,weather_code`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      
+      const data = await res.json();
+      if (data && data.current) {
+        console.log(`[Telemetry] Primary failed. Fallback successful at offset: ${getDistKm(lat, lon, gridLat, gridLon).toFixed(2)}km`);
+        data.current.isFallback = true; 
+        return data.current;
+      }
+    } catch (e) {
+      console.error("[Telemetry] Grid node fetch failed:", e);
+    }
+  }
+  
+  return null; 
+}
+
 export async function fetchWeather(){
   if(!state.currentMotion.lat) return null;
-  const url = `${CONFIG.weatherApi}?latitude=${state.currentMotion.lat}&longitude=${state.currentMotion.lon}&current=temperature_2m,weather_code`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data.current;
+  
+  try {
+    const url = `${CONFIG.weatherApi}?latitude=${state.currentMotion.lat}&longitude=${state.currentMotion.lon}&current=temperature_2m,weather_code`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Primary API response invalid");
+    
+    const data = await res.json();
+    if (!data.current) throw new Error("Missing current weather data");
+    
+    data.current.isFallback = false;
+    return data.current;
+  } catch (err) {
+    console.warn("[Telemetry] Primary weather fetch failed, initiating grid fallback sequence...", err);
+    return await fetchGridFallback(state.currentMotion.lat, state.currentMotion.lon, CONFIG.gridDistanceDeltaKm);
+  }
 }
 
 export function initGPS(callback){

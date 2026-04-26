@@ -45,7 +45,6 @@ export const state = {
   destination: JSON.parse(localStorage.getItem('ms_dest')) || null
 };
 
-// Utilities
 export function getWindDir(d) {
   if (d === null) return '—';
   return ["N","NE","E","SE","S","SW","W","NW"][Math.round(d/45)%8];

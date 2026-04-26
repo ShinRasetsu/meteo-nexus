@@ -5,8 +5,14 @@ import { state } from './core.js';
 import { initAuth, doLogin, doRegister, doLogout, initGPS, initSensors, fetchWeather } from './services.js';
 
 export function updateUI(data){
-  if(!data) return;
-  document.getElementById('status-text').innerText = data.temperature_2m + "°C";
+  if(!data) {
+    document.getElementById('status-text').innerText = "ERR_NO_DATA";
+    return;
+  }
+  
+  const tempText = data.isFallback ? `${data.temperature_2m}°C (GRID)` : `${data.temperature_2m}°C`;
+  document.getElementById('status-text').innerText = tempText;
+  
   document.getElementById('hud-speed').innerText = state.currentMotion.speedKph.toFixed(1);
   document.getElementById('hud-max').innerText = state.maxSpeed.toFixed(1);
 }
@@ -32,7 +38,6 @@ export function clearDestination(){
   localStorage.removeItem('ms_dest');
 }
 
-// Main Boot Sequence
 function boot(){
   initSensors();
   initGPS(async () => {
@@ -41,7 +46,6 @@ function boot(){
   });
 }
 
-// Authentication DOM Bindings
 document.getElementById('btn-login')?.addEventListener('click', async () => {
   const email = document.getElementById('auth-email').value;
   const pass = document.getElementById('auth-password').value;
@@ -58,7 +62,6 @@ document.getElementById('btn-logout')?.addEventListener('click', async () => {
   await doLogout();
 });
 
-// Authentication State Manager
 initAuth(
   (user) => {
     document.getElementById('auth-overlay').style.display = 'none';
