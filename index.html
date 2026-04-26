@@ -259,14 +259,30 @@
     }
 
     // FIX: all auth calls use sbClient — not window.supabase, not supabase
+    // Handle session on every load — including post-OAuth redirect
+    // Supabase v2 writes access_token into the URL hash after redirect
+    // onAuthStateChange fires SIGNED_IN automatically when it detects the hash
     sbClient.auth.onAuthStateChange((event, session) => {
-        console.log("AUTH_EVENT:", event);
-        handleAuthStateChange(session);
+        console.log("AUTH_EVENT:", event, session?.user?.email);
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+            handleAuthStateChange(session);
+        } else if (event === 'SIGNED_OUT') {
+            handleAuthStateChange(null);
+        }
     });
 
+    // Fallback: manually exchange hash tokens if onAuthStateChange misses them
     window.addEventListener('DOMContentLoaded', async () => {
+        // If URL has access_token in hash, let Supabase exchange it
+        if (window.location.hash.includes('access_token')) {
+            // exchangeCodeForSession not needed for implicit flow —
+            // getSession() after hash presence is enough
+            await new Promise(r => setTimeout(r, 300)); // brief wait for Supabase to parse hash
+        }
         const { data: { session } } = await sbClient.auth.getSession();
         handleAuthStateChange(session);
+        // Clean the hash from URL without reload
+        if (window.location.hash) history.replaceState(null, '', window.location.pathname);
     });
 
     // UI CONTROLS
