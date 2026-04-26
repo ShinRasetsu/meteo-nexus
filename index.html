@@ -267,16 +267,17 @@
         const SB_URL = 'https://myhcnbqzafygqnfxykdd.supabase.co'; 
         const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15aGNuYnF6YWZ5Z3FuZnh5a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzMwMDMsImV4cCI6MjA5MTQwOTAwM30.UhE9uQ3bkw3b1HLoHVB1uQilysYzbcXyYlIwmxTl1G0';
 
-        // FIX: CDN exposes the module as window.supabase — destructure createClient from it
+        // CDN sets window.supabase as the module — const supabase conflicts with that global
+        // Solution: use a different variable name for the client instance
         const { createClient } = window.supabase;
-        const supabase = createClient(SB_URL, SB_KEY);
+        const sbClient = createClient(SB_URL, SB_KEY);
 
         // AUTH
         async function signInWithGoogle() {
             const errorBox = document.getElementById('auth-error');
             errorBox.style.display = 'none';
             try {
-                const { data, error } = await supabase.auth.signInWithOAuth({
+                const { data, error } = await sbClient.auth.signInWithOAuth({
                     provider: 'google',
                     options: { 
                         redirectTo: window.location.origin + window.location.pathname,
@@ -293,7 +294,7 @@
         }
 
         async function signOut() {
-            await supabase.auth.signOut();
+            await sbClient.auth.signOut();
             window.location.reload();
         }
 
