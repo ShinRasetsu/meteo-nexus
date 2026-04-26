@@ -59,6 +59,14 @@
         .google-btn:hover { background: #f1f1f1; transform: translateY(-1px); }
         .google-btn svg { width: 18px; height: 18px; }
 
+        /* Auth Error Display */
+        #auth-error {
+            display: none; margin-top: 15px; padding: 10px;
+            background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red);
+            border-radius: 6px; color: var(--accent-red); font-size: 0.8rem; font-family: var(--font-mono);
+            word-wrap: break-word; text-align: left;
+        }
+
         .user-profile {
             display: flex; align-items: center; gap: 10px;
             background: var(--card-bg); border: 1px solid var(--card-border);
@@ -69,15 +77,35 @@
             padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px; cursor: pointer;
         }
         .logout-btn:hover { background: rgba(239, 68, 68, 0.1); }
-        /* --------------------------- */
         
         .dashboard-wrapper { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
         header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
         h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
         
-        .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 1024px) { .grid-container { grid-template-columns: 350px 1fr; } }
-        
+        /* --- Layout: Flexbox Fallback & Grid Enhancement --- */
+        .grid-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .grid-container > * { width: 100%; }
+        .telemetry-panel { display: flex; flex-wrap: wrap; gap: 20px; width: 100%; }
+        .telemetry-panel > * { width: 100%; }
+
+        @media (min-width: 768px) {
+            .telemetry-panel > * { width: calc(50% - 10px); }
+        }
+        @media (min-width: 1024px) {
+            .grid-container > #status-card { width: 350px; flex-shrink: 0; }
+            .grid-container > .telemetry-panel { width: calc(100% - 370px); }
+        }
+
+        @supports (display: grid) {
+            .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
+            .grid-container > * { width: auto; flex: none; }
+            @media (min-width: 1024px) { .grid-container { grid-template-columns: 350px 1fr; } }
+            
+            .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; width: auto; }
+            .telemetry-panel > * { width: auto; }
+            @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
+        }
+
         .card {
             background-color: var(--card-bg); border: 1px solid var(--card-border);
             border-radius: 12px; padding: 24px; position: relative;
@@ -107,9 +135,6 @@
         }
         .audio-toggle.active { background: rgba(239, 68, 68, 0.2); border-color: var(--accent-red); color: var(--accent-red); }
         .audio-toggle:hover { background: rgba(255,255,255,0.1); }
-
-        .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
         
         .data-table { width: 100%; font-family: var(--font-mono); font-size: 0.85rem; border-collapse: collapse; }
         .data-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
@@ -158,6 +183,7 @@
                 <svg><use href="#icon-google"></use></svg>
                 Continue with Google
             </button>
+            <div id="auth-error"></div>
         </div>
     </div>
 
@@ -232,26 +258,41 @@
                             <tr><td>Data Source</td><td class="data-val">Open-Meteo AIFS</td></tr>
                             <tr><td>Telemetry Link</td><td class="data-val" id="link-status"><span class="status-wait">STANDBY</span></td></tr>
                             <tr><td>Packet Latency</td><td class="data-val" id="val-ping">--</td></tr>
-                            <tr><td>Last Update</td><td class="data-val" id="val-update">--</td></tr>
+                            <tr><td>Last Fetch</td><td class="data-val" id="val-update">--</td></tr>
                         </table>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-<script>
+    </div> 
+
+    <script>
         // --- 1. Supabase Initialization ---
-        const SB_URL = "https://your-project-id.supabase.co"; // Replace with your actual URL
-        const SB_KEY = "your-anon-key"; // Replace with your actual Key
+        const SB_URL = 'https://myhcnbqzafygqnfxykdd.supabase.co'; 
+        const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15aGNuYnF6YWZ5Z3FuZnh5a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzMwMDMsImV4cCI6MjA5MTQwOTAwM30.UhE9uQ3bkw3b1HLoHVB1uQilysYzbcXyYlIwmxTl1G0';
         const supabase = supabase.createClient(SB_URL, SB_KEY);
 
         // --- 2. Auth Functions ---
         async function signInWithGoogle() {
+            const errorBox = document.getElementById('auth-error');
+            errorBox.style.display = 'none';
+            
+            if (window.location.protocol === 'file:') {
+                errorBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> <b>Protocol Error:</b> Cannot execute OAuth flow from a local <code>file://</code> URL. You must serve this application over HTTP.';
+                errorBox.style.display = 'block';
+                return;
+            }
+
+            // Enforced exact return path for GitHub Pages deployment
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
-                options: { redirectTo: window.location.origin }
+                options: { redirectTo: 'https://shinrasetsu.github.io/meteo-nexus/' }
             });
-            if (error) console.error("Auth Error:", error.message);
+            
+            if (error) {
+                errorBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> <b>Auth Failed:</b> ${error.message}`;
+                errorBox.style.display = 'block';
+            }
         }
 
         async function signOut() {
@@ -259,14 +300,19 @@
             location.reload();
         }
 
+        let clockInterval;
+        let gpsDenied = false;
+
         function handleAuthStateChange(session) {
             const overlay = document.getElementById('auth-overlay');
             const content = document.getElementById('app-content');
             const profile = document.getElementById('profile-chip');
+            const errorBox = document.getElementById('auth-error');
 
             if (session) {
                 overlay.style.display = 'none';
                 content.style.display = 'block';
+                errorBox.style.display = 'none';
                 
                 const user = session.user;
                 profile.innerHTML = `
@@ -274,16 +320,22 @@
                     <button class="logout-btn" onclick="signOut()"><i class="fa-solid fa-right-from-bracket"></i> EXIT</button>
                 `;
                 
-                // Start application logic only after auth
+                if(!clockInterval) {
+                    clockInterval = setInterval(() => {
+                        const timeEl = document.getElementById('local-time-text');
+                        if (timeEl) timeEl.innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
+                    }, 1000);
+                }
+
                 runApp(); 
                 setInterval(runApp, 60000); 
             } else {
                 overlay.style.display = 'flex';
                 content.style.display = 'none';
+                if(clockInterval) clearInterval(clockInterval);
             }
         }
 
-        // Subscribe to auth events and check initial session
         supabase.auth.onAuthStateChange((event, session) => handleAuthStateChange(session));
         window.addEventListener('DOMContentLoaded', async () => {
             const { data: { session } } = await supabase.auth.getSession();
@@ -340,7 +392,6 @@
             
             const now = new Date();
             document.getElementById('val-update').innerText = now.toLocaleTimeString('en-US', { hour12: false });
-            document.getElementById('local-time-text').innerText = now.toLocaleTimeString('en-US', { hour12: false });
 
             if(isAuto) {
                 document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs"></i> GPS LOCK [${lat.toFixed(4)}, ${lon.toFixed(4)}]`;
@@ -406,20 +457,23 @@
                 document.getElementById('manual-lat').value = state.coords.lat;
                 document.getElementById('manual-lon').value = state.coords.lon;
             } else {
-                if ("geolocation" in navigator) {
+                if ("geolocation" in navigator && !gpsDenied) {
                     navigator.geolocation.getCurrentPosition(
-                        pos => fetchData(pos.coords.latitude, pos.coords.longitude, true),
+                        pos => {
+                            gpsDenied = false;
+                            fetchData(pos.coords.latitude, pos.coords.longitude, true);
+                        },
                         err => {
+                            gpsDenied = true; 
                             document.getElementById('status-icon').className = "status-icon fa-solid fa-triangle-exclamation status-alert";
                             document.getElementById('status-text').innerText = "ERROR";
                             document.getElementById('status-text').className = "status-text status-alert";
                             document.getElementById('weather-desc').innerText = "GPS blocked. Please use Geospatial Targeting below.";
                             document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> GPS BLOCKED`;
-                            document.getElementById('local-time-text').innerText = "--:--:--";
                         },
                         { timeout: 10000, enableHighAccuracy: true }
                     );
-                }
+                }                         
             }
         }
 
@@ -430,6 +484,7 @@
                 state.mode = 'manual'; state.coords = { lat, lon };
                 localStorage.setItem('ms_mode', 'manual');
                 localStorage.setItem('ms_coords', JSON.stringify(state.coords));
+                gpsDenied = false; 
                 fetchData(lat, lon, false);
             }
         }
@@ -440,6 +495,7 @@
             state.coords = null; 
             document.getElementById('manual-lat').value = "";
             document.getElementById('manual-lon').value = "";
+            gpsDenied = false; 
             runApp();
         }
     </script>
