@@ -31,7 +31,7 @@
             color: var(--text-primary); margin: 0; padding: 20px; min-height: 100vh;
         }
 
-        /* --- Auth Overlay Styles --- */
+        /* --- Auth Overlay --- */
         #auth-overlay {
             position: fixed; inset: 0; background: var(--bg-color);
             display: flex; align-items: center; justify-content: center;
@@ -86,9 +86,7 @@
         .telemetry-panel { display: flex; flex-wrap: wrap; gap: 20px; width: 100%; }
         .telemetry-panel > * { width: 100%; }
 
-        @media (min-width: 768px) {
-            .telemetry-panel > * { width: calc(50% - 10px); }
-        }
+        @media (min-width: 768px) { .telemetry-panel > * { width: calc(50% - 10px); } }
         @media (min-width: 1024px) {
             .grid-container > #status-card { width: 350px; flex-shrink: 0; }
             .grid-container > .telemetry-panel { width: calc(100% - 370px); }
@@ -265,39 +263,28 @@
     </div> 
 
     <script>
-        // --- 1. Supabase Initialization ---
+        // CONFIG
         const SB_URL = 'https://myhcnbqzafygqnfxykdd.supabase.co'; 
         const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15aGNuYnF6YWZ5Z3FuZnh5a2RkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4MzMwMDMsImV4cCI6MjA5MTQwOTAwM30.UhE9uQ3bkw3b1HLoHVB1uQilysYzbcXyYlIwmxTl1G0';
-        const supabase = supabase.createClient(SB_URL, SB_KEY);
 
-        // --- Hardened Auth Module ---
+        // FIX: CDN exposes the module as window.supabase — destructure createClient from it
+        const { createClient } = window.supabase;
+        const supabase = createClient(SB_URL, SB_KEY);
+
+        // AUTH
         async function signInWithGoogle() {
             const errorBox = document.getElementById('auth-error');
             errorBox.style.display = 'none';
-
             try {
-                if (!supabase || !supabase.auth) {
-                    throw new Error("Supabase initialization failure.");
-                }
-
-                // Execute OAuth with explicit callback context
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: 'google',
                     options: { 
-                        // Ensures environment-agnostic redirection
                         redirectTo: window.location.origin + window.location.pathname,
-                        queryParams: {
-                            access_type: 'offline',
-                            prompt: 'consent',
-                        }
+                        queryParams: { access_type: 'offline', prompt: 'consent' }
                     }
                 });
-
                 if (error) throw error;
-                
-                // If the provider doesn't auto-redirect, handle the returned URL
                 if (data?.url) window.location.assign(data.url);
-
             } catch (err) {
                 console.error("AUTH_FATAL:", err);
                 errorBox.innerText = `ACCESS_DENIED: ${err.message}`;
@@ -310,9 +297,17 @@
             window.location.reload();
         }
 
-        let clockInterval;
+        // STATE
+        let clockInterval = null;
         let gpsDenied = false;
+        let chartInstance = null;
+        let state = {
+            mode: localStorage.getItem('ms_mode') || 'auto',
+            coords: JSON.parse(localStorage.getItem('ms_coords')) || null,
+            audioEnabled: false
+        };
 
+        // SESSION HANDLER
         function handleAuthStateChange(session) {
             const overlay = document.getElementById('auth-overlay');
             const content = document.getElementById('app-content');
@@ -328,48 +323,41 @@
                     <button class="logout-btn" onclick="signOut()"><i class="fa-solid fa-right-from-bracket"></i> EXIT</button>
                 `;
                 
-                if(!clockInterval) {
+                if (!clockInterval) {
                     clockInterval = setInterval(() => {
-                        const timeEl = document.getElementById('local-time-text');
-                        if (timeEl) timeEl.innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
+                        const el = document.getElementById('local-time-text');
+                        if (el) el.innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
                     }, 1000);
                 }
 
-                runApp(); 
-                setInterval(runApp, 60000); 
+                runApp();
+                setInterval(runApp, 60000);
             } else {
                 overlay.style.display = 'flex';
                 content.style.display = 'none';
-                if(clockInterval) clearInterval(clockInterval);
+                if (clockInterval) clearInterval(clockInterval);
             }
         }
 
-        // Listener for Post-Redirect Session Recovery
+        // Listener: handles redirect-back session restore
         supabase.auth.onAuthStateChange((event, session) => {
             console.log("AUTH_EVENT:", event);
             handleAuthStateChange(session);
         });
 
+        // Initial session check on load
         window.addEventListener('DOMContentLoaded', async () => {
             const { data: { session } } = await supabase.auth.getSession();
             handleAuthStateChange(session);
         });
 
-        // --- 3. Telemetry State & Setup ---
-        let state = {
-            mode: localStorage.getItem('ms_mode') || 'auto',
-            coords: JSON.parse(localStorage.getItem('ms_coords')) || null,
-            audioEnabled: false
-        };
-
-        let chartInstance = null;
-
+        // UI CONTROLS
         function toggleAudio() {
             state.audioEnabled = !state.audioEnabled;
             const btn = document.getElementById('audio-btn');
             const icon = document.getElementById('audio-icon');
             const text = document.getElementById('audio-text');
-            if(state.audioEnabled) {
+            if (state.audioEnabled) {
                 btn.classList.add('active');
                 icon.className = 'fa-solid fa-volume-high';
                 text.innerText = "ALERTS ON";
@@ -380,52 +368,43 @@
             }
         }
 
-        // --- 4. Data Fetching & Processing ---
+        // DATA FETCH
         async function fetchData(lat, lon, isAuto) {
             const start = performance.now();
             try {
                 document.getElementById('link-status').innerHTML = '<span class="status-wait">FETCHING...</span>';
-                
                 const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,precipitation,weather_code,wind_speed_10m&minutely_15=precipitation&timezone=auto`;
                 const res = await fetch(url);
                 const data = await res.json();
-                
                 const ping = Math.round(performance.now() - start);
-                
                 updateUI(data.current, data.minutely_15, lat, lon, isAuto, ping);
-            } catch(e) {
+            } catch (e) {
                 console.error("DATA_FETCH_ERR:", e);
                 document.getElementById('link-status').innerHTML = '<span class="status-fail">FAILED</span>';
             }
         }
 
+        // UI UPDATE
         function updateUI(current, minutely, lat, lon, isAuto, ping) {
             document.getElementById('link-status').innerHTML = '<span class="status-ok">SECURE</span>';
             document.getElementById('val-ping').innerText = `${ping}ms`;
-            
-            const now = new Date();
-            document.getElementById('val-update').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+            document.getElementById('val-update').innerText = new Date().toLocaleTimeString('en-US', { hour12: false });
 
-            if(isAuto) {
-                document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs"></i> GPS LOCK [${lat.toFixed(4)}, ${lon.toFixed(4)}]`;
-            } else {
-                document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-thumbtack" style="color:var(--accent-orange)"></i> MANUAL [${lat.toFixed(4)}, ${lon.toFixed(4)}]`;
-            }
+            document.getElementById('location-badge').innerHTML = isAuto
+                ? `<i class="fa-solid fa-location-crosshairs"></i> GPS LOCK [${lat.toFixed(4)}, ${lon.toFixed(4)}]`
+                : `<i class="fa-solid fa-thumbtack" style="color:var(--accent-orange)"></i> MANUAL [${lat.toFixed(4)}, ${lon.toFixed(4)}]`;
 
             document.getElementById('val-temp').innerText = `${current.temperature_2m}°C`;
             document.getElementById('val-wind').innerText = `${current.wind_speed_10m} km/h`;
             document.getElementById('val-rain').innerText = `${current.precipitation} mm`;
 
             const wmo = current.weather_code;
-            let status = 'CLEAR';
-            let icon = 'fa-sun';
-            let sClass = 'status-clear';
-            let desc = 'Conditions Optimal';
+            let status = 'CLEAR', icon = 'fa-sun', sClass = 'status-clear', desc = 'Conditions Optimal';
 
-            if(wmo >= 51 && wmo <= 67) { status = 'RAIN'; icon = 'fa-cloud-rain'; sClass = 'status-rain'; desc = 'Precipitation Detected'; }
-            else if(wmo >= 71 && wmo <= 77) { status = 'SNOW'; icon = 'fa-snowflake'; sClass = 'status-rain'; desc = 'Freezing Conditions'; }
-            else if(wmo >= 95) { status = 'STORM'; icon = 'fa-bolt'; sClass = 'status-alert'; desc = 'Severe Weather Alert'; }
-            else if(wmo >= 1 && wmo <= 3) { status = 'CLOUDY'; icon = 'fa-cloud'; sClass = 'status-clear'; desc = 'Partial Obscuration'; }
+            if      (wmo >= 95)             { status = 'STORM';  icon = 'fa-bolt';        sClass = 'status-alert'; desc = 'Severe Weather Alert'; }
+            else if (wmo >= 71 && wmo <= 77){ status = 'SNOW';   icon = 'fa-snowflake';   sClass = 'status-rain';  desc = 'Freezing Conditions'; }
+            else if (wmo >= 51 && wmo <= 67){ status = 'RAIN';   icon = 'fa-cloud-rain';  sClass = 'status-rain';  desc = 'Precipitation Detected'; }
+            else if (wmo >= 1  && wmo <= 3) { status = 'CLOUDY'; icon = 'fa-cloud';       sClass = 'status-clear'; desc = 'Partial Obscuration'; }
 
             document.getElementById('status-icon').className = `status-icon fa-solid ${icon} ${sClass}`;
             document.getElementById('status-text').innerText = status;
@@ -435,16 +414,15 @@
             updateChart(minutely.time.slice(0, 8), minutely.precipitation.slice(0, 8));
         }
 
+        // CHART
         function updateChart(times, rainData) {
             const ctx = document.getElementById('rainChart').getContext('2d');
-            const labels = times.map(t => new Date(t).toLocaleTimeString('en-US', {hour: '2-digit', minute:'2-digit', hour12: false}));
-            
-            if(chartInstance) chartInstance.destroy();
-            
+            const labels = times.map(t => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }));
+            if (chartInstance) chartInstance.destroy();
             chartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels,
                     datasets: [{
                         label: 'Precipitation (mm)',
                         data: rainData,
@@ -457,15 +435,15 @@
                     plugins: { legend: { display: false } },
                     scales: {
                         y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: {family: "'JetBrains Mono', monospace", size: 10} } }
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { family: "'JetBrains Mono', monospace", size: 10 } } }
                     }
                 }
             });
         }
 
-        // --- 5. Application Execution ---
+        // MAIN LOOP
         function runApp() {
-            if(state.mode === 'manual' && state.coords) {
+            if (state.mode === 'manual' && state.coords) {
                 fetchData(state.coords.lat, state.coords.lon, false);
                 document.getElementById('manual-lat').value = state.coords.lat;
                 document.getElementById('manual-lon').value = state.coords.lon;
@@ -477,38 +455,41 @@
                             fetchData(pos.coords.latitude, pos.coords.longitude, true);
                         },
                         err => {
-                            gpsDenied = true; 
+                            gpsDenied = true;
                             document.getElementById('status-icon').className = "status-icon fa-solid fa-triangle-exclamation status-alert";
                             document.getElementById('status-text').innerText = "ERROR";
                             document.getElementById('status-text').className = "status-text status-alert";
-                            document.getElementById('weather-desc').innerText = "GPS blocked. Please use Geospatial Targeting below.";
+                            document.getElementById('weather-desc').innerText = "GPS blocked. Use Geospatial Targeting below.";
                             document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> GPS BLOCKED`;
                         },
                         { timeout: 10000, enableHighAccuracy: true }
                     );
-                }                         
+                }
             }
         }
 
+        // FUNCTIONS
         function setManualLocation() {
             const lat = parseFloat(document.getElementById('manual-lat').value);
             const lon = parseFloat(document.getElementById('manual-lon').value);
-            if(lat && lon) {
-                state.mode = 'manual'; state.coords = { lat, lon };
+            if (lat && lon) {
+                state.mode = 'manual';
+                state.coords = { lat, lon };
                 localStorage.setItem('ms_mode', 'manual');
                 localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-                gpsDenied = false; 
+                gpsDenied = false;
                 fetchData(lat, lon, false);
             }
         }
 
         function resetToAuto() {
             localStorage.removeItem('ms_mode');
+            localStorage.removeItem('ms_coords');
             state.mode = 'auto';
-            state.coords = null; 
+            state.coords = null;
             document.getElementById('manual-lat').value = "";
             document.getElementById('manual-lon').value = "";
-            gpsDenied = false; 
+            gpsDenied = false;
             runApp();
         }
     </script>
