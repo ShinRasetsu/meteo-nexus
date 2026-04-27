@@ -164,7 +164,8 @@
                         <input type="text" id="gmaps-link" placeholder="PASTE GMAPS LINK..." autocomplete="off" 
                             class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
                     </div>
-                    <button id="gmaps-btn" onclick="processGMapLink()" class="bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-brand-teal font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
+                    <!-- Lightning Button: Now acts as Paste & Load -->
+                    <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-brand-teal font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
                         <i class="fa-solid fa-bolt"></i>
                     </button>
                 </div>
@@ -290,7 +291,28 @@
             routeCtrl: null
         };
 
-        // Google Maps Link Parser & Extractor
+        // --- NEW: Paste and Load Engine ---
+        async function handlePasteAndLoad() {
+            const input = document.getElementById('gmaps-link');
+            
+            try {
+                // Attempt to read from system clipboard natively
+                const clipText = await navigator.clipboard.readText();
+                if (clipText && clipText.includes('http')) {
+                    input.value = clipText;
+                }
+            } catch (err) {
+                console.warn("Clipboard auto-read blocked by browser security. Using manual input value.", err);
+            }
+
+            if (input.value.trim() !== '') {
+                processGMapLink();
+            } else {
+                input.placeholder = "PASTE LINK OR ALLOW CLIPBOARD";
+            }
+        }
+
+        // --- UPDATED: Google Maps Link Parser & Extractor ---
         async function processGMapLink() {
             const input = document.getElementById('gmaps-link');
             const btn = document.getElementById('gmaps-btn');
@@ -301,27 +323,22 @@
             // UI Loading State
             const origHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
-            input.placeholder = "RESOLVING REDIRECT...";
+            input.placeholder = "EXTRACTING DATA...";
             
             try {
-                // Route through open CORS proxy to trace the 302 Redirect
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                // Route through corsproxy.io (Handles HTTP 302 redirects natively)
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
                 const response = await fetch(proxyUrl);
-                const data = await response.json();
+                const htmlText = await response.text();
                 
-                // Extract the final destination URL
-                let finalUrl = data.status.url || url;
-                
-                // Fallback: Check HTML contents for meta-refresh redirects if redirect trace fails
-                if (data.contents) {
-                    const metaMatch = data.contents.match(/(?:URL|url)=['"]?([^'"]+)['"]?/i);
-                    if (metaMatch) finalUrl = metaMatch[1];
-                }
+                // Construct a massive string of the final URL and the HTML payload to run regex against
+                const finalUrlStr = response.url + " " + htmlText;
 
-                // Regex Extraction for Coordinates
-                const coordMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) 
-                                || finalUrl.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/) 
-                                || finalUrl.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                // Aggressive Regex Extraction for Coordinates
+                const coordMatch = finalUrlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) 
+                                || finalUrlStr.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/) 
+                                || finalUrlStr.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/)
+                                || finalUrlStr.match(/destination=(-?\d+\.\d+),(-?\d+\.\d+)/);
 
                 if (coordMatch) {
                     const lat = parseFloat(coordMatch[1]);
@@ -337,7 +354,7 @@
                 }
             } catch(e) {
                 input.value = "";
-                input.placeholder = "ERR: PROXY FAILURE";
+                input.placeholder = "ERR: EXTRACTION FAILED";
                 console.error("GMap Parser Error:", e);
             }
             
