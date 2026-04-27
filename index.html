@@ -13,6 +13,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
+    <!-- Mapping Dependencies (Leaflet & Routing Machine) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
     <!-- Tailwind CSS Config -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -149,6 +155,20 @@
             <div>
                 <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-6 border-b-4 border-surface-800 pb-3">Geospatial Target</h3>
                 
+                <!-- Google Maps Import Module -->
+                <div class="flex gap-4 mb-6">
+                    <div class="relative w-full">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-map-location-dot text-brand-teal text-xl"></i>
+                        </div>
+                        <input type="text" id="gmaps-link" placeholder="PASTE GMAPS LINK..." autocomplete="off" 
+                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
+                    </div>
+                    <button id="gmaps-btn" onclick="processGMapLink()" class="bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-brand-teal font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
+                        <i class="fa-solid fa-bolt"></i>
+                    </button>
+                </div>
+
                 <div class="flex flex-col gap-4 mb-6">
                     <!-- Country Search -->
                     <div id="country-wrapper" class="relative w-full">
@@ -186,6 +206,18 @@
                     <i class="fa-solid fa-location-crosshairs text-xl"></i> Auto
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Tactical Map & Routing Layer -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-8">
+        <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
+            <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Tactical Routing Interface</span>
+                <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700">STANDBY - AWAITING WAYPOINTS</span>
+            </div>
+            <!-- Z-index 0 prevents overlap with search dropdowns above -->
+            <div id="hud-map" class="w-full relative h-[350px] md:h-[500px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111]"></div>
         </div>
     </div>
 
@@ -253,8 +285,132 @@
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
-            lastPing: 0
+            lastPing: 0,
+            mapObj: null,
+            routeCtrl: null
         };
+
+        // Google Maps Link Parser & Extractor
+        async function processGMapLink() {
+            const input = document.getElementById('gmaps-link');
+            const btn = document.getElementById('gmaps-btn');
+            const url = input.value.trim();
+            
+            if (!url) return;
+            
+            // UI Loading State
+            const origHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
+            input.placeholder = "RESOLVING REDIRECT...";
+            
+            try {
+                // Route through open CORS proxy to trace the 302 Redirect
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+                
+                // Extract the final destination URL
+                let finalUrl = data.status.url || url;
+                
+                // Fallback: Check HTML contents for meta-refresh redirects if redirect trace fails
+                if (data.contents) {
+                    const metaMatch = data.contents.match(/(?:URL|url)=['"]?([^'"]+)['"]?/i);
+                    if (metaMatch) finalUrl = metaMatch[1];
+                }
+
+                // Regex Extraction for Coordinates
+                const coordMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) 
+                                || finalUrl.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/) 
+                                || finalUrl.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/);
+
+                if (coordMatch) {
+                    const lat = parseFloat(coordMatch[1]);
+                    const lon = parseFloat(coordMatch[2]);
+                    
+                    // Cleanup UI and Inject
+                    input.value = "";
+                    input.placeholder = "LINK IMPORTED";
+                    applyNewLocation(lat, lon, "GMAPS TACTICAL TARGET", "IMPORTED");
+                } else {
+                    input.value = "";
+                    input.placeholder = "ERR: COORDS NOT FOUND";
+                }
+            } catch(e) {
+                input.value = "";
+                input.placeholder = "ERR: PROXY FAILURE";
+                console.error("GMap Parser Error:", e);
+            }
+            
+            // Restore UI
+            btn.innerHTML = origHtml;
+        }
+
+        // Tactical Map Engine
+        function initMap(lat = 0, lon = 0) {
+            if(state.mapObj) return;
+            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 12);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OSM',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(state.mapObj);
+        }
+
+        function calculateRoute(destLat, destLon) {
+            const statusEl = document.getElementById('route-status');
+            
+            if(!state.autoCoords) {
+                statusEl.innerText = "NO GPS ORIGIN FOR ROUTING";
+                statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                return;
+            }
+
+            if(!state.mapObj) initMap(state.autoCoords.lat, state.autoCoords.lon);
+
+            if(state.routeCtrl) {
+                state.mapObj.removeControl(state.routeCtrl);
+            }
+
+            statusEl.innerText = "CALCULATING TACTICAL ROUTE...";
+            statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30";
+
+            state.routeCtrl = L.Routing.control({
+                waypoints: [
+                    L.latLng(state.autoCoords.lat, state.autoCoords.lon),
+                    L.latLng(destLat, destLon)
+                ],
+                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+                lineOptions: { styles: [{ color: '#14b8a6', weight: 6, opacity: 0.9 }] },
+                show: false, // Suppress default text instructions to maintain HUD UI
+                addWaypoints: false,
+                fitSelectedRoutes: true,
+                createMarker: function(i, wp) {
+                    const color = i === 0 ? 'bg-brand-blue' : 'bg-brand-red';
+                    return L.marker(wp.latLng, {
+                        icon: L.divIcon({
+                            className: `${color} border-2 border-white rounded-full w-4 h-4 shadow-[0_0_10px_rgba(255,255,255,0.5)]`,
+                            iconSize: [16, 16]
+                        })
+                    });
+                }
+            }).addTo(state.mapObj);
+
+            state.routeCtrl.on('routesfound', function(e) {
+                const summary = e.routes[0].summary;
+                const distKm = (summary.totalDistance / 1000).toFixed(1);
+                const timeMin = Math.round((summary.totalTime % 3600) / 60);
+                const timeHr = Math.floor(summary.totalTime / 3600);
+                let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
+
+                statusEl.innerText = `DIST: ${distKm} KM | ETA: ${timeStr}`;
+                statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/30";
+            });
+            
+            state.routeCtrl.on('routingerror', function() {
+                statusEl.innerText = "ROUTING SERVER UNAVAILABLE";
+                statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+            });
+        }
 
         // Live Clock Sync
         function runLiveClock() {
@@ -353,6 +509,7 @@
             searchCountry.value = countryName || searchCountry.value; 
             cityResults.classList.add('hidden');
             fetchData(lat, lon, true); 
+            calculateRoute(lat, lon);
         }
 
         document.addEventListener('click', (e) => {
@@ -661,11 +818,13 @@
             } else {
                 if (state.autoCoords) {
                     fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
+                    if(!state.mapObj) initMap(state.autoCoords.lat, state.autoCoords.lon);
                 } else if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         p => { 
                             state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
                             fetchData(p.coords.latitude, p.coords.longitude, false); 
+                            if(!state.mapObj) initMap(state.autoCoords.lat, state.autoCoords.lon);
                         },
                         () => {
                             const mainCard = document.getElementById('main-status-card');
@@ -693,6 +852,7 @@
                 localStorage.setItem('ms_mode', 'manual');
                 localStorage.setItem('ms_coords', JSON.stringify(state.coords));
                 fetchData(lat, lon, false);
+                calculateRoute(lat, lon);
             }
         }
 
