@@ -164,7 +164,7 @@
                         <input type="text" id="gmaps-link" placeholder="PASTE GMAPS LINK..." autocomplete="off" 
                             class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
                     </div>
-                    <!-- Lightning Button: Now acts as Paste & Load -->
+                    <!-- Lightning Button: Acts as Paste & Load -->
                     <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-brand-teal font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
                         <i class="fa-solid fa-bolt"></i>
                     </button>
@@ -291,28 +291,28 @@
             routeCtrl: null
         };
 
-        // --- NEW: Paste and Load Engine ---
+        // --- ENHANCED: Paste and Load Engine ---
         async function handlePasteAndLoad() {
             const input = document.getElementById('gmaps-link');
             
             try {
-                // Attempt to read from system clipboard natively
+                // Read system clipboard. Browser will ask for permission the first time.
                 const clipText = await navigator.clipboard.readText();
-                if (clipText && clipText.includes('http')) {
+                if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
                     input.value = clipText;
                 }
             } catch (err) {
-                console.warn("Clipboard auto-read blocked by browser security. Using manual input value.", err);
+                console.warn("Clipboard access denied or unavailable. Using manual input.");
             }
 
             if (input.value.trim() !== '') {
-                processGMapLink();
+                await processGMapLink();
             } else {
-                input.placeholder = "PASTE LINK OR ALLOW CLIPBOARD";
+                input.placeholder = "PASTE LINK HERE FIRST";
             }
         }
 
-        // --- UPDATED: Google Maps Link Parser & Extractor ---
+        // --- ENHANCED: Google Maps Link Parser & Extractor ---
         async function processGMapLink() {
             const input = document.getElementById('gmaps-link');
             const btn = document.getElementById('gmaps-btn');
@@ -321,45 +321,45 @@
             if (!url) return;
             
             // UI Loading State
-            const origHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
-            input.placeholder = "EXTRACTING DATA...";
+            input.placeholder = "EXTRACTING TARGET...";
             
             try {
-                // Route through corsproxy.io (Handles HTTP 302 redirects natively)
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                // Route through open proxy to bypass CORS and capture raw redirect payload
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
                 const response = await fetch(proxyUrl);
-                const htmlText = await response.text();
+                const data = await response.json();
                 
-                // Construct a massive string of the final URL and the HTML payload to run regex against
-                const finalUrlStr = response.url + " " + htmlText;
+                // Dump entirely to a string for aggressive regex evaluation
+                const payload = JSON.stringify(data);
 
-                // Aggressive Regex Extraction for Coordinates
-                const coordMatch = finalUrlStr.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) 
-                                || finalUrlStr.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/) 
-                                || finalUrlStr.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/)
-                                || finalUrlStr.match(/destination=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                // Aggressive Regex Scanning: Targets standard coords, !3d/!4d query structures, and meta tags
+                const coordMatch = payload.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) 
+                                || payload.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/)
+                                || payload.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/) 
+                                || payload.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/)
+                                || payload.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/)
+                                || payload.match(/destination=(-?\d+\.\d+),(-?\d+\.\d+)/);
 
                 if (coordMatch) {
                     const lat = parseFloat(coordMatch[1]);
                     const lon = parseFloat(coordMatch[2]);
                     
-                    // Cleanup UI and Inject
                     input.value = "";
-                    input.placeholder = "LINK IMPORTED";
+                    input.placeholder = `TARGET ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                     applyNewLocation(lat, lon, "GMAPS TACTICAL TARGET", "IMPORTED");
                 } else {
                     input.value = "";
-                    input.placeholder = "ERR: COORDS NOT FOUND";
+                    input.placeholder = "ERR: NO COORDS IN PAYLOAD";
                 }
             } catch(e) {
                 input.value = "";
                 input.placeholder = "ERR: EXTRACTION FAILED";
                 console.error("GMap Parser Error:", e);
+            } finally {
+                // STRICT FIX: Always reset the button back to the lightning bolt icon
+                btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
-            
-            // Restore UI
-            btn.innerHTML = origHtml;
         }
 
         // Tactical Map Engine
@@ -444,7 +444,7 @@
         }
         setInterval(runLiveClock, 1000);
 
-        // Geospatial Targeting UI Logic Restored
+        // Geospatial Targeting UI Logic
         const searchCountry = document.getElementById('search-country');
         const countryResults = document.getElementById('country-results');
 
@@ -581,7 +581,7 @@
         })], {type: 'application/json'});
         document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
 
-        // Fully Restored Charting Engine
+        // Charting Engine
         function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
@@ -648,12 +648,12 @@
             });
         }
 
-        // Restored Detailed Health Status UI
+        // Detailed Health Status UI
         function updateHealthStatus(elementId, dataArray) {
             const el = document.getElementById(elementId);
             if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
                 el.className = "font-mono text-sm font-bold py-2 bg-brand-red border-2 border-brand-red text-black rounded-lg uppercase tracking-widest";
-                el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + el.innerText.split(' ')[1]; // Keep standard text but show error
+                el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + el.innerText.split(' ')[1];
                 return false;
             } else {
                 el.className = "font-mono text-sm font-bold py-2 bg-brand-success/20 border-2 border-brand-success/50 text-brand-success rounded-lg uppercase tracking-widest";
@@ -661,7 +661,7 @@
             }
         }
 
-        // Main Telemetry Fetch Engine (Fully Restored Logic)
+        // Main Telemetry Fetch Engine
         async function fetchData(lat, lon, skipReverseGeo = false) {
             const badge = document.getElementById('location-badge');
             
@@ -772,7 +772,7 @@
                 const maxUVIndex = uvData.indexOf(maxUV);
                 const maxUVTime = times[maxUVIndex].replace(" (+1d)", "");
 
-                // DOM Mapping Restored completely
+                // DOM Mapping
                 document.getElementById('metric-temp').innerText = Math.round(curr.temperature_2m) + '°';
                 document.getElementById('metric-feels').innerText = Math.round(curr.apparent_temperature) + '°';
                 document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
@@ -798,7 +798,6 @@
                     if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon';
                 }
 
-                // Reset baseline UI for card
                 mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ";
 
                 if (currentVotes >= 3) { 
@@ -882,7 +881,6 @@
             runApp();
         }
 
-        // Bootstrap
         runApp();
         setInterval(runApp, 60000); 
     </script>
