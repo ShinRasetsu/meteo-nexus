@@ -3,200 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MeteoNexus | Active Telemetry</title>
+    <title>MeteoNexus | Active Telemetry HUD</title>
     
     <link rel="manifest" id="manifest-placeholder">
-    <meta name="theme-color" content="#0f172a">
+    <meta name="theme-color" content="#000000">
     
+    <!-- Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
+    <!-- Tailwind CSS Config -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' },
+                        surface: { 900: '#111111', 800: '#1a1a1a', 700: '#2a2a2a' }
+                    }
+                }
+            }
+        }
+    </script>
+
     <style>
-        :root {
-            --bg-color: #0f172a; --card-bg: #1e293b; --card-border: #334155;
-            --text-primary: #f8fafc; --text-secondary: #94a3b8;
-            --accent-teal: #14b8a6; --accent-blue: #3b82f6; 
-            --accent-purple: #a855f7; --accent-orange: #f59e0b; 
-            --accent-red: #ef4444; --accent-pink: #ec4899; 
-            --success-color: #22c55e;
-            --font-ui: 'Inter', sans-serif; --font-mono: 'JetBrains Mono', monospace;
-        }
-
-        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; }
         
-        body {
-            font-family: var(--font-ui); background-color: var(--bg-color);
-            color: var(--text-primary); margin: 0; padding: 20px; min-height: 100vh;
-        }
+        /* High contrast focus rings for glove operation */
+        input:focus, button:focus { outline: none; box-shadow: 0 0 0 4px #14b8a6; }
         
-        .dashboard-wrapper { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
-        header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--card-border); }
-        h1 { margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
-        
-        .grid-container { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 1024px) { .grid-container { grid-template-columns: 350px 1fr; } }
-        
-        .card {
-            background-color: var(--card-bg); border: 1px solid var(--card-border);
-            border-radius: 12px; padding: 24px; position: relative;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-        }
-
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-        .card-title { font-size: 0.85rem; text-transform: uppercase; font-weight: 600; color: var(--text-secondary); margin-top: 2px;}
-        
-        .main-status { text-align: center; padding: 30px 0; }
-        .status-icon { font-size: 4rem; margin-bottom: 15px; display: block; }
-        .status-text { font-size: 2rem; font-weight: 800; display: block; }
-        .status-clear { color: var(--success-color); }
-        .status-rain { color: var(--accent-blue); }
-        .status-warn { color: #facc15; }
-        .status-alert { color: var(--accent-red); }
-
-        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
-        .metric-item { background: rgba(255,255,255,0.03); padding: 12px 5px; border-radius: 8px; text-align: center; }
-        .metric-label { font-size: 0.70rem; color: var(--text-secondary); display: block; margin-bottom: 5px; text-transform: uppercase;}
-        .metric-value { font-family: var(--font-mono); font-size: 1rem; font-weight: 700; }
-
-        .audio-toggle {
-            cursor: pointer; background: rgba(255,255,255,0.05); 
-            padding: 8px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px;
-            font-size: 0.8rem; border: 1px solid var(--card-border); transition: 0.2s;
-        }
-        .audio-toggle.active { background: rgba(239, 68, 68, 0.2); border-color: var(--accent-red); color: var(--accent-red); }
-        .audio-toggle:hover { background: rgba(255,255,255,0.1); }
-
-        .telemetry-panel { display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media (min-width: 768px) { .telemetry-panel { grid-template-columns: 1fr 1fr; } }
-        
-        .data-table { width: 100%; font-family: var(--font-mono); font-size: 0.85rem; border-collapse: collapse; }
-        .data-table td { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .data-val { text-align: right; color: var(--text-primary); }
-        .status-ok { color: var(--success-color); font-weight: 700; }
-        .status-fail { color: var(--accent-red); font-weight: 700; }
-        .status-wait { color: var(--text-secondary); }
-
-        .input-group { display: flex; gap: 10px; margin-bottom: 15px; width: 100%; }
-        input { 
-            background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); 
-            color: var(--text-primary); padding: 10px; border-radius: 6px; 
-            font-family: var(--font-mono); font-size: 0.85rem; width: 100%;
-        }
-        input:focus { border-color: var(--accent-teal); outline: none; }
-        
-        button { border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .btn-primary { background: var(--accent-teal); color: #000; }
-        .btn-primary:hover { filter: brightness(1.1); }
-
-        .search-results {
-            position: absolute; top: 45px; left: 0; right: 0; background: var(--card-bg);
-            border: 1px solid var(--accent-teal); border-radius: 6px; z-index: 1000;
-            max-height: 250px; overflow-y: auto; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
-        }
-        .search-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--card-border); font-size: 0.85rem; transition: background 0.2s; font-family: var(--font-mono); }
-        .search-item:hover { background: rgba(20, 184, 166, 0.15); }
-        .search-item:last-child { border-bottom: none; }
-
-        .time-display {
-            display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
-            font-family: var(--font-mono); font-size: 0.85rem; font-weight: 600; 
-            color: var(--text-secondary); justify-content: flex-end; width: 100%;
-        }
-        .time-display i { color: var(--accent-blue); opacity: 0.8; }
+        /* Disable text selection on UI elements for touch interfaces */
+        .no-select { user-select: none; -webkit-user-select: none; }
     </style>
 </head>
-<body>
+<body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <div class="dashboard-wrapper">
-        <header>
-            <div><h1><i class="fa-solid fa-satellite-dish"></i> MeteoNexus <span style="font-weight:300; opacity:0.6;">Active Telemetry</span></h1></div>
+    <!-- Header -->
+    <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
+        <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+            <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i> 
+            METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
+        </h1>
+        
+        <button id="audio-btn" onclick="toggleAudio()" class="flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
+            <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
+            <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
+        </button>
+    </header>
+
+    <!-- Top HUD Grid (Critical Glance Data) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        
+        <!-- Primary State Banner -->
+        <div id="main-status-card" class="lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-300 border-4 border-surface-800 bg-surface-900 min-h-[350px] relative overflow-hidden">
             
-            <div id="audio-btn" class="audio-toggle" onclick="toggleAudio()">
-                <i class="fa-solid fa-volume-xmark" id="audio-icon"></i> <span id="audio-text">ALERTS OFF</span>
-            </div>
-        </header>
-
-        <div class="grid-container">
-            <div id="status-card" class="card">
-                <div class="card-header">
-                    <span class="card-title">Live Consensus</span>
-                    <div style="text-align: right;">
-                        <div id="location-badge" style="font-size: 0.9rem; color: var(--accent-teal);">
-                            <i class="fa-solid fa-location-crosshairs"></i> Locating...
-                        </div>
-                        <div class="time-display">
-                            <i class="fa-regular fa-clock"></i> <span id="local-time-text">--:--:--</span>
-                        </div>
-                    </div>
+            <div class="absolute top-4 right-4 text-right">
+                <div id="location-badge" class="text-sm font-bold text-gray-300 flex items-center gap-1.5 justify-end uppercase tracking-widest">
+                    <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
                 </div>
-
-                <div class="main-status">
-                    <i id="status-icon" class="status-icon fa-solid fa-circle-notch fa-spin"></i>
-                    <span id="status-text" class="status-text">WAITING</span>
-                    <div id="weather-desc" style="margin-top:10px; color:var(--text-secondary); font-family: var(--font-mono); font-size: 0.9rem;">--</div>
-                </div>
-
-                <div class="metrics-grid">
-                    <div class="metric-item"><span class="metric-label">Temp</span><div id="metric-temp" class="metric-value">--</div></div>
-                    <div class="metric-item"><span class="metric-label">Feels Like</span><div id="metric-feels" class="metric-value">--</div></div>
-                    <div class="metric-item"><span class="metric-label">Humidity</span><div id="metric-hum" class="metric-value">--</div></div>
-                    <div class="metric-item"><span class="metric-label">Wind</span><div id="metric-wind" class="metric-value">--</div></div>
-                    <div class="metric-item"><span class="metric-label">Agreement</span><div id="metric-agree" class="metric-value" style="color:var(--accent-teal)">--</div></div>
-                    <div class="metric-item"><span class="metric-label">Peak UV</span><div id="metric-uv" class="metric-value" style="color:var(--accent-purple)">--</div></div>
+                <div class="text-sm font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end">
+                    <i class="fa-regular fa-clock text-brand-blue opacity-80"></i> 
+                    <span id="local-time-text">--:--:--</span>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Atmospheric Telemetry Fusion</span>
-                </div>
-                <div style="height: 400px; width: 100%; position: relative;">
-                    <canvas id="mainChart"></canvas>
-                </div>
-            </div>
+            <i id="status-icon" class="text-8xl md:text-9xl mb-4 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
+            <span id="status-text" class="text-4xl md:text-6xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
+            <div id="weather-desc" class="mt-4 text-gray-300 font-mono text-sm md:text-lg font-bold bg-black/50 px-6 py-2 rounded-xl border-2 border-surface-700 uppercase">AWAITING TELEMETRY</div>
         </div>
 
-        <div class="telemetry-panel">
-            <div class="card">
-                <div class="card-header"><span class="card-title">Model Health Check</span></div>
-                <table class="data-table">
-                    <tr><td>ECMWF High-Res</td><td class="data-val" id="stat-eu"><span class="status-wait">Checking...</span></td></tr>
-                    <tr><td>GFS (USA)</td><td class="data-val" id="stat-us"><span class="status-wait">Checking...</span></td></tr>
-                    <tr><td>ICON (Germany)</td><td class="data-val" id="stat-de"><span class="status-wait">Checking...</span></td></tr>
-                    <tr><td>JMA (Japan)</td><td class="data-val" id="stat-jp"><span class="status-wait">Checking...</span></td></tr>
-                    <tr><td style="border-top: 1px solid var(--card-border); padding-top:10px;">Grid Location</td><td class="data-val" id="tel-meteo" style="border-top: 1px solid var(--card-border); padding-top:10px;">--</td></tr>
-                </table>
+        <!-- Vital Metrics Grid -->
+        <div class="lg:col-span-7 grid grid-cols-2 md:grid-cols-3 gap-4">
+            
+            <!-- Temp -->
+            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center relative">
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temp</span>
+                <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white">--</div>
+                <div class="text-xs font-bold text-gray-500 mt-2 tracking-widest">FEELS <span id="metric-feels" class="text-gray-300">--</span></div>
             </div>
 
-            <div class="card">
-                <div class="card-header"><span class="card-title">Geospatial_Targeting</span></div>
-                
-                <div class="input-group">
-                    <div id="country-wrapper" style="flex: 1; position: relative;">
-                        <input type="text" id="search-country" placeholder="Country" autocomplete="off">
-                        <div id="country-results" class="search-results" style="display:none;"></div>
-                    </div>
-                    
-                    <div id="city-wrapper" style="flex: 2; position: relative;">
-                        <input type="text" id="search-city" placeholder="City / Location" autocomplete="off">
-                        <div id="city-results" class="search-results" style="display:none;"></div>
-                    </div>
-                </div>
+            <!-- Wind -->
+            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center relative">
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind (km/h)</span>
+                <div id="metric-wind-speed" class="font-mono text-5xl md:text-6xl font-black text-white">--</div>
+                <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 justify-center tracking-widest">--</div>
+            </div>
 
-                <div class="input-group" style="margin-top:15px;">
-                    <input type="number" id="manual-lat" placeholder="Lat" step="any">
-                    <input type="number" id="manual-lon" placeholder="Lon" step="any">
-                </div>
-                <div style="display:flex; gap:10px;">
-                    <button class="btn-primary" onclick="setManualLocation()" style="flex:1;">Update Coords</button>
-                    <button style="background:var(--card-border); color:white;" onclick="resetToAuto()">Auto GPS</button>
+            <!-- Consensus -->
+            <div class="bg-brand-teal/10 border-4 border-brand-teal/30 rounded-2xl p-4 flex flex-col justify-center items-center text-center relative">
+                <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Model Sync</span>
+                <div id="metric-agree" class="font-mono text-5xl md:text-6xl font-black text-brand-teal">--</div>
+            </div>
+
+            <!-- Humid -->
+            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center relative">
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Humidity</span>
+                <div id="metric-hum" class="font-mono text-4xl md:text-5xl font-black text-white">--</div>
+            </div>
+
+            <!-- Max UV -->
+            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center relative">
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
+                <div id="metric-uv-val" class="font-mono text-4xl md:text-5xl font-black text-brand-purple">--</div>
+                <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 tracking-widest">--</div>
+            </div>
+
+            <!-- Health Checks -->
+            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center">
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-3 text-center">Node Health</span>
+                <div class="grid grid-cols-2 gap-2 text-center">
+                    <div id="stat-eu" class="font-mono text-sm font-bold py-2 bg-surface-800 rounded-lg text-gray-600 border border-surface-700">EU</div>
+                    <div id="stat-us" class="font-mono text-sm font-bold py-2 bg-surface-800 rounded-lg text-gray-600 border border-surface-700">US</div>
+                    <div id="stat-de" class="font-mono text-sm font-bold py-2 bg-surface-800 rounded-lg text-gray-600 border border-surface-700">DE</div>
+                    <div id="stat-jp" class="font-mono text-sm font-bold py-2 bg-surface-800 rounded-lg text-gray-600 border border-surface-700">JP</div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Secondary Systems -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2">
+        
+        <!-- Chart Card (Fully Featured) -->
+        <div class="lg:col-span-8 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
+            <div class="mb-4 flex items-center justify-between">
+                <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
+            </div>
+            <div class="flex-grow w-full relative h-[300px] md:h-[400px]">
+                <canvas id="mainChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Geospatial Targeting (Fully Featured) -->
+        <div class="lg:col-span-4 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 flex flex-col justify-between">
+            <div>
+                <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-6 border-b-4 border-surface-800 pb-3">Geospatial Target</h3>
+                
+                <div class="flex flex-col gap-4 mb-6">
+                    <!-- Country Search -->
+                    <div id="country-wrapper" class="relative w-full">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-flag text-gray-500 text-xl"></i>
+                        </div>
+                        <input type="text" id="search-country" placeholder="COUNTRY" autocomplete="off" 
+                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-lg font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
+                        <div id="country-results" class="absolute top-full mt-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
+                    </div>
+                    
+                    <!-- City Search -->
+                    <div id="city-wrapper" class="relative w-full">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-magnifying-glass text-gray-500 text-xl"></i>
+                        </div>
+                        <input type="text" id="search-city" placeholder="LOCALITY / CITY" autocomplete="off" 
+                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-lg font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
+                        <div id="city-results" class="absolute top-full mt-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
+                    </div>
+                </div>
+
+                <!-- Manual Lat/Lon -->
+                <div class="flex gap-4 mb-6">
+                    <input type="number" id="manual-lat" placeholder="LAT" step="any" class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-mono font-bold rounded-xl px-4 py-4 focus:border-brand-teal text-center">
+                    <input type="number" id="manual-lon" placeholder="LON" step="any" class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-mono font-bold rounded-xl px-4 py-4 focus:border-brand-teal text-center">
+                </div>
+            </div>
+            
+            <div class="flex gap-4 mt-auto">
+                <button onclick="setManualLocation()" class="flex-[2] bg-brand-teal hover:bg-teal-400 text-black font-black py-4 px-4 rounded-xl text-lg uppercase tracking-widest transition-colors">
+                    Inject Coords
+                </button>
+                <button onclick="resetToAuto()" class="flex-1 bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-white font-bold py-4 px-4 rounded-xl text-lg uppercase tracking-widest flex justify-center items-center gap-2 transition-colors">
+                    <i class="fa-solid fa-location-crosshairs text-xl"></i> Auto
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Configuration
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
@@ -204,6 +198,7 @@
             sonarThreshold: 75
         };
 
+        // Static Country List Restored
         const GLOBAL_COUNTRIES = [
             "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
             "Bahamas", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Belize", "Bolivia", "Bosnia", "Botswana", "Brazil", "Bulgaria",
@@ -220,6 +215,7 @@
             "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
         ];
 
+        // Original WMO Mappings
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
             45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
@@ -233,10 +229,8 @@
         };
 
         const WMO_ICONS = {
-            0: 'fa-sun', 1: 'fa-sun',
-            2: 'fa-cloud-sun', 3: 'fa-cloud',
-            45: 'fa-smog', 48: 'fa-smog', 
-            51: 'fa-cloud-rain', 53: 'fa-cloud-rain', 55: 'fa-cloud-showers-heavy',
+            0: 'fa-sun', 1: 'fa-sun', 2: 'fa-cloud-sun', 3: 'fa-cloud',
+            45: 'fa-smog', 48: 'fa-smog', 51: 'fa-cloud-rain', 53: 'fa-cloud-rain', 55: 'fa-cloud-showers-heavy',
             56: 'fa-cloud-meatball', 57: 'fa-cloud-meatball',
             61: 'fa-cloud-rain', 63: 'fa-cloud-showers-heavy', 65: 'fa-cloud-showers-water',
             66: 'fa-cloud-meatball', 67: 'fa-cloud-meatball',
@@ -262,12 +256,13 @@
             lastPing: 0
         };
 
+        // Live Clock Sync
         function runLiveClock() {
             if (!state.targetTimezone) return;
             try {
                 const timeString = new Date().toLocaleTimeString('en-US', {
                     timeZone: state.targetTimezone,
-                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
                 });
                 document.getElementById('local-time-text').innerText = timeString;
             } catch(e) {
@@ -276,29 +271,30 @@
         }
         setInterval(runLiveClock, 1000);
 
+        // Geospatial Targeting UI Logic Restored
         const searchCountry = document.getElementById('search-country');
         const countryResults = document.getElementById('country-results');
 
         searchCountry.addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase().trim();
-            if (query.length < 1) { 
-                countryResults.style.display = 'none'; 
-                return; 
-            }
+            if (query.length < 1) { countryResults.classList.add('hidden'); return; }
+            
             const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(query)).slice(0, 6);
             if (filtered.length > 0) {
                 countryResults.innerHTML = filtered.map(c => 
-                    `<div class="search-item" onclick="selectCountry('${c}')"><i class="fa-solid fa-flag" style="color:var(--accent-teal); margin-right:5px;"></i> ${c}</div>`
+                    `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="selectCountry('${c}')">
+                        <i class="fa-solid fa-flag mr-3"></i> ${c}
+                    </div>`
                 ).join('');
-                countryResults.style.display = 'block';
+                countryResults.classList.remove('hidden');
             } else {
-                countryResults.style.display = 'none';
+                countryResults.classList.add('hidden');
             }
         });
 
         function selectCountry(country) {
             searchCountry.value = country;
-            countryResults.style.display = 'none';
+            countryResults.classList.add('hidden');
             document.getElementById('search-city').focus();
             triggerCitySearch(); 
         }
@@ -313,10 +309,7 @@
             clearTimeout(searchTimeout);
             const cityQuery = searchCity.value.trim();
             const countryContext = searchCountry.value.trim();
-            if (cityQuery.length < 3) { 
-                cityResults.style.display = 'none'; 
-                return; 
-            }
+            if (cityQuery.length < 3) { cityResults.classList.add('hidden'); return; }
             searchTimeout = setTimeout(() => execSearch(cityQuery, countryContext), 500);
         }
 
@@ -336,17 +329,17 @@
                     if (results.length > 0) {
                         cityResults.innerHTML = results.map(res => {
                             const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
-                            return `<div class="search-item" onclick="applyNewLocation(${res.latitude}, ${res.longitude}, '${res.name}', '${res.country}')">
-                                        <i class="fa-solid fa-map-pin" style="color:var(--accent-teal); margin-right:5px;"></i> ${locName}
+                            return `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="applyNewLocation(${res.latitude}, ${res.longitude}, '${res.name}', '${res.country}')">
+                                        <i class="fa-solid fa-map-pin mr-3"></i> ${locName}
                                     </div>`;
                         }).join('');
-                        cityResults.style.display = 'block';
+                        cityResults.classList.remove('hidden');
                     } else {
-                        cityResults.innerHTML = '<div class="search-item" style="color:var(--accent-red);">No matching targets found.</div>';
-                        cityResults.style.display = 'block';
+                        cityResults.innerHTML = '<div class="px-6 py-4 text-brand-red text-base font-bold text-center uppercase tracking-widest">NO MATCHES FOUND</div>';
+                        cityResults.classList.remove('hidden');
                     }
                 } else {
-                    cityResults.style.display = 'none';
+                    cityResults.classList.add('hidden');
                 }
             } catch (err) { console.error("Geospatial Engine error", err); }
         }
@@ -358,15 +351,16 @@
             localStorage.setItem('ms_coords', JSON.stringify(state.coords));
             searchCity.value = cityName;
             searchCountry.value = countryName || searchCountry.value; 
-            cityResults.style.display = 'none';
+            cityResults.classList.add('hidden');
             fetchData(lat, lon, true); 
         }
 
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('#country-wrapper')) countryResults.style.display = 'none';
-            if (!e.target.closest('#city-wrapper')) cityResults.style.display = 'none';
+            if (!e.target.closest('#country-wrapper')) countryResults.classList.add('hidden');
+            if (!e.target.closest('#city-wrapper')) cityResults.classList.add('hidden');
         });
 
+        // Audio Subsystem
         function playSonarPing() {
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return; 
@@ -390,49 +384,60 @@
             const btn = document.getElementById('audio-btn');
             const icon = document.getElementById('audio-icon');
             const txt = document.getElementById('audio-text');
+            
             if (state.audioEnabled) {
-                btn.classList.add('active');
-                icon.className = 'fa-solid fa-volume-high fa-beat-fade';
+                btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all';
+                icon.className = 'fa-solid fa-volume-high fa-beat-fade text-xl';
                 txt.innerText = "SONAR ACTIVE";
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
                 ctx.resume().then(() => playSonarPing());
             } else {
-                btn.classList.remove('active');
-                icon.className = 'fa-solid fa-volume-xmark';
-                txt.innerText = "ALERTS OFF";
+                btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all';
+                icon.className = 'fa-solid fa-volume-xmark text-xl';
+                txt.innerText = "SONAR OFF";
             }
         }
 
-        const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%233b82f6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
+        // PWA Manifest Injection
+        const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%2314b8a6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
         const manifestBlob = new Blob([JSON.stringify({
-            "name": "MeteoNexus", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone",
-            "background_color": "#0f172a", "theme_color": "#0f172a",
+            "name": "MeteoNexus HUD", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone",
+            "background_color": "#000000", "theme_color": "#000000",
             "icons": [{"src": iconBase64, "sizes": "512x512", "type": "image/svg+xml"}]
         })], {type: 'application/json'});
         document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
 
+        // Fully Restored Charting Engine
         function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
+            
+            const tc = tailwind.config.theme.extend.colors;
+            
             state.chart = new Chart(ctx, {
                 data: {
                     labels: labels,
                     datasets: [
-                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: 'rgba(255, 165, 0, 0.4)', borderColor: 'rgba(255, 165, 0, 1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
-                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: 'rgba(168, 85, 247, 0.4)', borderColor: 'rgba(168, 85, 247, 1)', borderWidth: 1, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
-                        { type: 'line', label: 'ECMWF (Rain)', data: rainData.eu, borderColor: '#3b82f6', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'GFS (Rain)', data: rainData.us, borderColor: '#14b8a6', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'ICON (Rain)', data: rainData.de, borderColor: '#facc15', borderWidth: 1.5, borderDash: [3,3], tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'JMA (Rain)', data: rainData.jp, borderColor: '#ec4899', borderWidth: 1.5, tension: 0.4, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
+                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: tc.brand.orange + '40', borderColor: tc.brand.orange, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
+                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: tc.brand.purple + '40', borderColor: tc.brand.purple, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
+                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.brand.blue, backgroundColor: tc.brand.blue + '33', fill: true, borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'GFS', data: rainData.us, borderColor: tc.brand.teal, backgroundColor: tc.brand.teal + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'ICON', data: rainData.de, borderColor: tc.brand.warning, borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'JMA', data: rainData.jp, borderColor: '#ec4899', borderWidth: 2, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
-                        title: { display: true, text: `ATMOSPHERIC TELEMETRY FUSION | RAIN%: ${currentAgreement.toFixed(0)}%`, color: '#94a3b8', font: { family: 'JetBrains Mono', size: 12 }, align: 'start', padding: { bottom: 20 } },
-                        legend: { display: true, labels: { color: '#94a3b8', font: {family: 'JetBrains Mono', size: 10}, boxWidth: 8, usePointStyle: true } },
+                        legend: { display: true, labels: { color: '#9ca3af', font: {family: 'Inter', weight: 'bold', size: 12}, boxWidth: 16, usePointStyle: true }, position: 'bottom' },
                         tooltip: {
+                            backgroundColor: '#000000',
+                            titleColor: '#ffffff',
+                            bodyColor: '#d1d5db',
+                            borderColor: '#333333',
+                            borderWidth: 2,
+                            padding: 16,
                             callbacks: {
                                 label: function(context) {
                                     let label = context.dataset.label || '';
@@ -450,37 +455,41 @@
                                     const ag = hourlyAgreement[index];
                                     const uv = uvData[index];
                                     const sol = solarData[index];
-                                    return `\nRain%: ${ag.toFixed(0)}%  •  UV: ${uv.toFixed(1)}  •  Solar: ${sol.toFixed(0)}W`;
+                                    return `\nRain Model Agreement: ${ag.toFixed(0)}%\nPeak UV: ${uv.toFixed(1)} | Solar: ${sol.toFixed(0)}W`;
                                 }
                             },
-                            footerFont: { family: 'JetBrains Mono', size: 13, weight: 'bold' },
-                            footerColor: '#14b8a6', padding: 12
+                            titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' },
+                            bodyFont: { family: 'JetBrains Mono', size: 12 },
+                            footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' },
+                            footerColor: tc.brand.teal
                         }
                     }, 
                     scales: {
-                        x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } },
-                        y_rain: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Rain (mm)', color: '#64748b' }, grid: { color: '#334155' }, suggestedMax: 2 },
-                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar (W/m²)', color: 'rgba(255, 165, 0, 0.7)' }, grid: { drawOnChartArea: false }, suggestedMax: 1000 },
-                        y_uv: { type: 'linear', display: false, min: 0, max: 15, grid: { drawOnChartArea: false } }
+                        x: { grid: { display: false }, ticks: { color: '#6b7280', maxTicksLimit: 12, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'} } },
+                        y_rain: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 2 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.brand.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.brand.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
+                        y_uv: { type: 'linear', display: false, min: 0, max: 15 }
                     }
                 }
             });
         }
 
+        // Restored Detailed Health Status UI
         function updateHealthStatus(elementId, dataArray) {
             const el = document.getElementById(elementId);
             if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
-                el.innerHTML = '<span class="status-fail">NO SIGNAL</span>';
+                el.className = "font-mono text-sm font-bold py-2 bg-brand-red border-2 border-brand-red text-black rounded-lg uppercase tracking-widest";
+                el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + el.innerText.split(' ')[1]; // Keep standard text but show error
                 return false;
             } else {
-                el.innerHTML = '<span class="status-ok">ONLINE</span>';
+                el.className = "font-mono text-sm font-bold py-2 bg-brand-success/20 border-2 border-brand-success/50 text-brand-success rounded-lg uppercase tracking-widest";
                 return true;
             }
         }
 
+        // Main Telemetry Fetch Engine (Fully Restored Logic)
         async function fetchData(lat, lon, skipReverseGeo = false) {
             const badge = document.getElementById('location-badge');
-            document.getElementById('tel-meteo').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
             
             document.getElementById('manual-lat').value = lat.toFixed(5);
             document.getElementById('manual-lon').value = lon.toFixed(5);
@@ -534,7 +543,7 @@
                     } catch(e) { nowIndex = new Date().getHours(); }
                 }
 
-                // 1. Data Cleaning & Array Slicing
+                // Data Extraction
                 const sliceWin = 24;
                 const clean = (arr) => arr.map(v => v === null ? 0 : v);
                 
@@ -558,14 +567,13 @@
                 const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
                 const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
                 
-                // --- PATCH 3: Chart Temporal Ambiguity (Midnight Crossing Fix) ---
                 const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => {
                     const timeStr = t.slice(11, 16);
-                    if (timeStr === "00:00") return "00:00 (TMRW)";
+                    if (timeStr === "00:00") return "00:00 (+1d)";
                     return timeStr;
                 });
 
-                // 2. Telemetry Calculations
+                // Telemetry Logic
                 const hourlyAgreement = [];
                 for (let i = 0; i < sliceWin; i++) {
                     let hVotes = 0;
@@ -579,72 +587,74 @@
                 const currentAgreement = hourlyAgreement[0] || 0;
                 let currentVotes = (currentAgreement / 100) * 4;
 
-                // --- PATCH 1: Dead Zone Predictive Lookahead ---
                 let incomingRain = false;
                 for (let i = 1; i <= 3; i++) {
                     if (hourlyAgreement[i] >= 75) {
-                        incomingRain = true;
-                        break;
+                        incomingRain = true; break;
                     }
                 }
 
-                // --- PATCH 2: Contextual Peak UV Extraction ---
                 const maxUV = Math.max(...uvData);
                 const maxUVIndex = uvData.indexOf(maxUV);
-                const maxUVTime = times[maxUVIndex].replace(" (TMRW)", ""); // Clean time string for HUD
+                const maxUVTime = times[maxUVIndex].replace(" (+1d)", "");
 
-                // 3. UI DOM Mapping
-                document.getElementById('metric-temp').innerText = curr.temperature_2m + '°C';
-                document.getElementById('metric-feels').innerText = curr.apparent_temperature + '°C';
+                // DOM Mapping Restored completely
+                document.getElementById('metric-temp').innerText = Math.round(curr.temperature_2m) + '°';
+                document.getElementById('metric-feels').innerText = Math.round(curr.apparent_temperature) + '°';
                 document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
                 document.getElementById('metric-agree').innerText = `${currentAgreement.toFixed(0)}%`;
                 
-                // Inject exact time context into UV block
-                document.getElementById('metric-uv').innerHTML = `${maxUV.toFixed(1)} <span style="font-size:0.7rem; color:var(--text-secondary); font-weight:400;">@${maxUVTime}</span>`;
+                document.getElementById('metric-wind-speed').innerText = Math.round(curr.wind_speed_10m);
+                document.getElementById('metric-wind-dir').innerHTML = `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`;
                 
-                const windDir = getWindDirection(curr.wind_direction_10m);
-                document.getElementById('metric-wind').innerHTML = `
-                    ${curr.wind_speed_10m}<span style="font-size:0.7rem;">km/h</span> ${windDir} 
-                    <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg); display:inline-block; margin-left:4px; color:var(--accent-blue);"></i>
-                `;
+                document.getElementById('metric-uv-val').innerText = maxUV.toFixed(1);
+                document.getElementById('metric-uv-time').innerText = "@ " + maxUVTime;
                 
                 const conditionStr = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
                 document.getElementById('weather-desc').innerText = conditionStr;
 
-                // 4. Status Icon & Text Engine
+                // Status Evaluation with FontAwesome + HUD Visuals
+                const mainCard = document.getElementById('main-status-card');
                 const icon = document.getElementById('status-icon');
                 const text = document.getElementById('status-text');
-                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
                 
+                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
                 if (curr.is_day === 0) {
                     if (baseIconClass === 'fa-sun') baseIconClass = 'fa-moon';
                     if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon';
                 }
 
+                // Reset baseline UI for card
+                mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ";
+
                 if (currentVotes >= 3) { 
-                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-alert';
+                    mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
+                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`;
+                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase';
                     text.innerText = "RAIN LIKELY";
-                    text.className = 'status-text status-alert';
                     if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
                 } else if (incomingRain) {
-                    // Override with Predictive Lookahead Alert
-                    icon.className = 'status-icon fa-solid fa-cloud-showers-heavy status-warn';
+                    mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning');
+                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`;
+                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase';
                     text.innerText = "INCOMING RAIN (1-3H)";
-                    text.className = 'status-text status-warn';
                 } else if (currentVotes >= 1) {
-                    icon.className = 'status-icon fa-solid fa-cloud-sun-rain status-warn';
+                    mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50');
+                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`;
+                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase';
                     text.innerText = "RAIN POSSIBLE";
-                    text.className = 'status-text status-warn';
                 } else {
-                    icon.className = `status-icon fa-solid ${baseIconClass} status-clear`;
-                    text.innerText = "ATMOSPHERE STABLE";
-                    text.className = 'status-text status-clear';
+                    mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50');
+                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid ${baseIconClass} text-brand-success`;
+                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase';
+                    text.innerText = "STABLE";
                 }
 
                 renderChart(times, rainData, solarData, uvData, currentAgreement, hourlyAgreement);
             } catch (e) { console.error(e); }
         }
 
+        // Init System
         function runApp() {
             if (state.mode === 'manual' && state.coords.lat) {
                 fetchData(state.coords.lat, state.coords.lon, false); 
@@ -658,11 +668,15 @@
                             fetchData(p.coords.latitude, p.coords.longitude, false); 
                         },
                         () => {
-                            document.getElementById('status-icon').className = 'status-icon fa-solid fa-map-location-dot status-warn';
+                            const mainCard = document.getElementById('main-status-card');
+                            mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden";
+                            
+                            document.getElementById('status-icon').className = 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange';
                             document.getElementById('status-text').innerText = "SEARCH LOCATION";
-                            document.getElementById('status-text').className = 'status-text status-warn';
-                            document.getElementById('weather-desc').innerText = "GPS blocked. Please use Geospatial Targeting below.";
-                            document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs" style="color:var(--accent-red)"></i> GPS BLOCKED`;
+                            document.getElementById('status-text').className = "text-4xl md:text-5xl font-black tracking-tight text-brand-orange uppercase";
+                            
+                            document.getElementById('weather-desc').innerText = "GPS BLOCKED. PLEASE USE GEOSPATIAL TARGETING BELOW.";
+                            document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`;
                             document.getElementById('local-time-text').innerText = "--:--:--";
                         },
                         { timeout: 10000, enableHighAccuracy: true }
@@ -691,6 +705,7 @@
             runApp();
         }
 
+        // Bootstrap
         runApp();
         setInterval(runApp, 60000); 
     </script>
