@@ -176,24 +176,10 @@
             </div>
         </div>
 
-        <!-- Squad Link & Targeting -->
+        <!-- Targeting -->
         <div class="lg:col-span-4 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 flex flex-col justify-between">
             <div>
-                <h3 class="text-sm font-bold uppercase tracking-widest text-brand-blue mb-6 border-b-4 border-surface-800 pb-3">Squad Link & Targeting</h3>
-                
-                <!-- NEW: Live Squad Relay Database -->
-                <div class="flex gap-3 mb-6">
-                    <div class="relative w-full">
-                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                            <i class="fa-solid fa-users text-brand-blue text-xl"></i>
-                        </div>
-                        <input type="text" id="squad-id" placeholder="SQUAD CALLSIGN..." autocomplete="off" 
-                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-blue transition-colors placeholder-gray-600 uppercase">
-                    </div>
-                    <button id="squad-btn" onclick="joinSquad()" class="bg-brand-blue hover:bg-blue-400 border-4 border-brand-blue text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.3)]">
-                        LINK
-                    </button>
-                </div>
+                <h3 class="text-sm font-bold uppercase tracking-widest text-brand-blue mb-6 border-b-4 border-surface-800 pb-3">Navigation & Targeting</h3>
 
                 <!-- Google Maps Import Module -->
                 <div class="flex gap-3 mb-6">
@@ -243,7 +229,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- FAULT TOLERANT CLOUD INIT ---
         let app, auth, db;
@@ -303,7 +289,7 @@
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
             autoCoords: null,
-            targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null, // FIX: Hydrate target from local storage
+            targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null, 
             isMapLocked: true,  
             targetTimezone: null, 
             chart: null,
@@ -313,9 +299,7 @@
             routeCtrl: null,
             gpsWatchId: null, 
             userMarker: null, 
-            userAuth: null,
-            squadId: null,
-            squadMarkers: {} 
+            userAuth: null
         };
 
         // --- AUTHENTICATION ENGINE ---
@@ -332,101 +316,35 @@
             initAuth();
             onAuthStateChanged(auth, (user) => {
                 state.userAuth = user;
-                if (user && state.squadId) attachSquadListeners();
             });
         }
 
-        // --- SQUAD RELAY ENGINE (CLOUD ONLY) ---
-        window.joinSquad = function() {
-            const squadInput = document.getElementById('squad-id');
-            const btn = document.getElementById('squad-btn');
-            
-            if (!isCloudActive) {
-                squadInput.value = "";
-                squadInput.placeholder = "DB OFFLINE - LOCAL MODE";
-                return;
-            }
-
-            const callsign = squadInput.value.trim().toUpperCase();
-
-            if (!callsign) {
-                state.squadId = null;
-                squadInput.value = "";
-                squadInput.placeholder = "SQUAD CALLSIGN...";
-                btn.innerHTML = "LINK";
-                btn.className = "bg-brand-blue hover:bg-blue-400 border-4 border-brand-blue text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.3)]";
-                
-                Object.values(state.squadMarkers).forEach(m => state.mapObj.removeLayer(m));
-                state.squadMarkers = {};
-                return;
-            }
-
-            state.squadId = callsign;
-            btn.innerHTML = "<i class='fa-solid fa-link-slash'></i>";
-            btn.className = "bg-brand-red hover:bg-red-400 border-4 border-brand-red text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(239,68,68,0.3)]";
-            squadInput.placeholder = `LINKED: ${callsign}`;
-            
-            if (state.autoCoords && state.userAuth) pushLocationToRelay(state.autoCoords.lat, state.autoCoords.lon);
-            attachSquadListeners();
-        }
-
-        function pushLocationToRelay(lat, lon) {
-            if (!isCloudActive || !state.userAuth || !state.squadId) return;
-            const riderRef = doc(db, 'artifacts', appId, 'public', 'data', 'riders', state.userAuth.uid);
-            setDoc(riderRef, {
-                squadId: state.squadId,
-                lat: lat,
-                lon: lon,
-                timestamp: Date.now()
-            }).catch(console.error);
-        }
-
-        let squadUnsubscribe = null;
-        function attachSquadListeners() {
-            if (!isCloudActive || !state.userAuth || !state.squadId) return;
-            if (squadUnsubscribe) squadUnsubscribe();
-
-            const ridersRef = collection(db, 'artifacts', appId, 'public', 'data', 'riders');
-            
-            squadUnsubscribe = onSnapshot(ridersRef, (snapshot) => {
-                const now = Date.now();
-                snapshot.forEach(docSnap => {
-                    if (docSnap.id === state.userAuth.uid) return; 
-                    
-                    const data = docSnap.data();
-                    if (data.squadId === state.squadId) {
-                        if (now - data.timestamp < 300000) {
-                            plotCoRider(docSnap.id, data.lat, data.lon);
-                        } else {
-                            removeCoRider(docSnap.id);
-                        }
-                    }
-                });
-            }, (err) => console.error("DB Relay Error", err));
-        }
-
-        function plotCoRider(id, lat, lon) {
-            if (!state.mapObj) return;
-            
-            if (state.squadMarkers[id]) {
-                state.squadMarkers[id].setLatLng([lat, lon]);
-            } else {
-                state.squadMarkers[id] = L.marker([lat, lon], {
-                    icon: L.divIcon({
-                        className: 'bg-brand-blue border-2 border-white rounded-full w-4 h-4 shadow-[0_0_15px_rgba(59,130,246,0.8)] animate-pulse',
-                        iconSize: [16, 16]
-                    }),
-                    zIndexOffset: 900
-                }).addTo(state.mapObj);
+        // --- SCREEN WAKE LOCK ENGINE (Persistence) ---
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('MeteoNexus: Screen Wake Lock Active');
+                    wakeLock.addEventListener('release', () => {
+                        console.log('MeteoNexus: Screen Wake Lock Released');
+                    });
+                }
+            } catch (err) {
+                // Silently handle NotAllowedError to prevent noisy console errors in iframe environments
+                if (err.name === 'NotAllowedError') {
+                    console.warn('MeteoNexus: Screen Wake Lock restricted by browser/iframe policy.');
+                } else {
+                    console.warn(`Wake Lock Warning: ${err.name}, ${err.message}`);
+                }
             }
         }
 
-        function removeCoRider(id) {
-            if (state.squadMarkers[id]) {
-                state.mapObj.removeLayer(state.squadMarkers[id]);
-                delete state.squadMarkers[id];
+        document.addEventListener('visibilitychange', async () => {
+            if (wakeLock !== null && document.visibilityState === 'visible') {
+                requestWakeLock();
             }
-        }
+        });
 
         // --- BACKGROUND TRACKING ENGINE ---
         function startBackgroundTracking() {
@@ -440,8 +358,6 @@
                     const heading = pos.coords.heading;
                     const speed = pos.coords.speed;
                     state.autoCoords = { lat, lon };
-
-                    if (state.squadId && state.userAuth) pushLocationToRelay(lat, lon);
 
                     if (!state.mapObj) {
                         initMap(lat, lon);
@@ -619,10 +535,6 @@
                 let lat = null, lon = null;
                 const num = "([+-]?\\d+(?:\\.\\d+)?)"; 
 
-                // ==========================================
-                // THE FIX: PRIORITY QUEUE & ORIGIN BLACKLIST
-                // ==========================================
-                
                 let originLat = null, originLon = null;
                 const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
                 if (originMatch) {
@@ -756,8 +668,8 @@
 
         // --- LIVE NAVIGATION INTEGRATION ---
         window.activateLiveNavigation = function(destLat, destLon) {
-            state.targetCoords = { lat: destLat, lon: destLon }; // Queue Target Immediately
-            localStorage.setItem('ms_targetCoords', JSON.stringify(state.targetCoords)); // FIX: Persist target to local storage
+            state.targetCoords = { lat: destLat, lon: destLon }; 
+            localStorage.setItem('ms_targetCoords', JSON.stringify(state.targetCoords)); 
             
             const statusEl = document.getElementById('route-status');
             const navBtn = document.getElementById('native-nav-btn');
@@ -769,7 +681,6 @@
                 window.open(url, '_blank');
             };
 
-            // Fix for Android Race Condition: Only attempt route if hardware GPS is locked
             if (state.autoCoords) {
                 statusEl.innerText = "CALCULATING TACTICAL INTERCEPT...";
                 statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
@@ -988,7 +899,7 @@
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
-            localStorage.removeItem('ms_targetCoords'); // FIX: Purge storage on reset
+            localStorage.removeItem('ms_targetCoords'); 
             
             // Instantly re-engage map lock and UI update
             window.toggleMapLock(); 
@@ -1000,7 +911,9 @@
         }
 
         function runApp() {
+            requestWakeLock(); // Request persistent screen wake lock for tracking
             startBackgroundTracking();
+            
             if (state.mode === 'manual' && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false); 
             } else if (state.autoCoords) {
@@ -1022,7 +935,7 @@
             }
         }
 
-        // FIX: Restore UI state on boot if a cached target exists
+        // Restore UI state on boot if a cached target exists
         if (state.targetCoords) {
             window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon);
         }
