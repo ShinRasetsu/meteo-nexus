@@ -182,8 +182,9 @@
                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                             <i class="fa-solid fa-map-location-dot text-brand-teal text-xl"></i>
                         </div>
+                        <!-- Removed 'uppercase' class to prevent clipboard mutation issues with short-links -->
                         <input type="text" id="gmaps-link" placeholder="PASTE GMAPS LINK..." autocomplete="off" 
-                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
+                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600">
                     </div>
                     <!-- Lightning Button: Acts as Paste & Load -->
                     <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-brand-blue text-brand-blue font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
@@ -270,10 +271,72 @@
             lastPing: 0,
             mapObj: null,
             routeCtrl: null,
-            gpsWatchId: null // Tracks live user movement
+            gpsWatchId: null, // Tracks live user movement
+            userMarker: null  // Global reference to user's position dot
         };
 
-        // --- ENHANCED: Paste and Load Engine ---
+        // --- BACKGROUND TRACKING ENGINE ---
+        // Continuously tracks GPS regardless of routing state
+        function startBackgroundTracking() {
+            if (state.gpsWatchId) return; 
+
+            const statusEl = document.getElementById('route-status');
+
+            state.gpsWatchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+                    state.autoCoords = { lat, lon };
+
+                    if (!state.mapObj) {
+                        initMap(lat, lon);
+                    } else {
+                        // Update floating user marker
+                        if (state.userMarker) {
+                            state.userMarker.setLatLng([lat, lon]);
+                        }
+
+                        // Handle camera/routing based on active state
+                        if (state.routeCtrl) {
+                            // Update origin waypoint to keep route active
+                            const waypoints = state.routeCtrl.getWaypoints();
+                            waypoints[0].latLng = L.latLng(lat, lon);
+                            state.routeCtrl.setWaypoints(waypoints);
+                        } else {
+                            // Free-roam map recentering
+                            state.mapObj.setView([lat, lon], state.mapObj.getZoom(), {animate: true});
+                            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
+                            statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
+                        }
+                    }
+                },
+                (err) => {
+                    statusEl.innerText = "GPS SIGNAL LOST";
+                    statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                },
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
+        }
+
+        // --- MAP INITIALIZATION ---
+        function initMap(lat = 0, lon = 0) {
+            if(state.mapObj) return;
+            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
+            }).addTo(state.mapObj);
+
+            // Establish persistent user dot
+            state.userMarker = L.marker([lat, lon], {
+                icon: L.divIcon({
+                    className: 'bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)]',
+                    iconSize: [20, 20]
+                }),
+                zIndexOffset: 1000
+            }).addTo(state.mapObj);
+        }
+
+        // --- PASTE AND LOAD ENGINE ---
         async function handlePasteAndLoad() {
             const input = document.getElementById('gmaps-link');
             
@@ -293,7 +356,21 @@
             }
         }
 
-        // --- FIXED: Deep Regex Link Extractor for Co-Rider Intercept ---
+        // --- BULLETPROOF LINK EXTRACTOR ---
+        async function extractGMapPayload(url) {
+            // First attempt: allorigins proxy
+            try {
+                const r1 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+                const d1 = await r1.json();
+                if (d1.contents) return d1.contents;
+                return JSON.stringify(d1);
+            } catch(e) {
+                // Fallback attempt: corsproxy
+                const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+                return await r2.text();
+            }
+        }
+
         async function processGMapLink() {
             const input = document.getElementById('gmaps-link');
             const btn = document.getElementById('gmaps-btn');
@@ -305,22 +382,16 @@
             input.placeholder = "EXTRACTING TARGET...";
             
             try {
-                // Using allorigins to bypass CORS and dump the entire raw HTML of the redirect target
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-                const response = await fetch(proxyUrl);
-                const data = await response.json();
-                
-                // Convert entire payload to string to hunt for embedded coordinates
-                const payload = JSON.stringify(data);
+                const payload = await extractGMapPayload(url);
 
                 // Aggressive Regex: Checks multiple known Google Maps URL param formats and meta tags
                 const regexes = [
-                    /markers=([\d.-]+)%2C([\d.-]+)/i,        // Used in static maps meta tags
-                    /center=([\d.-]+)%2C([\d.-]+)/i,         // Used in center meta tags
-                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i,           // Used in direct URLs
-                    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,       // Used in place links
-                    /query=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,    // Used in query params
-                    /destination=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i // Used in direction links
+                    /markers=([\d.-]+)%2C([\d.-]+)/i,
+                    /center=([\d.-]+)%2C([\d.-]+)/i,
+                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i,
+                    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,
+                    /query=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
+                    /destination=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i
                 ];
 
                 let lat = null, lon = null;
@@ -330,15 +401,13 @@
                     if (match && match[1] && match[2]) {
                         lat = parseFloat(match[1]);
                         lon = parseFloat(match[2]);
-                        break; // Stop at first successful match
+                        break; 
                     }
                 }
 
                 if (lat !== null && lon !== null) {
                     input.value = "";
                     input.placeholder = `TARGET ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-                    
-                    // Activate live tracking to route to co-rider
                     activateLiveNavigation(lat, lon);
                 } else {
                     input.value = "";
@@ -346,24 +415,23 @@
                 }
             } catch(e) {
                 input.value = "";
-                input.placeholder = "ERR: EXTRACTION FAILED";
+                input.placeholder = "ERR: NETWORK FAILURE";
                 console.error("GMap Parser Error:", e);
             } finally {
                 btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
         }
 
-        // --- ENHANCED: Live Tracking & Navigation Engine (Hybrid Approach) ---
+        // --- LIVE NAVIGATION INTEGRATION ---
         function activateLiveNavigation(destLat, destLon) {
             applyNewLocation(destLat, destLon, "CO-RIDER TARGET", "TRACKING");
             
             const statusEl = document.getElementById('route-status');
             const navBtn = document.getElementById('native-nav-btn');
             
-            statusEl.innerText = "ACTIVATING LIVE GPS LINK...";
+            statusEl.innerText = "CALCULATING TACTICAL INTERCEPT...";
             statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
 
-            // Attach Native Intent logic
             navBtn.classList.remove('hidden');
             navBtn.onclick = () => {
                 const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
@@ -371,54 +439,30 @@
                 window.open(url, '_blank');
             };
 
-            if (state.gpsWatchId) navigator.geolocation.clearWatch(state.gpsWatchId);
+            if (!state.autoCoords) return; // Wait for background tracking to acquire lock
 
-            // Initiate continuous GPS tracking for routing origin
-            state.gpsWatchId = navigator.geolocation.watchPosition(
-                (pos) => {
-                    const userLat = pos.coords.latitude;
-                    const userLon = pos.coords.longitude;
-                    
-                    // Ensure state coordinates are up to date for the intent link
-                    state.autoCoords = { lat: userLat, lon: userLon };
-
-                    // Ensure map exists
-                    if(!state.mapObj) initMap(userLat, userLon);
-
-                    // Re-center map slightly on user moving
-                    state.mapObj.setView([userLat, userLon], state.mapObj.getZoom(), {animate: true});
-
-                    // Update Routing Waypoints (Origin -> Co-Rider)
-                    if(!state.routeCtrl) {
-                        state.routeCtrl = L.Routing.control({
-                            waypoints: [ L.latLng(userLat, userLon), L.latLng(destLat, destLon) ],
-                            router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
-                            lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
-                            show: false, addWaypoints: false, fitSelectedRoutes: true,
-                            createMarker: function(i, wp) {
-                                const isUser = i === 0;
-                                return L.marker(wp.latLng, {
-                                    icon: L.divIcon({
-                                        className: isUser ? 'bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)]' 
-                                                          : 'bg-brand-red border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse',
-                                        iconSize: [20, 20]
-                                    })
-                                });
-                            }
-                        }).addTo(state.mapObj);
-
-                        state.routeCtrl.on('routesfound', updateRouteStatus);
-                        state.routeCtrl.on('routingerror', handleRouteError);
-                    } else {
-                        state.routeCtrl.setWaypoints([ L.latLng(userLat, userLon), L.latLng(destLat, destLon) ]);
+            if (!state.routeCtrl) {
+                state.routeCtrl = L.Routing.control({
+                    waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ],
+                    router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+                    lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
+                    show: false, addWaypoints: false, fitSelectedRoutes: true,
+                    createMarker: function(i, wp) {
+                        if (i === 0) return null; // Suppress OSRM start marker to use our persistent dot
+                        return L.marker(wp.latLng, {
+                            icon: L.divIcon({
+                                className: 'bg-brand-red border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse',
+                                iconSize: [20, 20]
+                            })
+                        });
                     }
-                },
-                (err) => {
-                    statusEl.innerText = "GPS SIGNAL LOST";
-                    statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
-                },
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
-            );
+                }).addTo(state.mapObj);
+
+                state.routeCtrl.on('routesfound', updateRouteStatus);
+                state.routeCtrl.on('routingerror', handleRouteError);
+            } else {
+                state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]);
+            }
         }
 
         function updateRouteStatus(e) {
@@ -429,7 +473,7 @@
             let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
 
             const statusEl = document.getElementById('route-status');
-            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> LIVE | DIST: ${distKm} KM | ETA: ${timeStr}`;
+            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> INTERCEPT | DIST: ${distKm} KM | ETA: ${timeStr}`;
             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)]";
         }
 
@@ -437,14 +481,6 @@
             const statusEl = document.getElementById('route-status');
             statusEl.innerText = "ROUTING SERVER UNAVAILABLE";
             statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
-        }
-
-        function initMap(lat = 0, lon = 0) {
-            if(state.mapObj) return;
-            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
-            }).addTo(state.mapObj);
         }
 
         // Live Clock Sync
@@ -802,18 +838,20 @@
 
         // Init System
         function runApp() {
+            // Trigger permanent background tracking layer immediately
+            startBackgroundTracking();
+
             if (state.mode === 'manual' && state.coords.lat) {
                 fetchData(state.coords.lat, state.coords.lon, false); 
             } else {
                 if (state.autoCoords) {
                     fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
-                    if(!state.mapObj) initMap(state.autoCoords.lat, state.autoCoords.lon);
                 } else if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         p => { 
                             state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
                             fetchData(p.coords.latitude, p.coords.longitude, false); 
-                            if(!state.mapObj) initMap(state.autoCoords.lat, state.autoCoords.lon);
+                            // Map is handled by background tracking watcher
                         },
                         () => {
                             const mainCard = document.getElementById('main-status-card');
@@ -842,18 +880,20 @@
         }
 
         function resetToAuto() {
-            if (state.gpsWatchId) navigator.geolocation.clearWatch(state.gpsWatchId);
-            if (state.routeCtrl && state.mapObj) state.mapObj.removeControl(state.routeCtrl);
-            state.routeCtrl = null;
+            // Remove routing lines, keep background GPS tracking alive
+            if (state.routeCtrl && state.mapObj) {
+                state.mapObj.removeControl(state.routeCtrl);
+                state.routeCtrl = null;
+            }
             
-            document.getElementById('route-status').innerText = "STANDBY - AWAITING WAYPOINTS";
-            document.getElementById('route-status').className = "text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700";
+            const statusEl = document.getElementById('route-status');
+            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
+            statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
 
             document.getElementById('native-nav-btn').classList.add('hidden');
 
             localStorage.removeItem('ms_mode');
             state.mode = 'auto';
-            state.autoCoords = null; 
             document.getElementById('search-city').value = "";
             runApp();
         }
