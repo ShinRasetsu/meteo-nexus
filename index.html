@@ -531,86 +531,109 @@
 
                 let lat = null, lon = null;
                 const num = "([+-]?\\d+(?:\\.\\d+)?)"; 
-                const extractCoords = (str) => {
-                    if(!str) return null;
-                    const m = str.match(new RegExp(`${num},${num}`));
-                    return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
-                };
+
+                // ==========================================
+                // THE FIX: PRIORITY QUEUE & ORIGIN BLACKLIST
+                // ==========================================
                 
-                // 1. ROUTE PARSER: Handle Google Maps Directions Links (/dir/Origin/Destination)
-                // We evaluate this FIRST because routes require specific destination isolation
-                const routeMatch = cleanUrl.match(/\/dir\/([^\/]*)\/([^\/]+)/i);
-                if (routeMatch) {
-                    let destStr = routeMatch[2]; // Focus ONLY on the Destination string
+                // Step 0: Extract explicit Origin from Directions URL to blacklist it
+                let originLat = null, originLon = null;
+                const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
+                if (originMatch) {
+                    originLat = parseFloat(originMatch[1]);
+                    originLon = parseFloat(originMatch[2]);
+                }
+
+                // Mathematical Validator
+                const isValid = (tLat, tLon) => {
+                    if (tLat === null || tLon === null || isNaN(tLat) || isNaN(tLon)) return false;
+                    if (tLat === 0 && tLon === 0) return false;
+                    if (tLat < -90 || tLat > 90 || tLon < -180 || tLon > 180) return false;
                     
-                    // A. Destination is explicit coordinates in the URL path
-                    let destCoords = extractCoords(destStr);
-                    if (destCoords) {
-                        lat = destCoords.lat;
-                        lon = destCoords.lon;
-                    } else {
-                        // B. Destination is text. Extract exact destination coordinates from Google's Protobuf block
-                        // Route protobufs use !1d(Lon)!2d(Lat) OR !3d(Lat)!4d(Lon). The destination is the LAST waypoint.
-                        let pbMatches = cleanUrl.match(new RegExp(`!(?:1|3)d${num}!(?:2|4)d${num}`, 'g'));
-                        if (pbMatches && pbMatches.length > 0) {
-                            let lastPb = pbMatches[pbMatches.length - 1]; // Target the final node (Destination)
-                            let extract = lastPb.match(new RegExp(`!([13])d${num}!([24])d${num}`));
-                            if (extract && extract[1] === '1') {
-                                lon = parseFloat(extract[2]); // 1d is LON
-                                lat = parseFloat(extract[4]); // 2d is LAT
-                            } else if (extract && extract[1] === '3') {
-                                lat = parseFloat(extract[2]); // 3d is LAT
-                                lon = parseFloat(extract[4]); // 4d is LON
-                            }
+                    // CRITICAL: Reject the coordinate if it perfectly matches the Origin Blacklist
+                    if (originLat !== null && originLon !== null) {
+                        if (Math.abs(tLat - originLat) < 0.0001 && Math.abs(tLon - originLon) < 0.0001) {
+                            return false; 
                         }
+                    }
+                    return true;
+                };
+
+                // Coordinate Priority Array
+                let candidates = [];
+
+                // 1. Explicit Destination Parameter
+                let destMatch = cleanPayload.match(new RegExp(`destination=${num},${num}`, 'i'));
+                if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
+
+                // 2. OpenGraph Image Markers (Guaranteed precision)
+                const markerMatch = cleanPayload.match(/markers=([^"&>]+)/i);
+                if (markerMatch) {
+                    const markersList = markerMatch[1].split(/%7C|\|/i);
+                    const validCoords = markersList.map(p => {
+                        let m = p.match(new RegExp(`^${num},${num}`));
+                        return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
+                    }).filter(c => c !== null);
+                    
+                    if (validCoords.length > 0) {
+                        // Extract final marker in array (Destination)
+                        candidates.push({ ...validCoords[validCoords.length - 1], priority: 90 });
                     }
                 }
 
-                // 2. OPENGRAPH MARKER EXTRACTION: Guaranteed precision for both Pins and Routes
-                if (lat === null) {
-                    // Search payload for OpenGraph image markers
-                    const markerMatch = cleanPayload.match(/markers=([^"&>]+)/i);
-                    if (markerMatch) {
-                        const markersList = markerMatch[1].split(/%7C|\|/i);
-                        // THE FIX: Always take the LAST marker in the array. 
-                        // In a route, Origin is index 0, Destination is index N.
-                        const lastMarker = markersList[markersList.length - 1];
-                        const coords = extractCoords(lastMarker);
-                        if (coords) { lat = coords.lat; lon = coords.lon; }
+                // 3. Deep Protobuf Demuxing
+                const pbExact = new RegExp(`!([13])d${num}!([24])d${num}`, 'g');
+                const pbMatches = [...cleanPayload.matchAll(pbExact)];
+                if (pbMatches.length > 0) {
+                    let pbCoords = pbMatches.map(m => {
+                        if (m[1] === '1') return { lat: parseFloat(m[4]), lon: parseFloat(m[2]) }; // 1d is lon, 2d is lat
+                        if (m[1] === '3') return { lat: parseFloat(m[2]), lon: parseFloat(m[4]) }; // 3d is lat, 4d is lon
+                        return null;
+                    }).filter(c => c !== null);
+                    
+                    if (pbCoords.length > 0) {
+                        candidates.push({ ...pbCoords[pbCoords.length - 1], priority: 80 });
                     }
                 }
 
-                // 3. DEEP FALLBACK REGEX SCAN: For isolated drops without structured meta tags
-                if (lat === null) {
-                    const regexes = [
-                        new RegExp(`!3d${num}!4d${num}`, 'i'),
-                        new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),
-                        new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),
-                        new RegExp(`(?:query|q)=${num},${num}`, 'i'),
-                        new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),
-                        new RegExp(`ll=${num},${num}`, 'i')
-                    ];
-                    for (let rx of regexes) {
-                        const match = cleanPayload.match(rx);
-                        if (match && match[1] && match[2]) {
-                            lat = parseFloat(match[1]);
-                            lon = parseFloat(match[2]);
-                            break;
-                        }
-                    }
+                // 4. Fallback Signatures
+                const fallbacks = [
+                    new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),
+                    new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),
+                    new RegExp(`(?:query|q)=${num},${num}`, 'i'),
+                    new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),
+                    new RegExp(`ll=${num},${num}`, 'i'),
+                    new RegExp(`@${num},${num}`, 'i') // Viewport Fallback
+                ];
 
-                    // 4. VIEWPORT CENTER FALLBACK
-                    if (lat === null) {
-                        let vpMatch = cleanPayload.match(new RegExp(`@${num},${num}`, 'i'));
-                        if (vpMatch) {
-                            lat = parseFloat(vpMatch[1]);
-                            lon = parseFloat(vpMatch[2]);
-                        }
+                let fbPriority = 70;
+                for (let rx of fallbacks) {
+                    const match = cleanPayload.match(rx);
+                    if (match) {
+                        candidates.push({ lat: parseFloat(match[1]), lon: parseFloat(match[2]), priority: fbPriority });
+                    }
+                    fbPriority--;
+                }
+
+                // Sort candidates by priority highest-to-lowest
+                candidates.sort((a, b) => b.priority - a.priority);
+                
+                // Select the highest priority coordinate that is NOT the Origin Blacklist
+                for (let c of candidates) {
+                    if (isValid(c.lat, c.lon)) {
+                        lat = c.lat;
+                        lon = c.lon;
+                        break;
                     }
                 }
 
-                // Final Validation ensuring constraints are met
-                if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                // Edge Case Rescue: Only use the origin if absolutely nothing else was found in the payload
+                if (lat === null && originLat !== null && originLon !== null) {
+                    lat = originLat;
+                    lon = originLon;
+                }
+
+                if (lat !== null && lon !== null) {
                     input.value = "";
                     input.placeholder = `ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                     window.activateLiveNavigation(lat, lon);
