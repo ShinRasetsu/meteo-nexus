@@ -204,6 +204,18 @@
                     </button>
                 </div>
 
+                <!-- City Search Targeting -->
+                <div class="flex flex-col gap-4 mb-6">
+                    <div id="city-wrapper" class="relative w-full">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-magnifying-glass text-gray-500 text-xl"></i>
+                        </div>
+                        <input type="text" id="search-city" placeholder="SEARCH LOCALITY..." autocomplete="off" 
+                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-lg font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
+                        <div id="city-results" class="absolute bottom-full mb-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
+                    </div>
+                </div>
+
                 <!-- Manual Lat/Lon -->
                 <div class="flex gap-4 mb-6">
                     <input type="number" id="manual-lat" placeholder="LAT" step="any" class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-mono font-bold rounded-xl px-4 py-4 focus:border-brand-teal text-center">
@@ -224,20 +236,35 @@
 
     <!-- MAIN ENGINE (Type Module for Secure DB connections) -->
     <script type="module">
-        // --- SECURE CLOUD DATABASE INJECTIONS ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{"projectId":"dev-mock"}');
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // --- FAULT TOLERANT CLOUD INIT ---
+        let app, auth, db;
+        let isCloudActive = false;
+        let appId = 'default-app-id';
+
+        try {
+            const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+            if (configStr) {
+                const firebaseConfig = JSON.parse(configStr);
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                isCloudActive = true;
+            } else {
+                console.warn("MeteoNexus: Cloud Keys Missing. Booting in Offline Local Mode.");
+            }
+        } catch (e) {
+            console.warn("MeteoNexus: Cloud Connection Failed. Booting in Offline Local Mode.", e);
+        }
 
         // --- GLOBAL STATE ---
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
+            geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75
         };
@@ -280,11 +307,12 @@
             userMarker: null, 
             userAuth: null,
             squadId: null,
-            squadMarkers: {} // Tracks co-riders on map
+            squadMarkers: {} 
         };
 
-        // --- AUTHENTICATION ENGINE (Rule 3) ---
+        // --- AUTHENTICATION ENGINE ---
         async function initAuth() {
+            if (!isCloudActive) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token).catch(e => signInAnonymously(auth));
             } else {
@@ -292,27 +320,34 @@
             }
         }
         
-        initAuth();
-        onAuthStateChanged(auth, (user) => {
-            state.userAuth = user;
-            if (user && state.squadId) attachSquadListeners();
-        });
+        if (isCloudActive) {
+            initAuth();
+            onAuthStateChanged(auth, (user) => {
+                state.userAuth = user;
+                if (user && state.squadId) attachSquadListeners();
+            });
+        }
 
-        // --- SQUAD RELAY ENGINE ---
+        // --- SQUAD RELAY ENGINE (CLOUD ONLY) ---
         window.joinSquad = function() {
             const squadInput = document.getElementById('squad-id');
             const btn = document.getElementById('squad-btn');
+            
+            if (!isCloudActive) {
+                squadInput.value = "";
+                squadInput.placeholder = "DB OFFLINE - LOCAL MODE";
+                return;
+            }
+
             const callsign = squadInput.value.trim().toUpperCase();
 
             if (!callsign) {
-                // Disconnect logic
                 state.squadId = null;
                 squadInput.value = "";
                 squadInput.placeholder = "SQUAD CALLSIGN...";
                 btn.innerHTML = "LINK";
                 btn.className = "bg-brand-blue hover:bg-blue-400 border-4 border-brand-blue text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.3)]";
                 
-                // Clear map markers
                 Object.values(state.squadMarkers).forEach(m => state.mapObj.removeLayer(m));
                 state.squadMarkers = {};
                 return;
@@ -323,15 +358,12 @@
             btn.className = "bg-brand-red hover:bg-red-400 border-4 border-brand-red text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(239,68,68,0.3)]";
             squadInput.placeholder = `LINKED: ${callsign}`;
             
-            // Push my immediate location to the DB if I have GPS
             if (state.autoCoords && state.userAuth) pushLocationToRelay(state.autoCoords.lat, state.autoCoords.lon);
-            
-            // Attach DB subscription
             attachSquadListeners();
         }
 
         function pushLocationToRelay(lat, lon) {
-            if (!state.userAuth || !state.squadId) return;
+            if (!isCloudActive || !state.userAuth || !state.squadId) return;
             const riderRef = doc(db, 'artifacts', appId, 'public', 'data', 'riders', state.userAuth.uid);
             setDoc(riderRef, {
                 squadId: state.squadId,
@@ -343,20 +375,18 @@
 
         let squadUnsubscribe = null;
         function attachSquadListeners() {
-            if (!state.userAuth || !state.squadId) return;
+            if (!isCloudActive || !state.userAuth || !state.squadId) return;
             if (squadUnsubscribe) squadUnsubscribe();
 
             const ridersRef = collection(db, 'artifacts', appId, 'public', 'data', 'riders');
             
-            // Rule 2: Fetch all, filter in memory
             squadUnsubscribe = onSnapshot(ridersRef, (snapshot) => {
                 const now = Date.now();
                 snapshot.forEach(docSnap => {
-                    if (docSnap.id === state.userAuth.uid) return; // Ignore myself
+                    if (docSnap.id === state.userAuth.uid) return; 
                     
                     const data = docSnap.data();
                     if (data.squadId === state.squadId) {
-                        // Drop stale riders (older than 5 mins)
                         if (now - data.timestamp < 300000) {
                             plotCoRider(docSnap.id, data.lat, data.lon);
                         } else {
@@ -401,7 +431,6 @@
                     const lon = pos.coords.longitude;
                     state.autoCoords = { lat, lon };
 
-                    // Broadcast to DB if squad is active
                     if (state.squadId && state.userAuth) pushLocationToRelay(lat, lon);
 
                     if (!state.mapObj) {
@@ -521,6 +550,48 @@
                 btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
         }
+
+        // --- GEOSPATIAL SEARCH SYSTEM ---
+        const searchCity = document.getElementById('search-city');
+        const cityResults = document.getElementById('city-results');
+        let searchTimeout;
+
+        searchCity.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            const cityQuery = searchCity.value.trim();
+            if (cityQuery.length < 3) { cityResults.classList.add('hidden'); return; }
+            searchTimeout = setTimeout(() => execSearch(cityQuery), 500);
+        });
+
+        async function execSearch(cityQuery) {
+            try {
+                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQuery)}&count=8&language=en&format=json`);
+                const data = await res.json();
+
+                if (data.results && data.results.length > 0) {
+                    cityResults.innerHTML = data.results.map(res => {
+                        const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
+                        return `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="window.applyAndRoute(${res.latitude}, ${res.longitude}, '${res.name.replace(/'/g, "\\'")}')">
+                                    <i class="fa-solid fa-map-pin mr-3"></i> ${locName}
+                                </div>`;
+                    }).join('');
+                    cityResults.classList.remove('hidden');
+                } else {
+                    cityResults.innerHTML = '<div class="px-6 py-4 text-brand-red text-base font-bold text-center uppercase tracking-widest">NO MATCHES FOUND</div>';
+                    cityResults.classList.remove('hidden');
+                }
+            } catch (err) { console.error("Geospatial Engine error", err); }
+        }
+
+        window.applyAndRoute = function(lat, lon, cityName) {
+            cityResults.classList.add('hidden');
+            searchCity.value = cityName;
+            activateLiveNavigation(lat, lon);
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#city-wrapper')) cityResults.classList.add('hidden');
+        });
 
         // --- LIVE NAVIGATION INTEGRATION ---
         function activateLiveNavigation(destLat, destLon) {
