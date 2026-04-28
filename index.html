@@ -507,7 +507,6 @@
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
             input.placeholder = "DECRYPTING TARGET...";
 
-            // Guardrail: Ensure user setup their worker
             if (CONFIG.edgeProxy.includes("YOUR_WORKER_NAME")) {
                 input.value = "";
                 input.placeholder = "ERR: WORKER NOT CONFIGURED";
@@ -516,68 +515,89 @@
             }
             
             try {
-                // Execute secure Edge Trace
                 const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`);
                 const payloadData = await res.json();
-                
                 if (payloadData.error) throw new Error(payloadData.error);
 
-                // Decode URL to expose nested redirect params (e.g., consent.google.com?continue=...)
                 let rawUrl = payloadData.url || "";
                 try { rawUrl = decodeURIComponent(rawUrl); } catch(e) {}
                 
-                // Normalize separators: remove spaces, pluses, or %20 immediately following a comma
-                rawUrl = rawUrl.replace(/,[\s+]+/g, ',');
-
                 let rawHtml = payloadData.html || "";
                 try { rawHtml = decodeURIComponent(rawHtml); } catch(e) {}
-                rawHtml = rawHtml.replace(/,[\s+]+/g, ',');
+
+                // Normalize URLs and separators
+                let cleanUrl = rawUrl.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
+                let cleanHtml = rawHtml.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
 
                 let lat = null, lon = null;
-                const num = "(-?\\d+(?:\\.\\d+)?)"; // Matches both decimals and pure integers
+                const num = "([+-]?\\d+(?:\\.\\d+)?)"; 
                 
-                // Priority Cascading Parser
-                const regexes = [
-                    new RegExp(`!3d${num}!4d${num}`, 'i'),             // Exact Place Pin
-                    new RegExp(`(?:destination|dir)=${num},${num}`, 'i'), // Directions Target
-                    new RegExp(`search\\/${num},${num}`, 'i'),         // Dropped Pin Search Target
-                    new RegExp(`(?:query|q)=${num},${num}`, 'i'),      // Query Target
-                    new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),   // Place Viewport Focus
-                    new RegExp(`markers=${num},${num}`, 'i'),          // OpenGraph Static Map Marker
-                    new RegExp(`ll=${num},${num}`, 'i'),               // LatLng Parameter
-                    new RegExp(`@${num},${num}`, 'i')                  // General Viewport Center
-                ];
-
-                // Primary Pass: Scan the final resolved URL
-                // Highly prioritized because it ignores the proxy datacenter location
-                for (let rx of regexes) {
-                    const match = rawUrl.match(rx);
-                    if (match && match[1] && match[2]) {
-                        const tLat = parseFloat(match[1]);
-                        const tLon = parseFloat(match[2]);
-                        if (!isNaN(tLat) && !isNaN(tLon) && tLat !== 0 && tLon !== 0 && tLat >= -90 && tLat <= 90 && tLon >= -180 && tLon <= 180) {
-                            lat = tLat; lon = tLon; 
-                            break; 
-                        }
-                    }
-                }
-
-                // Secondary Pass: Scan HTML payload only if URL lacked coordinates
-                if (lat === null) {
-                    for (let rx of regexes) {
-                        const match = rawHtml.match(rx);
-                        if (match && match[1] && match[2]) {
-                            const tLat = parseFloat(match[1]);
-                            const tLon = parseFloat(match[2]);
-                            if (!isNaN(tLat) && !isNaN(tLon) && tLat !== 0 && tLon !== 0 && tLat >= -90 && tLat <= 90 && tLon >= -180 && tLon <= 180) {
-                                lat = tLat; lon = tLon; 
-                                break; 
+                // 1. ROUTE PARSER: Handle Google Maps Directions Links (/dir/Origin/Destination)
+                const routeMatch = cleanUrl.match(/\/dir\/([^\/]*)\/([^\/]+)/i);
+                if (routeMatch) {
+                    let destStr = routeMatch[2]; // Focus ONLY on the Destination string
+                    
+                    // A. Destination is explicit coordinates
+                    let destCoords = destStr.match(new RegExp(`^${num},${num}`));
+                    if (destCoords) {
+                        lat = parseFloat(destCoords[1]);
+                        lon = parseFloat(destCoords[2]);
+                    } else {
+                        // B. Destination is text. Extract exact coordinates from Google's Protobuf block 
+                        // Note: In routes, Google encodes as !1d(Longitude)!2d(Latitude)
+                        let pbMatches = cleanUrl.match(new RegExp(`!1d${num}!2d${num}`, 'g'));
+                        if (pbMatches && pbMatches.length > 0) {
+                            let last = pbMatches[pbMatches.length - 1]; // The final waypoint is the destination
+                            let extract = last.match(new RegExp(`!1d${num}!2d${num}`));
+                            lon = parseFloat(extract[1]); // 1d is LON
+                            lat = parseFloat(extract[2]); // 2d is LAT
+                        } else {
+                            // Fallback to standard 3d/4d block
+                            let pb34 = cleanUrl.match(new RegExp(`!3d${num}!4d${num}`, 'g'));
+                            if (pb34 && pb34.length > 0) {
+                                let last = pb34[pb34.length - 1];
+                                let extract = last.match(new RegExp(`!3d${num}!4d${num}`));
+                                lat = parseFloat(extract[1]); // 3d is LAT
+                                lon = parseFloat(extract[2]); // 4d is LON
                             }
                         }
                     }
                 }
 
-                if (lat !== null && lon !== null) {
+                // 2. PIN PARSER: Handle standard single-point map links
+                if (lat === null) {
+                    let payloadStr = cleanUrl + " \n" + cleanHtml;
+                    const regexes = [
+                        new RegExp(`!3d${num}!4d${num}`, 'i'),                // Exact Pin
+                        new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),    // Search Target
+                        new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),     // q=loc: Target
+                        new RegExp(`(?:query|q)=${num},${num}`, 'i'),         // Query Target
+                        new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),      // Place Focus
+                        new RegExp(`markers=(?:.*?%7C)?${num},${num}`, 'i'),  // Marker Pin
+                        new RegExp(`ll=${num},${num}`, 'i')                   // LatLng
+                    ];
+
+                    for (let rx of regexes) {
+                        const match = payloadStr.match(rx);
+                        if (match && match[1] && match[2]) {
+                            lat = parseFloat(match[1]);
+                            lon = parseFloat(match[2]);
+                            break; 
+                        }
+                    }
+                    
+                    // Fallback to viewport center only if nothing else matches
+                    if (lat === null) {
+                        let vpMatch = payloadStr.match(new RegExp(`@${num},${num}`, 'i'));
+                        if (vpMatch) {
+                            lat = parseFloat(vpMatch[1]);
+                            lon = parseFloat(vpMatch[2]);
+                        }
+                    }
+                }
+
+                // Validate mathematical bounds
+                if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
                     input.value = "";
                     input.placeholder = `ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                     window.activateLiveNavigation(lat, lon);
