@@ -50,6 +50,9 @@
         
         /* Disable text selection on UI elements for touch interfaces */
         .no-select { user-select: none; -webkit-user-select: none; }
+
+        /* Leaflet specific overrides for HUD look */
+        .leaflet-routing-container { display: none !important; } /* Hide default text directions */
     </style>
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
@@ -137,23 +140,35 @@
         </div>
     </div>
 
+    <!-- Tactical Map & Routing Layer (Moved up for navigation priority) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-2">
+        <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
+            <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span class="text-sm font-bold uppercase tracking-widest text-gray-500"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking & Navigation</span>
+                <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700">STANDBY - AWAITING WAYPOINTS</span>
+            </div>
+            <!-- Z-index 0 prevents overlap with search dropdowns above -->
+            <div id="hud-map" class="w-full relative h-[400px] md:h-[550px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111]"></div>
+        </div>
+    </div>
+
     <!-- Secondary Systems -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-8">
         
-        <!-- Chart Card (Fully Featured) -->
+        <!-- Chart Card -->
         <div class="lg:col-span-8 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
             <div class="mb-4 flex items-center justify-between">
                 <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
             </div>
-            <div class="flex-grow w-full relative h-[300px] md:h-[400px]">
+            <div class="flex-grow w-full relative h-[300px]">
                 <canvas id="mainChart"></canvas>
             </div>
         </div>
 
-        <!-- Geospatial Targeting (Fully Featured) -->
+        <!-- Geospatial Targeting -->
         <div class="lg:col-span-4 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 flex flex-col justify-between">
             <div>
-                <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-6 border-b-4 border-surface-800 pb-3">Geospatial Target</h3>
+                <h3 class="text-sm font-bold uppercase tracking-widest text-brand-blue mb-6 border-b-4 border-surface-800 pb-3">Co-Rider Intercept</h3>
                 
                 <!-- Google Maps Import Module -->
                 <div class="flex gap-4 mb-6">
@@ -165,30 +180,20 @@
                             class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
                     </div>
                     <!-- Lightning Button: Acts as Paste & Load -->
-                    <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-brand-teal font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
+                    <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-brand-blue text-brand-blue font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
                         <i class="fa-solid fa-bolt"></i>
                     </button>
                 </div>
 
                 <div class="flex flex-col gap-4 mb-6">
-                    <!-- Country Search -->
-                    <div id="country-wrapper" class="relative w-full">
-                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                            <i class="fa-solid fa-flag text-gray-500 text-xl"></i>
-                        </div>
-                        <input type="text" id="search-country" placeholder="COUNTRY" autocomplete="off" 
-                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-lg font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
-                        <div id="country-results" class="absolute top-full mt-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
-                    </div>
-                    
                     <!-- City Search -->
                     <div id="city-wrapper" class="relative w-full">
                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                             <i class="fa-solid fa-magnifying-glass text-gray-500 text-xl"></i>
                         </div>
-                        <input type="text" id="search-city" placeholder="LOCALITY / CITY" autocomplete="off" 
+                        <input type="text" id="search-city" placeholder="SEARCH LOCALITY..." autocomplete="off" 
                             class="w-full bg-surface-800 border-4 border-surface-700 text-white text-lg font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
-                        <div id="city-results" class="absolute top-full mt-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
+                        <div id="city-results" class="absolute bottom-full mb-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
                     </div>
                 </div>
 
@@ -210,18 +215,6 @@
         </div>
     </div>
 
-    <!-- Tactical Map & Routing Layer -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-8">
-        <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
-            <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Tactical Routing Interface</span>
-                <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700">STANDBY - AWAITING WAYPOINTS</span>
-            </div>
-            <!-- Z-index 0 prevents overlap with search dropdowns above -->
-            <div id="hud-map" class="w-full relative h-[350px] md:h-[500px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111]"></div>
-        </div>
-    </div>
-
     <script>
         // Configuration
         const CONFIG = {
@@ -231,24 +224,6 @@
             sonarThreshold: 75
         };
 
-        // Static Country List Restored
-        const GLOBAL_COUNTRIES = [
-            "Afghanistan", "Albania", "Algeria", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
-            "Bahamas", "Bahrain", "Bangladesh", "Belarus", "Belgium", "Belize", "Bolivia", "Bosnia", "Botswana", "Brazil", "Bulgaria",
-            "Cambodia", "Cameroon", "Canada", "Chile", "China", "Colombia", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic",
-            "Denmark", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Estonia", "Ethiopia",
-            "Finland", "France", "Georgia", "Germany", "Ghana", "Greece", "Guatemala", "Honduras", "Hungary",
-            "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan",
-            "Kazakhstan", "Kenya", "Kuwait", "Latvia", "Lebanon", "Lithuania", "Luxembourg",
-            "Madagascar", "Malaysia", "Maldives", "Mexico", "Moldova", "Monaco", "Mongolia", "Morocco", "Myanmar",
-            "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Nigeria", "Norway", "Oman",
-            "Pakistan", "Panama", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
-            "Romania", "Russia", "Saudi Arabia", "Senegal", "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain", "Sri Lanka", "Sweden", "Switzerland", "Syria",
-            "Taiwan", "Tanzania", "Thailand", "Tunisia", "Turkey", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
-            "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
-        ];
-
-        // Original WMO Mappings
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
             45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
@@ -288,7 +263,8 @@
             audioEnabled: false,
             lastPing: 0,
             mapObj: null,
-            routeCtrl: null
+            routeCtrl: null,
+            gpsWatchId: null // Tracks live user movement
         };
 
         // --- ENHANCED: Paste and Load Engine ---
@@ -296,13 +272,12 @@
             const input = document.getElementById('gmaps-link');
             
             try {
-                // Read system clipboard. Browser will ask for permission the first time.
                 const clipText = await navigator.clipboard.readText();
                 if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
                     input.value = clipText;
                 }
             } catch (err) {
-                console.warn("Clipboard access denied or unavailable. Using manual input.");
+                console.warn("Clipboard access denied. Using manual input.");
             }
 
             if (input.value.trim() !== '') {
@@ -312,7 +287,7 @@
             }
         }
 
-        // --- ENHANCED: Google Maps Link Parser & Extractor ---
+        // --- FIXED: Deep Regex Link Extractor for Co-Rider Intercept ---
         async function processGMapLink() {
             const input = document.getElementById('gmaps-link');
             const btn = document.getElementById('gmaps-btn');
@@ -320,34 +295,45 @@
             
             if (!url) return;
             
-            // UI Loading State
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
             input.placeholder = "EXTRACTING TARGET...";
             
             try {
-                // Route through open proxy to bypass CORS and capture raw redirect payload
+                // Using allorigins to bypass CORS and dump the entire raw HTML of the redirect target
                 const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
                 const response = await fetch(proxyUrl);
                 const data = await response.json();
                 
-                // Dump entirely to a string for aggressive regex evaluation
+                // Convert entire payload to string to hunt for embedded coordinates
                 const payload = JSON.stringify(data);
 
-                // Aggressive Regex Scanning: Targets standard coords, !3d/!4d query structures, and meta tags
-                const coordMatch = payload.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) 
-                                || payload.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/)
-                                || payload.match(/query=(-?\d+\.\d+),(-?\d+\.\d+)/) 
-                                || payload.match(/ll=(-?\d+\.\d+),(-?\d+\.\d+)/)
-                                || payload.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/)
-                                || payload.match(/destination=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                // Aggressive Regex: Checks multiple known Google Maps URL param formats and meta tags
+                const regexes = [
+                    /markers=([\d.-]+)%2C([\d.-]+)/i,        // Used in static maps meta tags
+                    /center=([\d.-]+)%2C([\d.-]+)/i,         // Used in center meta tags
+                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i,           // Used in direct URLs
+                    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,       // Used in place links
+                    /query=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,    // Used in query params
+                    /destination=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i // Used in direction links
+                ];
 
-                if (coordMatch) {
-                    const lat = parseFloat(coordMatch[1]);
-                    const lon = parseFloat(coordMatch[2]);
-                    
+                let lat = null, lon = null;
+
+                for (let rx of regexes) {
+                    const match = payload.match(rx);
+                    if (match && match[1] && match[2]) {
+                        lat = parseFloat(match[1]);
+                        lon = parseFloat(match[2]);
+                        break; // Stop at first successful match
+                    }
+                }
+
+                if (lat !== null && lon !== null) {
                     input.value = "";
                     input.placeholder = `TARGET ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-                    applyNewLocation(lat, lon, "GMAPS TACTICAL TARGET", "IMPORTED");
+                    
+                    // Activate live tracking to route to co-rider
+                    activateLiveNavigation(lat, lon);
                 } else {
                     input.value = "";
                     input.placeholder = "ERR: NO COORDS IN PAYLOAD";
@@ -357,76 +343,91 @@
                 input.placeholder = "ERR: EXTRACTION FAILED";
                 console.error("GMap Parser Error:", e);
             } finally {
-                // STRICT FIX: Always reset the button back to the lightning bolt icon
                 btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
         }
 
-        // Tactical Map Engine
-        function initMap(lat = 0, lon = 0) {
-            if(state.mapObj) return;
-            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 12);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '© OSM',
-                subdomains: 'abcd',
-                maxZoom: 19
-            }).addTo(state.mapObj);
+        // --- NEW: Live Tracking & Navigation Engine ---
+        function activateLiveNavigation(destLat, destLon) {
+            // First fetch weather data for the destination (co-rider location)
+            applyNewLocation(destLat, destLon, "CO-RIDER TARGET", "TRACKING");
+            
+            const statusEl = document.getElementById('route-status');
+            statusEl.innerText = "ACTIVATING LIVE GPS LINK...";
+            statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
+
+            if (state.gpsWatchId) navigator.geolocation.clearWatch(state.gpsWatchId);
+
+            // Initiate continuous GPS tracking for routing origin
+            state.gpsWatchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    const userLat = pos.coords.latitude;
+                    const userLon = pos.coords.longitude;
+                    
+                    // Ensure map exists
+                    if(!state.mapObj) initMap(userLat, userLon);
+
+                    // Re-center map slightly on user moving
+                    state.mapObj.setView([userLat, userLon], state.mapObj.getZoom(), {animate: true});
+
+                    // Update Routing Waypoints (Origin -> Co-Rider)
+                    if(!state.routeCtrl) {
+                        state.routeCtrl = L.Routing.control({
+                            waypoints: [ L.latLng(userLat, userLon), L.latLng(destLat, destLon) ],
+                            router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+                            lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
+                            show: false, addWaypoints: false, fitSelectedRoutes: true,
+                            createMarker: function(i, wp) {
+                                const isUser = i === 0;
+                                return L.marker(wp.latLng, {
+                                    icon: L.divIcon({
+                                        className: isUser ? 'bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)]' 
+                                                          : 'bg-brand-red border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse',
+                                        iconSize: [20, 20]
+                                    })
+                                });
+                            }
+                        }).addTo(state.mapObj);
+
+                        state.routeCtrl.on('routesfound', updateRouteStatus);
+                        state.routeCtrl.on('routingerror', handleRouteError);
+                    } else {
+                        // Dynamically update user location as they ride
+                        state.routeCtrl.setWaypoints([ L.latLng(userLat, userLon), L.latLng(destLat, destLon) ]);
+                    }
+                },
+                (err) => {
+                    statusEl.innerText = "GPS SIGNAL LOST";
+                    statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                },
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
         }
 
-        function calculateRoute(destLat, destLon) {
+        function updateRouteStatus(e) {
+            const summary = e.routes[0].summary;
+            const distKm = (summary.totalDistance / 1000).toFixed(1);
+            const timeMin = Math.round((summary.totalTime % 3600) / 60);
+            const timeHr = Math.floor(summary.totalTime / 3600);
+            let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
+
             const statusEl = document.getElementById('route-status');
-            
-            if(!state.autoCoords) {
-                statusEl.innerText = "NO GPS ORIGIN FOR ROUTING";
-                statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
-                return;
-            }
+            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> LIVE | DIST: ${distKm} KM | ETA: ${timeStr}`;
+            statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)]";
+        }
 
-            if(!state.mapObj) initMap(state.autoCoords.lat, state.autoCoords.lon);
+        function handleRouteError() {
+            const statusEl = document.getElementById('route-status');
+            statusEl.innerText = "ROUTING SERVER UNAVAILABLE";
+            statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+        }
 
-            if(state.routeCtrl) {
-                state.mapObj.removeControl(state.routeCtrl);
-            }
-
-            statusEl.innerText = "CALCULATING TACTICAL ROUTE...";
-            statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30";
-
-            state.routeCtrl = L.Routing.control({
-                waypoints: [
-                    L.latLng(state.autoCoords.lat, state.autoCoords.lon),
-                    L.latLng(destLat, destLon)
-                ],
-                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
-                lineOptions: { styles: [{ color: '#14b8a6', weight: 6, opacity: 0.9 }] },
-                show: false, // Suppress default text instructions to maintain HUD UI
-                addWaypoints: false,
-                fitSelectedRoutes: true,
-                createMarker: function(i, wp) {
-                    const color = i === 0 ? 'bg-brand-blue' : 'bg-brand-red';
-                    return L.marker(wp.latLng, {
-                        icon: L.divIcon({
-                            className: `${color} border-2 border-white rounded-full w-4 h-4 shadow-[0_0_10px_rgba(255,255,255,0.5)]`,
-                            iconSize: [16, 16]
-                        })
-                    });
-                }
+        function initMap(lat = 0, lon = 0) {
+            if(state.mapObj) return;
+            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
             }).addTo(state.mapObj);
-
-            state.routeCtrl.on('routesfound', function(e) {
-                const summary = e.routes[0].summary;
-                const distKm = (summary.totalDistance / 1000).toFixed(1);
-                const timeMin = Math.round((summary.totalTime % 3600) / 60);
-                const timeHr = Math.floor(summary.totalTime / 3600);
-                let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
-
-                statusEl.innerText = `DIST: ${distKm} KM | ETA: ${timeStr}`;
-                statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/30";
-            });
-            
-            state.routeCtrl.on('routingerror', function() {
-                statusEl.innerText = "ROUTING SERVER UNAVAILABLE";
-                statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
-            });
         }
 
         // Live Clock Sync
@@ -445,76 +446,41 @@
         setInterval(runLiveClock, 1000);
 
         // Geospatial Targeting UI Logic
-        const searchCountry = document.getElementById('search-country');
-        const countryResults = document.getElementById('country-results');
-
-        searchCountry.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase().trim();
-            if (query.length < 1) { countryResults.classList.add('hidden'); return; }
-            
-            const filtered = GLOBAL_COUNTRIES.filter(c => c.toLowerCase().includes(query)).slice(0, 6);
-            if (filtered.length > 0) {
-                countryResults.innerHTML = filtered.map(c => 
-                    `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="selectCountry('${c}')">
-                        <i class="fa-solid fa-flag mr-3"></i> ${c}
-                    </div>`
-                ).join('');
-                countryResults.classList.remove('hidden');
-            } else {
-                countryResults.classList.add('hidden');
-            }
-        });
-
-        function selectCountry(country) {
-            searchCountry.value = country;
-            countryResults.classList.add('hidden');
-            document.getElementById('search-city').focus();
-            triggerCitySearch(); 
-        }
-
         const searchCity = document.getElementById('search-city');
         const cityResults = document.getElementById('city-results');
         let searchTimeout;
 
-        searchCity.addEventListener('input', triggerCitySearch);
-
-        function triggerCitySearch() {
+        searchCity.addEventListener('input', () => {
             clearTimeout(searchTimeout);
             const cityQuery = searchCity.value.trim();
-            const countryContext = searchCountry.value.trim();
             if (cityQuery.length < 3) { cityResults.classList.add('hidden'); return; }
-            searchTimeout = setTimeout(() => execSearch(cityQuery, countryContext), 500);
-        }
+            searchTimeout = setTimeout(() => execSearch(cityQuery), 500);
+        });
 
-        async function execSearch(cityQuery, countryContext) {
+        async function execSearch(cityQuery) {
             try {
-                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQuery)}&count=50&language=en&format=json`);
+                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQuery)}&count=8&language=en&format=json`);
                 const data = await res.json();
 
                 if (data.results && data.results.length > 0) {
-                    let results = data.results;
-                    if (countryContext.length > 0) {
-                        const targetCountry = countryContext.toLowerCase();
-                        results = results.filter(r => r.country && r.country.toLowerCase().includes(targetCountry));
-                    }
-                    results = results.slice(0, 8); 
-
-                    if (results.length > 0) {
-                        cityResults.innerHTML = results.map(res => {
-                            const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
-                            return `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="applyNewLocation(${res.latitude}, ${res.longitude}, '${res.name}', '${res.country}')">
-                                        <i class="fa-solid fa-map-pin mr-3"></i> ${locName}
-                                    </div>`;
-                        }).join('');
-                        cityResults.classList.remove('hidden');
-                    } else {
-                        cityResults.innerHTML = '<div class="px-6 py-4 text-brand-red text-base font-bold text-center uppercase tracking-widest">NO MATCHES FOUND</div>';
-                        cityResults.classList.remove('hidden');
-                    }
+                    cityResults.innerHTML = data.results.map(res => {
+                        const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
+                        return `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="applyAndRoute(${res.latitude}, ${res.longitude}, '${res.name}')">
+                                    <i class="fa-solid fa-map-pin mr-3"></i> ${locName}
+                                </div>`;
+                    }).join('');
+                    cityResults.classList.remove('hidden');
                 } else {
-                    cityResults.classList.add('hidden');
+                    cityResults.innerHTML = '<div class="px-6 py-4 text-brand-red text-base font-bold text-center uppercase tracking-widest">NO MATCHES FOUND</div>';
+                    cityResults.classList.remove('hidden');
                 }
             } catch (err) { console.error("Geospatial Engine error", err); }
+        }
+
+        function applyAndRoute(lat, lon, cityName) {
+            cityResults.classList.add('hidden');
+            searchCity.value = cityName;
+            activateLiveNavigation(lat, lon);
         }
 
         function applyNewLocation(lat, lon, cityName, countryName) {
@@ -522,15 +488,10 @@
             state.coords = { lat, lon };
             localStorage.setItem('ms_mode', 'manual');
             localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-            searchCity.value = cityName;
-            searchCountry.value = countryName || searchCountry.value; 
-            cityResults.classList.add('hidden');
             fetchData(lat, lon, true); 
-            calculateRoute(lat, lon);
         }
 
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('#country-wrapper')) countryResults.classList.add('hidden');
             if (!e.target.closest('#city-wrapper')) cityResults.classList.add('hidden');
         });
 
@@ -673,19 +634,14 @@
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        let country = d.countryName || '';
-                        country = country.replace(/\s*\(the\)\s*/gi, '');
                         badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
                         document.getElementById('search-city').value = city;
-                        document.getElementById('search-country').value = country;
                     }).catch(() => {
                         badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
                     });
             } else {
                 const knownCity = document.getElementById('search-city').value;
-                const knownCountry = document.getElementById('search-country').value;
-                const display = [knownCity, knownCountry].filter(Boolean).join(', ');
-                badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${display}`;
+                badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${knownCity}`;
             }
 
             const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`);
@@ -864,20 +820,22 @@
             const lat = parseFloat(document.getElementById('manual-lat').value);
             const lon = parseFloat(document.getElementById('manual-lon').value);
             if(lat && lon) {
-                state.mode = 'manual'; state.coords = { lat, lon };
-                localStorage.setItem('ms_mode', 'manual');
-                localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-                fetchData(lat, lon, false);
-                calculateRoute(lat, lon);
+                activateLiveNavigation(lat, lon);
             }
         }
 
         function resetToAuto() {
+            if (state.gpsWatchId) navigator.geolocation.clearWatch(state.gpsWatchId);
+            if (state.routeCtrl && state.mapObj) state.mapObj.removeControl(state.routeCtrl);
+            state.routeCtrl = null;
+            
+            document.getElementById('route-status').innerText = "STANDBY - AWAITING WAYPOINTS";
+            document.getElementById('route-status').className = "text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700";
+
             localStorage.removeItem('ms_mode');
             state.mode = 'auto';
             state.autoCoords = null; 
             document.getElementById('search-city').value = "";
-            document.getElementById('search-country').value = "";
             runApp();
         }
 
