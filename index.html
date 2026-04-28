@@ -153,8 +153,13 @@
                     <i class="fa-solid fa-diamond-turn-right"></i> External Nav
                 </button>
             </div>
-            <!-- Map Container -->
-            <div id="hud-map" class="w-full relative h-[400px] md:h-[550px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111]"></div>
+            
+            <!-- Map Container with Re-Center UI Overlay -->
+            <div id="hud-map" class="w-full relative h-[400px] md:h-[550px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
+                <button onclick="toggleMapLock()" id="map-lock-btn" class="absolute bottom-6 right-6 z-[1000] bg-surface-800 border-4 border-brand-teal text-brand-teal p-3 md:p-4 rounded-full shadow-[0_0_15px_rgba(20,184,166,0.3)] hover:bg-brand-teal hover:text-black transition-all group">
+                    <i class="fa-solid fa-location-crosshairs text-xl md:text-2xl group-hover:scale-110 transition-transform"></i>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -267,10 +272,6 @@
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75,
-            
-            // ==========================================
-            // REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL
-            // ==========================================
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev' 
         };
 
@@ -302,6 +303,8 @@
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
             autoCoords: null,
+            targetCoords: null, // Queues destination until GPS locks
+            isMapLocked: true,  // Controls viewport auto-centering
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -446,13 +449,10 @@
                         // 1. Update User Marker Position & Heading Rotation
                         if (state.userMarker) {
                             state.userMarker.setLatLng([lat, lon]);
-                            
                             const markerEl = state.userMarker.getElement();
                             if (markerEl) {
                                 const wrapper = markerEl.querySelector('#user-dir-wrapper');
                                 const icon = markerEl.querySelector('#user-dir-icon');
-                                
-                                // Only process directional rotation if moving > 0.5 m/s and hardware provides heading
                                 if (wrapper && icon) {
                                     if (heading !== null && !isNaN(heading) && speed > 0.5) {
                                         wrapper.style.transform = `rotate(${heading}deg)`;
@@ -466,17 +466,21 @@
                             }
                         }
 
-                        // 2. Update Live Routing Waypoints (If Target Locked)
-                        if (state.routeCtrl) {
-                            const waypoints = state.routeCtrl.getWaypoints();
-                            if(waypoints.length > 0 && waypoints[0]) {
-                                waypoints[0].latLng = L.latLng(lat, lon);
-                                state.routeCtrl.setWaypoints(waypoints);
+                        // 2. Resolve GPS Race Condition: Generate queued route if pending
+                        if (state.targetCoords) {
+                            if (!state.routeCtrl) {
+                                initRoute();
+                            } else {
+                                const waypoints = state.routeCtrl.getWaypoints();
+                                if(waypoints.length > 0 && waypoints[0]) {
+                                    waypoints[0].latLng = L.latLng(lat, lon);
+                                    state.routeCtrl.setWaypoints(waypoints);
+                                }
                             }
-                        } 
+                        }
                         
-                        // 3. Active Target Lock (Strict Map Auto-Centering)
-                        if (state.mode === 'auto') {
+                        // 3. Conditional Map Auto-Centering (Lockable Viewport)
+                        if (state.isMapLocked) {
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 1 });
                             statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
                             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
@@ -491,12 +495,34 @@
             );
         }
 
+        // Dedicated viewport map lock toggle
+        window.toggleMapLock = function() {
+            state.isMapLocked = true;
+            const btn = document.getElementById('map-lock-btn');
+            btn.classList.replace('border-surface-600', 'border-brand-teal');
+            btn.classList.replace('text-gray-500', 'text-brand-teal');
+            btn.classList.add('shadow-[0_0_15px_rgba(20,184,166,0.3)]');
+            
+            if (state.autoCoords && state.mapObj) {
+                state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], 16, {animate: true});
+            }
+        }
+
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
             state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
             }).addTo(state.mapObj);
+
+            // Automatically unlock map if user physically drags it
+            state.mapObj.on('dragstart', () => {
+                state.isMapLocked = false;
+                const btn = document.getElementById('map-lock-btn');
+                btn.classList.replace('border-brand-teal', 'border-surface-600');
+                btn.classList.replace('text-brand-teal', 'text-gray-500');
+                btn.classList.remove('shadow-[0_0_15px_rgba(20,184,166,0.3)]');
+            });
 
             // Upgraded Advanced Tracking Marker with Directional CSS Rotation
             state.userMarker = L.marker([lat, lon], {
@@ -513,6 +539,30 @@
                 }),
                 zIndexOffset: 1000
             }).addTo(state.mapObj);
+        }
+
+        // Abstracted Routing Engine initialization
+        function initRoute() {
+            if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
+            
+            state.routeCtrl = L.Routing.control({
+                waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
+                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+                lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
+                show: false, addWaypoints: false, fitSelectedRoutes: true,
+                createMarker: function(i, wp) {
+                    if (i === 0) return null; 
+                    return L.marker(wp.latLng, {
+                        icon: L.divIcon({
+                            className: 'bg-brand-red border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse',
+                            iconSize: [20, 20]
+                        })
+                    });
+                }
+            }).addTo(state.mapObj);
+
+            state.routeCtrl.on('routesfound', updateRouteStatus);
+            state.routeCtrl.on('routingerror', handleRouteError);
         }
 
         // --- PASTE AND LOAD ENGINE ---
@@ -571,7 +621,6 @@
                 // THE FIX: PRIORITY QUEUE & ORIGIN BLACKLIST
                 // ==========================================
                 
-                // Step 0: Extract explicit Origin from Directions URL to blacklist it
                 let originLat = null, originLon = null;
                 const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
                 if (originMatch) {
@@ -579,29 +628,22 @@
                     originLon = parseFloat(originMatch[2]);
                 }
 
-                // Mathematical Validator
                 const isValid = (tLat, tLon) => {
                     if (tLat === null || tLon === null || isNaN(tLat) || isNaN(tLon)) return false;
                     if (tLat === 0 && tLon === 0) return false;
                     if (tLat < -90 || tLat > 90 || tLon < -180 || tLon > 180) return false;
                     
-                    // CRITICAL: Reject the coordinate if it perfectly matches the Origin Blacklist
                     if (originLat !== null && originLon !== null) {
-                        if (Math.abs(tLat - originLat) < 0.0001 && Math.abs(tLon - originLon) < 0.0001) {
-                            return false; 
-                        }
+                        if (Math.abs(tLat - originLat) < 0.0001 && Math.abs(tLon - originLon) < 0.0001) return false; 
                     }
                     return true;
                 };
 
-                // Coordinate Priority Array
                 let candidates = [];
 
-                // 1. Explicit Destination Parameter
                 let destMatch = cleanPayload.match(new RegExp(`destination=${num},${num}`, 'i'));
                 if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
 
-                // 2. OpenGraph Image Markers (Guaranteed precision)
                 const markerMatch = cleanPayload.match(/markers=([^"&>]+)/i);
                 if (markerMatch) {
                     const markersList = markerMatch[1].split(/%7C|\|/i);
@@ -610,62 +652,47 @@
                         return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
                     }).filter(c => c !== null);
                     
-                    if (validCoords.length > 0) {
-                        // Extract final marker in array (Destination)
-                        candidates.push({ ...validCoords[validCoords.length - 1], priority: 90 });
-                    }
+                    if (validCoords.length > 0) candidates.push({ ...validCoords[validCoords.length - 1], priority: 90 });
                 }
 
-                // 3. Deep Protobuf Demuxing
                 const pbExact = new RegExp(`!([13])d${num}!([24])d${num}`, 'g');
                 const pbMatches = [...cleanPayload.matchAll(pbExact)];
                 if (pbMatches.length > 0) {
                     let pbCoords = pbMatches.map(m => {
-                        if (m[1] === '1') return { lat: parseFloat(m[4]), lon: parseFloat(m[2]) }; // 1d is lon, 2d is lat
-                        if (m[1] === '3') return { lat: parseFloat(m[2]), lon: parseFloat(m[4]) }; // 3d is lat, 4d is lon
+                        if (m[1] === '1') return { lat: parseFloat(m[4]), lon: parseFloat(m[2]) }; 
+                        if (m[1] === '3') return { lat: parseFloat(m[2]), lon: parseFloat(m[4]) }; 
                         return null;
                     }).filter(c => c !== null);
                     
-                    if (pbCoords.length > 0) {
-                        candidates.push({ ...pbCoords[pbCoords.length - 1], priority: 80 });
-                    }
+                    if (pbCoords.length > 0) candidates.push({ ...pbCoords[pbCoords.length - 1], priority: 80 });
                 }
 
-                // 4. Fallback Signatures
                 const fallbacks = [
                     new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),
                     new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),
                     new RegExp(`(?:query|q)=${num},${num}`, 'i'),
                     new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),
                     new RegExp(`ll=${num},${num}`, 'i'),
-                    new RegExp(`@${num},${num}`, 'i') // Viewport Fallback
+                    new RegExp(`@${num},${num}`, 'i')
                 ];
 
                 let fbPriority = 70;
                 for (let rx of fallbacks) {
                     const match = cleanPayload.match(rx);
-                    if (match) {
-                        candidates.push({ lat: parseFloat(match[1]), lon: parseFloat(match[2]), priority: fbPriority });
-                    }
+                    if (match) candidates.push({ lat: parseFloat(match[1]), lon: parseFloat(match[2]), priority: fbPriority });
                     fbPriority--;
                 }
 
-                // Sort candidates by priority highest-to-lowest
                 candidates.sort((a, b) => b.priority - a.priority);
                 
-                // Select the highest priority coordinate that is NOT the Origin Blacklist
                 for (let c of candidates) {
                     if (isValid(c.lat, c.lon)) {
-                        lat = c.lat;
-                        lon = c.lon;
-                        break;
+                        lat = c.lat; lon = c.lon; break;
                     }
                 }
 
-                // Edge Case Rescue: Only use the origin if absolutely nothing else was found in the payload
                 if (lat === null && originLat !== null && originLon !== null) {
-                    lat = originLat;
-                    lon = originLon;
+                    lat = originLat; lon = originLon;
                 }
 
                 if (lat !== null && lon !== null) {
@@ -727,15 +754,14 @@
 
         // --- LIVE NAVIGATION INTEGRATION ---
         window.activateLiveNavigation = function(destLat, destLon) {
-            fetchData(destLat, destLon, true); 
-            document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-blue"></i> TACTICAL TARGET`;
+            state.targetCoords = { lat: destLat, lon: destLon }; // Queue Target Immediately
+            
+            // THE FIX: Removed fetchData(destLat, destLon) call.
+            // Weather telemetry will now exclusively poll the user's physical origin.
             
             const statusEl = document.getElementById('route-status');
             const navBtn = document.getElementById('native-nav-btn');
             
-            statusEl.innerText = "CALCULATING TACTICAL INTERCEPT...";
-            statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
-
             navBtn.classList.remove('hidden');
             navBtn.onclick = () => {
                 const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
@@ -743,29 +769,19 @@
                 window.open(url, '_blank');
             };
 
-            if (!state.autoCoords) return; 
-
-            if (!state.routeCtrl) {
-                state.routeCtrl = L.Routing.control({
-                    waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ],
-                    router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
-                    lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
-                    show: false, addWaypoints: false, fitSelectedRoutes: true,
-                    createMarker: function(i, wp) {
-                        if (i === 0) return null; 
-                        return L.marker(wp.latLng, {
-                            icon: L.divIcon({
-                                className: 'bg-brand-red border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse',
-                                iconSize: [20, 20]
-                            })
-                        });
-                    }
-                }).addTo(state.mapObj);
-
-                state.routeCtrl.on('routesfound', updateRouteStatus);
-                state.routeCtrl.on('routingerror', handleRouteError);
+            // Fix for Android Race Condition: Only attempt route if hardware GPS is locked
+            if (state.autoCoords) {
+                statusEl.innerText = "CALCULATING TACTICAL INTERCEPT...";
+                statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
+                
+                if (!state.routeCtrl) {
+                    initRoute();
+                } else {
+                    state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]);
+                }
             } else {
-                state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]);
+                statusEl.innerText = "AWAITING SATELLITE LOCK...";
+                statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse";
             }
         }
 
@@ -971,6 +987,11 @@
 
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
+            state.targetCoords = null; 
+            
+            // Instantly re-engage map lock and UI update
+            window.toggleMapLock(); 
+            
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
             document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
@@ -983,7 +1004,7 @@
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false); 
             } else if (state.autoCoords) {
                 initMap(state.autoCoords.lat, state.autoCoords.lon); 
-                state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], {animate: true});
+                if (state.isMapLocked) state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], {animate: true});
                 fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
             } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(p => { 
