@@ -141,7 +141,7 @@
     </div>
 
     <!-- Tactical Map & Routing Layer -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-2">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2">
         <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
             
             <div class="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -151,24 +151,24 @@
                     <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
                 </div>
                 
-                <!-- Action Controls Module -->
+                <!-- Integrated Navigation Controls -->
                 <div class="flex flex-wrap items-center gap-2">
-                    <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold py-2.5 px-5 rounded-xl text-sm md:text-base uppercase tracking-widest transition-colors flex items-center justify-center" title="Inject Link From Clipboard">
-                        <i class="fa-solid fa-bolt mr-2"></i> Paste Target
+                    <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm" title="Paste Map URL">
+                        <i class="fa-solid fa-bolt"></i> <span>Paste Target</span>
                     </button>
                     
-                    <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold py-2.5 px-5 rounded-xl text-sm md:text-base uppercase tracking-widest transition-colors flex items-center justify-center" title="Clear Navigation Vector">
-                        <i class="fa-solid fa-xmark mr-2"></i> Clear
+                    <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm" title="Clear Route">
+                        <i class="fa-solid fa-xmark"></i> <span>Clear</span>
                     </button>
                     
-                    <button id="native-nav-btn" class="hidden text-sm md:text-base font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-5 py-2.5 rounded-xl transition-all uppercase tracking-widest shadow-[0_0_15px_rgba(59,130,246,0.3)] flex items-center justify-center">
-                        <i class="fa-solid fa-diamond-turn-right mr-2"></i> External Nav
+                    <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-4 py-2 rounded-xl transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
+                        <i class="fa-solid fa-diamond-turn-right"></i> <span>External Nav</span>
                     </button>
                 </div>
             </div>
             
-            <!-- Map Container with Re-Center UI Overlay -->
-            <div id="hud-map" class="w-full relative h-[400px] md:h-[550px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
+            <!-- Map Container -->
+            <div id="hud-map" class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
                 <button onclick="toggleMapLock()" id="map-lock-btn" class="absolute bottom-6 right-6 z-[1000] bg-surface-800 border-4 border-brand-teal text-brand-teal p-3 md:p-4 rounded-full shadow-[0_0_15px_rgba(20,184,166,0.3)] hover:bg-brand-teal hover:text-black transition-all group">
                     <i class="fa-solid fa-location-crosshairs text-xl md:text-2xl group-hover:scale-110 transition-transform"></i>
                 </button>
@@ -176,19 +176,19 @@
         </div>
     </div>
 
-    <!-- Telemetry Plot -->
-    <div class="grid grid-cols-1 gap-4 mt-2 mb-8">
-        <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
+    <!-- Full-Width Telemetry Plot -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-8">
+        <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
             <div class="mb-4 flex items-center justify-between">
                 <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
             </div>
-            <div class="flex-grow w-full relative h-[300px]">
+            <div class="flex-grow w-full relative h-[350px]">
                 <canvas id="mainChart"></canvas>
             </div>
         </div>
     </div>
 
-    <!-- MAIN ENGINE (Type Module for Secure DB connections) -->
+    <!-- MAIN ENGINE -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -208,12 +208,8 @@
                 db = getFirestore(app);
                 appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 isCloudActive = true;
-            } else {
-                console.warn("MeteoNexus: Cloud Keys Missing. Booting in Offline Local Mode.");
             }
-        } catch (e) {
-            console.warn("MeteoNexus: Cloud Connection Failed. Booting in Offline Local Mode.", e);
-        }
+        } catch (e) { console.warn("MeteoNexus: Cloud Connection Failed.", e); }
 
         // --- GLOBAL STATE & CONFIG ---
         const CONFIG = {
@@ -249,7 +245,6 @@
 
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
-            coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
             autoCoords: null,
             targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null, 
             isMapLocked: true,  
@@ -264,7 +259,7 @@
             userAuth: null
         };
 
-        // --- AUTHENTICATION ENGINE ---
+        // --- AUTHENTICATION ---
         async function initAuth() {
             if (!isCloudActive) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -276,35 +271,28 @@
         
         if (isCloudActive) {
             initAuth();
-            onAuthStateChanged(auth, (user) => {
-                state.userAuth = user;
-            });
+            onAuthStateChanged(auth, (user) => { state.userAuth = user; });
         }
 
-        // --- SCREEN WAKE LOCK ENGINE (Persistence) ---
+        // --- WAKE LOCK (Persistence) ---
         let wakeLock = null;
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    wakeLock.addEventListener('release', () => {});
                 }
             } catch (err) {
                 if (err.name === 'NotAllowedError') {
-                    console.warn('MeteoNexus: Screen Wake Lock restricted by browser/iframe policy.');
-                } else {
-                    console.warn(`Wake Lock Warning: ${err.name}, ${err.message}`);
+                    console.warn('MeteoNexus: Screen Wake Lock restricted.');
                 }
             }
         }
 
         document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') {
-                requestWakeLock();
-            }
+            if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
         });
 
-        // --- BACKGROUND TRACKING ENGINE ---
+        // --- BACKGROUND TRACKING ---
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
             const statusEl = document.getElementById('route-status');
@@ -320,7 +308,6 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        // Update User Marker Position & Heading Rotation
                         if (state.userMarker) {
                             state.userMarker.setLatLng([lat, lon]);
                             const markerEl = state.userMarker.getElement();
@@ -340,7 +327,6 @@
                             }
                         }
 
-                        // Resolve GPS Race Condition: Generate queued route if pending
                         if (state.targetCoords) {
                             if (!state.routeCtrl) {
                                 initRoute();
@@ -353,7 +339,6 @@
                             }
                         }
                         
-                        // Conditional Map Auto-Centering (Lockable Viewport)
                         if (state.isMapLocked) {
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 1 });
                             if (!state.targetCoords) {
@@ -371,7 +356,6 @@
             );
         }
 
-        // Dedicated viewport map lock toggle
         window.toggleMapLock = function() {
             state.isMapLocked = true;
             const btn = document.getElementById('map-lock-btn');
@@ -415,10 +399,8 @@
             }).addTo(state.mapObj);
         }
 
-        // Abstracted Routing Engine initialization
         function initRoute() {
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
-            
             state.routeCtrl = L.Routing.control({
                 waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
                 router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
@@ -434,49 +416,37 @@
                     });
                 }
             }).addTo(state.mapObj);
-
             state.routeCtrl.on('routesfound', updateRouteStatus);
             state.routeCtrl.on('routingerror', handleRouteError);
         }
 
-        // --- PASTE AND LOAD ENGINE (BACKGROUND EXECUTION) ---
+        // --- PASTE & AUTO-LOAD ENGINE ---
         window.handlePasteAndLoad = async function() {
-            const btn = document.getElementById('gmaps-btn');
             const statusEl = document.getElementById('route-status');
-            const originalHTML = btn.innerHTML;
-            
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Processing';
+            const btn = document.getElementById('gmaps-paste-btn');
             
             try {
                 const clipText = await navigator.clipboard.readText();
                 if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
+                    btn.classList.add('animate-pulse');
                     await processGMapLink(clipText);
+                    btn.classList.remove('animate-pulse');
                 } else {
-                    statusEl.innerText = "NO MAP URL IN CLIPBOARD";
+                    statusEl.innerText = "NO LINK IN CLIPBOARD";
                     statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30";
                 }
-            } catch (err) { 
-                console.warn("Clipboard restricted."); 
+            } catch (err) {
+                console.warn("Clipboard Access Error:", err);
                 statusEl.innerText = "CLIPBOARD PERMISSION DENIED";
                 statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
-            } finally {
-                btn.innerHTML = originalHTML;
             }
         }
 
-        // --- CLOUDFLARE WORKER EXTRACTION ENGINE ---
         async function processGMapLink(url) {
             const statusEl = document.getElementById('route-status');
-            
             statusEl.innerText = "DECRYPTING TARGET...";
             statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
 
-            if (CONFIG.edgeProxy.includes("YOUR_WORKER_NAME")) {
-                statusEl.innerText = "ERR: WORKER NOT CONFIGURED";
-                statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
-                return;
-            }
-            
             try {
                 const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`);
                 const payloadData = await res.json();
@@ -484,11 +454,9 @@
 
                 let rawUrl = payloadData.url || "";
                 try { rawUrl = decodeURIComponent(rawUrl); } catch(e) {}
-                
                 let rawHtml = payloadData.html || "";
                 try { rawHtml = decodeURIComponent(rawHtml); } catch(e) {}
 
-                // Normalize URLs and separators
                 let cleanPayload = (rawUrl + " \n" + rawHtml).replace(/%2C/gi, ',').replace(/,\s+/g, ',');
                 let cleanUrl = rawUrl.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
 
@@ -506,7 +474,6 @@
                     if (tLat === null || tLon === null || isNaN(tLat) || isNaN(tLon)) return false;
                     if (tLat === 0 && tLon === 0) return false;
                     if (tLat < -90 || tLat > 90 || tLon < -180 || tLon > 180) return false;
-                    
                     if (originLat !== null && originLon !== null) {
                         if (Math.abs(tLat - originLat) < 0.0001 && Math.abs(tLon - originLon) < 0.0001) return false; 
                     }
@@ -514,7 +481,6 @@
                 };
 
                 let candidates = [];
-
                 let destMatch = cleanPayload.match(new RegExp(`destination=${num},${num}`, 'i'));
                 if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
 
@@ -525,7 +491,6 @@
                         let m = p.match(new RegExp(`^${num},${num}`));
                         return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
                     }).filter(c => c !== null);
-                    
                     if (validCoords.length > 0) candidates.push({ ...validCoords[validCoords.length - 1], priority: 90 });
                 }
 
@@ -537,7 +502,6 @@
                         if (m[1] === '3') return { lat: parseFloat(m[2]), lon: parseFloat(m[4]) }; 
                         return null;
                     }).filter(c => c !== null);
-                    
                     if (pbCoords.length > 0) candidates.push({ ...pbCoords[pbCoords.length - 1], priority: 80 });
                 }
 
@@ -558,31 +522,25 @@
                 }
 
                 candidates.sort((a, b) => b.priority - a.priority);
-                
                 for (let c of candidates) {
-                    if (isValid(c.lat, c.lon)) {
-                        lat = c.lat; lon = c.lon; break;
-                    }
+                    if (isValid(c.lat, c.lon)) { lat = c.lat; lon = c.lon; break; }
                 }
 
-                if (lat === null && originLat !== null && originLon !== null) {
-                    lat = originLat; lon = originLon;
-                }
+                if (lat === null && originLat !== null && originLon !== null) { lat = originLat; lon = originLon; }
 
                 if (lat !== null && lon !== null) {
                     window.activateLiveNavigation(lat, lon);
                 } else {
-                    statusEl.innerText = "ERR: PIN NOT FOUND IN LINK";
+                    statusEl.innerText = "ERR: PIN NOT FOUND";
                     statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
                 }
             } catch(e) {
-                statusEl.innerText = "ERR: WORKER EXTRACTION FAILED";
+                statusEl.innerText = "ERR: DECRYPTION FAILED";
                 statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
                 console.error("Payload Extraction Failed:", e);
             }
         }
 
-        // --- LIVE NAVIGATION INTEGRATION ---
         window.activateLiveNavigation = function(destLat, destLon) {
             state.targetCoords = { lat: destLat, lon: destLon }; 
             localStorage.setItem('ms_targetCoords', JSON.stringify(state.targetCoords)); 
@@ -600,12 +558,8 @@
             if (state.autoCoords) {
                 statusEl.innerText = "CALCULATING TACTICAL INTERCEPT...";
                 statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
-                
-                if (!state.routeCtrl) {
-                    initRoute();
-                } else {
-                    state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]);
-                }
+                if (!state.routeCtrl) { initRoute(); } 
+                else { state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]); }
             } else {
                 statusEl.innerText = "AWAITING SATELLITE LOCK...";
                 statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse";
@@ -630,7 +584,6 @@
             statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
         }
 
-        // Live Clock Sync
         setInterval(() => {
             if (!state.targetTimezone) return;
             try {
@@ -645,13 +598,11 @@
             return arr[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
-        // --- AUDIO ENGINE ---
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const btn = document.getElementById('audio-btn');
             const icon = document.getElementById('audio-icon');
             const txt = document.getElementById('audio-text');
-            
             if (state.audioEnabled) {
                 btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all';
                 icon.className = 'fa-solid fa-volume-high fa-beat-fade text-xl';
@@ -679,12 +630,10 @@
             state.lastPing = Date.now();
         }
 
-        // --- CHARTING ENGINE ---
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
             const tc = tailwind.config.theme.extend.colors;
-            
             state.chart = new Chart(ctx, {
                 data: {
                     labels: labels,
@@ -719,7 +668,6 @@
             });
         }
 
-        // --- PRIMARY TELEMETRY FETCH ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
             if (!skipReverseGeo) {
                 fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
@@ -729,7 +677,6 @@
                         document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
                     }).catch(() => {});
             }
-
             try {
                 const [rCurr, rFore, rSolar] = await Promise.all([
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`),
@@ -737,13 +684,10 @@
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`)
                 ]);
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
-
                 if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
                 const curr = dCurr.current; const h = dFore.hourly; const hSol = dSolar.hourly;
-                
                 let nowIndex = h.time.findIndex(t => t.startsWith(curr.time.substring(0, 13)));
                 if (nowIndex === -1) nowIndex = new Date().getHours();
-
                 const clean = (arr) => arr.map(v => v === null ? 0 : v);
                 const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
                 const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
@@ -759,13 +703,11 @@
                 const uvData = hSol.uv_index.slice(nowIndex, nowIndex + 24).map(v => v === null ? 0 : v);
                 const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + 24));
                 const times = h.time.slice(nowIndex, nowIndex + 24).map(t => { let s = t.slice(11, 16); return s === "00:00" ? "00:00 (+1d)" : s; });
-
                 const hourlyAgreement = [];
                 for (let i = 0; i < 24; i++) {
                     let v = 0; if(rainData.eu[i]>0.1)v++; if(rainData.us[i]>0.1)v++; if(rainData.de[i]>0.1)v++; if(rainData.jp[i]>0.1)v++;
                     hourlyAgreement.push((v/4)*100);
                 }
-
                 const currentAgreement = hourlyAgreement[0] || 0;
                 let currentVotes = (currentAgreement / 100) * 4;
                 let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
@@ -776,7 +718,6 @@
                 document.getElementById('metric-agree').innerText = `${currentAgreement.toFixed(0)}%`;
                 document.getElementById('metric-wind-speed').innerText = Math.round(curr.wind_speed_10m);
                 document.getElementById('metric-wind-dir').innerHTML = `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`;
-                
                 const maxUV = Math.max(...uvData);
                 document.getElementById('metric-uv-val').innerText = maxUV.toFixed(1);
                 document.getElementById('metric-uv-time').innerText = "@ " + times[uvData.indexOf(maxUV)].replace(" (+1d)", "");
@@ -784,9 +725,7 @@
 
                 const mainCard = document.getElementById('main-status-card'); const icon = document.getElementById('status-icon'); const text = document.getElementById('status-text');
                 let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin'; if (curr.is_day === 0) { bIcon = bIcon.replace('sun', 'moon'); }
-
                 mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ";
-
                 if (currentVotes >= 3) { 
                     mainCard.classList.add('bg-brand-red/20', 'border-brand-red'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase'; text.innerText = "RAIN LIKELY";
                     if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
@@ -797,20 +736,15 @@
                 } else {
                     mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid ${bIcon} text-brand-success`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase'; text.innerText = "STABLE";
                 }
-
                 renderChart(times, rainData, solarData, uvData, currentAgreement, hourlyAgreement);
             } catch (e) { console.error(e); }
         }
 
-        // --- CONTROL SYSTEMS ---
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
             localStorage.removeItem('ms_targetCoords'); 
-            
-            // Instantly re-engage map lock and UI update
             window.toggleMapLock(); 
-            
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
             document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
@@ -818,9 +752,8 @@
         }
 
         function runApp() {
-            requestWakeLock(); // Request persistent screen wake lock for tracking
+            requestWakeLock();
             startBackgroundTracking();
-            
             if (state.mode === 'manual' && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false); 
             } else if (state.autoCoords) {
@@ -842,11 +775,7 @@
             }
         }
 
-        // Restore UI state on boot if a cached target exists
-        if (state.targetCoords) {
-            window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon);
-        }
-
+        if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
         runApp(); setInterval(runApp, 60000); 
     </script>
 </body>
