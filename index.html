@@ -303,8 +303,8 @@
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
             autoCoords: null,
-            targetCoords: null, // Queues destination until GPS locks
-            isMapLocked: true,  // Controls viewport auto-centering
+            targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null, // FIX: Hydrate target from local storage
+            isMapLocked: true,  
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -482,8 +482,10 @@
                         // 3. Conditional Map Auto-Centering (Lockable Viewport)
                         if (state.isMapLocked) {
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 1 });
-                            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
-                            statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
+                            if (!state.targetCoords) {
+                                statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
+                                statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
+                            }
                         }
                     }
                 },
@@ -755,9 +757,7 @@
         // --- LIVE NAVIGATION INTEGRATION ---
         window.activateLiveNavigation = function(destLat, destLon) {
             state.targetCoords = { lat: destLat, lon: destLon }; // Queue Target Immediately
-            
-            // THE FIX: Removed fetchData(destLat, destLon) call.
-            // Weather telemetry will now exclusively poll the user's physical origin.
+            localStorage.setItem('ms_targetCoords', JSON.stringify(state.targetCoords)); // FIX: Persist target to local storage
             
             const statusEl = document.getElementById('route-status');
             const navBtn = document.getElementById('native-nav-btn');
@@ -988,6 +988,7 @@
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
+            localStorage.removeItem('ms_targetCoords'); // FIX: Purge storage on reset
             
             // Instantly re-engage map lock and UI update
             window.toggleMapLock(); 
@@ -1019,6 +1020,11 @@
                     document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`;
                 }, { timeout: 10000, enableHighAccuracy: true });
             }
+        }
+
+        // FIX: Restore UI state on boot if a cached target exists
+        if (state.targetCoords) {
+            window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon);
         }
 
         runApp(); setInterval(runApp, 60000); 
