@@ -496,11 +496,10 @@
             try {
                 const r1 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
                 const d1 = await r1.json();
-                if (d1.contents) return d1.contents;
-                return JSON.stringify(d1);
+                return { url: d1.status?.url || "", html: d1.contents || JSON.stringify(d1) };
             } catch(e) {
                 const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
-                return await r2.text();
+                return { url: "", html: await r2.text() };
             }
         }
 
@@ -514,30 +513,49 @@
             input.placeholder = "DECRYPTING TARGET...";
             
             try {
-                const payload = await extractGMapPayload(url);
-                const regexes = [
-                    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,            
-                    /destination=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i, 
-                    /query=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i,       
-                    /ll=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i,          
-                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i,                 
-                    /markers=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i,     
-                    /center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i       
-                ];
+                const { url: finalUrl, html } = await extractGMapPayload(url);
+                
+                // Normalize encoded characters for easier parsing
+                const cleanHtml = html.replace(/&amp;/g, '&').replace(/%2C/gi, ',');
+                const cleanUrl = finalUrl.replace(/%2C/gi, ',');
 
                 let lat = null, lon = null;
-                for (let rx of regexes) {
-                    const match = payload.match(rx);
-                    if (match && match[1] && match[2]) {
-                        const tempLat = parseFloat(match[1]);
-                        const tempLon = parseFloat(match[2]);
-                        if (!isNaN(tempLat) && !isNaN(tempLon) && tempLat !== 0 && tempLon !== 0 && tempLat >= -90 && tempLat <= 90 && tempLon >= -180 && tempLon <= 180) {
-                            lat = tempLat; lon = tempLon; break; 
+
+                // Priority 1: OpenGraph Meta Tags (Guaranteed to be the red pin generated for link previews)
+                const ogImg = cleanHtml.match(/property="og:image"[^>]+content="([^"]+)"/i) || cleanHtml.match(/content="([^"]+)"[^>]+property="og:image"/i);
+                if (ogImg) {
+                    const markers = ogImg[1].replace(/%2C/gi, ',').match(/markers=(-?\d+\.\d+),(-?\d+\.\d+)/i);
+                    if (markers) { lat = parseFloat(markers[1]); lon = parseFloat(markers[2]); }
+                }
+
+                // Priority 2: Extract explicit coordinates routed into the final redirected URL path
+                if (lat === null && cleanUrl) {
+                    // Matches /14.123,121.123 or ?q=14.123,121.123 (Ignores viewport @lat,lon)
+                    const urlMatch = cleanUrl.match(/(?:\/|q=)(-?\d+\.\d+),(-?\d+\.\d+)/i);
+                    if (urlMatch) { lat = parseFloat(urlMatch[1]); lon = parseFloat(urlMatch[2]); }
+                }
+
+                // Priority 3: Deep HTML Regex Scan
+                if (lat === null) {
+                    const payload = cleanUrl + " " + cleanHtml;
+                    const regexes = [
+                        /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,            
+                        /destination=(-?\d+\.\d+),(-?\d+\.\d+)/i, 
+                        /query=(-?\d+\.\d+),(-?\d+\.\d+)/i,       
+                        /ll=(-?\d+\.\d+),(-?\d+\.\d+)/i,          
+                        /markers=(-?\d+\.\d+),(-?\d+\.\d+)/i,     
+                        /@(-?\d+\.\d+),(-?\d+\.\d+)/i,                 
+                        /center=(-?\d+\.\d+),(-?\d+\.\d+)/i       
+                    ];
+                    for (let rx of regexes) {
+                        const match = payload.match(rx);
+                        if (match && match[1] && match[2]) {
+                            lat = parseFloat(match[1]); lon = parseFloat(match[2]); break; 
                         }
                     }
                 }
 
-                if (lat !== null && lon !== null) {
+                if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
                     input.value = "";
                     input.placeholder = `ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                     activateLiveNavigation(lat, lon);
