@@ -434,6 +434,8 @@
                 (pos) => {
                     const lat = pos.coords.latitude;
                     const lon = pos.coords.longitude;
+                    const heading = pos.coords.heading;
+                    const speed = pos.coords.speed;
                     state.autoCoords = { lat, lon };
 
                     if (state.squadId && state.userAuth) pushLocationToRelay(lat, lon);
@@ -441,16 +443,41 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        if (state.userMarker) state.userMarker.setLatLng([lat, lon]);
+                        // 1. Update User Marker Position & Heading Rotation
+                        if (state.userMarker) {
+                            state.userMarker.setLatLng([lat, lon]);
+                            
+                            const markerEl = state.userMarker.getElement();
+                            if (markerEl) {
+                                const wrapper = markerEl.querySelector('#user-dir-wrapper');
+                                const icon = markerEl.querySelector('#user-dir-icon');
+                                
+                                // Only process directional rotation if moving > 0.5 m/s and hardware provides heading
+                                if (wrapper && icon) {
+                                    if (heading !== null && !isNaN(heading) && speed > 0.5) {
+                                        wrapper.style.transform = `rotate(${heading}deg)`;
+                                        icon.classList.remove('opacity-0');
+                                        icon.classList.add('opacity-100');
+                                    } else {
+                                        icon.classList.remove('opacity-100');
+                                        icon.classList.add('opacity-0');
+                                    }
+                                }
+                            }
+                        }
 
+                        // 2. Update Live Routing Waypoints (If Target Locked)
                         if (state.routeCtrl) {
                             const waypoints = state.routeCtrl.getWaypoints();
                             if(waypoints.length > 0 && waypoints[0]) {
                                 waypoints[0].latLng = L.latLng(lat, lon);
                                 state.routeCtrl.setWaypoints(waypoints);
                             }
-                        } else if (state.mode === 'auto') {
-                            state.mapObj.setView([lat, lon], state.mapObj.getZoom(), {animate: true});
+                        } 
+                        
+                        // 3. Active Target Lock (Strict Map Auto-Centering)
+                        if (state.mode === 'auto') {
+                            state.mapObj.panTo([lat, lon], { animate: true, duration: 1 });
                             statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
                             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
                         }
@@ -471,10 +498,18 @@
                 attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
             }).addTo(state.mapObj);
 
+            // Upgraded Advanced Tracking Marker with Directional CSS Rotation
             state.userMarker = L.marker([lat, lon], {
                 icon: L.divIcon({
-                    className: 'bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)]',
-                    iconSize: [20, 20]
+                    className: 'bg-transparent',
+                    html: `
+                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-6 h-6 transition-transform duration-500 ease-linear" style="transform: rotate(0deg);">
+                            <div class="absolute bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] z-10 flex items-center justify-center overflow-hidden">
+                                <i id="user-dir-icon" class="fa-solid fa-location-arrow text-[10px] text-black -rotate-45 opacity-0 transition-opacity duration-300"></i>
+                            </div>
+                        </div>
+                    `,
+                    iconSize: [24, 24]
                 }),
                 zIndexOffset: 1000
             }).addTo(state.mapObj);
@@ -947,7 +982,9 @@
             if (state.mode === 'manual' && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false); 
             } else if (state.autoCoords) {
-                initMap(state.autoCoords.lat, state.autoCoords.lon); fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
+                initMap(state.autoCoords.lat, state.autoCoords.lon); 
+                state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], {animate: true});
+                fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
             } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(p => { 
                     state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
