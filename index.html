@@ -261,12 +261,17 @@
             console.warn("MeteoNexus: Cloud Connection Failed. Booting in Offline Local Mode.", e);
         }
 
-        // --- GLOBAL STATE ---
+        // --- GLOBAL STATE & CONFIG ---
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
-            sonarThreshold: 75
+            sonarThreshold: 75,
+            
+            // ==========================================
+            // REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL
+            // ==========================================
+            edgeProxy: 'https://YOUR_WORKER_NAME.YOUR_USERNAME.workers.dev' 
         };
 
         const WMO_CODES = {
@@ -492,20 +497,7 @@
             }
         }
 
-        // --- BULLETPROOF LINK EXTRACTOR (Upgraded) ---
-        async function extractGMapPayload(url) {
-            // Append cache-buster timestamp to force proxy to resolve fresh redirect chains
-            const cacheBuster = Date.now();
-            try {
-                const r1 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&_ts=${cacheBuster}`);
-                const d1 = await r1.json();
-                return { url: d1.status?.url || "", html: d1.contents || JSON.stringify(d1) };
-            } catch(e) {
-                const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}&_ts=${cacheBuster}`);
-                return { url: "", html: await r2.text() };
-            }
-        }
-
+        // --- CLOUDFLARE WORKER EXTRACTION ENGINE ---
         async function processGMapLink() {
             const input = document.getElementById('gmaps-link');
             const btn = document.getElementById('gmaps-btn');
@@ -514,39 +506,48 @@
             
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
             input.placeholder = "DECRYPTING TARGET...";
+
+            // Guardrail: Ensure user setup their worker
+            if (CONFIG.edgeProxy.includes("YOUR_WORKER_NAME")) {
+                input.value = "";
+                input.placeholder = "ERR: WORKER NOT CONFIGURED";
+                btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
+                return;
+            }
             
             try {
-                const { url: finalUrl, html } = await extractGMapPayload(url);
+                // Execute secure Edge Trace
+                const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`);
+                const payloadData = await res.json();
                 
-                // Normalize encoded commas and ampersands
-                const cleanHtml = html.replace(/&amp;/g, '&').replace(/%2C/gi, ',');
-                const cleanUrl = finalUrl.replace(/%2C/gi, ',');
-                const payload = cleanUrl + " " + cleanHtml;
+                if (payloadData.error) throw new Error(payloadData.error);
+
+                const cleanHtml = (payloadData.html || "").replace(/&amp;/g, '&').replace(/%2C/gi, ',');
+                const cleanUrl = (payloadData.url || "").replace(/%2C/gi, ',');
+                const payloadStr = cleanUrl + " " + cleanHtml;
 
                 let lat = null, lon = null;
 
-                // Priority Cascading Parser: Highest precision evaluated first.
+                // Priority Cascading Parser
                 const regexes = [
-                    /!3d(-?\d+\.\d+)[!|?]4d(-?\d+\.\d+)/i,             // 1. Exact Place Pin (!3d... !4d...)
-                    /place\/.*\/@(-?\d+\.\d+),(-?\d+\.\d+)/i,          // 2. Exact Place Viewport Focus
-                    /destination=(-?\d+\.\d+),(-?\d+\.\d+)/i,          // 3. Directions Target
-                    /search\/(-?\d+\.\d+),(-?\d+\.\d+)/i,              // 4. Dropped Pin Search Target
-                    /(?:query|q)=(-?\d+\.\d+),(-?\d+\.\d+)/i,          // 5. Query Target
-                    /markers=(-?\d+\.\d+),(-?\d+\.\d+)/i,              // 6. OpenGraph Static Map Marker
-                    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/i,                   // 7. LatLng Parameter
-                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i                      // 8. General Viewport Center (Fallback)
+                    /!3d(-?\d+\.\d+)[!|?]4d(-?\d+\.\d+)/i,             
+                    /place\/.*\/@(-?\d+\.\d+),(-?\d+\.\d+)/i,          
+                    /destination=(-?\d+\.\d+),(-?\d+\.\d+)/i,          
+                    /search\/(-?\d+\.\d+),(-?\d+\.\d+)/i,              
+                    /(?:query|q)=(-?\d+\.\d+),(-?\d+\.\d+)/i,          
+                    /markers=(-?\d+\.\d+),(-?\d+\.\d+)/i,              
+                    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/i,                   
+                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i                      
                 ];
 
                 for (let rx of regexes) {
-                    const match = payload.match(rx);
+                    const match = payloadStr.match(rx);
                     if (match && match[1] && match[2]) {
                         const tempLat = parseFloat(match[1]);
                         const tempLon = parseFloat(match[2]);
-                        
-                        // Strict validation prevents snapping to 0,0 or proxy's IP geofence
                         if (!isNaN(tempLat) && !isNaN(tempLon) && tempLat !== 0 && tempLon !== 0 && tempLat >= -90 && tempLat <= 90 && tempLon >= -180 && tempLon <= 180) {
                             lat = tempLat; lon = tempLon; 
-                            break; // Lock in the highest priority match and halt scanning
+                            break; 
                         }
                     }
                 }
@@ -559,7 +560,7 @@
                     input.value = ""; input.placeholder = "ERR: PIN NOT FOUND";
                 }
             } catch(e) {
-                input.value = ""; input.placeholder = "ERR: NETWORK FAILURE";
+                input.value = ""; input.placeholder = "ERR: WORKER CONNECTION FAIL";
             } finally {
                 btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
