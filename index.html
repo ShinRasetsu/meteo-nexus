@@ -522,32 +522,57 @@
                 
                 if (payloadData.error) throw new Error(payloadData.error);
 
-                const cleanHtml = (payloadData.html || "").replace(/&amp;/g, '&').replace(/%2C/gi, ',');
-                const cleanUrl = (payloadData.url || "").replace(/%2C/gi, ',');
-                const payloadStr = cleanUrl + " " + cleanHtml;
+                // Decode URL to expose nested redirect params (e.g., consent.google.com?continue=...)
+                let rawUrl = payloadData.url || "";
+                try { rawUrl = decodeURIComponent(rawUrl); } catch(e) {}
+                
+                // Normalize separators: remove spaces, pluses, or %20 immediately following a comma
+                rawUrl = rawUrl.replace(/,[\s+]+/g, ',');
+
+                let rawHtml = payloadData.html || "";
+                try { rawHtml = decodeURIComponent(rawHtml); } catch(e) {}
+                rawHtml = rawHtml.replace(/,[\s+]+/g, ',');
 
                 let lat = null, lon = null;
-
+                const num = "(-?\\d+(?:\\.\\d+)?)"; // Matches both decimals and pure integers
+                
                 // Priority Cascading Parser
                 const regexes = [
-                    /!3d(-?\d+\.\d+)[!|?]4d(-?\d+\.\d+)/i,             
-                    /place\/.*\/@(-?\d+\.\d+),(-?\d+\.\d+)/i,          
-                    /destination=(-?\d+\.\d+),(-?\d+\.\d+)/i,          
-                    /search\/(-?\d+\.\d+),(-?\d+\.\d+)/i,              
-                    /(?:query|q)=(-?\d+\.\d+),(-?\d+\.\d+)/i,          
-                    /markers=(-?\d+\.\d+),(-?\d+\.\d+)/i,              
-                    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/i,                   
-                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i                      
+                    new RegExp(`!3d${num}!4d${num}`, 'i'),             // Exact Place Pin
+                    new RegExp(`(?:destination|dir)=${num},${num}`, 'i'), // Directions Target
+                    new RegExp(`search\\/${num},${num}`, 'i'),         // Dropped Pin Search Target
+                    new RegExp(`(?:query|q)=${num},${num}`, 'i'),      // Query Target
+                    new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),   // Place Viewport Focus
+                    new RegExp(`markers=${num},${num}`, 'i'),          // OpenGraph Static Map Marker
+                    new RegExp(`ll=${num},${num}`, 'i'),               // LatLng Parameter
+                    new RegExp(`@${num},${num}`, 'i')                  // General Viewport Center
                 ];
 
+                // Primary Pass: Scan the final resolved URL
+                // Highly prioritized because it ignores the proxy datacenter location
                 for (let rx of regexes) {
-                    const match = payloadStr.match(rx);
+                    const match = rawUrl.match(rx);
                     if (match && match[1] && match[2]) {
-                        const tempLat = parseFloat(match[1]);
-                        const tempLon = parseFloat(match[2]);
-                        if (!isNaN(tempLat) && !isNaN(tempLon) && tempLat !== 0 && tempLon !== 0 && tempLat >= -90 && tempLat <= 90 && tempLon >= -180 && tempLon <= 180) {
-                            lat = tempLat; lon = tempLon; 
+                        const tLat = parseFloat(match[1]);
+                        const tLon = parseFloat(match[2]);
+                        if (!isNaN(tLat) && !isNaN(tLon) && tLat !== 0 && tLon !== 0 && tLat >= -90 && tLat <= 90 && tLon >= -180 && tLon <= 180) {
+                            lat = tLat; lon = tLon; 
                             break; 
+                        }
+                    }
+                }
+
+                // Secondary Pass: Scan HTML payload only if URL lacked coordinates
+                if (lat === null) {
+                    for (let rx of regexes) {
+                        const match = rawHtml.match(rx);
+                        if (match && match[1] && match[2]) {
+                            const tLat = parseFloat(match[1]);
+                            const tLon = parseFloat(match[2]);
+                            if (!isNaN(tLat) && !isNaN(tLon) && tLat !== 0 && tLon !== 0 && tLat >= -90 && tLat <= 90 && tLon >= -180 && tLon <= 180) {
+                                lat = tLat; lon = tLon; 
+                                break; 
+                            }
                         }
                     }
                 }
