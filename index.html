@@ -148,12 +148,12 @@
                     <span class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
                     <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
                 </div>
-                <!-- Native App Intent Button (Hybrid Approach) -->
+                <!-- Native App Intent Button -->
                 <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-5 py-2.5 rounded-xl transition-all uppercase tracking-widest shadow-[0_0_15px_rgba(59,130,246,0.3)]">
                     <i class="fa-solid fa-diamond-turn-right"></i> External Nav
                 </button>
             </div>
-            <!-- Z-index 0 prevents overlap with search dropdowns above -->
+            <!-- Map Container -->
             <div id="hud-map" class="w-full relative h-[400px] md:h-[550px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111]"></div>
         </div>
     </div>
@@ -171,37 +171,37 @@
             </div>
         </div>
 
-        <!-- Geospatial Targeting -->
+        <!-- Squad Link & Targeting -->
         <div class="lg:col-span-4 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 flex flex-col justify-between">
             <div>
-                <h3 class="text-sm font-bold uppercase tracking-widest text-brand-blue mb-6 border-b-4 border-surface-800 pb-3">Co-Rider Intercept</h3>
+                <h3 class="text-sm font-bold uppercase tracking-widest text-brand-blue mb-6 border-b-4 border-surface-800 pb-3">Squad Link & Targeting</h3>
                 
+                <!-- NEW: Live Squad Relay Database -->
+                <div class="flex gap-3 mb-6">
+                    <div class="relative w-full">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <i class="fa-solid fa-users text-brand-blue text-xl"></i>
+                        </div>
+                        <input type="text" id="squad-id" placeholder="SQUAD CALLSIGN..." autocomplete="off" 
+                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-blue transition-colors placeholder-gray-600 uppercase">
+                    </div>
+                    <button id="squad-btn" onclick="joinSquad()" class="bg-brand-blue hover:bg-blue-400 border-4 border-brand-blue text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                        LINK
+                    </button>
+                </div>
+
                 <!-- Google Maps Import Module -->
-                <div class="flex gap-4 mb-6">
+                <div class="flex gap-3 mb-6">
                     <div class="relative w-full">
                         <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                             <i class="fa-solid fa-map-location-dot text-brand-teal text-xl"></i>
                         </div>
-                        <!-- Removed 'uppercase' class to prevent clipboard mutation issues with short-links -->
-                        <input type="text" id="gmaps-link" placeholder="PASTE GMAPS LINK..." autocomplete="off" 
+                        <input type="text" id="gmaps-link" placeholder="PASTE GMAPS URL..." autocomplete="off" 
                             class="w-full bg-surface-800 border-4 border-surface-700 text-white text-base font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600">
                     </div>
-                    <!-- Lightning Button: Acts as Paste & Load -->
-                    <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-brand-blue text-brand-blue font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
+                    <button id="gmaps-btn" onclick="handlePasteAndLoad()" class="bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-brand-teal font-bold py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center">
                         <i class="fa-solid fa-bolt"></i>
                     </button>
-                </div>
-
-                <div class="flex flex-col gap-4 mb-6">
-                    <!-- City Search -->
-                    <div id="city-wrapper" class="relative w-full">
-                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                            <i class="fa-solid fa-magnifying-glass text-gray-500 text-xl"></i>
-                        </div>
-                        <input type="text" id="search-city" placeholder="SEARCH LOCALITY..." autocomplete="off" 
-                            class="w-full bg-surface-800 border-4 border-surface-700 text-white text-lg font-bold rounded-xl pl-12 pr-4 py-4 focus:border-brand-teal transition-colors placeholder-gray-600 uppercase">
-                        <div id="city-results" class="absolute bottom-full mb-2 left-0 right-0 bg-surface-800 border-4 border-brand-teal rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto hidden"></div>
-                    </div>
                 </div>
 
                 <!-- Manual Lat/Lon -->
@@ -213,20 +213,31 @@
             
             <div class="flex gap-4 mt-auto">
                 <button onclick="setManualLocation()" class="flex-[2] bg-brand-teal hover:bg-teal-400 text-black font-black py-4 px-4 rounded-xl text-lg uppercase tracking-widest transition-colors">
-                    Inject Coords
+                    Inject Target
                 </button>
                 <button onclick="resetToAuto()" class="flex-1 bg-surface-700 hover:bg-surface-600 border-4 border-surface-600 text-white font-bold py-4 px-4 rounded-xl text-lg uppercase tracking-widest flex justify-center items-center gap-2 transition-colors">
-                    <i class="fa-solid fa-location-crosshairs text-xl"></i> Auto
+                    <i class="fa-solid fa-location-crosshairs text-xl"></i> Clear
                 </button>
             </div>
         </div>
     </div>
 
-    <script>
-        // Configuration
+    <!-- MAIN ENGINE (Type Module for Secure DB connections) -->
+    <script type="module">
+        // --- SECURE CLOUD DATABASE INJECTIONS ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{"projectId":"dev-mock"}');
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // --- GLOBAL STATE ---
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
-            geocoderApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75
         };
@@ -255,12 +266,6 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
-        function getWindDirection(deg) {
-            const val = Math.floor((deg / 22.5) + 0.5);
-            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-            return arr[(val % 16)];
-        }
-
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
             coords: JSON.parse(localStorage.getItem('ms_coords')) || { lat: null, lon: null },
@@ -271,15 +276,123 @@
             lastPing: 0,
             mapObj: null,
             routeCtrl: null,
-            gpsWatchId: null, // Tracks live user movement
-            userMarker: null  // Global reference to user's position dot
+            gpsWatchId: null, 
+            userMarker: null, 
+            userAuth: null,
+            squadId: null,
+            squadMarkers: {} // Tracks co-riders on map
         };
 
+        // --- AUTHENTICATION ENGINE (Rule 3) ---
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token).catch(e => signInAnonymously(auth));
+            } else {
+                await signInAnonymously(auth).catch(console.error);
+            }
+        }
+        
+        initAuth();
+        onAuthStateChanged(auth, (user) => {
+            state.userAuth = user;
+            if (user && state.squadId) attachSquadListeners();
+        });
+
+        // --- SQUAD RELAY ENGINE ---
+        window.joinSquad = function() {
+            const squadInput = document.getElementById('squad-id');
+            const btn = document.getElementById('squad-btn');
+            const callsign = squadInput.value.trim().toUpperCase();
+
+            if (!callsign) {
+                // Disconnect logic
+                state.squadId = null;
+                squadInput.value = "";
+                squadInput.placeholder = "SQUAD CALLSIGN...";
+                btn.innerHTML = "LINK";
+                btn.className = "bg-brand-blue hover:bg-blue-400 border-4 border-brand-blue text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.3)]";
+                
+                // Clear map markers
+                Object.values(state.squadMarkers).forEach(m => state.mapObj.removeLayer(m));
+                state.squadMarkers = {};
+                return;
+            }
+
+            state.squadId = callsign;
+            btn.innerHTML = "<i class='fa-solid fa-link-slash'></i>";
+            btn.className = "bg-brand-red hover:bg-red-400 border-4 border-brand-red text-black font-black py-4 px-6 rounded-xl text-lg uppercase tracking-widest transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(239,68,68,0.3)]";
+            squadInput.placeholder = `LINKED: ${callsign}`;
+            
+            // Push my immediate location to the DB if I have GPS
+            if (state.autoCoords && state.userAuth) pushLocationToRelay(state.autoCoords.lat, state.autoCoords.lon);
+            
+            // Attach DB subscription
+            attachSquadListeners();
+        }
+
+        function pushLocationToRelay(lat, lon) {
+            if (!state.userAuth || !state.squadId) return;
+            const riderRef = doc(db, 'artifacts', appId, 'public', 'data', 'riders', state.userAuth.uid);
+            setDoc(riderRef, {
+                squadId: state.squadId,
+                lat: lat,
+                lon: lon,
+                timestamp: Date.now()
+            }).catch(console.error);
+        }
+
+        let squadUnsubscribe = null;
+        function attachSquadListeners() {
+            if (!state.userAuth || !state.squadId) return;
+            if (squadUnsubscribe) squadUnsubscribe();
+
+            const ridersRef = collection(db, 'artifacts', appId, 'public', 'data', 'riders');
+            
+            // Rule 2: Fetch all, filter in memory
+            squadUnsubscribe = onSnapshot(ridersRef, (snapshot) => {
+                const now = Date.now();
+                snapshot.forEach(docSnap => {
+                    if (docSnap.id === state.userAuth.uid) return; // Ignore myself
+                    
+                    const data = docSnap.data();
+                    if (data.squadId === state.squadId) {
+                        // Drop stale riders (older than 5 mins)
+                        if (now - data.timestamp < 300000) {
+                            plotCoRider(docSnap.id, data.lat, data.lon);
+                        } else {
+                            removeCoRider(docSnap.id);
+                        }
+                    }
+                });
+            }, (err) => console.error("DB Relay Error", err));
+        }
+
+        function plotCoRider(id, lat, lon) {
+            if (!state.mapObj) return;
+            
+            if (state.squadMarkers[id]) {
+                state.squadMarkers[id].setLatLng([lat, lon]);
+            } else {
+                state.squadMarkers[id] = L.marker([lat, lon], {
+                    icon: L.divIcon({
+                        className: 'bg-brand-blue border-2 border-white rounded-full w-4 h-4 shadow-[0_0_15px_rgba(59,130,246,0.8)] animate-pulse',
+                        iconSize: [16, 16]
+                    }),
+                    zIndexOffset: 900
+                }).addTo(state.mapObj);
+            }
+        }
+
+        function removeCoRider(id) {
+            if (state.squadMarkers[id]) {
+                state.mapObj.removeLayer(state.squadMarkers[id]);
+                delete state.squadMarkers[id];
+            }
+        }
+
         // --- BACKGROUND TRACKING ENGINE ---
-        // Continuously tracks GPS regardless of routing state
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
-
             const statusEl = document.getElementById('route-status');
 
             state.gpsWatchId = navigator.geolocation.watchPosition(
@@ -288,22 +401,21 @@
                     const lon = pos.coords.longitude;
                     state.autoCoords = { lat, lon };
 
+                    // Broadcast to DB if squad is active
+                    if (state.squadId && state.userAuth) pushLocationToRelay(lat, lon);
+
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        // Update floating user marker
-                        if (state.userMarker) {
-                            state.userMarker.setLatLng([lat, lon]);
-                        }
+                        if (state.userMarker) state.userMarker.setLatLng([lat, lon]);
 
-                        // Handle camera/routing based on active state
                         if (state.routeCtrl) {
-                            // Update origin waypoint to keep route active
                             const waypoints = state.routeCtrl.getWaypoints();
-                            waypoints[0].latLng = L.latLng(lat, lon);
-                            state.routeCtrl.setWaypoints(waypoints);
-                        } else {
-                            // Free-roam map recentering
+                            if(waypoints.length > 0 && waypoints[0]) {
+                                waypoints[0].latLng = L.latLng(lat, lon);
+                                state.routeCtrl.setWaypoints(waypoints);
+                            }
+                        } else if (state.mode === 'auto') {
                             state.mapObj.setView([lat, lon], state.mapObj.getZoom(), {animate: true});
                             statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
                             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
@@ -318,7 +430,6 @@
             );
         }
 
-        // --- MAP INITIALIZATION ---
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
             state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
@@ -326,7 +437,6 @@
                 attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
             }).addTo(state.mapObj);
 
-            // Establish persistent user dot
             state.userMarker = L.marker([lat, lon], {
                 icon: L.divIcon({
                     className: 'bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)]',
@@ -337,35 +447,29 @@
         }
 
         // --- PASTE AND LOAD ENGINE ---
-        async function handlePasteAndLoad() {
+        window.handlePasteAndLoad = async function() {
             const input = document.getElementById('gmaps-link');
-            
             try {
                 const clipText = await navigator.clipboard.readText();
                 if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
                     input.value = clipText;
                 }
-            } catch (err) {
-                console.warn("Clipboard access denied. Using manual input.");
-            }
+            } catch (err) { console.warn("Clipboard restricted."); }
 
             if (input.value.trim() !== '') {
                 await processGMapLink();
             } else {
-                input.placeholder = "PASTE LINK HERE FIRST";
+                input.placeholder = "PASTE LINK FIRST";
             }
         }
 
-        // --- BULLETPROOF LINK EXTRACTOR ---
         async function extractGMapPayload(url) {
-            // First attempt: allorigins proxy
             try {
                 const r1 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
                 const d1 = await r1.json();
                 if (d1.contents) return d1.contents;
                 return JSON.stringify(d1);
             } catch(e) {
-                // Fallback attempt: corsproxy
                 const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
                 return await r2.text();
             }
@@ -375,48 +479,44 @@
             const input = document.getElementById('gmaps-link');
             const btn = document.getElementById('gmaps-btn');
             const url = input.value.trim();
-            
             if (!url) return;
             
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-white"></i>';
-            input.placeholder = "EXTRACTING TARGET...";
+            input.placeholder = "DECRYPTING TARGET...";
             
             try {
                 const payload = await extractGMapPayload(url);
-
-                // Aggressive Regex: Checks multiple known Google Maps URL param formats and meta tags
                 const regexes = [
-                    /markers=([\d.-]+)%2C([\d.-]+)/i,
-                    /center=([\d.-]+)%2C([\d.-]+)/i,
-                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i,
-                    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,
-                    /query=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i,
-                    /destination=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i
+                    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,            
+                    /destination=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i, 
+                    /query=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i,       
+                    /ll=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i,          
+                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i,                 
+                    /markers=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i,     
+                    /center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i       
                 ];
 
                 let lat = null, lon = null;
-
                 for (let rx of regexes) {
                     const match = payload.match(rx);
                     if (match && match[1] && match[2]) {
-                        lat = parseFloat(match[1]);
-                        lon = parseFloat(match[2]);
-                        break; 
+                        const tempLat = parseFloat(match[1]);
+                        const tempLon = parseFloat(match[2]);
+                        if (!isNaN(tempLat) && !isNaN(tempLon) && tempLat !== 0 && tempLon !== 0 && tempLat >= -90 && tempLat <= 90 && tempLon >= -180 && tempLon <= 180) {
+                            lat = tempLat; lon = tempLon; break; 
+                        }
                     }
                 }
 
                 if (lat !== null && lon !== null) {
                     input.value = "";
-                    input.placeholder = `TARGET ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                    input.placeholder = `ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
                     activateLiveNavigation(lat, lon);
                 } else {
-                    input.value = "";
-                    input.placeholder = "ERR: NO COORDS IN PAYLOAD";
+                    input.value = ""; input.placeholder = "ERR: PIN NOT FOUND";
                 }
             } catch(e) {
-                input.value = "";
-                input.placeholder = "ERR: NETWORK FAILURE";
-                console.error("GMap Parser Error:", e);
+                input.value = ""; input.placeholder = "ERR: NETWORK FAILURE";
             } finally {
                 btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
@@ -424,7 +524,8 @@
 
         // --- LIVE NAVIGATION INTEGRATION ---
         function activateLiveNavigation(destLat, destLon) {
-            applyNewLocation(destLat, destLon, "CO-RIDER TARGET", "TRACKING");
+            fetchData(destLat, destLon, true); 
+            document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-blue"></i> TACTICAL TARGET`;
             
             const statusEl = document.getElementById('route-status');
             const navBtn = document.getElementById('native-nav-btn');
@@ -439,7 +540,7 @@
                 window.open(url, '_blank');
             };
 
-            if (!state.autoCoords) return; // Wait for background tracking to acquire lock
+            if (!state.autoCoords) return; 
 
             if (!state.routeCtrl) {
                 state.routeCtrl = L.Routing.control({
@@ -448,7 +549,7 @@
                     lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
                     show: false, addWaypoints: false, fitSelectedRoutes: true,
                     createMarker: function(i, wp) {
-                        if (i === 0) return null; // Suppress OSRM start marker to use our persistent dot
+                        if (i === 0) return null; 
                         return L.marker(wp.latLng, {
                             icon: L.divIcon({
                                 className: 'bg-brand-red border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse',
@@ -484,90 +585,22 @@
         }
 
         // Live Clock Sync
-        function runLiveClock() {
+        setInterval(() => {
             if (!state.targetTimezone) return;
             try {
-                const timeString = new Date().toLocaleTimeString('en-US', {
-                    timeZone: state.targetTimezone,
-                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                document.getElementById('local-time-text').innerText = new Date().toLocaleTimeString('en-US', {
+                    timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
                 });
-                document.getElementById('local-time-text').innerText = timeString;
-            } catch(e) {
-                document.getElementById('local-time-text').innerText = "SYNC ERR";
-            }
-        }
-        setInterval(runLiveClock, 1000);
+            } catch(e) {}
+        }, 1000);
 
-        // Geospatial Targeting UI Logic
-        const searchCity = document.getElementById('search-city');
-        const cityResults = document.getElementById('city-results');
-        let searchTimeout;
-
-        searchCity.addEventListener('input', () => {
-            clearTimeout(searchTimeout);
-            const cityQuery = searchCity.value.trim();
-            if (cityQuery.length < 3) { cityResults.classList.add('hidden'); return; }
-            searchTimeout = setTimeout(() => execSearch(cityQuery), 500);
-        });
-
-        async function execSearch(cityQuery) {
-            try {
-                const res = await fetch(`${CONFIG.geocoderApi}?name=${encodeURIComponent(cityQuery)}&count=8&language=en&format=json`);
-                const data = await res.json();
-
-                if (data.results && data.results.length > 0) {
-                    cityResults.innerHTML = data.results.map(res => {
-                        const locName = [res.name, res.admin1, res.country].filter(Boolean).join(', ');
-                        return `<div class="px-6 py-4 cursor-pointer border-b-2 border-surface-700 text-base font-bold text-gray-300 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest" onclick="applyAndRoute(${res.latitude}, ${res.longitude}, '${res.name}')">
-                                    <i class="fa-solid fa-map-pin mr-3"></i> ${locName}
-                                </div>`;
-                    }).join('');
-                    cityResults.classList.remove('hidden');
-                } else {
-                    cityResults.innerHTML = '<div class="px-6 py-4 text-brand-red text-base font-bold text-center uppercase tracking-widest">NO MATCHES FOUND</div>';
-                    cityResults.classList.remove('hidden');
-                }
-            } catch (err) { console.error("Geospatial Engine error", err); }
+        function getWindDirection(deg) {
+            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+            return arr[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
-        function applyAndRoute(lat, lon, cityName) {
-            cityResults.classList.add('hidden');
-            searchCity.value = cityName;
-            activateLiveNavigation(lat, lon);
-        }
-
-        function applyNewLocation(lat, lon, cityName, countryName) {
-            state.mode = 'manual';
-            state.coords = { lat, lon };
-            localStorage.setItem('ms_mode', 'manual');
-            localStorage.setItem('ms_coords', JSON.stringify(state.coords));
-            fetchData(lat, lon, true); 
-        }
-
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('#city-wrapper')) cityResults.classList.add('hidden');
-        });
-
-        // Audio Subsystem
-        function playSonarPing() {
-            if (!state.audioEnabled) return;
-            if (Date.now() - state.lastPing < 60000) return; 
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.setValueAtTime(1200, ctx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
-            gain.gain.setValueAtTime(0, ctx.currentTime);
-            gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.6);
-            state.lastPing = Date.now();
-        }
-
-        function toggleAudio() {
+        // --- AUDIO ENGINE ---
+        window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const btn = document.getElementById('audio-btn');
             const icon = document.getElementById('audio-icon');
@@ -577,8 +610,7 @@
                 btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all';
                 icon.className = 'fa-solid fa-volume-high fa-beat-fade text-xl';
                 txt.innerText = "SONAR ACTIVE";
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                ctx.resume().then(() => playSonarPing());
+                new (window.AudioContext || window.webkitAudioContext)().resume().then(() => playSonarPing());
             } else {
                 btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all';
                 icon.className = 'fa-solid fa-volume-xmark text-xl';
@@ -586,20 +618,25 @@
             }
         }
 
-        // PWA Manifest Injection
-        const iconBase64 = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%2314b8a6' d='M96 320c-53 0-96-43-96-96c0-42.5 27.2-78.5 64.5-90.8c-1-6.6-1.5-13.4-1.5-20.2C63 48.6 111.6 0 171.5 0c47.9 0 89.1 30.6 102.7 74.3c5.3-1.6 11-2.3 16.8-2.3c35.3 0 64 28.7 64 64c0 10.4-2.5 20.2-6.9 28.9c16.3 15.6 26.9 37.8 26.9 62.1c0 44-31.8 80.6-73.6 88.3L96 320z'/%3E%3C/svg%3E";
-        const manifestBlob = new Blob([JSON.stringify({
-            "name": "MeteoNexus HUD", "short_name": "Nexus", "start_url": window.location.href, "display": "standalone",
-            "background_color": "#000000", "theme_color": "#000000",
-            "icons": [{"src": iconBase64, "sizes": "512x512", "type": "image/svg+xml"}]
-        })], {type: 'application/json'});
-        document.getElementById('manifest-placeholder').href = URL.createObjectURL(manifestBlob);
+        function playSonarPing() {
+            if (!state.audioEnabled) return;
+            if (Date.now() - state.lastPing < 60000) return; 
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.setValueAtTime(1200, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0, ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+            osc.start(); osc.stop(ctx.currentTime + 0.6);
+            state.lastPing = Date.now();
+        }
 
-        // Charting Engine
-        function renderChart(labels, rainData, solarData, uvData, currentAgreement, hourlyAgreement) {
+        // --- CHARTING ENGINE ---
+        function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
-            
             const tc = tailwind.config.theme.extend.colors;
             
             state.chart = new Chart(ctx, {
@@ -619,37 +656,11 @@
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { display: true, labels: { color: '#9ca3af', font: {family: 'Inter', weight: 'bold', size: 12}, boxWidth: 16, usePointStyle: true }, position: 'bottom' },
-                        tooltip: {
-                            backgroundColor: '#000000',
-                            titleColor: '#ffffff',
-                            bodyColor: '#d1d5db',
-                            borderColor: '#333333',
-                            borderWidth: 2,
-                            padding: 16,
+                        tooltip: { backgroundColor: '#000', titleColor: '#fff', bodyColor: '#d1d5db', borderColor: '#333', borderWidth: 2, padding: 16, 
                             callbacks: {
-                                label: function(context) {
-                                    let label = context.dataset.label || '';
-                                    if (label) { label += ': '; }
-                                    if (context.parsed.y !== null) {
-                                        label += context.parsed.y.toFixed(1);
-                                        if (context.dataset.yAxisID === 'y_solar') label += ' W/m²';
-                                        if (context.dataset.yAxisID === 'y_uv') label += ' Index';
-                                        if (context.dataset.yAxisID === 'y_rain') label += ' mm';
-                                    }
-                                    return label;
-                                },
-                                footer: function(tooltipItems) {
-                                    const index = tooltipItems[0].dataIndex;
-                                    const ag = hourlyAgreement[index];
-                                    const uv = uvData[index];
-                                    const sol = solarData[index];
-                                    return `\nRain Model Agreement: ${ag.toFixed(0)}%\nPeak UV: ${uv.toFixed(1)} | Solar: ${sol.toFixed(0)}W`;
-                                }
-                            },
-                            titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' },
-                            bodyFont: { family: 'JetBrains Mono', size: 12 },
-                            footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' },
-                            footerColor: tc.brand.teal
+                                label: function(c) { let l = c.dataset.label + ': ' || ''; if(c.parsed.y !== null) { l += c.parsed.y.toFixed(1); if(c.dataset.yAxisID==='y_solar') l+=' W/m²'; else if(c.dataset.yAxisID==='y_uv') l+=' Index'; else l+=' mm'; } return l; },
+                                footer: function(t) { const i = t[0].dataIndex; return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; }
+                            }, titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' }, bodyFont: { family: 'JetBrains Mono', size: 12 }, footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' }, footerColor: tc.brand.teal
                         }
                     }, 
                     scales: {
@@ -662,23 +673,8 @@
             });
         }
 
-        // Detailed Health Status UI
-        function updateHealthStatus(elementId, dataArray) {
-            const el = document.getElementById(elementId);
-            if (!dataArray || dataArray.length === 0 || dataArray.every(v => v === null)) {
-                el.className = "font-mono text-sm font-bold py-2 bg-brand-red border-2 border-brand-red text-black rounded-lg uppercase tracking-widest";
-                el.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-1"></i> ' + el.innerText.split(' ')[1];
-                return false;
-            } else {
-                el.className = "font-mono text-sm font-bold py-2 bg-brand-success/20 border-2 border-brand-success/50 text-brand-success rounded-lg uppercase tracking-widest";
-                return true;
-            }
-        }
-
-        // Main Telemetry Fetch Engine
+        // --- PRIMARY TELEMETRY FETCH ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
-            const badge = document.getElementById('location-badge');
-            
             document.getElementById('manual-lat').value = lat.toFixed(5);
             document.getElementById('manual-lon').value = lon.toFixed(5);
 
@@ -687,219 +683,119 @@
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
-                        document.getElementById('search-city').value = city;
-                    }).catch(() => {
-                        badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
-                    });
-            } else {
-                const knownCity = document.getElementById('search-city').value;
-                badge.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${knownCity}`;
+                        document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
+                    }).catch(() => {});
             }
 
-            const p1 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`);
-            const p2 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`);
-            const p3 = fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`);
-
             try {
-                const [resCurr, resFore, resSolar] = await Promise.all([p1, p2, p3]);
-                const dCurr = await resCurr.json();
-                const dFore = await resFore.json();
-                const dSolar = await resSolar.json();
+                const [rCurr, rFore, rSolar] = await Promise.all([
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`)
+                ]);
+                const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
 
-                if (dCurr.timezone) {
-                    state.targetTimezone = dCurr.timezone;
-                    runLiveClock(); 
-                }
-
-                const curr = dCurr.current;
-                const h = dFore.hourly;
-                const hSol = dSolar.hourly;
+                if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
+                const curr = dCurr.current; const h = dFore.hourly; const hSol = dSolar.hourly;
                 
-                const targetTimePrefix = curr.time.substring(0, 13);
-                let nowIndex = h.time.findIndex(t => t.startsWith(targetTimePrefix));
-                
-                if (nowIndex === -1) {
-                    try {
-                        const localTargetTime = new Date(new Date().toLocaleString('en-US', { timeZone: state.targetTimezone }));
-                        nowIndex = localTargetTime.getHours(); 
-                    } catch(e) { nowIndex = new Date().getHours(); }
-                }
+                let nowIndex = h.time.findIndex(t => t.startsWith(curr.time.substring(0, 13)));
+                if (nowIndex === -1) nowIndex = new Date().getHours();
 
-                // Data Extraction
-                const sliceWin = 24;
                 const clean = (arr) => arr.map(v => v === null ? 0 : v);
+                const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
+                const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
                 
-                const rawEU = h.precipitation_ecmwf_ifs025; 
-                const rawUS = h.precipitation_gfs_seamless;
-                const rawDE = h.precipitation_icon_seamless;
-                const rawJP = h.precipitation_jma_seamless;
-                
-                updateHealthStatus('stat-eu', rawEU);
-                updateHealthStatus('stat-us', rawUS);
-                updateHealthStatus('stat-de', rawDE);
-                updateHealthStatus('stat-jp', rawJP);
-
-                const rainData = {
-                    eu: clean(rawEU.slice(nowIndex, nowIndex + sliceWin)),
-                    us: clean(rawUS.slice(nowIndex, nowIndex + sliceWin)),
-                    de: clean(rawDE.slice(nowIndex, nowIndex + sliceWin)),
-                    jp: clean(rawJP.slice(nowIndex, nowIndex + sliceWin))
-                };
-
-                const uvData = hSol.uv_index.slice(nowIndex, nowIndex + sliceWin).map(v => v === null ? 0 : v);
-                const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + sliceWin));
-                
-                const times = h.time.slice(nowIndex, nowIndex + sliceWin).map(t => {
-                    const timeStr = t.slice(11, 16);
-                    if (timeStr === "00:00") return "00:00 (+1d)";
-                    return timeStr;
+                ['eu','us','de','jp'].forEach((id, idx) => {
+                    const el = document.getElementById(`stat-${id}`);
+                    const arr = [rEU, rUS, rDE, rJP][idx];
+                    if(!arr || arr.every(v=>v===null)) { el.className="font-mono text-sm font-bold py-2 bg-brand-red border-2 border-brand-red text-black rounded-lg uppercase tracking-widest"; el.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`; }
+                    else { el.className="font-mono text-sm font-bold py-2 bg-brand-success/20 border-2 border-brand-success/50 text-brand-success rounded-lg uppercase tracking-widest"; el.innerHTML = id.toUpperCase(); }
                 });
 
-                // Telemetry Logic
+                const rainData = { eu: clean(rEU.slice(nowIndex, nowIndex + 24)), us: clean(rUS.slice(nowIndex, nowIndex + 24)), de: clean(rDE.slice(nowIndex, nowIndex + 24)), jp: clean(rJP.slice(nowIndex, nowIndex + 24)) };
+                const uvData = hSol.uv_index.slice(nowIndex, nowIndex + 24).map(v => v === null ? 0 : v);
+                const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + 24));
+                const times = h.time.slice(nowIndex, nowIndex + 24).map(t => { let s = t.slice(11, 16); return s === "00:00" ? "00:00 (+1d)" : s; });
+
                 const hourlyAgreement = [];
-                for (let i = 0; i < sliceWin; i++) {
-                    let hVotes = 0;
-                    if (rainData.eu[i] > 0.1) hVotes++;
-                    if (rainData.us[i] > 0.1) hVotes++;
-                    if (rainData.de[i] > 0.1) hVotes++;
-                    if (rainData.jp[i] > 0.1) hVotes++;
-                    hourlyAgreement.push((hVotes / 4) * 100);
+                for (let i = 0; i < 24; i++) {
+                    let v = 0; if(rainData.eu[i]>0.1)v++; if(rainData.us[i]>0.1)v++; if(rainData.de[i]>0.1)v++; if(rainData.jp[i]>0.1)v++;
+                    hourlyAgreement.push((v/4)*100);
                 }
 
                 const currentAgreement = hourlyAgreement[0] || 0;
                 let currentVotes = (currentAgreement / 100) * 4;
+                let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
 
-                let incomingRain = false;
-                for (let i = 1; i <= 3; i++) {
-                    if (hourlyAgreement[i] >= 75) {
-                        incomingRain = true; break;
-                    }
-                }
-
-                const maxUV = Math.max(...uvData);
-                const maxUVIndex = uvData.indexOf(maxUV);
-                const maxUVTime = times[maxUVIndex].replace(" (+1d)", "");
-
-                // DOM Mapping
                 document.getElementById('metric-temp').innerText = Math.round(curr.temperature_2m) + '°';
                 document.getElementById('metric-feels').innerText = Math.round(curr.apparent_temperature) + '°';
                 document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
                 document.getElementById('metric-agree').innerText = `${currentAgreement.toFixed(0)}%`;
-                
                 document.getElementById('metric-wind-speed').innerText = Math.round(curr.wind_speed_10m);
                 document.getElementById('metric-wind-dir').innerHTML = `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`;
                 
+                const maxUV = Math.max(...uvData);
                 document.getElementById('metric-uv-val').innerText = maxUV.toFixed(1);
-                document.getElementById('metric-uv-time').innerText = "@ " + maxUVTime;
-                
-                const conditionStr = WMO_CODES[curr.weather_code] || `WMO Code: ${curr.weather_code}`;
-                document.getElementById('weather-desc').innerText = conditionStr;
+                document.getElementById('metric-uv-time').innerText = "@ " + times[uvData.indexOf(maxUV)].replace(" (+1d)", "");
+                document.getElementById('weather-desc').innerText = WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`;
 
-                // Status Evaluation with FontAwesome + HUD Visuals
-                const mainCard = document.getElementById('main-status-card');
-                const icon = document.getElementById('status-icon');
-                const text = document.getElementById('status-text');
-                
-                let baseIconClass = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
-                if (curr.is_day === 0) {
-                    if (baseIconClass === 'fa-sun') baseIconClass = 'fa-moon';
-                    if (baseIconClass === 'fa-cloud-sun') baseIconClass = 'fa-cloud-moon';
-                }
+                const mainCard = document.getElementById('main-status-card'); const icon = document.getElementById('status-icon'); const text = document.getElementById('status-text');
+                let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin'; if (curr.is_day === 0) { bIcon = bIcon.replace('sun', 'moon'); }
 
                 mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ";
 
                 if (currentVotes >= 3) { 
-                    mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
-                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`;
-                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase';
-                    text.innerText = "RAIN LIKELY";
+                    mainCard.classList.add('bg-brand-red/20', 'border-brand-red'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase'; text.innerText = "RAIN LIKELY";
                     if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
                 } else if (incomingRain) {
-                    mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning');
-                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`;
-                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase';
-                    text.innerText = "INCOMING RAIN (1-3H)";
+                    mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'; text.innerText = "INCOMING RAIN (1-3H)";
                 } else if (currentVotes >= 1) {
-                    mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50');
-                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`;
-                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase';
-                    text.innerText = "RAIN POSSIBLE";
+                    mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'; text.innerText = "RAIN POSSIBLE";
                 } else {
-                    mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50');
-                    icon.className = `text-8xl md:text-9xl mb-4 fa-solid ${baseIconClass} text-brand-success`;
-                    text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase';
-                    text.innerText = "STABLE";
+                    mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid ${bIcon} text-brand-success`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase'; text.innerText = "STABLE";
                 }
 
                 renderChart(times, rainData, solarData, uvData, currentAgreement, hourlyAgreement);
             } catch (e) { console.error(e); }
         }
 
-        // Init System
-        function runApp() {
-            // Trigger permanent background tracking layer immediately
-            startBackgroundTracking();
-
-            if (state.mode === 'manual' && state.coords.lat) {
-                fetchData(state.coords.lat, state.coords.lon, false); 
-            } else {
-                if (state.autoCoords) {
-                    fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
-                } else if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        p => { 
-                            state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
-                            fetchData(p.coords.latitude, p.coords.longitude, false); 
-                            // Map is handled by background tracking watcher
-                        },
-                        () => {
-                            const mainCard = document.getElementById('main-status-card');
-                            mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden";
-                            
-                            document.getElementById('status-icon').className = 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange';
-                            document.getElementById('status-text').innerText = "SEARCH LOCATION";
-                            document.getElementById('status-text').className = "text-4xl md:text-5xl font-black tracking-tight text-brand-orange uppercase";
-                            
-                            document.getElementById('weather-desc').innerText = "GPS BLOCKED. PLEASE USE GEOSPATIAL TARGETING BELOW.";
-                            document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`;
-                            document.getElementById('local-time-text').innerText = "--:--:--";
-                        },
-                        { timeout: 10000, enableHighAccuracy: true }
-                    );
-                }
-            }
-        }
-
-        function setManualLocation() {
+        // --- CONTROL SYSTEMS ---
+        window.setManualLocation = function() {
             const lat = parseFloat(document.getElementById('manual-lat').value);
             const lon = parseFloat(document.getElementById('manual-lon').value);
-            if(lat && lon) {
-                activateLiveNavigation(lat, lon);
-            }
+            if(lat && lon) activateLiveNavigation(lat, lon);
         }
 
-        function resetToAuto() {
-            // Remove routing lines, keep background GPS tracking alive
-            if (state.routeCtrl && state.mapObj) {
-                state.mapObj.removeControl(state.routeCtrl);
-                state.routeCtrl = null;
-            }
-            
-            const statusEl = document.getElementById('route-status');
-            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
-            statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
-
+        window.resetToAuto = function() {
+            if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
+            document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
+            document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
-
-            localStorage.removeItem('ms_mode');
-            state.mode = 'auto';
-            document.getElementById('search-city').value = "";
-            runApp();
+            localStorage.removeItem('ms_mode'); state.mode = 'auto'; runApp();
         }
 
-        runApp();
-        setInterval(runApp, 60000); 
+        function runApp() {
+            startBackgroundTracking();
+            if (state.mode === 'manual' && state.coords.lat) {
+                initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false); 
+            } else if (state.autoCoords) {
+                initMap(state.autoCoords.lat, state.autoCoords.lon); fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
+            } else if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(p => { 
+                    state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
+                    initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); 
+                }, () => {
+                    document.getElementById('main-status-card').className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden";
+                    document.getElementById('status-icon').className = 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange';
+                    document.getElementById('status-text').innerText = "SEARCH LOCATION";
+                    document.getElementById('status-text').className = "text-4xl md:text-5xl font-black tracking-tight text-brand-orange uppercase";
+                    document.getElementById('weather-desc').innerText = "GPS BLOCKED.";
+                    document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`;
+                }, { timeout: 10000, enableHighAccuracy: true });
+            }
+        }
+
+        runApp(); setInterval(runApp, 60000); 
     </script>
 </body>
 </html>
