@@ -140,12 +140,18 @@
         </div>
     </div>
 
-    <!-- Tactical Map & Routing Layer (Moved up for navigation priority) -->
+    <!-- Tactical Map & Routing Layer -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-2">
         <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
-            <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <span class="text-sm font-bold uppercase tracking-widest text-gray-500"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking & Navigation</span>
-                <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700">STANDBY - AWAITING WAYPOINTS</span>
+            <div class="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    <span class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
+                    <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
+                </div>
+                <!-- Native App Intent Button (Hybrid Approach) -->
+                <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-5 py-2.5 rounded-xl transition-all uppercase tracking-widest shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                    <i class="fa-solid fa-diamond-turn-right"></i> External Nav
+                </button>
             </div>
             <!-- Z-index 0 prevents overlap with search dropdowns above -->
             <div id="hud-map" class="w-full relative h-[400px] md:h-[550px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111]"></div>
@@ -347,14 +353,23 @@
             }
         }
 
-        // --- NEW: Live Tracking & Navigation Engine ---
+        // --- ENHANCED: Live Tracking & Navigation Engine (Hybrid Approach) ---
         function activateLiveNavigation(destLat, destLon) {
-            // First fetch weather data for the destination (co-rider location)
             applyNewLocation(destLat, destLon, "CO-RIDER TARGET", "TRACKING");
             
             const statusEl = document.getElementById('route-status');
+            const navBtn = document.getElementById('native-nav-btn');
+            
             statusEl.innerText = "ACTIVATING LIVE GPS LINK...";
             statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
+
+            // Attach Native Intent logic
+            navBtn.classList.remove('hidden');
+            navBtn.onclick = () => {
+                const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
+                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving`;
+                window.open(url, '_blank');
+            };
 
             if (state.gpsWatchId) navigator.geolocation.clearWatch(state.gpsWatchId);
 
@@ -364,6 +379,9 @@
                     const userLat = pos.coords.latitude;
                     const userLon = pos.coords.longitude;
                     
+                    // Ensure state coordinates are up to date for the intent link
+                    state.autoCoords = { lat: userLat, lon: userLon };
+
                     // Ensure map exists
                     if(!state.mapObj) initMap(userLat, userLon);
 
@@ -392,7 +410,6 @@
                         state.routeCtrl.on('routesfound', updateRouteStatus);
                         state.routeCtrl.on('routingerror', handleRouteError);
                     } else {
-                        // Dynamically update user location as they ride
                         state.routeCtrl.setWaypoints([ L.latLng(userLat, userLon), L.latLng(destLat, destLon) ]);
                     }
                 },
@@ -831,6 +848,8 @@
             
             document.getElementById('route-status').innerText = "STANDBY - AWAITING WAYPOINTS";
             document.getElementById('route-status').className = "text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700";
+
+            document.getElementById('native-nav-btn').classList.add('hidden');
 
             localStorage.removeItem('ms_mode');
             state.mode = 'auto';
