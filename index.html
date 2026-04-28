@@ -526,69 +526,82 @@
                 try { rawHtml = decodeURIComponent(rawHtml); } catch(e) {}
 
                 // Normalize URLs and separators
+                let cleanPayload = (rawUrl + " \n" + rawHtml).replace(/%2C/gi, ',').replace(/,\s+/g, ',');
                 let cleanUrl = rawUrl.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
-                let cleanHtml = rawHtml.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
 
                 let lat = null, lon = null;
                 const num = "([+-]?\\d+(?:\\.\\d+)?)"; 
+                const extractCoords = (str) => {
+                    if(!str) return null;
+                    const m = str.match(new RegExp(`${num},${num}`));
+                    return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
+                };
                 
                 // 1. ROUTE PARSER: Handle Google Maps Directions Links (/dir/Origin/Destination)
+                // We evaluate this FIRST because routes require specific destination isolation
                 const routeMatch = cleanUrl.match(/\/dir\/([^\/]*)\/([^\/]+)/i);
                 if (routeMatch) {
                     let destStr = routeMatch[2]; // Focus ONLY on the Destination string
                     
-                    // A. Destination is explicit coordinates
-                    let destCoords = destStr.match(new RegExp(`^${num},${num}`));
+                    // A. Destination is explicit coordinates in the URL path
+                    let destCoords = extractCoords(destStr);
                     if (destCoords) {
-                        lat = parseFloat(destCoords[1]);
-                        lon = parseFloat(destCoords[2]);
+                        lat = destCoords.lat;
+                        lon = destCoords.lon;
                     } else {
-                        // B. Destination is text. Extract exact coordinates from Google's Protobuf block 
-                        // Note: In routes, Google encodes as !1d(Longitude)!2d(Latitude)
-                        let pbMatches = cleanUrl.match(new RegExp(`!1d${num}!2d${num}`, 'g'));
+                        // B. Destination is text. Extract exact destination coordinates from Google's Protobuf block
+                        // Route protobufs use !1d(Lon)!2d(Lat) OR !3d(Lat)!4d(Lon). The destination is the LAST waypoint.
+                        let pbMatches = cleanUrl.match(new RegExp(`!(?:1|3)d${num}!(?:2|4)d${num}`, 'g'));
                         if (pbMatches && pbMatches.length > 0) {
-                            let last = pbMatches[pbMatches.length - 1]; // The final waypoint is the destination
-                            let extract = last.match(new RegExp(`!1d${num}!2d${num}`));
-                            lon = parseFloat(extract[1]); // 1d is LON
-                            lat = parseFloat(extract[2]); // 2d is LAT
-                        } else {
-                            // Fallback to standard 3d/4d block
-                            let pb34 = cleanUrl.match(new RegExp(`!3d${num}!4d${num}`, 'g'));
-                            if (pb34 && pb34.length > 0) {
-                                let last = pb34[pb34.length - 1];
-                                let extract = last.match(new RegExp(`!3d${num}!4d${num}`));
-                                lat = parseFloat(extract[1]); // 3d is LAT
-                                lon = parseFloat(extract[2]); // 4d is LON
+                            let lastPb = pbMatches[pbMatches.length - 1]; // Target the final node (Destination)
+                            let extract = lastPb.match(new RegExp(`!([13])d${num}!([24])d${num}`));
+                            if (extract && extract[1] === '1') {
+                                lon = parseFloat(extract[2]); // 1d is LON
+                                lat = parseFloat(extract[4]); // 2d is LAT
+                            } else if (extract && extract[1] === '3') {
+                                lat = parseFloat(extract[2]); // 3d is LAT
+                                lon = parseFloat(extract[4]); // 4d is LON
                             }
                         }
                     }
                 }
 
-                // 2. PIN PARSER: Handle standard single-point map links
+                // 2. OPENGRAPH MARKER EXTRACTION: Guaranteed precision for both Pins and Routes
                 if (lat === null) {
-                    let payloadStr = cleanUrl + " \n" + cleanHtml;
-                    const regexes = [
-                        new RegExp(`!3d${num}!4d${num}`, 'i'),                // Exact Pin
-                        new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),    // Search Target
-                        new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),     // q=loc: Target
-                        new RegExp(`(?:query|q)=${num},${num}`, 'i'),         // Query Target
-                        new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),      // Place Focus
-                        new RegExp(`markers=(?:.*?%7C)?${num},${num}`, 'i'),  // Marker Pin
-                        new RegExp(`ll=${num},${num}`, 'i')                   // LatLng
-                    ];
+                    // Search payload for OpenGraph image markers
+                    const markerMatch = cleanPayload.match(/markers=([^"&>]+)/i);
+                    if (markerMatch) {
+                        const markersList = markerMatch[1].split(/%7C|\|/i);
+                        // THE FIX: Always take the LAST marker in the array. 
+                        // In a route, Origin is index 0, Destination is index N.
+                        const lastMarker = markersList[markersList.length - 1];
+                        const coords = extractCoords(lastMarker);
+                        if (coords) { lat = coords.lat; lon = coords.lon; }
+                    }
+                }
 
+                // 3. DEEP FALLBACK REGEX SCAN: For isolated drops without structured meta tags
+                if (lat === null) {
+                    const regexes = [
+                        new RegExp(`!3d${num}!4d${num}`, 'i'),
+                        new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),
+                        new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),
+                        new RegExp(`(?:query|q)=${num},${num}`, 'i'),
+                        new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),
+                        new RegExp(`ll=${num},${num}`, 'i')
+                    ];
                     for (let rx of regexes) {
-                        const match = payloadStr.match(rx);
+                        const match = cleanPayload.match(rx);
                         if (match && match[1] && match[2]) {
                             lat = parseFloat(match[1]);
                             lon = parseFloat(match[2]);
-                            break; 
+                            break;
                         }
                     }
-                    
-                    // Fallback to viewport center only if nothing else matches
+
+                    // 4. VIEWPORT CENTER FALLBACK
                     if (lat === null) {
-                        let vpMatch = payloadStr.match(new RegExp(`@${num},${num}`, 'i'));
+                        let vpMatch = cleanPayload.match(new RegExp(`@${num},${num}`, 'i'));
                         if (vpMatch) {
                             lat = parseFloat(vpMatch[1]);
                             lon = parseFloat(vpMatch[2]);
@@ -596,7 +609,7 @@
                     }
                 }
 
-                // Validate mathematical bounds
+                // Final Validation ensuring constraints are met
                 if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
                     input.value = "";
                     input.placeholder = `ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
@@ -606,6 +619,7 @@
                 }
             } catch(e) {
                 input.value = ""; input.placeholder = "ERR: WORKER CONNECTION FAIL";
+                console.error("Payload Extraction Failed:", e);
             } finally {
                 btn.innerHTML = '<i class="fa-solid fa-bolt"></i>';
             }
