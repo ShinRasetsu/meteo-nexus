@@ -492,13 +492,16 @@
             }
         }
 
+        // --- BULLETPROOF LINK EXTRACTOR (Upgraded) ---
         async function extractGMapPayload(url) {
+            // Append cache-buster timestamp to force proxy to resolve fresh redirect chains
+            const cacheBuster = Date.now();
             try {
-                const r1 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`);
+                const r1 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&_ts=${cacheBuster}`);
                 const d1 = await r1.json();
                 return { url: d1.status?.url || "", html: d1.contents || JSON.stringify(d1) };
             } catch(e) {
-                const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+                const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}&_ts=${cacheBuster}`);
                 return { url: "", html: await r2.text() };
             }
         }
@@ -515,50 +518,43 @@
             try {
                 const { url: finalUrl, html } = await extractGMapPayload(url);
                 
-                // Normalize encoded characters for easier parsing
+                // Normalize encoded commas and ampersands
                 const cleanHtml = html.replace(/&amp;/g, '&').replace(/%2C/gi, ',');
                 const cleanUrl = finalUrl.replace(/%2C/gi, ',');
+                const payload = cleanUrl + " " + cleanHtml;
 
                 let lat = null, lon = null;
 
-                // Priority 1: OpenGraph Meta Tags (Guaranteed to be the red pin generated for link previews)
-                const ogImg = cleanHtml.match(/property="og:image"[^>]+content="([^"]+)"/i) || cleanHtml.match(/content="([^"]+)"[^>]+property="og:image"/i);
-                if (ogImg) {
-                    const markers = ogImg[1].replace(/%2C/gi, ',').match(/markers=(-?\d+\.\d+),(-?\d+\.\d+)/i);
-                    if (markers) { lat = parseFloat(markers[1]); lon = parseFloat(markers[2]); }
-                }
+                // Priority Cascading Parser: Highest precision evaluated first.
+                const regexes = [
+                    /!3d(-?\d+\.\d+)[!|?]4d(-?\d+\.\d+)/i,             // 1. Exact Place Pin (!3d... !4d...)
+                    /place\/.*\/@(-?\d+\.\d+),(-?\d+\.\d+)/i,          // 2. Exact Place Viewport Focus
+                    /destination=(-?\d+\.\d+),(-?\d+\.\d+)/i,          // 3. Directions Target
+                    /search\/(-?\d+\.\d+),(-?\d+\.\d+)/i,              // 4. Dropped Pin Search Target
+                    /(?:query|q)=(-?\d+\.\d+),(-?\d+\.\d+)/i,          // 5. Query Target
+                    /markers=(-?\d+\.\d+),(-?\d+\.\d+)/i,              // 6. OpenGraph Static Map Marker
+                    /ll=(-?\d+\.\d+),(-?\d+\.\d+)/i,                   // 7. LatLng Parameter
+                    /@(-?\d+\.\d+),(-?\d+\.\d+)/i                      // 8. General Viewport Center (Fallback)
+                ];
 
-                // Priority 2: Extract explicit coordinates routed into the final redirected URL path
-                if (lat === null && cleanUrl) {
-                    // Matches /14.123,121.123 or ?q=14.123,121.123 (Ignores viewport @lat,lon)
-                    const urlMatch = cleanUrl.match(/(?:\/|q=)(-?\d+\.\d+),(-?\d+\.\d+)/i);
-                    if (urlMatch) { lat = parseFloat(urlMatch[1]); lon = parseFloat(urlMatch[2]); }
-                }
-
-                // Priority 3: Deep HTML Regex Scan
-                if (lat === null) {
-                    const payload = cleanUrl + " " + cleanHtml;
-                    const regexes = [
-                        /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/i,            
-                        /destination=(-?\d+\.\d+),(-?\d+\.\d+)/i, 
-                        /query=(-?\d+\.\d+),(-?\d+\.\d+)/i,       
-                        /ll=(-?\d+\.\d+),(-?\d+\.\d+)/i,          
-                        /markers=(-?\d+\.\d+),(-?\d+\.\d+)/i,     
-                        /@(-?\d+\.\d+),(-?\d+\.\d+)/i,                 
-                        /center=(-?\d+\.\d+),(-?\d+\.\d+)/i       
-                    ];
-                    for (let rx of regexes) {
-                        const match = payload.match(rx);
-                        if (match && match[1] && match[2]) {
-                            lat = parseFloat(match[1]); lon = parseFloat(match[2]); break; 
+                for (let rx of regexes) {
+                    const match = payload.match(rx);
+                    if (match && match[1] && match[2]) {
+                        const tempLat = parseFloat(match[1]);
+                        const tempLon = parseFloat(match[2]);
+                        
+                        // Strict validation prevents snapping to 0,0 or proxy's IP geofence
+                        if (!isNaN(tempLat) && !isNaN(tempLon) && tempLat !== 0 && tempLon !== 0 && tempLat >= -90 && tempLat <= 90 && tempLon >= -180 && tempLon <= 180) {
+                            lat = tempLat; lon = tempLon; 
+                            break; // Lock in the highest priority match and halt scanning
                         }
                     }
                 }
 
-                if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                if (lat !== null && lon !== null) {
                     input.value = "";
                     input.placeholder = `ACQUIRED: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-                    activateLiveNavigation(lat, lon);
+                    window.activateLiveNavigation(lat, lon);
                 } else {
                     input.value = ""; input.placeholder = "ERR: PIN NOT FOUND";
                 }
@@ -612,7 +608,7 @@
         });
 
         // --- LIVE NAVIGATION INTEGRATION ---
-        function activateLiveNavigation(destLat, destLon) {
+        window.activateLiveNavigation = function(destLat, destLon) {
             fetchData(destLat, destLon, true); 
             document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-blue"></i> TACTICAL TARGET`;
             
@@ -852,7 +848,7 @@
         window.setManualLocation = function() {
             const lat = parseFloat(document.getElementById('manual-lat').value);
             const lon = parseFloat(document.getElementById('manual-lon').value);
-            if(lat && lon) activateLiveNavigation(lat, lon);
+            if(lat && lon) window.activateLiveNavigation(lat, lon);
         }
 
         window.resetToAuto = function() {
