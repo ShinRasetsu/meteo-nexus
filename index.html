@@ -165,9 +165,12 @@
                 </div>
             </div>
             
-            <div id="hud-map" class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
-                <!-- Tactical View Controls -->
-                <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center">
+            <!-- Map Container Decoupled for 3D Track-Up Rotation -->
+            <div class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
+                <div id="hud-map" class="w-full h-full absolute inset-0 transition-transform duration-500 ease-linear origin-center"></div>
+                
+                <!-- Tactical View Controls stay outside rotating canvas -->
+                <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
                     <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
                         <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
                     </button>
@@ -261,6 +264,8 @@
             isMapLocked: true,  
             lastHudLat: 0,
             lastHudLon: 0,
+            cumulativeHeading: 0, // Prevents 360-degree spin-back bug on map rotation
+            lastHeading: 0,
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -332,21 +337,39 @@
                         if (distMoved > 0.002 || state.lastHudLat === 0) {
                             fetchData(lat, lon, false);
                         }
+                        
+                        // Process heading safely to prevent backwards 360 map spinning
+                        const isMoving = heading !== null && !isNaN(heading) && speed > 0.5;
+                        if (heading !== null && !isNaN(heading)) {
+                            let delta = heading - state.lastHeading;
+                            if (delta > 180) delta -= 360;
+                            if (delta < -180) delta += 360;
+                            state.cumulativeHeading += delta;
+                            state.lastHeading = heading;
+                        }
 
+                        // Shape-Shifting Marker Logic
                         if (state.userMarker) {
                             state.userMarker.setLatLng([lat, lon]);
                             const markerEl = state.userMarker.getElement();
                             if (markerEl) {
                                 const wrapper = markerEl.querySelector('#user-dir-wrapper');
-                                const icon = markerEl.querySelector('#user-dir-icon');
-                                if (wrapper && icon) {
-                                    if (heading !== null && !isNaN(heading) && speed > 0.5) {
-                                        wrapper.style.transform = `rotate(${heading}deg)`;
-                                        icon.classList.remove('opacity-0');
-                                        icon.classList.add('opacity-100');
+                                const dot = markerEl.querySelector('#user-dot');
+                                const arrow = markerEl.querySelector('#user-arrow');
+                                
+                                if (wrapper && dot && arrow) {
+                                    wrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
+                                    
+                                    if (isMoving) {
+                                        // Morph to Tracking Chevron
+                                        dot.classList.add('opacity-0', 'scale-50');
+                                        arrow.classList.remove('opacity-0', 'scale-50');
+                                        arrow.classList.add('opacity-100', 'scale-100');
                                     } else {
-                                        icon.classList.remove('opacity-100');
-                                        icon.classList.add('opacity-0');
+                                        // Morph to Stationary Dot
+                                        dot.classList.remove('opacity-0', 'scale-50');
+                                        arrow.classList.remove('opacity-100', 'scale-100');
+                                        arrow.classList.add('opacity-0', 'scale-50');
                                     }
                                 }
                             }
@@ -376,9 +399,21 @@
                             state.lastCheckpoints = []; // Reset if no route
                         }
                         
+                        // Map Orientation & Centering Logic
                         if (state.isMapLocked && state.tacticalMode > 0) {
                             const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                             state.mapObj.setView([lat, lon], targetZoom, { animate: true });
+                            
+                            const mapEl = document.getElementById('hud-map');
+                            if (state.tacticalMode === 4) { 
+                                // 20m Tactical zoom -> Engage Track-Up Map Rotation
+                                // Scale 1.5 prevents black corners from showing when square map is rotated
+                                mapEl.style.transform = `scale(1.5) rotate(${-state.cumulativeHeading}deg)`;
+                            } else {
+                                // Standard North-Up
+                                mapEl.style.transform = `scale(1) rotate(0deg)`;
+                            }
+                            
                             if (!state.targetCoords) {
                                 statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
                                 statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
@@ -413,6 +448,7 @@
         window.applyTacticalMode = function() {
             if (!state.mapObj) return;
             const btn = document.getElementById('tactical-btn');
+            const mapEl = document.getElementById('hud-map');
             
             if (state.tacticalMode > 0) {
                 // Tracking Mode (Locked)
@@ -425,6 +461,12 @@
                 btn.innerHTML = `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`;
                 btn.className = "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono";
                 
+                if (state.tacticalMode === 4) {
+                    mapEl.style.transform = `scale(1.5) rotate(${-state.cumulativeHeading}deg)`;
+                } else {
+                    mapEl.style.transform = `scale(1) rotate(0deg)`;
+                }
+
                 if (state.autoCoords) {
                     state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: true});
                 }
@@ -432,6 +474,8 @@
                 // Route Overview Mode (Unlocked)
                 state.isMapLocked = false;
                 if (state.scaleCtrl) state.scaleCtrl.remove();
+                
+                mapEl.style.transform = `scale(1) rotate(0deg)`; // Revert to North-Up
                 
                 btn.innerHTML = `<i class="fa-solid fa-route text-lg md:text-xl"></i>`;
                 btn.className = "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono";
@@ -457,6 +501,10 @@
 
             state.mapObj.on('dragstart', () => {
                 state.isMapLocked = false;
+                
+                // Instantly break out of 3D Track-Up rotation so dragging doesn't feel disjointed
+                document.getElementById('hud-map').style.transform = `scale(1) rotate(0deg)`;
+
                 const btn = document.getElementById('tactical-btn');
                 btn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`;
                 btn.className = "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono";
@@ -466,13 +514,14 @@
                 icon: L.divIcon({
                     className: 'bg-transparent',
                     html: `
-                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-6 h-6 transition-transform duration-500 ease-linear" style="transform: rotate(0deg);">
-                            <div class="absolute bg-brand-success border-2 border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] z-10 flex items-center justify-center overflow-hidden">
-                                <i id="user-dir-icon" class="fa-solid fa-location-arrow text-[10px] text-black -rotate-45 opacity-0 transition-opacity duration-300"></i>
-                            </div>
+                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8 transition-transform duration-500 ease-linear" style="transform: rotate(0deg);">
+                            <div id="user-dot" class="absolute bg-brand-success border-[3px] border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all duration-300"></div>
+                            <svg id="user-arrow" class="absolute w-7 h-7 drop-shadow-[0_0_12px_rgba(34,197,94,1)] opacity-0 scale-50 transition-all duration-300" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
+                                <path d="M12 2L20 21L12 17L4 21L12 2Z" fill="#22c55e" stroke="white" stroke-width="1.5"/>
+                            </svg>
                         </div>
                     `,
-                    iconSize: [24, 24]
+                    iconSize: [32, 32]
                 }),
                 zIndexOffset: 1000
             }).addTo(state.mapObj);
