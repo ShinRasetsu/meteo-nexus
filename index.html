@@ -177,7 +177,6 @@
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (Vertical Tactical Stack)</span>
         </div>
-        <!-- CHANGED: Replaced flex-col gap to standard container for dynamic line connections -->
         <div id="timeline-container" class="pb-2 no-select">
             <!-- Intercept Nodes injected here -->
         </div>
@@ -266,10 +265,10 @@
             routeCtrl: null,
             gpsWatchId: null, 
             userMarker: null, 
-            interceptMarkers: [], // Tracks the on-map 1KM nodes
+            interceptMarkers: [], 
             userAuth: null,
-            lastIntelFetch: 0, // Throttles API calls
-            lastCheckpoints: [] // NEW: Tracks history for the "PAST" timeline nodes
+            lastIntelFetch: 0, 
+            lastCheckpoints: [] 
         };
 
         // --- AUTHENTICATION ---
@@ -631,7 +630,7 @@
             statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
         }
 
-        // --- EN-ROUTE FORECASTING (VERTICAL TACTICAL STACK) ---
+        // --- EN-ROUTE FORECASTING (VERTICAL TACTICAL STACK & FULL MAP) ---
         async function fetchRouteIntelligence(route) {
             const container = document.getElementById('timeline-container');
             document.getElementById('route-timeline-card').classList.remove('hidden');
@@ -646,11 +645,12 @@
             const coords = route.coordinates;
             
             const intervalDist = 5000; // 5KM Intervals
-            // Limit to max 3 future nodes so the vertical stack fits cleanly on screen
-            const maxNodes = Math.min(Math.floor(totalDistance / intervalDist), 3); 
-            const upcomingWaypoints = [];
             
-            for (let i = 1; i <= maxNodes; i++) {
+            // Calculate ALL future nodes to the end of the route
+            const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
+            const allUpcomingWaypoints = [];
+            
+            for (let i = 1; i <= totalFutureNodesCount; i++) {
                 const targetDist = i * intervalDist;
                 if (targetDist > totalDistance) break;
                 
@@ -672,56 +672,60 @@
                     }
                     currentDist += d;
                 }
-                upcomingWaypoints.push({ lat: foundPoint.lat, lon: foundPoint.lng, offset: (targetDist / 1000).toFixed(0), type: 'upcoming' });
+                
+                // Track physical Node Index
+                allUpcomingWaypoints.push({ lat: foundPoint.lat, lon: foundPoint.lng, offsetKm: (targetDist / 1000).toFixed(0), nodeIndex: i, type: 'upcoming' });
             }
 
-            // CRITICAL UI UPGRADE: Reverse the array. Top = Furthest Future.
-            upcomingWaypoints.reverse();
+            // PLOT ENTIRE ROUTE ON MAP
+            allUpcomingWaypoints.forEach(wp => {
+                const marker = L.marker([wp.lat, wp.lon], {
+                    icon: L.divIcon({
+                        className: 'bg-transparent',
+                        html: `
+                            <div class="relative flex items-center justify-center -ml-3 -mt-3">
+                                <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
+                                <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
+                                <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${wp.nodeIndex}</div>
+                            </div>
+                        `,
+                        iconSize: [0, 0]
+                    }),
+                    zIndexOffset: 500
+                }).addTo(state.mapObj);
+                state.interceptMarkers.push(marker);
+            });
+
+            // RESTRICT UI STACK & WEATHER API TO CLOSEST 4 NODES
+            const upcomingWaypointsStack = allUpcomingWaypoints.slice(0, 4);
+
+            // Reverse the array. Top = Furthest Future.
+            upcomingWaypointsStack.reverse();
 
             // Inject Current Node
-            const currentWaypoint = { lat: coords[0].lat, lon: coords[0].lng, offset: 0, type: 'current' };
+            const currentWaypoint = { lat: coords[0].lat, lon: coords[0].lng, offsetKm: 0, type: 'current' };
 
             // Inject Past Nodes dynamically tracked from GPS memory
             const pastWaypoints = [];
             const reversedPast = [...state.lastCheckpoints].reverse();
+            let pastIndex = 1;
             reversedPast.forEach(cp => {
                 const dist = L.latLng(coords[0].lat, coords[0].lng).distanceTo(L.latLng(cp.lat, cp.lon));
                 if (dist > 1500) { // Only show if we actually drove past it (>1.5KM)
-                    pastWaypoints.push({ lat: cp.lat, lon: cp.lon, offset: -(dist/1000).toFixed(0), type: 'past' });
+                    pastWaypoints.push({ lat: cp.lat, lon: cp.lon, offsetKm: (dist/1000).toFixed(0), nodeIndex: pastIndex++, type: 'past' });
                 }
             });
 
-            // Final Render Array: [Future] -> [Current] -> [Past]
-            const waypoints = [...upcomingWaypoints, currentWaypoint, ...pastWaypoints];
+            // Final Render Array: [Future Stack (Max 4)] -> [Current] -> [Past]
+            const waypoints = [...upcomingWaypointsStack, currentWaypoint, ...pastWaypoints];
 
             if (waypoints.length <= 1) {
                 container.innerHTML = `<div class="w-full text-center py-4 text-gray-600 uppercase tracking-widest font-bold">Target Reached In < 5 KM</div>`;
                 return;
             }
 
-            // Plot only the upcoming map markers
-            waypoints.forEach(wp => {
-                if(wp.type === 'upcoming') {
-                    const marker = L.marker([wp.lat, wp.lon], {
-                        icon: L.divIcon({
-                            className: 'bg-transparent',
-                            html: `
-                                <div class="relative flex items-center justify-center -ml-3 -mt-3">
-                                    <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
-                                    <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
-                                    <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">+${wp.offset}km</div>
-                                </div>
-                            `,
-                            iconSize: [0, 0]
-                        }),
-                        zIndexOffset: 500
-                    }).addTo(state.mapObj);
-                    state.interceptMarkers.push(marker);
-                }
-            });
-
             try {
-                // Batch query
+                // Batch query WEATHER API specifically for the restricted UI stack list only
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
                 const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&timezone=auto`);
@@ -742,17 +746,18 @@
                     let textClass = "text-gray-400";
                     let iconClass = "text-gray-300";
                     let borderLeft = "border-surface-600";
+                    
+                    let displayPrimary = "";
+                    let displayLabel = "";
                     let titleBadge = "";
                     let glow = "";
-                    let displayOffset = "";
-                    let displayLabel = "";
 
                     if (wp.type === 'upcoming') {
                         borderLeft = "border-brand-teal";
-                        displayOffset = `+${wp.offset}`;
-                        displayLabel = "KM AHEAD";
+                        displayPrimary = `NODE ${wp.nodeIndex}`;
+                        displayLabel = `${wp.offsetKm} KM AHEAD`;
                         // Flag the immediate next node visually
-                        if (idx === upcomingWaypoints.length - 1) {
+                        if (idx === upcomingWaypointsStack.length - 1) {
                             titleBadge = `<span class="bg-brand-teal text-black text-[9px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Next Node</span>`;
                             glow = "ring-1 ring-brand-teal/30 shadow-[0_0_15px_rgba(20,184,166,0.15)]";
                         }
@@ -770,15 +775,15 @@
                         glow = "ring-2 ring-brand-blue shadow-[0_0_20px_rgba(59,130,246,0.2)] scale-[1.02] my-1";
                         iconClass = "text-brand-blue";
                         textClass = "text-brand-blue";
-                        displayOffset = "0";
-                        displayLabel = "LIVE";
+                        displayPrimary = "LIVE";
+                        displayLabel = "POSITION";
                     } else if (wp.type === 'past') {
                         // Past gets greyed out
                         bgClass = "bg-surface-900";
                         borderLeft = "border-surface-700";
                         glow = "opacity-60 grayscale";
-                        displayOffset = `${wp.offset}`;
-                        displayLabel = "KM PAST";
+                        displayPrimary = `NODE ${wp.nodeIndex} PAST`;
+                        displayLabel = `${wp.offsetKm} KM BEHIND`;
                     }
 
                     container.innerHTML += `
@@ -798,7 +803,7 @@
                                 </div>
                             </div>
                             <div class="text-right flex flex-col items-end justify-center">
-                                 <span class="text-lg md:text-xl font-black uppercase tracking-widest text-white">${displayOffset}</span>
+                                 <span class="text-lg md:text-xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
                                  <span class="text-[10px] md:text-xs font-bold uppercase tracking-widest text-gray-500">${displayLabel}</span>
                             </div>
                         </div>
