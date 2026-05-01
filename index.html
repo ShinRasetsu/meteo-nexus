@@ -252,8 +252,11 @@
         let state = {
             mode: localStorage.getItem('ms_mode') || 'auto',
             autoCoords: null,
-            targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null, 
+            targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null,
+            coords: JSON.parse(localStorage.getItem('ms_coords')) || {}, 
             isMapLocked: true,  
+            lastHudLat: 0,
+            lastHudLon: 0,
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -314,6 +317,12 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
+                        // Delta check to avoid unnecessary rapid API calls, handled naturally by interval fallback if stationary
+                        const distMoved = Math.sqrt(Math.pow(lat - state.lastHudLat, 2) + Math.pow(lon - state.lastHudLon, 2));
+                        if (distMoved > 0.002 || state.lastHudLat === 0) {
+                            fetchData(lat, lon, false);
+                        }
+
                         if (state.userMarker) {
                             state.userMarker.setLatLng([lat, lon]);
                             const markerEl = state.userMarker.getElement();
@@ -426,7 +435,7 @@
             state.routeCtrl.on('routingerror', handleRouteError);
         }
 
-        // --- PASTE & AUTO-LOAD ENGINE (RESTORED TO FULL BASELINE) ---
+        // --- PASTE & AUTO-LOAD ENGINE ---
         window.handlePasteAndLoad = async function() {
             const statusEl = document.getElementById('route-status');
             const btn = document.getElementById('gmaps-paste-btn');
@@ -696,7 +705,7 @@
             return arr[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
-        // --- AUDIO ENGINE (RESTORED TO FULL BASELINE) ---
+        // --- AUDIO ENGINE ---
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const btn = document.getElementById('audio-btn');
@@ -729,7 +738,7 @@
             state.lastPing = Date.now();
         }
 
-        // --- CHARTING ENGINE (RESTORED WITH FULL TOOLTIPS) ---
+        // --- CHARTING ENGINE ---
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
@@ -768,8 +777,10 @@
             });
         }
 
-        // --- LOCAL DATA FETCHING (RESTORED TO FULL BASELINE) ---
+        // --- LOCAL DATA FETCHING ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
+            state.lastHudLat = lat; state.lastHudLon = lon;
+            
             if (!skipReverseGeo) {
                 fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
                     .then(r => r.json())
@@ -856,12 +867,15 @@
             localStorage.removeItem('ms_mode'); state.mode = 'auto'; runApp();
         }
 
-        // --- CORE RUN LOOP (RESTORED TO FULL BASELINE) ---
+        // --- CORE RUN LOOP ---
         function runApp() {
             requestWakeLock();
             startBackgroundTracking();
-            if (state.mode === 'manual' && state.coords.lat) {
-                initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false); 
+            
+            // FULLY RESTORED: Original Boot and Manual Fallback logic.
+            if (state.mode === 'manual' && state.coords && state.coords.lat) {
+                initMap(state.coords.lat, state.coords.lon); 
+                fetchData(state.coords.lat, state.coords.lon, false); 
             } else if (state.autoCoords) {
                 initMap(state.autoCoords.lat, state.autoCoords.lon); 
                 if (state.isMapLocked) state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], {animate: true});
@@ -869,7 +883,8 @@
             } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(p => { 
                     state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
-                    initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); 
+                    initMap(p.coords.latitude, p.coords.longitude); 
+                    fetchData(p.coords.latitude, p.coords.longitude, false); 
                 }, () => {
                     document.getElementById('main-status-card').className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden";
                     document.getElementById('status-icon').className = 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange';
@@ -882,7 +897,16 @@
         }
 
         if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
-        runApp(); setInterval(runApp, 60000); 
+        
+        runApp(); 
+
+        // RESTORED: Fixed the interval to fetch data safely using cached coordinates without prompting GPS again.
+        setInterval(() => { 
+            if (state.autoCoords) { 
+                fetchData(state.autoCoords.lat, state.autoCoords.lon, true); 
+            } 
+        }, 60000); 
+
     </script>
 </body>
 </html>
