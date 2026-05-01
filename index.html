@@ -265,6 +265,7 @@
             routeCtrl: null,
             gpsWatchId: null, 
             userMarker: null, 
+            interceptMarkers: [], // NEW: Track the on-map nodes
             userAuth: null
         };
 
@@ -433,6 +434,14 @@
             }).addTo(state.mapObj);
             state.routeCtrl.on('routesfound', updateRouteStatus);
             state.routeCtrl.on('routingerror', handleRouteError);
+        }
+
+        // --- MAP MARKER UTILS ---
+        function clearInterceptMarkers() {
+            if (state.interceptMarkers && state.mapObj) {
+                state.interceptMarkers.forEach(marker => state.mapObj.removeLayer(marker));
+                state.interceptMarkers = [];
+            }
         }
 
         // --- PASTE & AUTO-LOAD ENGINE ---
@@ -609,6 +618,9 @@
             document.getElementById('route-timeline-card').classList.remove('hidden');
             container.innerHTML = `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`;
 
+            // Wipe existing UI map markers before plotting new path nodes
+            clearInterceptMarkers();
+
             const totalTime = route.summary.totalTime;
             const totalDistance = route.summary.totalDistance;
             const coords = route.coordinates;
@@ -646,6 +658,25 @@
                 container.innerHTML = `<div class="w-full text-center py-4 text-gray-600 uppercase tracking-widest font-bold">Target Reached In < 10 Mins</div>`;
                 return;
             }
+
+            // Plot the visual nodes on the Leaflet map layer
+            waypoints.forEach(wp => {
+                const marker = L.marker([wp.lat, wp.lon], {
+                    icon: L.divIcon({
+                        className: 'bg-transparent',
+                        html: `
+                            <div class="relative flex items-center justify-center -ml-3 -mt-3">
+                                <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
+                                <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
+                                <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">+${wp.offset}m</div>
+                            </div>
+                        `,
+                        iconSize: [0, 0]
+                    }),
+                    zIndexOffset: 500
+                }).addTo(state.mapObj);
+                state.interceptMarkers.push(marker);
+            });
 
             try {
                 // Batch query all waypoints in a single network request
@@ -860,6 +891,7 @@
             state.targetCoords = null; 
             localStorage.removeItem('ms_targetCoords'); 
             window.toggleMapLock(); 
+            clearInterceptMarkers(); // Wipe markers on reset
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
             document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
