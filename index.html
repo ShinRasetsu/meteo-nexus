@@ -175,9 +175,10 @@
     <!-- SECTION 3: ROUTE INTELLIGENCE -->
     <div id="route-timeline-card" class="hidden lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2">
         <div class="mb-4 flex items-center justify-between">
-            <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (1KM Intervals)</span>
+            <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (Vertical Tactical Stack)</span>
         </div>
-        <div id="timeline-container" class="flex overflow-x-auto gap-4 pb-4 no-select scroll-smooth">
+        <!-- CHANGED: Replaced flex-col gap to standard container for dynamic line connections -->
+        <div id="timeline-container" class="pb-2 no-select">
             <!-- Intercept Nodes injected here -->
         </div>
     </div>
@@ -266,7 +267,9 @@
             gpsWatchId: null, 
             userMarker: null, 
             interceptMarkers: [], // Tracks the on-map 1KM nodes
-            userAuth: null
+            userAuth: null,
+            lastIntelFetch: 0, // Throttles API calls
+            lastCheckpoints: [] // NEW: Tracks history for the "PAST" timeline nodes
         };
 
         // --- AUTHENTICATION ---
@@ -318,7 +321,7 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        // Delta check to avoid unnecessary rapid API calls, handled naturally by interval fallback if stationary
+                        // Delta check to avoid unnecessary rapid API calls
                         const distMoved = Math.sqrt(Math.pow(lat - state.lastHudLat, 2) + Math.pow(lon - state.lastHudLon, 2));
                         if (distMoved > 0.002 || state.lastHudLat === 0) {
                             fetchData(lat, lon, false);
@@ -346,13 +349,25 @@
                         if (state.targetCoords) {
                             if (!state.routeCtrl) {
                                 initRoute();
+                                state.lastCheckpoints = [{ lat, lon }]; // Initialize past tracking on route start
                             } else {
                                 const waypoints = state.routeCtrl.getWaypoints();
                                 if(waypoints.length > 0 && waypoints[0]) {
                                     waypoints[0].latLng = L.latLng(lat, lon);
                                     state.routeCtrl.setWaypoints(waypoints);
                                 }
+                                // Update past checkpoints memory every 5km
+                                if (state.lastCheckpoints.length > 0) {
+                                    const lastCp = state.lastCheckpoints[state.lastCheckpoints.length - 1];
+                                    const distToLast = L.latLng(lat, lon).distanceTo(L.latLng(lastCp.lat, lastCp.lon));
+                                    if (distToLast >= 5000) {
+                                        state.lastCheckpoints.push({ lat, lon });
+                                        if (state.lastCheckpoints.length > 2) state.lastCheckpoints.shift();
+                                    }
+                                }
                             }
+                        } else {
+                            state.lastCheckpoints = []; // Reset if no route
                         }
                         
                         if (state.isMapLocked) {
@@ -602,8 +617,12 @@
             statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> INTERCEPT | DIST: ${distKm} KM | ETA: ${timeStr}`;
             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)]";
 
-            // Trigger the Distance-Based En-Route Intelligence Feature
-            fetchRouteIntelligence(route);
+            // Prevent API spam: Update Intelligence only every 5 minutes (300000ms)
+            const now = Date.now();
+            if (!state.lastIntelFetch || now - state.lastIntelFetch > 300000) {
+                state.lastIntelFetch = now;
+                fetchRouteIntelligence(route);
+            }
         }
 
         function handleRouteError() {
@@ -612,26 +631,27 @@
             statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
         }
 
-        // --- EN-ROUTE FORECASTING (1KM SPATIAL INTERVALS) ---
+        // --- EN-ROUTE FORECASTING (VERTICAL TACTICAL STACK) ---
         async function fetchRouteIntelligence(route) {
             const container = document.getElementById('timeline-container');
             document.getElementById('route-timeline-card').classList.remove('hidden');
+            
+            document.querySelector('#route-timeline-card span').innerHTML = `<i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (Vertical Tactical Stack)`
+            
             container.innerHTML = `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`;
 
-            // Wipe existing UI map markers before plotting new path nodes
             clearInterceptMarkers();
 
             const totalDistance = route.summary.totalDistance;
             const coords = route.coordinates;
             
-            const intervalDist = 1000; // Exact distance interval: 1000 meters = 1 km
-            const maxNodes = 10;       // Display up to 10 nodes (10 km ahead of current position)
-            const waypoints = [];
+            const intervalDist = 5000; // 5KM Intervals
+            // Limit to max 3 future nodes so the vertical stack fits cleanly on screen
+            const maxNodes = Math.min(Math.floor(totalDistance / intervalDist), 3); 
+            const upcomingWaypoints = [];
             
             for (let i = 1; i <= maxNodes; i++) {
                 const targetDist = i * intervalDist;
-                
-                // Break if the 1KM checkpoint extends past the destination
                 if (targetDist > totalDistance) break;
                 
                 let currentDist = 0;
@@ -652,35 +672,56 @@
                     }
                     currentDist += d;
                 }
-                waypoints.push({ lat: foundPoint.lat, lon: foundPoint.lng, offset: i });
+                upcomingWaypoints.push({ lat: foundPoint.lat, lon: foundPoint.lng, offset: (targetDist / 1000).toFixed(0), type: 'upcoming' });
             }
 
-            if (waypoints.length === 0) {
-                container.innerHTML = `<div class="w-full text-center py-4 text-gray-600 uppercase tracking-widest font-bold">Target Reached In < 1 KM</div>`;
+            // CRITICAL UI UPGRADE: Reverse the array. Top = Furthest Future.
+            upcomingWaypoints.reverse();
+
+            // Inject Current Node
+            const currentWaypoint = { lat: coords[0].lat, lon: coords[0].lng, offset: 0, type: 'current' };
+
+            // Inject Past Nodes dynamically tracked from GPS memory
+            const pastWaypoints = [];
+            const reversedPast = [...state.lastCheckpoints].reverse();
+            reversedPast.forEach(cp => {
+                const dist = L.latLng(coords[0].lat, coords[0].lng).distanceTo(L.latLng(cp.lat, cp.lon));
+                if (dist > 1500) { // Only show if we actually drove past it (>1.5KM)
+                    pastWaypoints.push({ lat: cp.lat, lon: cp.lon, offset: -(dist/1000).toFixed(0), type: 'past' });
+                }
+            });
+
+            // Final Render Array: [Future] -> [Current] -> [Past]
+            const waypoints = [...upcomingWaypoints, currentWaypoint, ...pastWaypoints];
+
+            if (waypoints.length <= 1) {
+                container.innerHTML = `<div class="w-full text-center py-4 text-gray-600 uppercase tracking-widest font-bold">Target Reached In < 5 KM</div>`;
                 return;
             }
 
-            // Plot the visual nodes on the Leaflet map layer dynamically as distance markers
+            // Plot only the upcoming map markers
             waypoints.forEach(wp => {
-                const marker = L.marker([wp.lat, wp.lon], {
-                    icon: L.divIcon({
-                        className: 'bg-transparent',
-                        html: `
-                            <div class="relative flex items-center justify-center -ml-3 -mt-3">
-                                <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
-                                <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
-                                <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">+${wp.offset}km</div>
-                            </div>
-                        `,
-                        iconSize: [0, 0]
-                    }),
-                    zIndexOffset: 500
-                }).addTo(state.mapObj);
-                state.interceptMarkers.push(marker);
+                if(wp.type === 'upcoming') {
+                    const marker = L.marker([wp.lat, wp.lon], {
+                        icon: L.divIcon({
+                            className: 'bg-transparent',
+                            html: `
+                                <div class="relative flex items-center justify-center -ml-3 -mt-3">
+                                    <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
+                                    <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
+                                    <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">+${wp.offset}km</div>
+                                </div>
+                            `,
+                            iconSize: [0, 0]
+                        }),
+                        zIndexOffset: 500
+                    }).addTo(state.mapObj);
+                    state.interceptMarkers.push(marker);
+                }
             });
 
             try {
-                // Batch query all exact 1KM interval coordinates in a single request
+                // Batch query
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
                 const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&timezone=auto`);
@@ -688,7 +729,8 @@
                 
                 const weatherPoints = Array.isArray(data) ? data : [data];
                 
-                container.innerHTML = '';
+                container.innerHTML = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
+                
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
                     const code = p.current.weather_code;
@@ -696,27 +738,82 @@
                     const temp = Math.round(p.current.temperature_2m);
                     const prec = p.current.precipitation || 0;
                     
-                    let bgClass = "bg-surface-800 border-surface-700";
+                    let bgClass = "bg-surface-800";
                     let textClass = "text-gray-400";
-                    let iconClass = "text-white";
+                    let iconClass = "text-gray-300";
+                    let borderLeft = "border-surface-600";
+                    let titleBadge = "";
+                    let glow = "";
+                    let displayOffset = "";
+                    let displayLabel = "";
 
-                    if (prec > 0.1) {
-                        bgClass = "bg-brand-red/10 border-brand-red/40";
-                        textClass = "text-brand-red";
-                        iconClass = "text-brand-red";
+                    if (wp.type === 'upcoming') {
+                        borderLeft = "border-brand-teal";
+                        displayOffset = `+${wp.offset}`;
+                        displayLabel = "KM AHEAD";
+                        // Flag the immediate next node visually
+                        if (idx === upcomingWaypoints.length - 1) {
+                            titleBadge = `<span class="bg-brand-teal text-black text-[9px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Next Node</span>`;
+                            glow = "ring-1 ring-brand-teal/30 shadow-[0_0_15px_rgba(20,184,166,0.15)]";
+                        }
+                        if (prec > 0.1) {
+                            bgClass = "bg-brand-red/10";
+                            textClass = "text-brand-red";
+                            iconClass = "text-brand-red";
+                            borderLeft = "border-brand-red";
+                        }
+                    } else if (wp.type === 'current') {
+                        // Current Position gets massive visual priority in the middle of the stack
+                        bgClass = "bg-brand-blue/10";
+                        borderLeft = "border-brand-blue";
+                        titleBadge = `<span class="bg-brand-blue text-black text-[9px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-crosshairs"></i> Current Pos</span>`;
+                        glow = "ring-2 ring-brand-blue shadow-[0_0_20px_rgba(59,130,246,0.2)] scale-[1.02] my-1";
+                        iconClass = "text-brand-blue";
+                        textClass = "text-brand-blue";
+                        displayOffset = "0";
+                        displayLabel = "LIVE";
+                    } else if (wp.type === 'past') {
+                        // Past gets greyed out
+                        bgClass = "bg-surface-900";
+                        borderLeft = "border-surface-700";
+                        glow = "opacity-60 grayscale";
+                        displayOffset = `${wp.offset}`;
+                        displayLabel = "KM PAST";
                     }
 
                     container.innerHTML += `
-                        <div class="flex-shrink-0 w-36 ${bgClass} border-2 rounded-xl p-4 flex flex-col items-center text-center transition-all">
-                            <span class="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">+${wp.offset} KM AHEAD</span>
-                            <i class="fa-solid ${icon} ${iconClass} text-3xl mb-3"></i>
-                            <div class="text-2xl font-black text-white font-mono">${temp}°</div>
-                            <div class="mt-2 text-[10px] font-bold ${textClass} uppercase tracking-tighter">
-                                ${prec > 0 ? `<i class="fa-solid fa-droplet text-[8px]"></i> ${prec}mm` : 'Dry Path'}
+                        <div class="w-full ${bgClass} border-l-4 ${borderLeft} rounded-r-xl p-3 md:p-4 flex items-center justify-between transition-all ${glow} z-10 shadow-lg">
+                            <div class="flex items-center gap-4">
+                                <div class="w-12 h-12 md:w-14 md:h-14 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0">
+                                    <i class="fa-solid ${icon} ${iconClass} text-xl md:text-2xl"></i>
+                                </div>
+                                <div class="flex flex-col text-left">
+                                    ${titleBadge}
+                                    <div class="flex items-baseline gap-2 mt-0.5">
+                                        <span class="text-xl md:text-2xl font-black text-white font-mono">${temp}°</span>
+                                        <span class="text-[10px] md:text-xs font-bold ${textClass} uppercase tracking-tighter">
+                                            ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'CLEAR'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="text-right flex flex-col items-end justify-center">
+                                 <span class="text-lg md:text-xl font-black uppercase tracking-widest text-white">${displayOffset}</span>
+                                 <span class="text-[10px] md:text-xs font-bold uppercase tracking-widest text-gray-500">${displayLabel}</span>
                             </div>
                         </div>
                     `;
+
+                    // Inject vertical timeline connector lines
+                    if (idx < weatherPoints.length - 1) {
+                        let lineCol = wp.type === 'upcoming' ? 'bg-brand-teal/30' : 'bg-surface-700';
+                        if (wp.type === 'current') lineCol = 'bg-brand-blue/30';
+                        container.innerHTML += `<div class="w-1.5 h-6 ${lineCol} -my-1 z-0 rounded-full"></div>`;
+                    }
                 });
+                
+                container.innerHTML += '</div>';
+
             } catch (err) {
                 container.innerHTML = `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`;
             }
@@ -893,6 +990,8 @@
             localStorage.removeItem('ms_targetCoords'); 
             window.toggleMapLock(); 
             clearInterceptMarkers(); // Wipe markers on reset
+            state.lastIntelFetch = 0; // Reset throttle
+            state.lastCheckpoints = []; // Reset tracked past history
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
             document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
