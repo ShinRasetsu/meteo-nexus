@@ -53,6 +53,7 @@
 
         /* Leaflet specific overrides for HUD look */
         .leaflet-routing-container { display: none !important; } /* Hide default text directions */
+        .leaflet-control-scale-line { background: rgba(17, 17, 17, 0.9) !important; color: #14b8a6 !important; border: 1px solid #2a2a2a !important; border-top: none !important; text-shadow: none !important; box-shadow: none !important; border-bottom: 2px solid #14b8a6 !important; border-left: 2px solid #14b8a6 !important; border-right: 2px solid #14b8a6 !important; border-radius: 0 0 4px 4px; font-weight: bold; font-family: 'JetBrains Mono', monospace; }
         
         /* Smooth transition for HUD cards */
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
@@ -165,9 +166,12 @@
             </div>
             
             <div id="hud-map" class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
-                <button onclick="toggleMapLock()" id="map-lock-btn" class="absolute bottom-6 right-6 z-[1000] bg-surface-800 border-4 border-brand-teal text-brand-teal p-3 md:p-4 rounded-full shadow-[0_0_15px_rgba(20,184,166,0.3)] hover:bg-brand-teal hover:text-black transition-all group">
-                    <i class="fa-solid fa-location-crosshairs text-xl md:text-2xl group-hover:scale-110 transition-transform"></i>
-                </button>
+                <!-- Tactical View Controls -->
+                <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center">
+                    <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
+                        <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -268,7 +272,10 @@
             interceptMarkers: [], 
             userAuth: null,
             lastIntelFetch: 0, 
-            lastCheckpoints: [] 
+            lastCheckpoints: [],
+            tacticalMode: 1, // 0: Route View, 1: 200m, 2: 100m, 3: 50m, 4: 20m
+            scaleCtrl: null,
+            currentRouteCoords: null
         };
 
         // --- AUTHENTICATION ---
@@ -369,8 +376,9 @@
                             state.lastCheckpoints = []; // Reset if no route
                         }
                         
-                        if (state.isMapLocked) {
-                            state.mapObj.panTo([lat, lon], { animate: true, duration: 1 });
+                        if (state.isMapLocked && state.tacticalMode > 0) {
+                            const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
+                            state.mapObj.setView([lat, lon], targetZoom, { animate: true });
                             if (!state.targetCoords) {
                                 statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
                                 statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
@@ -386,15 +394,54 @@
             );
         }
 
-        window.toggleMapLock = function() {
-            state.isMapLocked = true;
-            const btn = document.getElementById('map-lock-btn');
-            btn.classList.replace('border-surface-600', 'border-brand-teal');
-            btn.classList.replace('text-gray-500', 'text-brand-teal');
-            btn.classList.add('shadow-[0_0_15px_rgba(20,184,166,0.3)]');
+        // TACTICAL UI: Master Button Cycler
+        window.toggleTacticalMode = function() {
+            if (!state.mapObj) return;
+
+            // If map is unlocked (user dragged it), snap back to the current locked mode instead of cycling
+            if (!state.isMapLocked) {
+                if (state.tacticalMode === 0) state.tacticalMode = 1; // Default to 200m if returning from route overview
+                window.applyTacticalMode();
+                return;
+            }
+
+            // Cycle: 1 (200m) -> 2 (100m) -> 3 (50m) -> 4 (20m) -> 0 (Route Overview) -> 1...
+            state.tacticalMode = (state.tacticalMode + 1) % 5;
+            window.applyTacticalMode();
+        }
+
+        window.applyTacticalMode = function() {
+            if (!state.mapObj) return;
+            const btn = document.getElementById('tactical-btn');
             
-            if (state.autoCoords && state.mapObj) {
-                state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], 16, {animate: true});
+            if (state.tacticalMode > 0) {
+                // Tracking Mode (Locked)
+                state.isMapLocked = true;
+                if (state.scaleCtrl) state.scaleCtrl.addTo(state.mapObj);
+                
+                const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
+                const scaleLabels = ["", "200m", "100m", "50m", "20m"];
+                
+                btn.innerHTML = `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`;
+                btn.className = "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono";
+                
+                if (state.autoCoords) {
+                    state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: true});
+                }
+            } else {
+                // Route Overview Mode (Unlocked)
+                state.isMapLocked = false;
+                if (state.scaleCtrl) state.scaleCtrl.remove();
+                
+                btn.innerHTML = `<i class="fa-solid fa-route text-lg md:text-xl"></i>`;
+                btn.className = "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono";
+
+                if (state.currentRouteCoords && state.currentRouteCoords.length > 0) {
+                    const bounds = L.latLngBounds(state.currentRouteCoords);
+                    state.mapObj.fitBounds(bounds, { padding: [50, 50], animate: true });
+                } else if (state.autoCoords) {
+                    state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], 14, {animate: true});
+                }
             }
         }
 
@@ -405,12 +452,14 @@
                 attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
             }).addTo(state.mapObj);
 
+            // Initialize the scale control
+            state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
+
             state.mapObj.on('dragstart', () => {
                 state.isMapLocked = false;
-                const btn = document.getElementById('map-lock-btn');
-                btn.classList.replace('border-brand-teal', 'border-surface-600');
-                btn.classList.replace('text-brand-teal', 'text-gray-500');
-                btn.classList.remove('shadow-[0_0_15px_rgba(20,184,166,0.3)]');
+                const btn = document.getElementById('tactical-btn');
+                btn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`;
+                btn.className = "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono";
             });
 
             state.userMarker = L.marker([lat, lon], {
@@ -427,6 +476,9 @@
                 }),
                 zIndexOffset: 1000
             }).addTo(state.mapObj);
+
+            // Apply default mode 1 (200m)
+            window.applyTacticalMode();
         }
 
         function initRoute() {
@@ -615,6 +667,9 @@
             const statusEl = document.getElementById('route-status');
             statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> INTERCEPT | DIST: ${distKm} KM | ETA: ${timeStr}`;
             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)]";
+
+            // Store route coordinates for the Route View bounding box
+            state.currentRouteCoords = route.coordinates;
 
             // Prevent API spam: Update Intelligence only every 5 minutes (300000ms)
             const now = Date.now();
@@ -993,15 +1048,22 @@
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
             localStorage.removeItem('ms_targetCoords'); 
-            window.toggleMapLock(); 
             clearInterceptMarkers(); // Wipe markers on reset
             state.lastIntelFetch = 0; // Reset throttle
             state.lastCheckpoints = []; // Reset tracked past history
+            state.currentRouteCoords = null; // Clear cached full bounds
+            
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
             document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
             document.getElementById('route-timeline-card').classList.add('hidden');
-            localStorage.removeItem('ms_mode'); state.mode = 'auto'; runApp();
+            localStorage.removeItem('ms_mode'); state.mode = 'auto'; 
+            
+            // Re-engage GPS Lock
+            state.tacticalMode = 1;
+            window.applyTacticalMode();
+            
+            runApp();
         }
 
         // --- CORE RUN LOOP ---
@@ -1014,7 +1076,9 @@
                 fetchData(state.coords.lat, state.coords.lon, false); 
             } else if (state.autoCoords) {
                 initMap(state.autoCoords.lat, state.autoCoords.lon); 
-                if (state.isMapLocked) state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], {animate: true});
+                if (state.isMapLocked) {
+                    window.applyTacticalMode();
+                }
                 fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
             } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(p => { 
