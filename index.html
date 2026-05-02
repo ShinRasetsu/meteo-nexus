@@ -833,22 +833,39 @@
             }
 
             try {
-                // Batch query WEATHER API specifically for the restricted UI stack list only
+                // Batch query WEATHER API - fetching hourly arrays to extract extended metrics (UV, Rain Prob) for the CURRENT hour
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
-                const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&timezone=auto`);
+                const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=temperature_2m,weather_code,precipitation,precipitation_probability,uv_index&timezone=auto`);
                 const data = await res.json();
                 
                 const weatherPoints = Array.isArray(data) ? data : [data];
+                const nowIso = new Date().toISOString().slice(0, 13);
                 
                 container.innerHTML = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
-                    const code = p.current.weather_code;
+                    
+                    // Strict lock to CURRENT hour. ETA interpolation removed.
+                    let baseNowIndex = p.hourly.time.findIndex(t => t.startsWith(nowIso));
+                    if (baseNowIndex === -1) baseNowIndex = new Date().getHours();
+                    const safeIdx = Math.min(baseNowIndex, p.hourly.time.length - 1);
+                    
+                    // Extract precise intelligence for the current hour at that location
+                    const code = p.hourly.weather_code[safeIdx];
                     const icon = WMO_ICONS[code] || 'fa-cloud';
-                    const temp = Math.round(p.current.temperature_2m);
-                    const prec = p.current.precipitation || 0;
+                    const temp = Math.round(p.hourly.temperature_2m[safeIdx]);
+                    const prec = p.hourly.precipitation[safeIdx] || 0;
+                    const rainProb = p.hourly.precipitation_probability[safeIdx] || 0;
+                    const uv = p.hourly.uv_index[safeIdx] || 0;
+                    
+                    // Tactical Classifications
+                    const isWet = prec > 0 || rainProb > 40;
+                    const pathText = isWet ? 'WET TARMAC' : 'DRY TARMAC';
+                    const pathColor = isWet ? 'text-brand-blue font-black' : 'text-brand-success';
+                    const pathIcon = isWet ? 'fa-water' : 'fa-road';
+                    const uvColor = uv >= 8 ? 'text-brand-red font-black' : (uv >= 5 ? 'text-brand-orange' : 'text-brand-purple');
                     
                     let bgClass = "bg-surface-800";
                     let textClass = "text-gray-400";
@@ -869,7 +886,7 @@
                             titleBadge = `<span class="bg-brand-teal text-black text-[9px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Next Node</span>`;
                             glow = "ring-1 ring-brand-teal/30 shadow-[0_0_15px_rgba(20,184,166,0.15)]";
                         }
-                        if (prec > 0.1) {
+                        if (prec > 0.1 || rainProb >= 50) { // Upgraded danger detection
                             bgClass = "bg-brand-red/10";
                             textClass = "text-brand-red";
                             iconClass = "text-brand-red";
@@ -895,24 +912,33 @@
                     }
 
                     container.innerHTML += `
-                        <div class="w-full ${bgClass} border-l-4 ${borderLeft} rounded-r-xl p-3 md:p-4 flex items-center justify-between transition-all ${glow} z-10 shadow-lg">
-                            <div class="flex items-center gap-4">
-                                <div class="w-12 h-12 md:w-14 md:h-14 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0">
-                                    <i class="fa-solid ${icon} ${iconClass} text-xl md:text-2xl"></i>
-                                </div>
-                                <div class="flex flex-col text-left">
-                                    ${titleBadge}
-                                    <div class="flex items-baseline gap-2 mt-0.5">
-                                        <span class="text-xl md:text-2xl font-black text-white font-mono">${temp}°</span>
-                                        <span class="text-[10px] md:text-xs font-bold ${textClass} uppercase tracking-tighter">
-                                            ${prec > 0 ? `<i class=\"fa-solid fa-droplet\"></i> ${prec}mm` : 'CLEAR'}
-                                        </span>
+                        <div class="w-full ${bgClass} border-l-4 ${borderLeft} rounded-r-xl shadow-lg transition-all ${glow} z-10 flex flex-col overflow-hidden">
+                            <div class="p-3 md:p-4 flex items-center justify-between">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-12 h-12 md:w-14 md:h-14 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0">
+                                        <i class="fa-solid ${icon} ${iconClass} text-xl md:text-2xl"></i>
+                                    </div>
+                                    <div class="flex flex-col text-left">
+                                        ${titleBadge}
+                                        <div class="flex items-baseline gap-2 mt-0.5">
+                                            <span class="text-xl md:text-2xl font-black text-white font-mono">${temp}°</span>
+                                            <span class="text-[10px] md:text-xs font-bold ${textClass} uppercase tracking-tighter">
+                                                ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'NO RAIN'}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
+                                <div class="text-right flex flex-col items-end justify-center">
+                                     <span class="text-lg md:text-xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
+                                     <span class="text-[10px] md:text-xs font-bold uppercase tracking-widest text-gray-500">${displayLabel}</span>
+                                </div>
                             </div>
-                            <div class="text-right flex flex-col items-end justify-center">
-                                 <span class="text-lg md:text-xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
-                                 <span class="text-[10px] md:text-xs font-bold uppercase tracking-widest text-gray-500">${displayLabel}</span>
+                            
+                            <!-- ADVANCED TELEMETRY BANNER -->
+                            <div class="bg-black/50 px-3 py-2 md:px-4 flex items-center justify-between text-[10px] md:text-[11px] font-mono font-bold text-gray-400 uppercase tracking-widest border-t border-surface-700/50">
+                                 <span class="${pathColor} flex items-center gap-1.5"><i class="fa-solid ${pathIcon}"></i> ${pathText}</span>
+                                 <span class="${rainProb >= 40 ? 'text-brand-blue font-black' : ''} flex items-center gap-1.5"><i class="fa-solid fa-cloud-rain"></i> ${rainProb}% CHANCE</span>
+                                 <span class="${uvColor} flex items-center gap-1.5"><i class="fa-solid fa-sun"></i> UV ${uv}</span>
                             </div>
                         </div>
                     `;
