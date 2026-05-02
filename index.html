@@ -836,19 +836,20 @@
                 // Batch query WEATHER API - fetching hourly arrays to extract extended metrics (UV, Rain Prob) for the CURRENT hour
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
-                const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=temperature_2m,weather_code,precipitation,precipitation_probability,uv_index&timezone=auto`);
+                // Added current=time to sync exact local API hour
+                const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m&hourly=temperature_2m,weather_code,precipitation,precipitation_probability,uv_index&timezone=auto`);
                 const data = await res.json();
                 
                 const weatherPoints = Array.isArray(data) ? data : [data];
-                const nowIso = new Date().toISOString().slice(0, 13);
                 
                 container.innerHTML = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
                     
-                    // Strict lock to CURRENT hour. ETA interpolation removed.
-                    let baseNowIndex = p.hourly.time.findIndex(t => t.startsWith(nowIso));
+                    // Strict lock to CURRENT hour using API's native local time string to prevent UTC offsets
+                    const apiCurrentTime = p.current ? p.current.time.substring(0, 13) : null;
+                    let baseNowIndex = apiCurrentTime ? p.hourly.time.findIndex(t => t.startsWith(apiCurrentTime)) : -1;
                     if (baseNowIndex === -1) baseNowIndex = new Date().getHours();
                     const safeIdx = Math.min(baseNowIndex, p.hourly.time.length - 1);
                     
@@ -858,7 +859,7 @@
                     const temp = Math.round(p.hourly.temperature_2m[safeIdx]);
                     const prec = p.hourly.precipitation[safeIdx] || 0;
                     const rainProb = p.hourly.precipitation_probability[safeIdx] || 0;
-                    const uv = p.hourly.uv_index[safeIdx] || 0;
+                    const uv = (p.hourly.uv_index[safeIdx] || 0).toFixed(1);
                     
                     // Tactical Classifications
                     const isWet = prec > 0 || rainProb > 40;
