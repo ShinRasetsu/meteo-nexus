@@ -177,7 +177,8 @@
         
         <!-- Map Container Decoupled for 3D Track-Up Rotation -->
         <div class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
-            <div id="hud-map" class="w-full h-full absolute inset-0 transition-transform duration-500 ease-linear origin-center"></div>
+            <!-- Oversized container to handle rotation natively without CSS pixel stretching -->
+            <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] transition-transform duration-500 ease-linear origin-center"></div>
             
             <!-- Live Telemetry Overlays for Driver Reference -->
             <div class="absolute top-4 left-4 z-[1000] flex flex-col gap-2 pointer-events-none">
@@ -471,12 +472,11 @@
                             
                             const mapEl = document.getElementById('hud-map');
                             if (state.tacticalMode === 4) { 
-                                // 20m Tactical zoom -> Engage Track-Up Map Rotation
-                                // Scale 1.5 prevents black corners from showing when square map is rotated
-                                mapEl.style.transform = `scale(1.5) rotate(${-state.cumulativeHeading}deg)`;
+                                // 20m Tactical zoom -> Engage Track-Up Map Rotation natively
+                                mapEl.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
                             } else {
                                 // Standard North-Up
-                                mapEl.style.transform = `scale(1) rotate(0deg)`;
+                                mapEl.style.transform = `rotate(0deg)`;
                             }
                             
                             if (!state.targetCoords) {
@@ -527,9 +527,9 @@
                 btn.className = "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono";
                 
                 if (state.tacticalMode === 4) {
-                    mapEl.style.transform = `scale(1.5) rotate(${-state.cumulativeHeading}deg)`;
+                    mapEl.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
                 } else {
-                    mapEl.style.transform = `scale(1) rotate(0deg)`;
+                    mapEl.style.transform = `rotate(0deg)`;
                 }
 
                 if (state.autoCoords) {
@@ -540,7 +540,7 @@
                 state.isMapLocked = false;
                 if (state.scaleCtrl) state.scaleCtrl.remove();
                 
-                mapEl.style.transform = `scale(1) rotate(0deg)`; // Revert to North-Up
+                mapEl.style.transform = `rotate(0deg)`; // Revert to North-Up
                 
                 btn.innerHTML = `<i class="fa-solid fa-route text-lg md:text-xl"></i>`;
                 btn.className = "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono";
@@ -558,9 +558,9 @@
             if(state.mapObj) return;
             state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
             
-            // REFACTORED: Swap to standard high-density OSM tiles for detailed street clarity
+            // REFACTORED: High-DPR Retina Detection for razor sharp map renders
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OSM', maxZoom: 19
+                attribution: '© OSM', maxZoom: 19, detectRetina: true
             }).addTo(state.mapObj);
 
             // Initialize the scale control
@@ -570,7 +570,7 @@
                 state.isMapLocked = false;
                 
                 // Instantly break out of 3D Track-Up rotation so dragging doesn't feel disjointed
-                document.getElementById('hud-map').style.transform = `scale(1) rotate(0deg)`;
+                document.getElementById('hud-map').style.transform = `rotate(0deg)`;
 
                 const btn = document.getElementById('tactical-btn');
                 btn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`;
