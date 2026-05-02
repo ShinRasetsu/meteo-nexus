@@ -558,11 +558,13 @@
             if(state.mapObj) return;
             state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
             
-            // REFACTORED: High-DPR Retina Detection + maxNativeZoom to prevent 404 errors at 20m scale
+            // REFACTORED: High-DPR Retina Detection clamped at maxNativeZoom: 18.
+            // This forces Leaflet to request max Zoom 19 (18 + 1 retina offset) from the server, 
+            // completely avoiding the 404 errors at the 20m scale.
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', 
                 maxZoom: 22, 
-                maxNativeZoom: 19, 
+                maxNativeZoom: 18, 
                 detectRetina: true
             }).addTo(state.mapObj);
 
