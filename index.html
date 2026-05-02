@@ -402,7 +402,9 @@
                         // Map Orientation & Centering Logic
                         if (state.isMapLocked && state.tacticalMode > 0) {
                             const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                            state.mapObj.setView([lat, lon], targetZoom, { animate: true });
+                            
+                            // FIX: Disable animation for smooth rapid live tracking and prevent map jumpiness
+                            state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
                             
                             const mapEl = document.getElementById('hud-map');
                             if (state.tacticalMode === 4) { 
@@ -468,7 +470,7 @@
                 }
 
                 if (state.autoCoords) {
-                    state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: true});
+                    state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: false});
                 }
             } else {
                 // Route Overview Mode (Unlocked)
@@ -536,7 +538,9 @@
                 waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
                 router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
                 lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
-                show: false, addWaypoints: false, fitSelectedRoutes: true,
+                show: false, addWaypoints: false, 
+                // FIX: Disabled fitSelectedRoutes to prevent the routing engine from forcefully zooming out the map every single GPS tick
+                fitSelectedRoutes: false, 
                 createMarker: function(i, wp) {
                     if (i === 0) return null; 
                     return L.marker(wp.latLng, {
@@ -901,7 +905,7 @@
                                     <div class="flex items-baseline gap-2 mt-0.5">
                                         <span class="text-xl md:text-2xl font-black text-white font-mono">${temp}°</span>
                                         <span class="text-[10px] md:text-xs font-bold ${textClass} uppercase tracking-tighter">
-                                            ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'CLEAR'}
+                                            ${prec > 0 ? `<i class=\"fa-solid fa-droplet\"></i> ${prec}mm` : 'CLEAR'}
                                         </span>
                                     </div>
                                 </div>
