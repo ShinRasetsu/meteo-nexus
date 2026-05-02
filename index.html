@@ -97,90 +97,96 @@
             <div id="weather-desc" class="mt-4 text-gray-300 font-mono text-sm md:text-lg font-bold bg-black/50 px-6 py-2 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
         </div>
 
-        <!-- Vital Metrics Grid -->
-        <div class="lg:col-span-7 grid grid-cols-2 md:grid-cols-3 gap-4">
+        <!-- REFACTORED: Unified Vital Metrics Panel (Grid Removed) -->
+        <div class="lg:col-span-7 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 md:p-8 flex flex-col justify-around gap-6">
             
-            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
-                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temp</span>
-                <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white">--</div>
-                <div class="text-xs font-bold text-gray-500 mt-2 tracking-widest uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
-            </div>
-
-            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
-                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind (km/h)</span>
-                <div id="metric-wind-speed" class="font-mono text-5xl md:text-6xl font-black text-white">--</div>
-                <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 justify-center tracking-widest uppercase">--</div>
-            </div>
-
-            <div class="bg-brand-teal/10 border-4 border-brand-teal/30 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
-                <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Model Sync</span>
-                <div id="metric-agree" class="font-mono text-5xl md:text-6xl font-black text-brand-teal">--</div>
-            </div>
-
-            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
-                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Humidity</span>
-                <div id="metric-hum" class="font-mono text-4xl md:text-5xl font-black text-white">--</div>
-            </div>
-
-            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center text-center">
-                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
-                <div id="metric-uv-val" class="font-mono text-4xl md:text-5xl font-black text-brand-purple">--</div>
-                <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 tracking-widest uppercase">--</div>
-            </div>
-
-            <div class="bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center">
-                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-3 text-center">Node Health</span>
-                <div class="grid grid-cols-2 gap-2 text-center font-mono text-xs">
-                    <div id="stat-eu" class="font-bold py-1 bg-surface-800 rounded border border-surface-700">EU</div>
-                    <div id="stat-us" class="font-bold py-1 bg-surface-800 rounded border border-surface-700">US</div>
-                    <div id="stat-de" class="font-bold py-1 bg-surface-800 rounded border border-surface-700">DE</div>
-                    <div id="stat-jp" class="font-bold py-1 bg-surface-800 rounded border border-surface-700">JP</div>
+            <!-- Row 1: Core Temperature & Sync -->
+            <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
+                <div>
+                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temperature</span>
+                    <div class="flex items-baseline gap-3">
+                        <div id="metric-temp" class="font-mono text-6xl md:text-7xl font-black text-white leading-none">--</div>
+                        <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Model Sync</span>
+                    <div id="metric-agree" class="font-mono text-5xl md:text-6xl font-black text-brand-teal leading-none">--</div>
                 </div>
             </div>
+
+            <!-- Row 2: Wind, Humidity & UV -->
+            <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
+                <div>
+                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind & Humidity</span>
+                    <div class="flex items-baseline gap-4">
+                        <div class="flex items-baseline gap-1">
+                            <span id="metric-wind-speed" class="font-mono text-4xl md:text-5xl font-black text-white leading-none">--</span>
+                            <span class="text-xs font-bold text-gray-500 uppercase">km/h</span>
+                        </div>
+                        <div id="metric-hum" class="font-mono text-3xl md:text-4xl font-black text-brand-blue leading-none">--</div>
+                    </div>
+                    <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
+                </div>
+                <div class="text-right">
+                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
+                    <div id="metric-uv-val" class="font-mono text-4xl md:text-5xl font-black text-brand-purple leading-none">--</div>
+                    <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
+                </div>
+            </div>
+
+            <!-- Row 3: Node Health Server Status -->
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
+                <div class="flex flex-wrap gap-2 md:gap-3 font-mono text-sm md:text-base w-full md:w-auto">
+                    <div id="stat-eu" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">EU</div>
+                    <div id="stat-us" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">US</div>
+                    <div id="stat-de" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">DE</div>
+                    <div id="stat-jp" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
+                </div>
+            </div>
+
         </div>
     </div>
 
     <!-- SECTION 2: TACTICAL MAP -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2">
-        <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
-            
-            <div class="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                    <span class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
-                    <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
-                </div>
-                
-                <div class="flex flex-wrap items-center gap-2">
-                    <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
-                        <i class="fa-solid fa-bolt"></i> <span>Paste Target</span>
-                    </button>
-                    
-                    <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
-                        <i class="fa-solid fa-xmark"></i> <span>Clear</span>
-                    </button>
-                    
-                    <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-4 py-2 rounded-xl transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
-                        <i class="fa-solid fa-diamond-turn-right"></i> <span>External Nav</span>
-                    </button>
-                </div>
+    <div class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2">
+        <div class="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                <span class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
+                <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             
-            <!-- Map Container Decoupled for 3D Track-Up Rotation -->
-            <div class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
-                <div id="hud-map" class="w-full h-full absolute inset-0 transition-transform duration-500 ease-linear origin-center"></div>
+            <div class="flex flex-wrap items-center gap-2">
+                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-bolt"></i> <span>Paste Target</span>
+                </button>
                 
-                <!-- Tactical View Controls stay outside rotating canvas -->
-                <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
-                    <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
-                        <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
-                    </button>
-                </div>
+                <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-xmark"></i> <span>Clear</span>
+                </button>
+                
+                <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-4 py-2 rounded-xl transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
+                    <i class="fa-solid fa-diamond-turn-right"></i> <span>External Nav</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Map Container Decoupled for 3D Track-Up Rotation -->
+        <div class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
+            <div id="hud-map" class="w-full h-full absolute inset-0 transition-transform duration-500 ease-linear origin-center"></div>
+            
+            <!-- Tactical View Controls stay outside rotating canvas -->
+            <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
+                <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
+                    <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
+                </button>
             </div>
         </div>
     </div>
 
     <!-- SECTION 3: ROUTE INTELLIGENCE -->
-    <div id="route-timeline-card" class="hidden lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2">
+    <div id="route-timeline-card" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (Vertical Tactical Stack)</span>
         </div>
@@ -190,14 +196,12 @@
     </div>
 
     <!-- SECTION 4: TELEMETRY PLOT -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-2 mb-8">
-        <div class="lg:col-span-12 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col">
-            <div class="mb-4 flex items-center justify-between">
-                <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
-            </div>
-            <div class="flex-grow w-full relative h-[350px]">
-                <canvas id="mainChart"></canvas>
-            </div>
+    <div class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8">
+        <div class="mb-4 flex items-center justify-between">
+            <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
+        </div>
+        <div class="flex-grow w-full relative h-[350px]">
+            <canvas id="mainChart"></canvas>
         </div>
     </div>
 
@@ -882,12 +886,12 @@
                     
                     const rainProb = (votes / 4) * 100;
                     
-                    // Tactical Classifications
+                    // Tactical Classifications (High-Contrast Styling Applied)
                     const isWet = prec > 0 || rainProb > 40;
                     const pathText = isWet ? 'WET TARMAC' : 'DRY TARMAC';
-                    const pathColor = isWet ? 'text-brand-blue font-black' : 'text-brand-success';
+                    const pathColor = isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-brand-success drop-shadow-md';
                     const pathIcon = isWet ? 'fa-water' : 'fa-road';
-                    const uvColor = uv >= 8 ? 'text-brand-red font-black' : (uv >= 5 ? 'text-brand-orange' : 'text-brand-purple');
+                    const uvColor = uv >= 8 ? 'text-brand-red font-black drop-shadow-md' : (uv >= 5 ? 'text-brand-orange drop-shadow-md' : 'text-brand-purple drop-shadow-md');
                     
                     let bgClass = "bg-surface-800";
                     let textClass = "text-gray-400";
@@ -933,21 +937,21 @@
                         displayLabel = `${wp.offsetKm} KM BEHIND`;
                     }
 
-                    // REFACTORED: High-Visibility Glanceable Layout for Riders
+                    // REFACTORED: Density Optimization - Larger text packed into smaller padding footprint
                     container.innerHTML += `
-                        <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-2xl transition-all ${glow} z-10 p-4 md:p-6 flex flex-col lg:flex-row items-center justify-between gap-4 overflow-hidden my-1">
+                        <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-2xl transition-all ${glow} z-10 p-3 md:p-4 flex flex-col lg:flex-row items-center justify-between gap-2 md:gap-4 overflow-hidden my-1">
                             
                             <!-- TOP/LEFT BLOCK: Core Metrics & Spatial Identification -->
-                            <div class="flex items-center justify-between w-full lg:w-auto gap-4">
-                                <div class="flex items-center gap-4 shrink-0">
-                                    <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
-                                        <i class="fa-solid ${icon} ${iconClass} text-2xl md:text-3xl"></i>
+                            <div class="flex items-center justify-between w-full lg:w-auto gap-3">
+                                <div class="flex items-center gap-3 shrink-0">
+                                    <div class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
+                                        <i class="fa-solid ${icon} ${iconClass} text-3xl md:text-4xl"></i>
                                     </div>
                                     <div class="flex flex-col text-left">
                                         ${titleBadge}
                                         <div class="flex items-baseline gap-2 mt-1">
-                                            <span class="text-3xl md:text-4xl font-black text-white font-mono">${temp}°</span>
-                                            <span class="text-sm md:text-base font-black ${textClass} uppercase tracking-tighter">
+                                            <span class="text-4xl md:text-5xl font-black text-white font-mono leading-none">${temp}°</span>
+                                            <span class="text-base md:text-xl font-black ${textClass} uppercase tracking-tighter">
                                                 ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'CLEAR'}
                                             </span>
                                         </div>
@@ -956,22 +960,22 @@
                                 
                                 <!-- Mobile Spatial Navigation (Right aligned on mobile) -->
                                 <div class="text-right flex flex-col items-end justify-center lg:hidden shrink-0">
-                                     <span class="text-xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
-                                     <span class="text-xs font-black uppercase tracking-widest text-gray-300">${displayLabel}</span>
+                                     <span class="text-2xl md:text-3xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
+                                     <span class="text-sm font-black uppercase tracking-widest text-gray-300">${displayLabel}</span>
                                 </div>
                             </div>
                             
                             <!-- BOTTOM/MIDDLE BLOCK: Advanced Telemetry -->
-                            <div class="w-full lg:w-auto flex-1 flex items-center justify-between gap-3 text-xs md:text-sm font-mono font-black uppercase tracking-widest bg-black/60 p-3 rounded-lg border border-surface-700/50 shadow-inner">
-                                 <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-base"></i> <span>${isWet ? 'WET' : 'DRY'}</span></span>
-                                 <span class="${rainProb >= 40 ? 'text-brand-blue font-black' : 'text-gray-400'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-base"></i> ${Math.round(rainProb)}%</span>
-                                 <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-base"></i> UV ${uv}</span>
+                            <div class="w-full lg:w-auto flex-1 flex items-center justify-between lg:justify-center gap-4 lg:gap-8 text-base md:text-xl font-mono font-black uppercase tracking-widest pt-2 lg:pt-0 border-t border-surface-700/30 lg:border-none mt-1 lg:mt-0">
+                                 <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-xl md:text-2xl opacity-90"></i> <span class="hidden sm:inline">${isWet ? 'WET TARMAC' : 'DRY TARMAC'}</span><span class="sm:hidden">${isWet ? 'WET' : 'DRY'}</span></span>
+                                 <span class="${rainProb >= 40 ? 'text-brand-blue font-black drop-shadow-md' : 'text-white drop-shadow-md'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-xl md:text-2xl opacity-90"></i> ${Math.round(rainProb)}%</span>
+                                 <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-xl md:text-2xl opacity-90"></i> UV ${uv}</span>
                             </div>
 
                             <!-- RIGHT BLOCK: Desktop Spatial Navigation -->
                             <div class="hidden lg:flex text-right flex-col items-end justify-center w-auto shrink-0">
-                                 <span class="text-2xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
-                                 <span class="text-sm font-black uppercase tracking-widest text-gray-300">${displayLabel}</span>
+                                 <span class="text-3xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
+                                 <span class="text-base font-black uppercase tracking-widest text-gray-300">${displayLabel}</span>
                             </div>
                             
                         </div>
@@ -1106,11 +1110,12 @@
                 const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
                 const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
                 
+                // REFACTORED: Updated padding on status badges to match new unified panel design
                 ['eu','us','de','jp'].forEach((id, idx) => {
                     const el = document.getElementById(`stat-${id}`);
                     const arr = [rEU, rUS, rDE, rJP][idx];
-                    if(!arr || arr.every(v=>v===null)) { el.className="font-mono text-sm font-bold py-2 bg-brand-red border-2 border-brand-red text-black rounded-lg uppercase tracking-widest"; el.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`; }
-                    else { el.className="font-mono text-sm font-bold py-2 bg-brand-success/20 border-2 border-brand-success/50 text-brand-success rounded-lg uppercase tracking-widest"; el.innerHTML = id.toUpperCase(); }
+                    if(!arr || arr.every(v=>v===null)) { el.className="font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"; el.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`; }
+                    else { el.className="font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"; el.innerHTML = id.toUpperCase(); }
                 });
 
                 const rainData = { eu: clean(rEU.slice(nowIndex, nowIndex + 24)), us: clean(rUS.slice(nowIndex, nowIndex + 24)), de: clean(rDE.slice(nowIndex, nowIndex + 24)), jp: clean(rJP.slice(nowIndex, nowIndex + 24)) };
