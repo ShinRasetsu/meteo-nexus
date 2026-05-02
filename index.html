@@ -181,16 +181,30 @@
             
             <!-- Live Telemetry Overlays for Driver Reference -->
             <div class="absolute top-4 left-4 z-[1000] flex flex-col gap-2 pointer-events-none">
-                <!-- Speedometer -->
-                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg backdrop-blur-sm">
-                    <i class="fa-solid fa-gauge-high text-brand-teal text-xl"></i>
-                    <div class="flex items-baseline gap-1">
-                        <span id="live-speed" class="font-mono text-3xl font-black text-white">0</span>
-                        <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+                
+                <!-- Speedometer & Max Speed Session Tracker -->
+                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-3 rounded-xl flex flex-col shadow-lg backdrop-blur-sm pointer-events-auto w-36">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-gauge-high text-brand-teal text-xl"></i>
+                        <div class="flex items-baseline gap-1">
+                            <span id="live-speed" class="font-mono text-3xl font-black text-white">0</span>
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+                        </div>
+                    </div>
+                    <!-- Session Max Speed Divider -->
+                    <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-700/50">
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest mr-1">MAX</span>
+                            <span id="max-speed" class="font-mono text-sm font-black text-brand-orange">0</span>
+                        </div>
+                        <button onclick="resetMaxSpeed()" class="text-gray-500 hover:text-white transition-colors p-1 flex items-center justify-center" title="Reset Session Max">
+                            <i class="fa-solid fa-rotate-right text-[10px]"></i>
+                        </button>
                     </div>
                 </div>
+
                 <!-- Compass -->
-                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg backdrop-blur-sm">
+                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg backdrop-blur-sm pointer-events-auto w-36">
                     <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-xl transition-transform duration-500"></i>
                     <div class="flex items-baseline gap-1">
                         <span id="live-heading-txt" class="font-mono text-xl font-black text-white">N</span>
@@ -293,6 +307,7 @@
             lastHudLon: 0,
             cumulativeHeading: 0, // Prevents 360-degree spin-back bug on map rotation
             lastHeading: 0,
+            maxSpeed: 0, // Track maximum session speed
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -343,6 +358,12 @@
             if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
         });
 
+        // --- GLOBAL OVERLAY LOGIC ---
+        window.resetMaxSpeed = function() {
+            state.maxSpeed = 0;
+            document.getElementById('max-speed').innerText = '0';
+        }
+
         // --- BACKGROUND TRACKING ---
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
@@ -368,6 +389,12 @@
                         // Update Live Telemetry Overlays
                         const speedKmH = (speed !== null && speed > 0) ? Math.round(speed * 3.6) : 0;
                         document.getElementById('live-speed').innerText = speedKmH;
+                        
+                        // Evaluate and Push Max Speed
+                        if (speedKmH > state.maxSpeed) {
+                            state.maxSpeed = speedKmH;
+                            document.getElementById('max-speed').innerText = state.maxSpeed;
+                        }
 
                         // Process heading safely to prevent backwards 360 map spinning
                         const isMoving = heading !== null && !isNaN(heading) && speed > 0.5;
