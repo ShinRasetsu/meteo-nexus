@@ -57,6 +57,9 @@
         
         /* Smooth transition for HUD cards */
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        /* High-contrast dark mode filter applied to dense OpenStreetMap tiles */
+        .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
     </style>
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
@@ -176,6 +179,26 @@
         <div class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
             <div id="hud-map" class="w-full h-full absolute inset-0 transition-transform duration-500 ease-linear origin-center"></div>
             
+            <!-- Live Telemetry Overlays for Driver Reference -->
+            <div class="absolute top-4 left-4 z-[1000] flex flex-col gap-2 pointer-events-none">
+                <!-- Speedometer -->
+                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg backdrop-blur-sm">
+                    <i class="fa-solid fa-gauge-high text-brand-teal text-xl"></i>
+                    <div class="flex items-baseline gap-1">
+                        <span id="live-speed" class="font-mono text-3xl font-black text-white">0</span>
+                        <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+                    </div>
+                </div>
+                <!-- Compass -->
+                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg backdrop-blur-sm">
+                    <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-xl transition-transform duration-500"></i>
+                    <div class="flex items-baseline gap-1">
+                        <span id="live-heading-txt" class="font-mono text-xl font-black text-white">N</span>
+                        <span id="live-heading-deg" class="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">000°</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Tactical View Controls stay outside rotating canvas -->
             <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
                 <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
@@ -342,6 +365,10 @@
                             fetchData(lat, lon, false);
                         }
                         
+                        // Update Live Telemetry Overlays
+                        const speedKmH = (speed !== null && speed > 0) ? Math.round(speed * 3.6) : 0;
+                        document.getElementById('live-speed').innerText = speedKmH;
+
                         // Process heading safely to prevent backwards 360 map spinning
                         const isMoving = heading !== null && !isNaN(heading) && speed > 0.5;
                         if (heading !== null && !isNaN(heading)) {
@@ -350,6 +377,11 @@
                             if (delta < -180) delta += 360;
                             state.cumulativeHeading += delta;
                             state.lastHeading = heading;
+                            
+                            // Update HUD Compass
+                            document.getElementById('live-heading-deg').innerText = Math.round(heading).toString().padStart(3, '0') + '°';
+                            document.getElementById('live-heading-txt').innerText = getWindDirection(heading);
+                            document.getElementById('live-compass-icon').style.transform = `rotate(${heading}deg)`;
                         }
 
                         // Shape-Shifting Marker Logic
@@ -497,10 +529,11 @@
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            const initialZoom = (lat === 0 && lon === 0) ? 2 : 14;
-            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], initialZoom);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
+            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
+            
+            // REFACTORED: Swap to standard high-density OSM tiles for detailed street clarity
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OSM', maxZoom: 19
             }).addTo(state.mapObj);
 
             // Initialize the scale control
