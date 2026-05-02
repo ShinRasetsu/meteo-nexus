@@ -497,7 +497,8 @@
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
+            const initialZoom = (lat === 0 && lon === 0) ? 2 : 14;
+            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], initialZoom);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 attribution: '© OSM', subdomains: 'abcd', maxZoom: 19
             }).addTo(state.mapObj);
