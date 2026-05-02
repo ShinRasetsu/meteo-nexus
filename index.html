@@ -833,19 +833,27 @@
             }
 
             try {
-                // Batch query WEATHER API - fetching hourly arrays to extract extended metrics (UV, Rain Prob) for the CURRENT hour
+                // Batch query WEATHER API - fetching base metrics AND the 4-Model consensus for EVERY tactical node
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
-                // Added current=time to sync exact local API hour
-                const res = await fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m&hourly=temperature_2m,weather_code,precipitation,precipitation_probability,uv_index&timezone=auto`);
-                const data = await res.json();
                 
-                const weatherPoints = Array.isArray(data) ? data : [data];
+                // Parallel fetch to ensure tactical nodes use the exact same 4-model consensus as the main local telemetry
+                const [baseRes, modelRes] = await Promise.all([
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`)
+                ]);
+                
+                const baseData = await baseRes.json();
+                const modelData = await modelRes.json();
+                
+                const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
+                const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
                 container.innerHTML = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
+                    const m = modelPoints[idx]; // Matching 4-model data
                     
                     // Strict lock to CURRENT hour using API's native local time string to prevent UTC offsets
                     const apiCurrentTime = p.current ? p.current.time.substring(0, 13) : null;
@@ -858,8 +866,21 @@
                     const icon = WMO_ICONS[code] || 'fa-cloud';
                     const temp = Math.round(p.hourly.temperature_2m[safeIdx]);
                     const prec = p.hourly.precipitation[safeIdx] || 0;
-                    const rainProb = p.hourly.precipitation_probability[safeIdx] || 0;
                     const uv = (p.hourly.uv_index[safeIdx] || 0).toFixed(1);
+                    
+                    // NEW: Calculate Rain Probability using 4-Model Consensus Engine (EU, US, DE, JP)
+                    const rEU = m.hourly.precipitation_ecmwf_ifs025[safeIdx] || 0;
+                    const rUS = m.hourly.precipitation_gfs_seamless[safeIdx] || 0;
+                    const rDE = m.hourly.precipitation_icon_seamless[safeIdx] || 0;
+                    const rJP = m.hourly.precipitation_jma_seamless[safeIdx] || 0;
+                    
+                    let votes = 0;
+                    if (rEU > 0.1) votes++;
+                    if (rUS > 0.1) votes++;
+                    if (rDE > 0.1) votes++;
+                    if (rJP > 0.1) votes++;
+                    
+                    const rainProb = (votes / 4) * 100;
                     
                     // Tactical Classifications
                     const isWet = prec > 0 || rainProb > 40;
