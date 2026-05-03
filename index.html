@@ -547,8 +547,8 @@
                                     localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes));
                                     state.lastIntelFetch = 0; 
                                 } else {
-                                    // High-Frequency DOM text injection for all visible stack nodes
-                                    let visibleNodes = state.routeNodes.filter(n => !n.passed);
+                                    // High-Frequency DOM text injection for the visible UI stack nodes
+                                    let visibleNodes = state.routeNodes.filter(n => !n.passed).slice(0, 4);
                                     visibleNodes.forEach(vn => {
                                         let vnD = L.latLng(lat, lon).distanceTo(L.latLng(vn.lat, vn.lon));
                                         const distEl = document.getElementById(`node-dist-${vn.id}`);
@@ -902,7 +902,7 @@
             const totalNodes = Math.floor(summary.totalDistance / 5000);
 
             const statusEl = document.getElementById('route-status');
-            statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> INTERCEPT | ${distKm} KM | ${timeStr} | ${totalNodes} NODES`;
+            statusEl.innerHTML = `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT | ${distKm} KM | ${timeStr} | ${totalNodes} NODES`;
             statusEl.className = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap";
 
             state.currentRouteCoords = route.coordinates;
@@ -987,13 +987,11 @@
                 if (changed) { localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes)); }
             }
 
-            // Map Markers & Target Stack Restored (Slice limits removed globally)
+            // Phase 3: Segregate Rendering Logics (Map vs UI)
             clearInterceptMarkers();
             
-            const upcomingWaypointsStack = [...unpassedNodes];
-            upcomingWaypointsStack.reverse(); 
-            
-            upcomingWaypointsStack.forEach(wp => {
+            // 3a. Map Engine: Render ALL unpassed nodes visually on the map
+            unpassedNodes.forEach(wp => {
                 const marker = L.marker([wp.lat, wp.lon], {
                     icon: L.divIcon({
                         className: 'bg-transparent',
@@ -1011,12 +1009,16 @@
                 state.interceptMarkers.push(marker);
             });
 
-            const waypoints = [...upcomingWaypointsStack];
+            // 3b. UI Engine: Cap Intelligence Stack to 4 closest nodes to prevent DOM overflow
+            const uiStackNodes = unpassedNodes.slice(0, 4);
+            uiStackNodes.reverse(); 
+
+            const waypoints = [...uiStackNodes];
             if (state.autoCoords) {
                 waypoints.push({ lat: state.autoCoords.lat, lon: state.autoCoords.lon, type: 'current', offsetKm: 0 });
             }
 
-            if (waypoints.length <= 1 && upcomingWaypointsStack.length === 0) {
+            if (waypoints.length <= 1 && uiStackNodes.length === 0) {
                 container.innerHTML = `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`;
                 return;
             }
@@ -1098,7 +1100,7 @@
                         // Real-time hook for multi-node update loop
                         displayLabel = `<span id="node-dist-${wp.id}">${wp.distKm} KM AHEAD</span>`;
                         
-                        if (idx === upcomingWaypointsStack.length - 1) {
+                        if (idx === uiStackNodes.length - 1) {
                             titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Active Node</span>`;
                             glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)] scale-[1.01]";
                         } else {
