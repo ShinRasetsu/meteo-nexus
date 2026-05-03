@@ -541,7 +541,7 @@
                                     state.lastIntelFetch = 0; 
                                 } else {
                                     // High-Frequency DOM text injection for all visible stack nodes
-                                    let visibleNodes = state.routeNodes.filter(n => !n.passed).slice(0, 4);
+                                    let visibleNodes = state.routeNodes.filter(n => !n.passed);
                                     visibleNodes.forEach(vn => {
                                         let vnD = L.latLng(lat, lon).distanceTo(L.latLng(vn.lat, vn.lon));
                                         const distEl = document.getElementById(`node-dist-${vn.id}`);
@@ -983,7 +983,7 @@
             // Map Markers & Target Stack Restored
             clearInterceptMarkers();
             
-            const upcomingWaypointsStack = unpassedNodes.slice(0, 4);
+            const upcomingWaypointsStack = [...unpassedNodes];
             upcomingWaypointsStack.reverse(); 
             
             upcomingWaypointsStack.forEach(wp => {
