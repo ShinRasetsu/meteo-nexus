@@ -77,10 +77,17 @@
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
         </h1>
         
-        <button id="audio-btn" onclick="toggleAudio()" class="flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
-            <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
-            <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
-        </button>
+        <div class="flex items-center gap-2 md:gap-3">
+            <button onclick="purgeSystem()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm" title="Purge System Cache">
+                <i class="fa-solid fa-skull"></i>
+                <span class="hidden md:block">PURGE CACHE</span>
+            </button>
+
+            <button id="audio-btn" onclick="toggleAudio()" class="flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
+                <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
+                <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
+            </button>
+        </div>
     </header>
 
     <!-- SECTION 1: LOCAL TELEMETRY -->
@@ -980,7 +987,7 @@
                 if (changed) { localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes)); }
             }
 
-            // Map Markers & Target Stack Restored
+            // Map Markers & Target Stack Restored (Slice limits removed globally)
             clearInterceptMarkers();
             
             const upcomingWaypointsStack = [...unpassedNodes];
@@ -1180,18 +1187,26 @@
             return arr[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
+        // Global System Purge Handler
+        window.purgeSystem = function() {
+            if (confirm("CRITICAL WARNING: This will completely wipe all saved coordinates, telemetry data, and routing memory. Proceed?")) {
+                localStorage.clear();
+                window.location.reload(true);
+            }
+        }
+
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const btn = document.getElementById('audio-btn');
             const icon = document.getElementById('audio-icon');
             const txt = document.getElementById('audio-text');
             if (state.audioEnabled) {
-                btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all';
+                btn.className = 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all';
                 icon.className = 'fa-solid fa-volume-high fa-beat-fade text-xl';
                 txt.innerText = "SONAR ACTIVE";
                 new (window.AudioContext || window.webkitAudioContext)().resume().then(() => playSonarPing());
             } else {
-                btn.className = 'flex items-center gap-3 px-6 py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all';
+                btn.className = 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all';
                 icon.className = 'fa-solid fa-volume-xmark text-xl';
                 txt.innerText = "SONAR OFF";
             }
