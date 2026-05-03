@@ -344,7 +344,8 @@
             tacticalMode: 1, 
             scaleCtrl: null,
             currentRouteCoords: null,
-            focusedSection: null 
+            focusedSection: null,
+            lastSpeedTimestamp: 0 
         };
 
         document.getElementById('max-speed').innerText = state.maxSpeed;
@@ -519,14 +520,35 @@
                             fetchData(lat, lon, false);
                         }
                         
-                        const speedKmH = (speed !== null && speed > 0) ? Math.round(speed * 3.6) : 0;
-                        state.currentSpeed = speedKmH;
-                        document.getElementById('live-speed').innerText = speedKmH;
+                        // --- KINEMATIC ACCELERATION GATE & SPEED FILTER ---
+                        const now = Date.now();
+                        let timeDeltaSec = (now - state.lastSpeedTimestamp) / 1000;
+                        if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; // Reset delta on fresh locks or long gaps
                         
-                        if (speedKmH > state.maxSpeed) {
-                            state.maxSpeed = speedKmH;
-                            localStorage.setItem('ms_maxSpeed', state.maxSpeed);
-                            document.getElementById('max-speed').innerText = state.maxSpeed;
+                        let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
+                        let isGlitch = false;
+
+                        // Max allowed physical acceleration: ~1.5G (54 km/h increase per second)
+                        const maxAccelKmhPerSec = 54; 
+                        const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
+                        const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
+
+                        if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) {
+                            isGlitch = true; // Teleportation spike detected. Drop frame.
+                        }
+
+                        if (!isGlitch) {
+                            const speedKmH = Math.round(rawSpeedKmh);
+                            state.currentSpeed = speedKmH;
+                            state.lastSpeedTimestamp = now;
+                            document.getElementById('live-speed').innerText = speedKmH;
+                            
+                            // Strict Validation: Only update Max Speed if signal accuracy is HIGH (< 25m) and not a glitch
+                            if (speedKmH > state.maxSpeed && speedKmH < 350 && accuracy <= 25) {
+                                state.maxSpeed = speedKmH;
+                                localStorage.setItem('ms_maxSpeed', state.maxSpeed);
+                                document.getElementById('max-speed').innerText = state.maxSpeed;
+                            }
                         }
 
                         // --- DYNAMIC MULTI-NODE TRACKING (UI COUNTDOWN & BYPASS DETECT) ---
