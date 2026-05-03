@@ -473,17 +473,17 @@
         window.addEventListener('deviceorientationabsolute', (e) => {
             if (e.alpha !== null) {
                 state.sensorHeading = 360 - e.alpha;
-                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading);
+                if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
             }
         });
 
         window.addEventListener('deviceorientation', (e) => {
             if (e.webkitCompassHeading) {
                 state.sensorHeading = e.webkitCompassHeading;
-                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading);
+                if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
             } else if (e.absolute && e.alpha !== null) {
                 state.sensorHeading = 360 - e.alpha;
-                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading);
+                if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
             }
         });
 
@@ -592,8 +592,8 @@
                             }
                         }
 
-                        const isMovingFast = state.currentSpeed >= 5;
-                        if (isMovingFast && gpsHeading !== null && !isNaN(gpsHeading)) {
+                        const isMoving = state.currentSpeed >= 2;
+                        if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
                             updateHeadingDisplay(gpsHeading);
                         } else if (state.sensorHeading !== null) {
                             updateHeadingDisplay(state.sensorHeading);
@@ -609,7 +609,7 @@
                                 const arrow = markerEl.querySelector('#user-arrow');
                                 
                                 if (dot && arrow) {
-                                    if (isMovingFast) {
+                                    if (isMoving) {
                                         dot.classList.add('opacity-0', 'scale-50');
                                         arrow.classList.remove('opacity-0', 'scale-50');
                                         arrow.classList.add('opacity-100', 'scale-100');
