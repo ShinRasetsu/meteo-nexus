@@ -163,32 +163,34 @@
 
     <!-- SECTION 2: TACTICAL MAP -->
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
-        <div class="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div class="flex items-center justify-between w-full lg:w-auto">
-                <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                    <span id="gps-acc-ui" class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
-                    <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
-                </div>
-                <!-- Map Focus Button (Mobile alignment fix) -->
-                <button onclick="toggleFocus('sec-map')" class="text-brand-teal hover:text-white transition-colors lg:hidden p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-map-mobile"></i></button>
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
+            
+            <!-- Left Axis: Signal & Status Indicators -->
+            <div class="flex flex-row flex-wrap items-center gap-2">
+                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Tracking</span>
+                <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             
-            <div class="flex flex-wrap items-center gap-2">
-                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
-                    <i class="fa-solid fa-bolt"></i> <span>Paste Target</span>
+            <!-- Right Axis: Collapsing Tactical Controls -->
+            <div class="flex flex-row items-center gap-2 shrink-0">
+                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-bolt"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
                 
-                <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold py-2 px-4 rounded-xl text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
-                    <i class="fa-solid fa-xmark"></i> <span>Clear</span>
+                <!-- Fixed Reset Button binds directly to master state wipe -->
+                <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-xmark"></i> <span class="hidden sm:inline">Clear</span>
                 </button>
                 
-                <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-4 py-2 rounded-xl transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
-                    <i class="fa-solid fa-diamond-turn-right"></i> <span>External Nav</span>
+                <button id="native-nav-btn" class="hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
+                    <i class="fa-solid fa-diamond-turn-right"></i> <span class="hidden sm:inline">Nav</span>
                 </button>
 
-                <!-- Map Focus Button (Desktop) -->
-                <button onclick="toggleFocus('sec-map')" class="hidden lg:block text-brand-teal hover:text-white transition-colors p-2 ml-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-map"></i></button>
+                <button onclick="toggleFocus('sec-map')" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center">
+                    <i class="fa-solid fa-expand text-base" id="icon-sec-map"></i>
+                </button>
             </div>
+            
         </div>
         
         <!-- Map Container -->
@@ -204,9 +206,9 @@
                         <span id="live-speed" class="font-mono text-xl font-black text-white leading-none">0</span>
                         <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">km/h</span>
                     </div>
-                    <!-- Inline Max Speed -->
+                    <!-- Inline Max Speed - Reset disabled natively, reliant on Master Clear -->
                     <div class="h-4 w-px bg-surface-700 mx-1"></div>
-                    <div class="flex items-center gap-1 cursor-pointer" onclick="resetMaxSpeed()" title="Reset Session Max">
+                    <div class="flex items-center gap-1" title="Session Max Speed (Use Clear to Reset)">
                         <span class="text-[8px] font-bold text-brand-orange uppercase">Max</span>
                         <span id="max-speed" class="font-mono text-sm font-black text-brand-orange leading-none">0</span>
                     </div>
@@ -319,8 +321,9 @@
             cumulativeHeading: 0, 
             lastHeading: 0,
             currentSpeed: 0,
-            sensorHeading: null, // Hard sensor magnetometer tracking
-            maxSpeed: 0, 
+            sensorHeading: null, 
+            maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0, 
+            routeNodes: JSON.parse(localStorage.getItem('ms_routeNodes')) || null, // Persistent Node Array
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -332,12 +335,14 @@
             interceptMarkers: [], 
             userAuth: null,
             lastIntelFetch: 0, 
-            lastCheckpoints: [],
             tacticalMode: 1, 
             scaleCtrl: null,
             currentRouteCoords: null,
-            focusedSection: null // Tracks current full-screen module
+            focusedSection: null
         };
+
+        // Initialize HUD with restored persistence values
+        document.getElementById('max-speed').innerText = state.maxSpeed;
 
         // --- AUTHENTICATION ---
         async function initAuth() {
@@ -370,7 +375,6 @@
             if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
         });
 
-        // Initialize iOS Magnetometer Permissions on First User Interaction
         document.body.addEventListener('click', function initSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(response => {
@@ -395,13 +399,11 @@
                 if (!el) return;
                 
                 if (state.focusedSection === null) {
-                    // Restore original flow layout
                     el.classList.remove('section-hidden', 'section-fullscreen');
                     if (iconDesktop) iconDesktop.className = 'fa-solid fa-expand text-lg';
                     if (iconMobile) iconMobile.className = 'fa-solid fa-expand text-lg';
                     document.body.classList.remove('overflow-hidden');
                 } else {
-                    // Apply isolation
                     if (id === secId) {
                         el.classList.remove('section-hidden');
                         el.classList.add('section-fullscreen');
@@ -409,14 +411,12 @@
                         if (iconMobile) iconMobile.className = 'fa-solid fa-compress text-lg';
                         document.body.classList.add('overflow-hidden');
                         
-                        // Recalculate Canvas Bounds
                         if (id === 'sec-map' && state.mapObj) {
                             setTimeout(() => state.mapObj.invalidateSize(), 300);
                         } else if (id === 'sec-plot' && state.chart) {
                             setTimeout(() => state.chart.resize(), 300);
                         }
                     } else {
-                        // Strip siblings from rendering tree
                         if (!el.classList.contains('hidden') || id === 'sec-intel') {
                            el.classList.add('section-hidden');
                            el.classList.remove('section-fullscreen');
@@ -425,16 +425,10 @@
                 }
             });
             
-            // Special handling to ensure Route Intel stays hidden if no route is active during unfocus
             if (state.focusedSection === null && !state.targetCoords) {
                 document.getElementById('sec-intel').classList.add('hidden');
             }
         };
-
-        window.resetMaxSpeed = function() {
-            state.maxSpeed = 0;
-            document.getElementById('max-speed').innerText = '0';
-        }
 
         // --- HARDWARE MAGNETOMETER HOOKS ---
         function updateHeadingDisplay(heading) {
@@ -446,18 +440,15 @@
             state.cumulativeHeading += delta;
             state.lastHeading = heading;
             
-            // Update UI Compass
             document.getElementById('live-heading-deg').innerText = Math.round(heading).toString().padStart(3, '0') + '°';
             document.getElementById('live-heading-txt').innerText = getWindDirection(heading);
             document.getElementById('live-compass-icon').style.transform = `rotate(${heading}deg)`;
             
-            // Apply strict hardware rotation to 20m Tactical Map
             if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
                 const mapEl = document.getElementById('hud-map');
                 if (mapEl) mapEl.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
             }
             
-            // Apply rotation to User SVG Node
             if (state.userMarker) {
                 const markerEl = state.userMarker.getElement();
                 if (markerEl) {
@@ -467,15 +458,13 @@
             }
         }
 
-        // Absolute Sensor Event (Android)
         window.addEventListener('deviceorientationabsolute', (e) => {
             if (e.alpha !== null) {
                 state.sensorHeading = 360 - e.alpha;
-                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading); // Zero-latency fallback when stationary/slow
+                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading);
             }
         });
 
-        // Relative/Webkit Sensor Event (iOS & Fallback)
         window.addEventListener('deviceorientation', (e) => {
             if (e.webkitCompassHeading) {
                 state.sensorHeading = e.webkitCompassHeading;
@@ -497,24 +486,22 @@
                     const lon = pos.coords.longitude;
                     const gpsHeading = pos.coords.heading;
                     const speed = pos.coords.speed;
-                    const accuracy = pos.coords.accuracy; // Hardware radius in meters
+                    const accuracy = pos.coords.accuracy; 
                     
-                    // 1. Hardware Signal HUD Injection
                     const accUi = document.getElementById('gps-acc-ui');
                     if (accUi) {
                         if (accuracy <= 15) {
                             accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-success"></i> LOCK: HIGH (${Math.round(accuracy)}m)`;
-                            accUi.className = "text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
+                            accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
                         } else if (accuracy <= 50) {
                             accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-warning"></i> LOCK: MED (${Math.round(accuracy)}m)`;
-                            accUi.className = "text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
+                            accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
                         } else {
                             accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-red animate-pulse"></i> LOCK: LOW (${Math.round(accuracy)}m)`;
-                            accUi.className = "text-sm font-bold uppercase tracking-widest text-brand-red whitespace-nowrap";
+                            accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-red whitespace-nowrap";
                         }
                     }
 
-                    // 2. Telemetry Jitter Rejection (Filter out cell-tower pings if satellite lock drops)
                     if (accuracy > 100 && state.lastHudLat !== 0) return; 
 
                     state.autoCoords = { lat, lon };
@@ -522,37 +509,58 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        // Delta check to avoid unnecessary rapid API calls
                         const distMoved = Math.sqrt(Math.pow(lat - state.lastHudLat, 2) + Math.pow(lon - state.lastHudLon, 2));
                         if (distMoved > 0.002 || state.lastHudLat === 0) {
                             fetchData(lat, lon, false);
                         }
                         
-                        // Update Live Telemetry Overlays
                         const speedKmH = (speed !== null && speed > 0) ? Math.round(speed * 3.6) : 0;
                         state.currentSpeed = speedKmH;
                         document.getElementById('live-speed').innerText = speedKmH;
                         
-                        // Evaluate and Push Max Speed
+                        // Push & Commit Max Speed to Flash Persistence
                         if (speedKmH > state.maxSpeed) {
                             state.maxSpeed = speedKmH;
+                            localStorage.setItem('ms_maxSpeed', state.maxSpeed);
                             document.getElementById('max-speed').innerText = state.maxSpeed;
                         }
 
-                        // Process Orientation: Handoff logic between physical Magnetometer and GPS Course-Over-Ground
+                        // --- DYNAMIC ACTIVE NODE TRACKING (UI COUNTDOWN & BYPASS DETECT) ---
+                        if (state.routeNodes) {
+                            let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
+                            if (activeNodeIndex !== -1) {
+                                let activeNode = state.routeNodes[activeNodeIndex];
+                                let d = L.latLng(lat, lon).distanceTo(L.latLng(activeNode.lat, activeNode.lon));
+                                
+                                // Evaluate Bypass: Is a future node significantly closer to us?
+                                let bypassed = false;
+                                for(let j = activeNodeIndex + 1; j < Math.min(activeNodeIndex + 3, state.routeNodes.length); j++) {
+                                    let futureDist = L.latLng(lat, lon).distanceTo(L.latLng(state.routeNodes[j].lat, state.routeNodes[j].lon));
+                                    if (futureDist < d - 1500) { bypassed = true; break; }
+                                }
+                                
+                                if (d < 1500 || bypassed) {
+                                    // Mark passed, write to memory, and trigger API refresh for new node
+                                    state.routeNodes[activeNodeIndex].passed = true;
+                                    localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes));
+                                    state.lastIntelFetch = 0; 
+                                } else {
+                                    // High-Frequency DOM text injection for smooth distance countdown
+                                    const distEl = document.getElementById('active-node-dist');
+                                    if (distEl) distEl.innerText = (d/1000).toFixed(1) + ' KM AHEAD';
+                                }
+                            }
+                        }
+
                         const isMovingFast = speedKmH >= 5;
                         if (isMovingFast && gpsHeading !== null && !isNaN(gpsHeading)) {
-                            // High speed: GPS trajectory is king
                             updateHeadingDisplay(gpsHeading);
                         } else if (state.sensorHeading !== null) {
-                            // Low speed: Magnetometer provides zero-latency turning
                             updateHeadingDisplay(state.sensorHeading);
                         } else if (gpsHeading !== null && !isNaN(gpsHeading)) {
-                            // Fallback if sensors fail
                             updateHeadingDisplay(gpsHeading);
                         }
 
-                        // Shape-Shifting Marker Logic
                         if (state.userMarker) {
                             state.userMarker.setLatLng([lat, lon]);
                             const markerEl = state.userMarker.getElement();
@@ -577,47 +585,34 @@
                         if (state.targetCoords) {
                             if (!state.routeCtrl) {
                                 initRoute();
-                                state.lastCheckpoints = [{ lat, lon }]; 
                             } else {
                                 const waypoints = state.routeCtrl.getWaypoints();
                                 if(waypoints.length > 0 && waypoints[0]) {
                                     waypoints[0].latLng = L.latLng(lat, lon);
                                     state.routeCtrl.setWaypoints(waypoints);
                                 }
-                                if (state.lastCheckpoints.length > 0) {
-                                    const lastCp = state.lastCheckpoints[state.lastCheckpoints.length - 1];
-                                    const distToLast = L.latLng(lat, lon).distanceTo(L.latLng(lastCp.lat, lastCp.lon));
-                                    if (distToLast >= 5000) {
-                                        state.lastCheckpoints.push({ lat, lon });
-                                        if (state.lastCheckpoints.length > 2) state.lastCheckpoints.shift();
-                                    }
-                                }
                             }
-                        } else {
-                            state.lastCheckpoints = [];
                         }
                         
-                        // Map Orientation & Centering Logic
                         if (state.isMapLocked && state.tacticalMode > 0) {
                             const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                             state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
                             
                             if (!state.targetCoords) {
                                 statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
-                                statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
+                                statusEl.className = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap";
                             }
                         }
                     }
                 },
                 (err) => {
                     statusEl.innerText = "GPS SIGNAL LOST";
-                    statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                    statusEl.className = "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap";
                 },
                 { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
             );
         }
 
-        // TACTICAL UI: Master Button Cycler
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
 
@@ -866,6 +861,10 @@
             state.targetCoords = { lat: destLat, lon: destLon }; 
             localStorage.setItem('ms_targetCoords', JSON.stringify(state.targetCoords)); 
             
+            // Purge old nodes when a new target is pasted so the engine calculates fresh ones
+            state.routeNodes = null;
+            localStorage.removeItem('ms_routeNodes');
+            
             const statusEl = document.getElementById('route-status');
             const navBtn = document.getElementById('native-nav-btn');
             
@@ -918,55 +917,81 @@
             const container = document.getElementById('timeline-container');
             const secIntel = document.getElementById('sec-intel');
             
-            // Only show Route Intel module if we are not locked in another fullscreen mode
             if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
                 secIntel.classList.remove('hidden');
             }
             
             container.innerHTML = `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`;
 
-            clearInterceptMarkers();
-
-            const totalDistance = route.summary.totalDistance;
-            const coords = route.coordinates;
-            const intervalDist = 5000; 
-            const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
-            const allUpcomingWaypoints = [];
-            
-            for (let i = 1; i <= totalFutureNodesCount; i++) {
-                const targetDist = i * intervalDist;
-                if (targetDist > totalDistance) break;
+            // Phase 1: Storage & Extraction (Generate absolute nodes if missing)
+            if (!state.routeNodes || state.routeNodes.length === 0) {
+                const totalDistance = route.summary.totalDistance;
+                const coords = route.coordinates;
+                const intervalDist = 5000; 
+                const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
+                const nodes = [];
                 
-                let currentDist = 0;
-                let foundPoint = coords[0];
+                for (let i = 1; i <= totalFutureNodesCount; i++) {
+                    const targetDist = i * intervalDist;
+                    let currentDist = 0;
+                    let foundPoint = coords[0];
 
-                for (let j = 0; j < coords.length - 1; j++) {
-                    const p1 = coords[j];
-                    const p2 = coords[j+1];
-                    const d = p1.distanceTo(p2);
-                    
-                    if (currentDist + d >= targetDist) {
-                        const ratio = (targetDist - currentDist) / d;
-                        foundPoint = L.latLng(
-                            p1.lat + (p2.lat - p1.lat) * ratio,
-                            p1.lng + (p2.lng - p1.lng) * ratio
-                        );
-                        break;
+                    for (let j = 0; j < coords.length - 1; j++) {
+                        const p1 = coords[j];
+                        const p2 = coords[j+1];
+                        const d = p1.distanceTo(p2);
+                        if (currentDist + d >= targetDist) {
+                            const ratio = (targetDist - currentDist) / d;
+                            foundPoint = L.latLng(
+                                p1.lat + (p2.lat - p1.lat) * ratio,
+                                p1.lng + (p2.lng - p1.lng) * ratio
+                            );
+                            break;
+                        }
+                        currentDist += d;
                     }
-                    currentDist += d;
+                    nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
                 }
-                allUpcomingWaypoints.push({ lat: foundPoint.lat, lon: foundPoint.lng, offsetKm: (targetDist / 1000).toFixed(0), nodeIndex: i, type: 'upcoming' });
+                state.routeNodes = nodes;
+                localStorage.setItem('ms_routeNodes', JSON.stringify(nodes));
             }
 
-            allUpcomingWaypoints.forEach(wp => {
-                const marker = L.marker([wp.lat, wp.lon], {
+            // Phase 2: Active Node Selection
+            let activeNode = null;
+            if (state.routeNodes && state.autoCoords) {
+                let changed = false;
+                for (let i = 0; i < state.routeNodes.length; i++) {
+                    if (!state.routeNodes[i].passed) {
+                        let d = L.latLng(state.autoCoords.lat, state.autoCoords.lon).distanceTo(L.latLng(state.routeNodes[i].lat, state.routeNodes[i].lon));
+                        let bypassed = false;
+                        for(let j = i + 1; j < Math.min(i + 3, state.routeNodes.length); j++) {
+                            let futureDist = L.latLng(state.autoCoords.lat, state.autoCoords.lon).distanceTo(L.latLng(state.routeNodes[j].lat, state.routeNodes[j].lon));
+                            if (futureDist < d - 1500) { bypassed = true; break; }
+                        }
+                        if (d < 1500 || bypassed) {
+                            state.routeNodes[i].passed = true;
+                            changed = true;
+                        } else {
+                            activeNode = state.routeNodes[i];
+                            activeNode.distKm = (d / 1000).toFixed(1);
+                            break;
+                        }
+                    }
+                }
+                if (changed) { localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes)); }
+            }
+
+            // Map Markers: Drop a single tactical ping on the active node
+            clearInterceptMarkers();
+            if (activeNode) {
+                const marker = L.marker([activeNode.lat, activeNode.lon], {
                     icon: L.divIcon({
                         className: 'bg-transparent',
                         html: `
                             <div class="relative flex items-center justify-center -ml-3 -mt-3">
                                 <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
                                 <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
-                                <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${wp.nodeIndex}</div>
+                                <div class="absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${activeNode.id}</div>
                             </div>
                         `,
                         iconSize: [0, 0]
@@ -974,26 +999,15 @@
                     zIndexOffset: 500
                 }).addTo(state.mapObj);
                 state.interceptMarkers.push(marker);
-            });
+            }
 
-            const upcomingWaypointsStack = allUpcomingWaypoints.slice(0, 4);
-            upcomingWaypointsStack.reverse();
+            // Stack definition (Decluttered: Active + Current ONLY)
+            const waypoints = [];
+            if (activeNode) { waypoints.push({ ...activeNode, type: 'upcoming' }); }
+            if (state.autoCoords) { waypoints.push({ lat: state.autoCoords.lat, lon: state.autoCoords.lon, type: 'current', offsetKm: 0 }); }
 
-            const currentWaypoint = { lat: coords[0].lat, lon: coords[0].lng, offsetKm: 0, type: 'current' };
-            const pastWaypoints = [];
-            const reversedPast = [...state.lastCheckpoints].reverse();
-            let pastIndex = 1;
-            reversedPast.forEach(cp => {
-                const dist = L.latLng(coords[0].lat, coords[0].lng).distanceTo(L.latLng(cp.lat, cp.lon));
-                if (dist > 1500) { 
-                    pastWaypoints.push({ lat: cp.lat, lon: cp.lon, offsetKm: (dist/1000).toFixed(0), nodeIndex: pastIndex++, type: 'past' });
-                }
-            });
-
-            const waypoints = [...upcomingWaypointsStack, currentWaypoint, ...pastWaypoints];
-
-            if (waypoints.length <= 1) {
-                container.innerHTML = `<div class="w-full text-center py-4 text-gray-600 uppercase tracking-widest font-bold">Target Reached In < 5 KM</div>`;
+            if (waypoints.length <= 1 && activeNode === null) {
+                container.innerHTML = `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`;
                 return;
             }
 
@@ -1002,7 +1016,7 @@
                 const lons = waypoints.map(w => w.lon).join(',');
                 
                 const [baseRes, modelRes] = await Promise.all([
-                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`),
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`)
                 ]);
                 
@@ -1023,11 +1037,21 @@
                     if (baseNowIndex === -1) baseNowIndex = new Date().getHours();
                     const safeIdx = Math.min(baseNowIndex, p.hourly.time.length - 1);
                     
-                    const code = p.hourly.weather_code[safeIdx];
+                    let code, temp, prec, uv;
+
+                    if (wp.type === 'current' && p.current) {
+                        code = p.current.weather_code;
+                        temp = Math.round(p.current.temperature_2m);
+                        prec = p.current.precipitation || 0;
+                        uv = (p.hourly.uv_index[safeIdx] || 0).toFixed(1);
+                    } else {
+                        code = p.hourly.weather_code[safeIdx];
+                        temp = Math.round(p.hourly.temperature_2m[safeIdx]);
+                        prec = p.hourly.precipitation[safeIdx] || 0;
+                        uv = (p.hourly.uv_index[safeIdx] || 0).toFixed(1);
+                    }
+
                     const icon = WMO_ICONS[code] || 'fa-cloud';
-                    const temp = Math.round(p.hourly.temperature_2m[safeIdx]);
-                    const prec = p.hourly.precipitation[safeIdx] || 0;
-                    const uv = (p.hourly.uv_index[safeIdx] || 0).toFixed(1);
                     
                     const rEU = m.hourly.precipitation_ecmwf_ifs025[safeIdx] || 0;
                     const rUS = m.hourly.precipitation_gfs_seamless[safeIdx] || 0;
@@ -1041,7 +1065,8 @@
                     if (rJP > 0.1) votes++;
                     
                     const rainProb = (votes / 4) * 100;
-                    const isWet = prec > 0 || rainProb > 40;
+                    const isWet = prec >= 0.2 || rainProb >= 50; 
+
                     const pathText = isWet ? 'WET TARMAC' : 'DRY TARMAC';
                     const pathColor = isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-brand-success drop-shadow-md';
                     const pathIcon = isWet ? 'fa-water' : 'fa-road';
@@ -1059,12 +1084,12 @@
 
                     if (wp.type === 'upcoming') {
                         borderLeft = "border-brand-teal";
-                        displayPrimary = `NODE ${wp.nodeIndex}`;
-                        displayLabel = `${wp.offsetKm} KM AHEAD`;
-                        if (idx === upcomingWaypointsStack.length - 1) {
-                            titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Next Node</span>`;
-                            glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)]";
-                        }
+                        displayPrimary = `NODE ${wp.id}`;
+                        // ID Hook injected for dynamic countdown updating without API fetches
+                        displayLabel = `<span id="active-node-dist">${wp.distKm} KM AHEAD</span>`;
+                        titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Active Node</span>`;
+                        glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)]";
+                        
                         if (prec > 0.1 || rainProb >= 50) { 
                             bgClass = "bg-brand-red/10";
                             textClass = "text-brand-red";
@@ -1080,12 +1105,6 @@
                         textClass = "text-brand-blue";
                         displayPrimary = "LIVE";
                         displayLabel = "POSITION";
-                    } else if (wp.type === 'past') {
-                        bgClass = "bg-surface-900";
-                        borderLeft = "border-surface-700";
-                        glow = "opacity-60 grayscale";
-                        displayPrimary = `NODE ${wp.nodeIndex} PAST`;
-                        displayLabel = `${wp.offsetKm} KM BEHIND`;
                     }
 
                     container.innerHTML += `
@@ -1299,20 +1318,29 @@
             } catch (e) { console.error(e); }
         }
 
+        // Master Reset Controller: Wipes routing, Target Link, Max Speed, AND Stored Nodes
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
+            
             state.targetCoords = null; 
             localStorage.removeItem('ms_targetCoords'); 
+            
+            state.maxSpeed = 0;
+            localStorage.removeItem('ms_maxSpeed');
+            document.getElementById('max-speed').innerText = '0';
+
+            // Wipe Absolute Node Persistence
+            state.routeNodes = null;
+            localStorage.removeItem('ms_routeNodes');
+
             clearInterceptMarkers(); 
             state.lastIntelFetch = 0; 
-            state.lastCheckpoints = []; 
             state.currentRouteCoords = null; 
             
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
-            document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
+            document.getElementById('route-status').className = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap";
             document.getElementById('native-nav-btn').classList.add('hidden');
             
-            // Release Focus on Reset
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
             document.getElementById('sec-intel').classList.add('hidden');
             
