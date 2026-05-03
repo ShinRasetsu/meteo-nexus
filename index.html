@@ -497,18 +497,20 @@
                     const accUi = document.getElementById('gps-acc-ui');
                     if (accUi) {
                         if (accuracy <= 15) {
-                            accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-success"></i> LOCK: HIGH (${Math.round(accuracy)}m)`;
+                            accUi.innerHTML = `<i class="fa-solid fa-satellite text-brand-success"></i> GNSS: HIGH (${Math.round(accuracy)}m)`;
                             accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
-                        } else if (accuracy <= 50) {
-                            accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-warning"></i> LOCK: MED (${Math.round(accuracy)}m)`;
+                        } else if (accuracy <= 60) {
+                            accUi.innerHTML = `<i class="fa-solid fa-satellite text-brand-warning"></i> GNSS: MED (${Math.round(accuracy)}m)`;
                             accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
                         } else {
-                            accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-red animate-pulse"></i> LOCK: LOW (${Math.round(accuracy)}m)`;
-                            accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-red whitespace-nowrap";
+                            // Visually indicates failover to Mobile Data / Cellular Triangulation
+                            accUi.innerHTML = `<i class="fa-solid fa-tower-cell text-brand-orange animate-pulse"></i> LTE/A-GPS (${Math.round(accuracy)}m)`;
+                            accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
                         }
                     }
 
-                    if (accuracy > 100 && state.lastHudLat !== 0) return; 
+                    // Accept Hybrid Handoff (Cell Tower / Wi-Fi Triangulation) up to 3000m variance to prevent map freeze in urban canyons.
+                    if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
                     state.autoCoords = { lat, lon };
 
@@ -520,21 +522,25 @@
                             fetchData(lat, lon, false);
                         }
                         
-                        // --- KINEMATIC ACCELERATION GATE & SPEED FILTER ---
+                        // --- HYBRID TELEMETRY GATE & SPEED FILTER ---
                         const now = Date.now();
                         let timeDeltaSec = (now - state.lastSpeedTimestamp) / 1000;
-                        if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; // Reset delta on fresh locks or long gaps
+                        if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
                         
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
                         let isGlitch = false;
 
-                        // Max allowed physical acceleration: ~1.5G (54 km/h increase per second)
-                        const maxAccelKmhPerSec = 54; 
-                        const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
-                        const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
-
-                        if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) {
-                            isGlitch = true; // Teleportation spike detected. Drop frame.
+                        // Force drop speed calculations if using Cell Towers (accuracy > 60m) to prevent teleportation spikes
+                        if (accuracy > 60) {
+                            isGlitch = true;
+                        } else {
+                            // Max allowed physical acceleration: ~1.5G (54 km/h increase per second)
+                            const maxAccelKmhPerSec = 54; 
+                            const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
+                            const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
+                            if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) {
+                                isGlitch = true; 
+                            }
                         }
 
                         if (!isGlitch) {
@@ -580,7 +586,7 @@
                             }
                         }
 
-                        const isMovingFast = speedKmH >= 5;
+                        const isMovingFast = state.currentSpeed >= 5;
                         if (isMovingFast && gpsHeading !== null && !isNaN(gpsHeading)) {
                             updateHeadingDisplay(gpsHeading);
                         } else if (state.sensorHeading !== null) {
@@ -637,7 +643,8 @@
                     statusEl.innerText = "GPS SIGNAL LOST";
                     statusEl.className = "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap";
                 },
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                // High Accuracy enabled, but maximumAge allows rapid ingestion of Cell-Tower data while waiting for GPS lock. Generous timeout prevents OS aborts.
+                { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
             );
         }
 
