@@ -60,6 +60,12 @@
 
         /* High-contrast dark mode filter applied to dense OpenStreetMap tiles */
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
+
+        /* Focus Engine Classes */
+        .section-hidden { display: none !important; }
+        .section-fullscreen { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important; height: 100vh !important; overflow-y: auto !important; background-color: #000 !important; }
+        .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
+        .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
     </style>
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
@@ -78,86 +84,93 @@
     </header>
 
     <!-- SECTION 1: LOCAL TELEMETRY -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
-        <!-- Main Status Card -->
-        <div id="main-status-card" class="hud-card lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-surface-800 bg-surface-900 min-h-[350px] relative overflow-hidden">
-            <div class="absolute top-4 left-4">
-                <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-60">Local Telemetry</span>
-            </div>
-            <div class="absolute top-4 right-4 text-right">
-                <div id="location-badge" class="text-sm font-bold text-gray-300 flex items-center gap-1.5 justify-end uppercase tracking-widest">
-                    <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
-                </div>
-                <div class="text-[10px] font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
-                    <i class="fa-regular fa-clock text-brand-blue opacity-80"></i> 
-                    <span id="local-time-text">--:--:--</span>
-                </div>
-            </div>
-
-            <i id="status-icon" class="text-8xl md:text-9xl mb-4 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
-            <span id="status-text" class="text-4xl md:text-6xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
-            <div id="weather-desc" class="mt-4 text-gray-300 font-mono text-sm md:text-lg font-bold bg-black/50 px-6 py-2 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
+    <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
+        <div class="flex justify-between items-center px-2">
+            <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
+            <button onclick="toggleFocus('sec-telemetry')" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
-
-        <!-- REFACTORED: Unified Vital Metrics Panel (Grid Removed) -->
-        <div class="lg:col-span-7 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 md:p-8 flex flex-col justify-around gap-6">
-            
-            <!-- Row 1: Core Temperature & Sync -->
-            <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
-                <div>
-                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temperature</span>
-                    <div class="flex items-baseline gap-3">
-                        <div id="metric-temp" class="font-mono text-6xl md:text-7xl font-black text-white leading-none">--</div>
-                        <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <!-- Main Status Card -->
+            <div id="main-status-card" class="hud-card lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-surface-800 bg-surface-900 min-h-[350px] relative overflow-hidden">
+                <div class="absolute top-4 left-4">
+                    <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-60">Local Telemetry</span>
+                </div>
+                <div class="absolute top-4 right-4 text-right">
+                    <div id="location-badge" class="text-sm font-bold text-gray-300 flex items-center gap-1.5 justify-end uppercase tracking-widest">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
+                    </div>
+                    <div class="text-[10px] font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
+                        <i class="fa-regular fa-clock text-brand-blue opacity-80"></i> 
+                        <span id="local-time-text">--:--:--</span>
                     </div>
                 </div>
-                <div class="text-right">
-                    <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Model Sync</span>
-                    <div id="metric-agree" class="font-mono text-5xl md:text-6xl font-black text-brand-teal leading-none">--</div>
-                </div>
+
+                <i id="status-icon" class="text-8xl md:text-9xl mb-4 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
+                <span id="status-text" class="text-4xl md:text-6xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
+                <div id="weather-desc" class="mt-4 text-gray-300 font-mono text-sm md:text-lg font-bold bg-black/50 px-6 py-2 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
             </div>
 
-            <!-- Row 2: Wind, Humidity & UV -->
-            <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
-                <div>
-                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind & Humidity</span>
-                    <div class="flex items-baseline gap-4">
-                        <div class="flex items-baseline gap-1">
-                            <span id="metric-wind-speed" class="font-mono text-4xl md:text-5xl font-black text-white leading-none">--</span>
-                            <span class="text-xs font-bold text-gray-500 uppercase">km/h</span>
+            <!-- Unified Vital Metrics Panel -->
+            <div class="lg:col-span-7 bg-surface-900 border-4 border-surface-800 rounded-2xl p-6 md:p-8 flex flex-col justify-around gap-6">
+                <!-- Row 1: Core Temperature & Sync -->
+                <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
+                    <div>
+                        <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temperature</span>
+                        <div class="flex items-baseline gap-3">
+                            <div id="metric-temp" class="font-mono text-6xl md:text-7xl font-black text-white leading-none">--</div>
+                            <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
                         </div>
-                        <div id="metric-hum" class="font-mono text-3xl md:text-4xl font-black text-brand-blue leading-none">--</div>
                     </div>
-                    <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
+                    <div class="text-right">
+                        <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Model Sync</span>
+                        <div id="metric-agree" class="font-mono text-5xl md:text-6xl font-black text-brand-teal leading-none">--</div>
+                    </div>
                 </div>
-                <div class="text-right">
-                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
-                    <div id="metric-uv-val" class="font-mono text-4xl md:text-5xl font-black text-brand-purple leading-none">--</div>
-                    <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
+
+                <!-- Row 2: Wind, Humidity & UV -->
+                <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
+                    <div>
+                        <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind & Humidity</span>
+                        <div class="flex items-baseline gap-4">
+                            <div class="flex items-baseline gap-1">
+                                <span id="metric-wind-speed" class="font-mono text-4xl md:text-5xl font-black text-white leading-none">--</span>
+                                <span class="text-xs font-bold text-gray-500 uppercase">km/h</span>
+                            </div>
+                            <div id="metric-hum" class="font-mono text-3xl md:text-4xl font-black text-brand-blue leading-none">--</div>
+                        </div>
+                        <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
+                        <div id="metric-uv-val" class="font-mono text-4xl md:text-5xl font-black text-brand-purple leading-none">--</div>
+                        <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
+                    </div>
+                </div>
+
+                <!-- Row 3: Node Health Server Status -->
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
+                    <div class="flex flex-wrap gap-2 md:gap-3 font-mono text-sm md:text-base w-full md:w-auto">
+                        <div id="stat-eu" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">EU</div>
+                        <div id="stat-us" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">US</div>
+                        <div id="stat-de" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">DE</div>
+                        <div id="stat-jp" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
+                    </div>
                 </div>
             </div>
-
-            <!-- Row 3: Node Health Server Status -->
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
-                <div class="flex flex-wrap gap-2 md:gap-3 font-mono text-sm md:text-base w-full md:w-auto">
-                    <div id="stat-eu" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">EU</div>
-                    <div id="stat-us" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">US</div>
-                    <div id="stat-de" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">DE</div>
-                    <div id="stat-jp" class="font-bold px-3 py-1 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
-                </div>
-            </div>
-
         </div>
     </div>
 
     <!-- SECTION 2: TACTICAL MAP -->
-    <div class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2">
+    <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                <span class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
-                <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
+            <div class="flex items-center justify-between w-full lg:w-auto">
+                <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    <span id="gps-acc-ui" class="text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Live Tracking</span>
+                    <span id="route-status" class="text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-4 py-2 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
+                </div>
+                <!-- Map Focus Button (Mobile alignment fix) -->
+                <button onclick="toggleFocus('sec-map')" class="text-brand-teal hover:text-white transition-colors lg:hidden p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-map-mobile"></i></button>
             </div>
             
             <div class="flex flex-wrap items-center gap-2">
@@ -172,49 +185,44 @@
                 <button id="native-nav-btn" class="hidden text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white px-4 py-2 rounded-xl transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
                     <i class="fa-solid fa-diamond-turn-right"></i> <span>External Nav</span>
                 </button>
+
+                <!-- Map Focus Button (Desktop) -->
+                <button onclick="toggleFocus('sec-map')" class="hidden lg:block text-brand-teal hover:text-white transition-colors p-2 ml-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-map"></i></button>
             </div>
         </div>
         
-        <!-- Map Container Decoupled for 3D Track-Up Rotation -->
-        <div class="w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
-            <!-- Oversized container to handle rotation natively without CSS pixel stretching -->
+        <!-- Map Container -->
+        <div class="map-wrapper w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
             <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] transition-transform duration-500 ease-linear origin-center"></div>
             
-            <!-- Live Telemetry Overlays for Driver Reference -->
-            <div class="absolute top-4 left-4 z-[1000] flex flex-col gap-2 pointer-events-none">
-                
-                <!-- Speedometer & Max Speed Session Tracker -->
-                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-3 rounded-xl flex flex-col shadow-lg backdrop-blur-sm pointer-events-auto w-36">
-                    <div class="flex items-center gap-3">
-                        <i class="fa-solid fa-gauge-high text-brand-teal text-xl"></i>
-                        <div class="flex items-baseline gap-1">
-                            <span id="live-speed" class="font-mono text-3xl font-black text-white">0</span>
-                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
-                        </div>
+            <!-- Compact Telemetry Overlays (Inline Layout) -->
+            <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%]">
+                <!-- Speedometer -->
+                <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
+                    <i class="fa-solid fa-gauge-high text-brand-teal text-sm"></i>
+                    <div class="flex items-baseline gap-1">
+                        <span id="live-speed" class="font-mono text-xl font-black text-white leading-none">0</span>
+                        <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">km/h</span>
                     </div>
-                    <!-- Session Max Speed Divider -->
-                    <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-700/50">
-                        <div class="flex items-baseline gap-1">
-                            <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest mr-1">MAX</span>
-                            <span id="max-speed" class="font-mono text-sm font-black text-brand-orange">0</span>
-                        </div>
-                        <button onclick="resetMaxSpeed()" class="text-gray-500 hover:text-white transition-colors p-1 flex items-center justify-center" title="Reset Session Max">
-                            <i class="fa-solid fa-rotate-right text-[10px]"></i>
-                        </button>
+                    <!-- Inline Max Speed -->
+                    <div class="h-4 w-px bg-surface-700 mx-1"></div>
+                    <div class="flex items-center gap-1 cursor-pointer" onclick="resetMaxSpeed()" title="Reset Session Max">
+                        <span class="text-[8px] font-bold text-brand-orange uppercase">Max</span>
+                        <span id="max-speed" class="font-mono text-sm font-black text-brand-orange leading-none">0</span>
                     </div>
                 </div>
 
                 <!-- Compass -->
-                <div class="bg-surface-900/90 border-2 border-surface-700 px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg backdrop-blur-sm pointer-events-auto w-36">
-                    <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-xl transition-transform duration-500"></i>
+                <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
+                    <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-sm transition-transform duration-500"></i>
                     <div class="flex items-baseline gap-1">
-                        <span id="live-heading-txt" class="font-mono text-xl font-black text-white">N</span>
-                        <span id="live-heading-deg" class="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">000°</span>
+                        <span id="live-heading-txt" class="font-mono text-base font-black text-white leading-none">N</span>
+                        <span id="live-heading-deg" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">000°</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Tactical View Controls stay outside rotating canvas -->
+            <!-- Tactical View Controls -->
             <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
                 <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
                     <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
@@ -224,9 +232,10 @@
     </div>
 
     <!-- SECTION 3: ROUTE INTELLIGENCE -->
-    <div id="route-timeline-card" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2">
+    <div id="sec-intel" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-4 flex items-center justify-between">
-            <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (Vertical Tactical Stack)</span>
+            <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
+            <button onclick="toggleFocus('sec-intel')" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-intel"></i></button>
         </div>
         <div id="timeline-container" class="pb-2 no-select">
             <!-- Intercept Nodes injected here -->
@@ -234,11 +243,12 @@
     </div>
 
     <!-- SECTION 4: TELEMETRY PLOT -->
-    <div class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8">
+    <div id="sec-plot" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8 transition-all duration-300">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
+            <button onclick="toggleFocus('sec-plot')" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-plot"></i></button>
         </div>
-        <div class="flex-grow w-full relative h-[350px]">
+        <div class="chart-wrapper flex-grow w-full relative h-[350px]">
             <canvas id="mainChart"></canvas>
         </div>
     </div>
@@ -306,9 +316,11 @@
             isMapLocked: true,  
             lastHudLat: 0,
             lastHudLon: 0,
-            cumulativeHeading: 0, // Prevents 360-degree spin-back bug on map rotation
+            cumulativeHeading: 0, 
             lastHeading: 0,
-            maxSpeed: 0, // Track maximum session speed
+            currentSpeed: 0,
+            sensorHeading: null, // Hard sensor magnetometer tracking
+            maxSpeed: 0, 
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -321,9 +333,10 @@
             userAuth: null,
             lastIntelFetch: 0, 
             lastCheckpoints: [],
-            tacticalMode: 1, // 0: Route View, 1: 200m, 2: 100m, 3: 50m, 4: 20m
+            tacticalMode: 1, 
             scaleCtrl: null,
-            currentRouteCoords: null
+            currentRouteCoords: null,
+            focusedSection: null // Tracks current full-screen module
         };
 
         // --- AUTHENTICATION ---
@@ -341,7 +354,7 @@
             onAuthStateChanged(auth, (user) => { state.userAuth = user; });
         }
 
-        // --- WAKE LOCK ---
+        // --- WAKE LOCK & PERMISSIONS ---
         let wakeLock = null;
         async function requestWakeLock() {
             try {
@@ -349,9 +362,7 @@
                     wakeLock = await navigator.wakeLock.request('screen');
                 }
             } catch (err) {
-                if (err.name === 'NotAllowedError') {
-                    console.warn('MeteoNexus: Screen Wake Lock restricted.');
-                }
+                console.warn('MeteoNexus: Screen Wake Lock restricted.');
             }
         }
 
@@ -359,11 +370,121 @@
             if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
         });
 
-        // --- GLOBAL OVERLAY LOGIC ---
+        // Initialize iOS Magnetometer Permissions on First User Interaction
+        document.body.addEventListener('click', function initSensors() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(response => {
+                    if (response === 'granted') { console.log('Magnetometer Hardware Hooked.'); }
+                }).catch(console.error);
+            }
+            document.body.removeEventListener('click', initSensors);
+        }, { once: true });
+
+        // --- FOCUS ENGINE (FULLSCREEN ISOLATION) ---
+        window.toggleFocus = function(secId) {
+            const sections = ['sec-telemetry', 'sec-map', 'sec-intel', 'sec-plot'];
+            const isCurrentlyFocused = state.focusedSection === secId;
+            
+            state.focusedSection = isCurrentlyFocused ? null : secId;
+
+            sections.forEach(id => {
+                const el = document.getElementById(id);
+                const iconDesktop = document.getElementById(`icon-${id}`);
+                const iconMobile = document.getElementById(`icon-${id}-mobile`);
+                
+                if (!el) return;
+                
+                if (state.focusedSection === null) {
+                    // Restore original flow layout
+                    el.classList.remove('section-hidden', 'section-fullscreen');
+                    if (iconDesktop) iconDesktop.className = 'fa-solid fa-expand text-lg';
+                    if (iconMobile) iconMobile.className = 'fa-solid fa-expand text-lg';
+                    document.body.classList.remove('overflow-hidden');
+                } else {
+                    // Apply isolation
+                    if (id === secId) {
+                        el.classList.remove('section-hidden');
+                        el.classList.add('section-fullscreen');
+                        if (iconDesktop) iconDesktop.className = 'fa-solid fa-compress text-lg';
+                        if (iconMobile) iconMobile.className = 'fa-solid fa-compress text-lg';
+                        document.body.classList.add('overflow-hidden');
+                        
+                        // Recalculate Canvas Bounds
+                        if (id === 'sec-map' && state.mapObj) {
+                            setTimeout(() => state.mapObj.invalidateSize(), 300);
+                        } else if (id === 'sec-plot' && state.chart) {
+                            setTimeout(() => state.chart.resize(), 300);
+                        }
+                    } else {
+                        // Strip siblings from rendering tree
+                        if (!el.classList.contains('hidden') || id === 'sec-intel') {
+                           el.classList.add('section-hidden');
+                           el.classList.remove('section-fullscreen');
+                        }
+                    }
+                }
+            });
+            
+            // Special handling to ensure Route Intel stays hidden if no route is active during unfocus
+            if (state.focusedSection === null && !state.targetCoords) {
+                document.getElementById('sec-intel').classList.add('hidden');
+            }
+        };
+
         window.resetMaxSpeed = function() {
             state.maxSpeed = 0;
             document.getElementById('max-speed').innerText = '0';
         }
+
+        // --- HARDWARE MAGNETOMETER HOOKS ---
+        function updateHeadingDisplay(heading) {
+            if (heading === null || isNaN(heading)) return;
+            
+            let delta = heading - state.lastHeading;
+            if (delta > 180) delta -= 360;
+            if (delta < -180) delta += 360;
+            state.cumulativeHeading += delta;
+            state.lastHeading = heading;
+            
+            // Update UI Compass
+            document.getElementById('live-heading-deg').innerText = Math.round(heading).toString().padStart(3, '0') + '°';
+            document.getElementById('live-heading-txt').innerText = getWindDirection(heading);
+            document.getElementById('live-compass-icon').style.transform = `rotate(${heading}deg)`;
+            
+            // Apply strict hardware rotation to 20m Tactical Map
+            if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
+                const mapEl = document.getElementById('hud-map');
+                if (mapEl) mapEl.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
+            }
+            
+            // Apply rotation to User SVG Node
+            if (state.userMarker) {
+                const markerEl = state.userMarker.getElement();
+                if (markerEl) {
+                    const wrapper = markerEl.querySelector('#user-dir-wrapper');
+                    if (wrapper) wrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
+                }
+            }
+        }
+
+        // Absolute Sensor Event (Android)
+        window.addEventListener('deviceorientationabsolute', (e) => {
+            if (e.alpha !== null) {
+                state.sensorHeading = 360 - e.alpha;
+                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading); // Zero-latency fallback when stationary/slow
+            }
+        });
+
+        // Relative/Webkit Sensor Event (iOS & Fallback)
+        window.addEventListener('deviceorientation', (e) => {
+            if (e.webkitCompassHeading) {
+                state.sensorHeading = e.webkitCompassHeading;
+                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading);
+            } else if (e.absolute && e.alpha !== null) {
+                state.sensorHeading = 360 - e.alpha;
+                if (state.currentSpeed < 5) updateHeadingDisplay(state.sensorHeading);
+            }
+        });
 
         // --- BACKGROUND TRACKING ---
         function startBackgroundTracking() {
@@ -374,8 +495,28 @@
                 (pos) => {
                     const lat = pos.coords.latitude;
                     const lon = pos.coords.longitude;
-                    const heading = pos.coords.heading;
+                    const gpsHeading = pos.coords.heading;
                     const speed = pos.coords.speed;
+                    const accuracy = pos.coords.accuracy; // Hardware radius in meters
+                    
+                    // 1. Hardware Signal HUD Injection
+                    const accUi = document.getElementById('gps-acc-ui');
+                    if (accUi) {
+                        if (accuracy <= 15) {
+                            accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-success"></i> LOCK: HIGH (${Math.round(accuracy)}m)`;
+                            accUi.className = "text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
+                        } else if (accuracy <= 50) {
+                            accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-warning"></i> LOCK: MED (${Math.round(accuracy)}m)`;
+                            accUi.className = "text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
+                        } else {
+                            accUi.innerHTML = `<i class="fa-solid fa-signal text-brand-red animate-pulse"></i> LOCK: LOW (${Math.round(accuracy)}m)`;
+                            accUi.className = "text-sm font-bold uppercase tracking-widest text-brand-red whitespace-nowrap";
+                        }
+                    }
+
+                    // 2. Telemetry Jitter Rejection (Filter out cell-tower pings if satellite lock drops)
+                    if (accuracy > 100 && state.lastHudLat !== 0) return; 
+
                     state.autoCoords = { lat, lon };
 
                     if (!state.mapObj) {
@@ -389,6 +530,7 @@
                         
                         // Update Live Telemetry Overlays
                         const speedKmH = (speed !== null && speed > 0) ? Math.round(speed * 3.6) : 0;
+                        state.currentSpeed = speedKmH;
                         document.getElementById('live-speed').innerText = speedKmH;
                         
                         // Evaluate and Push Max Speed
@@ -397,19 +539,17 @@
                             document.getElementById('max-speed').innerText = state.maxSpeed;
                         }
 
-                        // Process heading safely to prevent backwards 360 map spinning
-                        const isMoving = heading !== null && !isNaN(heading) && speed > 0.5;
-                        if (heading !== null && !isNaN(heading)) {
-                            let delta = heading - state.lastHeading;
-                            if (delta > 180) delta -= 360;
-                            if (delta < -180) delta += 360;
-                            state.cumulativeHeading += delta;
-                            state.lastHeading = heading;
-                            
-                            // Update HUD Compass
-                            document.getElementById('live-heading-deg').innerText = Math.round(heading).toString().padStart(3, '0') + '°';
-                            document.getElementById('live-heading-txt').innerText = getWindDirection(heading);
-                            document.getElementById('live-compass-icon').style.transform = `rotate(${heading}deg)`;
+                        // Process Orientation: Handoff logic between physical Magnetometer and GPS Course-Over-Ground
+                        const isMovingFast = speedKmH >= 5;
+                        if (isMovingFast && gpsHeading !== null && !isNaN(gpsHeading)) {
+                            // High speed: GPS trajectory is king
+                            updateHeadingDisplay(gpsHeading);
+                        } else if (state.sensorHeading !== null) {
+                            // Low speed: Magnetometer provides zero-latency turning
+                            updateHeadingDisplay(state.sensorHeading);
+                        } else if (gpsHeading !== null && !isNaN(gpsHeading)) {
+                            // Fallback if sensors fail
+                            updateHeadingDisplay(gpsHeading);
                         }
 
                         // Shape-Shifting Marker Logic
@@ -417,20 +557,15 @@
                             state.userMarker.setLatLng([lat, lon]);
                             const markerEl = state.userMarker.getElement();
                             if (markerEl) {
-                                const wrapper = markerEl.querySelector('#user-dir-wrapper');
                                 const dot = markerEl.querySelector('#user-dot');
                                 const arrow = markerEl.querySelector('#user-arrow');
                                 
-                                if (wrapper && dot && arrow) {
-                                    wrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
-                                    
-                                    if (isMoving) {
-                                        // Morph to Tracking Chevron
+                                if (dot && arrow) {
+                                    if (isMovingFast) {
                                         dot.classList.add('opacity-0', 'scale-50');
                                         arrow.classList.remove('opacity-0', 'scale-50');
                                         arrow.classList.add('opacity-100', 'scale-100');
                                     } else {
-                                        // Morph to Stationary Dot
                                         dot.classList.remove('opacity-0', 'scale-50');
                                         arrow.classList.remove('opacity-100', 'scale-100');
                                         arrow.classList.add('opacity-0', 'scale-50');
@@ -442,14 +577,13 @@
                         if (state.targetCoords) {
                             if (!state.routeCtrl) {
                                 initRoute();
-                                state.lastCheckpoints = [{ lat, lon }]; // Initialize past tracking on route start
+                                state.lastCheckpoints = [{ lat, lon }]; 
                             } else {
                                 const waypoints = state.routeCtrl.getWaypoints();
                                 if(waypoints.length > 0 && waypoints[0]) {
                                     waypoints[0].latLng = L.latLng(lat, lon);
                                     state.routeCtrl.setWaypoints(waypoints);
                                 }
-                                // Update past checkpoints memory every 5km
                                 if (state.lastCheckpoints.length > 0) {
                                     const lastCp = state.lastCheckpoints[state.lastCheckpoints.length - 1];
                                     const distToLast = L.latLng(lat, lon).distanceTo(L.latLng(lastCp.lat, lastCp.lon));
@@ -460,24 +594,13 @@
                                 }
                             }
                         } else {
-                            state.lastCheckpoints = []; // Reset if no route
+                            state.lastCheckpoints = [];
                         }
                         
                         // Map Orientation & Centering Logic
                         if (state.isMapLocked && state.tacticalMode > 0) {
                             const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                            
-                            // FIX: Disable animation for smooth rapid live tracking and prevent map jumpiness
                             state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
-                            
-                            const mapEl = document.getElementById('hud-map');
-                            if (state.tacticalMode === 4) { 
-                                // 20m Tactical zoom -> Engage Track-Up Map Rotation natively
-                                mapEl.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
-                            } else {
-                                // Standard North-Up
-                                mapEl.style.transform = `rotate(0deg)`;
-                            }
                             
                             if (!state.targetCoords) {
                                 statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
@@ -498,14 +621,12 @@
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
 
-            // If map is unlocked (user dragged it), snap back to the current locked mode instead of cycling
             if (!state.isMapLocked) {
-                if (state.tacticalMode === 0) state.tacticalMode = 1; // Default to 200m if returning from route overview
+                if (state.tacticalMode === 0) state.tacticalMode = 1; 
                 window.applyTacticalMode();
                 return;
             }
 
-            // Cycle: 1 (200m) -> 2 (100m) -> 3 (50m) -> 4 (20m) -> 0 (Route Overview) -> 1...
             state.tacticalMode = (state.tacticalMode + 1) % 5;
             window.applyTacticalMode();
         }
@@ -516,7 +637,6 @@
             const mapEl = document.getElementById('hud-map');
             
             if (state.tacticalMode > 0) {
-                // Tracking Mode (Locked)
                 state.isMapLocked = true;
                 if (state.scaleCtrl) state.scaleCtrl.addTo(state.mapObj);
                 
@@ -536,11 +656,10 @@
                     state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: false});
                 }
             } else {
-                // Route Overview Mode (Unlocked)
                 state.isMapLocked = false;
                 if (state.scaleCtrl) state.scaleCtrl.remove();
                 
-                mapEl.style.transform = `rotate(0deg)`; // Revert to North-Up
+                mapEl.style.transform = `rotate(0deg)`; 
                 
                 btn.innerHTML = `<i class="fa-solid fa-route text-lg md:text-xl"></i>`;
                 btn.className = "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono";
@@ -558,9 +677,6 @@
             if(state.mapObj) return;
             state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
             
-            // REFACTORED: High-DPR Retina Detection clamped at maxNativeZoom: 18.
-            // This forces Leaflet to request max Zoom 19 (18 + 1 retina offset) from the server, 
-            // completely avoiding the 404 errors at the 20m scale.
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', 
                 maxZoom: 22, 
@@ -568,15 +684,11 @@
                 detectRetina: true
             }).addTo(state.mapObj);
 
-            // Initialize the scale control
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
 
             state.mapObj.on('dragstart', () => {
                 state.isMapLocked = false;
-                
-                // Instantly break out of 3D Track-Up rotation so dragging doesn't feel disjointed
                 document.getElementById('hud-map').style.transform = `rotate(0deg)`;
-
                 const btn = document.getElementById('tactical-btn');
                 btn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`;
                 btn.className = "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono";
@@ -598,7 +710,6 @@
                 zIndexOffset: 1000
             }).addTo(state.mapObj);
 
-            // Apply default mode 1 (200m)
             window.applyTacticalMode();
         }
 
@@ -609,7 +720,6 @@
                 router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
                 lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
                 show: false, addWaypoints: false, 
-                // FIX: Disabled fitSelectedRoutes to prevent the routing engine from forcefully zooming out the map every single GPS tick
                 fitSelectedRoutes: false, 
                 createMarker: function(i, wp) {
                     if (i === 0) return null; 
@@ -625,7 +735,6 @@
             state.routeCtrl.on('routingerror', handleRouteError);
         }
 
-        // --- MAP MARKER UTILS ---
         function clearInterceptMarkers() {
             if (state.interceptMarkers && state.mapObj) {
                 state.interceptMarkers.forEach(marker => state.mapObj.removeLayer(marker));
@@ -633,7 +742,6 @@
             }
         }
 
-        // --- PASTE & AUTO-LOAD ENGINE ---
         window.handlePasteAndLoad = async function() {
             const statusEl = document.getElementById('route-status');
             const btn = document.getElementById('gmaps-paste-btn');
@@ -791,10 +899,8 @@
             statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> INTERCEPT | DIST: ${distKm} KM | ETA: ${timeStr}`;
             statusEl.className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)]";
 
-            // Store route coordinates for the Route View bounding box
             state.currentRouteCoords = route.coordinates;
 
-            // Prevent API spam: Update Intelligence only every 5 minutes (300000ms)
             const now = Date.now();
             if (!state.lastIntelFetch || now - state.lastIntelFetch > 300000) {
                 state.lastIntelFetch = now;
@@ -808,12 +914,14 @@
             statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
         }
 
-        // --- EN-ROUTE FORECASTING (VERTICAL TACTICAL STACK & FULL MAP) ---
         async function fetchRouteIntelligence(route) {
             const container = document.getElementById('timeline-container');
-            document.getElementById('route-timeline-card').classList.remove('hidden');
+            const secIntel = document.getElementById('sec-intel');
             
-            document.querySelector('#route-timeline-card span').innerHTML = `<i class="fa-solid fa-route mr-2"></i> En-Route Intelligence (Vertical Tactical Stack)`
+            // Only show Route Intel module if we are not locked in another fullscreen mode
+            if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
+                secIntel.classList.remove('hidden');
+            }
             
             container.innerHTML = `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`;
 
@@ -821,10 +929,7 @@
 
             const totalDistance = route.summary.totalDistance;
             const coords = route.coordinates;
-            
-            const intervalDist = 5000; // 5KM Intervals
-            
-            // Calculate ALL future nodes to the end of the route
+            const intervalDist = 5000; 
             const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
             const allUpcomingWaypoints = [];
             
@@ -850,12 +955,9 @@
                     }
                     currentDist += d;
                 }
-                
-                // Track physical Node Index
                 allUpcomingWaypoints.push({ lat: foundPoint.lat, lon: foundPoint.lng, offsetKm: (targetDist / 1000).toFixed(0), nodeIndex: i, type: 'upcoming' });
             }
 
-            // PLOT ENTIRE ROUTE ON MAP
             allUpcomingWaypoints.forEach(wp => {
                 const marker = L.marker([wp.lat, wp.lon], {
                     icon: L.divIcon({
@@ -874,27 +976,20 @@
                 state.interceptMarkers.push(marker);
             });
 
-            // RESTRICT UI STACK & WEATHER API TO CLOSEST 4 NODES
             const upcomingWaypointsStack = allUpcomingWaypoints.slice(0, 4);
-
-            // Reverse the array. Top = Furthest Future.
             upcomingWaypointsStack.reverse();
 
-            // Inject Current Node
             const currentWaypoint = { lat: coords[0].lat, lon: coords[0].lng, offsetKm: 0, type: 'current' };
-
-            // Inject Past Nodes dynamically tracked from GPS memory
             const pastWaypoints = [];
             const reversedPast = [...state.lastCheckpoints].reverse();
             let pastIndex = 1;
             reversedPast.forEach(cp => {
                 const dist = L.latLng(coords[0].lat, coords[0].lng).distanceTo(L.latLng(cp.lat, cp.lon));
-                if (dist > 1500) { // Only show if we actually drove past it (>1.5KM)
+                if (dist > 1500) { 
                     pastWaypoints.push({ lat: cp.lat, lon: cp.lon, offsetKm: (dist/1000).toFixed(0), nodeIndex: pastIndex++, type: 'past' });
                 }
             });
 
-            // Final Render Array: [Future Stack (Max 4)] -> [Current] -> [Past]
             const waypoints = [...upcomingWaypointsStack, currentWaypoint, ...pastWaypoints];
 
             if (waypoints.length <= 1) {
@@ -903,11 +998,9 @@
             }
 
             try {
-                // Batch query WEATHER API - fetching base metrics AND the 4-Model consensus for EVERY tactical node
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
                 
-                // Parallel fetch to ensure tactical nodes use the exact same 4-model consensus as the main local telemetry
                 const [baseRes, modelRes] = await Promise.all([
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`),
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`)
@@ -923,22 +1016,19 @@
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
-                    const m = modelPoints[idx]; // Matching 4-model data
+                    const m = modelPoints[idx]; 
                     
-                    // Strict lock to CURRENT hour using API's native local time string to prevent UTC offsets
                     const apiCurrentTime = p.current ? p.current.time.substring(0, 13) : null;
                     let baseNowIndex = apiCurrentTime ? p.hourly.time.findIndex(t => t.startsWith(apiCurrentTime)) : -1;
                     if (baseNowIndex === -1) baseNowIndex = new Date().getHours();
                     const safeIdx = Math.min(baseNowIndex, p.hourly.time.length - 1);
                     
-                    // Extract precise intelligence for the current hour at that location
                     const code = p.hourly.weather_code[safeIdx];
                     const icon = WMO_ICONS[code] || 'fa-cloud';
                     const temp = Math.round(p.hourly.temperature_2m[safeIdx]);
                     const prec = p.hourly.precipitation[safeIdx] || 0;
                     const uv = (p.hourly.uv_index[safeIdx] || 0).toFixed(1);
                     
-                    // NEW: Calculate Rain Probability using 4-Model Consensus Engine (EU, US, DE, JP)
                     const rEU = m.hourly.precipitation_ecmwf_ifs025[safeIdx] || 0;
                     const rUS = m.hourly.precipitation_gfs_seamless[safeIdx] || 0;
                     const rDE = m.hourly.precipitation_icon_seamless[safeIdx] || 0;
@@ -951,8 +1041,6 @@
                     if (rJP > 0.1) votes++;
                     
                     const rainProb = (votes / 4) * 100;
-                    
-                    // Tactical Classifications (High-Contrast Styling Applied)
                     const isWet = prec > 0 || rainProb > 40;
                     const pathText = isWet ? 'WET TARMAC' : 'DRY TARMAC';
                     const pathColor = isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-brand-success drop-shadow-md';
@@ -973,19 +1061,17 @@
                         borderLeft = "border-brand-teal";
                         displayPrimary = `NODE ${wp.nodeIndex}`;
                         displayLabel = `${wp.offsetKm} KM AHEAD`;
-                        // Flag the immediate next node visually
                         if (idx === upcomingWaypointsStack.length - 1) {
                             titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Next Node</span>`;
                             glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)]";
                         }
-                        if (prec > 0.1 || rainProb >= 50) { // Upgraded danger detection
+                        if (prec > 0.1 || rainProb >= 50) { 
                             bgClass = "bg-brand-red/10";
                             textClass = "text-brand-red";
                             iconClass = "text-brand-red";
                             borderLeft = "border-brand-red";
                         }
                     } else if (wp.type === 'current') {
-                        // Current Position gets massive visual priority in the middle of the stack
                         bgClass = "bg-brand-blue/10";
                         borderLeft = "border-brand-blue";
                         titleBadge = `<span class="bg-brand-blue text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-crosshairs"></i> Current Pos</span>`;
@@ -995,7 +1081,6 @@
                         displayPrimary = "LIVE";
                         displayLabel = "POSITION";
                     } else if (wp.type === 'past') {
-                        // Past gets greyed out
                         bgClass = "bg-surface-900";
                         borderLeft = "border-surface-700";
                         glow = "opacity-60 grayscale";
@@ -1003,11 +1088,8 @@
                         displayLabel = `${wp.offsetKm} KM BEHIND`;
                     }
 
-                    // REFACTORED: Density Optimization - Larger text packed into smaller padding footprint
                     container.innerHTML += `
                         <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-2xl transition-all ${glow} z-10 p-3 md:p-4 flex flex-col lg:flex-row items-center justify-between gap-2 md:gap-4 overflow-hidden my-1">
-                            
-                            <!-- TOP/LEFT BLOCK: Core Metrics & Spatial Identification -->
                             <div class="flex items-center justify-between w-full lg:w-auto gap-3">
                                 <div class="flex items-center gap-3 shrink-0">
                                     <div class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
@@ -1023,31 +1105,25 @@
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <!-- Mobile Spatial Navigation (Right aligned on mobile) -->
                                 <div class="text-right flex flex-col items-end justify-center lg:hidden shrink-0">
                                      <span class="text-2xl md:text-3xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
                                      <span class="text-sm font-black uppercase tracking-widest text-gray-300">${displayLabel}</span>
                                 </div>
                             </div>
                             
-                            <!-- BOTTOM/MIDDLE BLOCK: Advanced Telemetry -->
                             <div class="w-full lg:w-auto flex-1 flex items-center justify-between lg:justify-center gap-4 lg:gap-8 text-base md:text-xl font-mono font-black uppercase tracking-widest pt-2 lg:pt-0 border-t border-surface-700/30 lg:border-none mt-1 lg:mt-0">
                                  <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-xl md:text-2xl opacity-90"></i> <span class="hidden sm:inline">${isWet ? 'WET TARMAC' : 'DRY TARMAC'}</span><span class="sm:hidden">${isWet ? 'WET' : 'DRY'}</span></span>
                                  <span class="${rainProb >= 40 ? 'text-brand-blue font-black drop-shadow-md' : 'text-white drop-shadow-md'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-xl md:text-2xl opacity-90"></i> ${Math.round(rainProb)}%</span>
                                  <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-xl md:text-2xl opacity-90"></i> UV ${uv}</span>
                             </div>
 
-                            <!-- RIGHT BLOCK: Desktop Spatial Navigation -->
                             <div class="hidden lg:flex text-right flex-col items-end justify-center w-auto shrink-0">
                                  <span class="text-3xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
                                  <span class="text-base font-black uppercase tracking-widest text-gray-300">${displayLabel}</span>
                             </div>
-                            
                         </div>
                     `;
 
-                    // Inject vertical timeline connector lines
                     if (idx < weatherPoints.length - 1) {
                         let lineCol = wp.type === 'upcoming' ? 'bg-brand-teal/50' : 'bg-surface-600';
                         if (wp.type === 'current') lineCol = 'bg-brand-blue/50';
@@ -1062,7 +1138,6 @@
             }
         }
 
-        // --- CLOCK CONTROLLER ---
         setInterval(() => {
             if (!state.targetTimezone) return;
             try {
@@ -1077,7 +1152,6 @@
             return arr[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
-        // --- AUDIO ENGINE ---
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const btn = document.getElementById('audio-btn');
@@ -1110,7 +1184,6 @@
             state.lastPing = Date.now();
         }
 
-        // --- CHARTING ENGINE ---
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.chart) state.chart.destroy();
@@ -1149,7 +1222,6 @@
             });
         }
 
-        // --- LOCAL DATA FETCHING ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             
@@ -1176,7 +1248,6 @@
                 const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
                 const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
                 
-                // REFACTORED: Updated padding on status badges to match new unified panel design
                 ['eu','us','de','jp'].forEach((id, idx) => {
                     const el = document.getElementById(`stat-${id}`);
                     const arr = [rEU, rUS, rDE, rJP][idx];
@@ -1232,25 +1303,27 @@
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
             localStorage.removeItem('ms_targetCoords'); 
-            clearInterceptMarkers(); // Wipe markers on reset
-            state.lastIntelFetch = 0; // Reset throttle
-            state.lastCheckpoints = []; // Reset tracked past history
-            state.currentRouteCoords = null; // Clear cached full bounds
+            clearInterceptMarkers(); 
+            state.lastIntelFetch = 0; 
+            state.lastCheckpoints = []; 
+            state.currentRouteCoords = null; 
             
             document.getElementById('route-status').innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
             document.getElementById('route-status').className = "text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-4 py-2 rounded-lg border-2 border-brand-success/50";
             document.getElementById('native-nav-btn').classList.add('hidden');
-            document.getElementById('route-timeline-card').classList.add('hidden');
+            
+            // Release Focus on Reset
+            if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
+            document.getElementById('sec-intel').classList.add('hidden');
+            
             localStorage.removeItem('ms_mode'); state.mode = 'auto'; 
             
-            // Re-engage GPS Lock
             state.tacticalMode = 1;
             window.applyTacticalMode();
             
             runApp();
         }
 
-        // --- CORE RUN LOOP ---
         function runApp() {
             requestWakeLock();
             startBackgroundTracking();
@@ -1284,7 +1357,6 @@
         
         runApp(); 
 
-        // RESTORED: Fixed the interval to fetch data safely using cached coordinates without prompting GPS again.
         setInterval(() => { 
             if (state.autoCoords) { 
                 fetchData(state.autoCoords.lat, state.autoCoords.lon, true); 
