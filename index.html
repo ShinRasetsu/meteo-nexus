@@ -78,6 +78,12 @@
         </h1>
         
         <div class="flex items-center gap-2 md:gap-3">
+            <!-- PWA Install Action -->
+            <button id="pwa-install-btn" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm" title="Install Standalone App">
+                <i class="fa-solid fa-download animate-bounce"></i>
+                <span class="hidden md:block">INSTALL</span>
+            </button>
+
             <button onclick="purgeSystem()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm" title="Purge System Cache">
                 <i class="fa-solid fa-skull"></i>
                 <span class="hidden md:block">PURGE CACHE</span>
@@ -1436,6 +1442,69 @@
 
         if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
         
+        // --- PHASE 1: PWA ENGINE (Dynamic Manifest & Service Worker) ---
+        (function initPWA() {
+            // 1. Dynamic Manifest Injection
+            const pwaManifest = {
+                name: "MeteoNexus Tactical HUD",
+                short_name: "MeteoNexus",
+                start_url: window.location.href,
+                display: "standalone",
+                background_color: "#000000",
+                theme_color: "#000000",
+                orientation: "portrait-primary",
+                icons: [{
+                    src: "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23000'/%3E%3Cpath d='M256 64L64 448h384L256 64z' fill='%2314b8a6'/%3E%3C/svg%3E",
+                    sizes: "512x512",
+                    type: "image/svg+xml",
+                    purpose: "any maskable"
+                }]
+            };
+            const manifestString = JSON.stringify(pwaManifest);
+            document.getElementById('manifest-placeholder').setAttribute('href', 'data:application/json;charset=utf-8,' + encodeURIComponent(manifestString));
+
+            // 2. Local Service Worker Registration (Required for PWA Install Criteria)
+            if ('serviceWorker' in navigator) {
+                const swCode = `
+                    self.addEventListener('install', (e) => self.skipWaiting());
+                    self.addEventListener('activate', (e) => self.clients.claim());
+                    self.addEventListener('fetch', (e) => { 
+                        e.respondWith(fetch(e.request).catch(() => new Response('Offline Mode Active.'))); 
+                    });
+                `;
+                const swBlob = new Blob([swCode], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(swBlob);
+                navigator.serviceWorker.register(swUrl)
+                    .then(reg => console.log('MeteoNexus: Local PWA Service Worker Hooked.'))
+                    .catch(e => console.warn('PWA SW block (Expected in some sandboxes):', e));
+            }
+
+            // 3. Install Prompt Handling
+            let deferredPrompt;
+            const installBtn = document.getElementById('pwa-install-btn');
+            
+            window.addEventListener('beforeinstallprompt', (e) => {
+                // Prevent the mini-infobar from appearing on mobile
+                e.preventDefault();
+                deferredPrompt = e;
+                // Reveal custom UI install button
+                installBtn.classList.remove('hidden');
+                installBtn.classList.add('flex');
+            });
+
+            installBtn.addEventListener('click', async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    if (outcome === 'accepted') {
+                        installBtn.classList.add('hidden');
+                        installBtn.classList.remove('flex');
+                    }
+                    deferredPrompt = null;
+                }
+            });
+        })();
+
         runApp(); 
 
         setInterval(() => { 
