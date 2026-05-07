@@ -55,6 +55,9 @@
         .leaflet-routing-container { display: none !important; } /* Hide default text directions */
         .leaflet-control-scale-line { background: rgba(17, 17, 17, 0.9) !important; color: #14b8a6 !important; border: 1px solid #2a2a2a !important; border-top: none !important; text-shadow: none !important; box-shadow: none !important; border-bottom: 2px solid #14b8a6 !important; border-left: 2px solid #14b8a6 !important; border-right: 2px solid #14b8a6 !important; border-radius: 0 0 4px 4px; font-weight: bold; font-family: 'JetBrains Mono', monospace; }
         
+        /* GPU Acceleration for high-frequency dynamic elements */
+        #hud-map, #user-dir-wrapper, #live-compass-icon { will-change: transform; }
+        
         /* Smooth transition for HUD cards */
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
 
@@ -267,6 +270,18 @@
         </div>
     </div>
 
+    <!-- Custom Modal Replacement for Native Confirm -->
+    <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
+            <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
+            <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe all saved coordinates, telemetry data, and routing memory. Proceed?</p>
+            <div class="flex gap-3 justify-end">
+                <button onclick="closeModal()" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
+                <button onclick="executePurge()" class="px-4 py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge</button>
+            </div>
+        </div>
+    </div>
+
     <!-- CORE ENGINE -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -334,6 +349,7 @@
             lastHeading: 0,
             currentSpeed: 0,
             sensorHeading: null, 
+            lastHeadingUpdate: 0, // ADDED: Used for throttling sensor inputs
             maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0, 
             routeNodes: JSON.parse(localStorage.getItem('ms_routeNodes')) || null, 
             targetTimezone: null, 
@@ -393,6 +409,7 @@
                     if (response === 'granted') { console.log('Magnetometer Hardware Hooked.'); }
                 }).catch(console.error);
             }
+            // Safely remove listener to prevent overlap logic
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -442,10 +459,15 @@
             }
         };
 
-        // --- HARDWARE MAGNETOMETER HOOKS ---
+        // --- HARDWARE MAGNETOMETER HOOKS (THROTTLED) ---
         function updateHeadingDisplay(heading) {
             if (heading === null || isNaN(heading)) return;
             
+            const now = performance.now();
+            // Throttle to ~30 FPS (33ms) to prevent device hardware causing layout thrashing
+            if (now - state.lastHeadingUpdate < 33) return;
+            state.lastHeadingUpdate = now;
+
             let delta = heading - state.lastHeading;
             if (delta > 180) delta -= 360;
             if (delta < -180) delta += 360;
@@ -1073,7 +1095,8 @@
                 const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
                 const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
-                container.innerHTML = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
+                // PERFORMANCE FIX: Use string buffer to avoid DOM Reflow inside loop
+                let htmlBuffer = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
@@ -1160,7 +1183,7 @@
                         displayLabel = "POSITION";
                     }
 
-                    container.innerHTML += `
+                    htmlBuffer += `
                         <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-2xl transition-all ${glow} z-10 p-3 md:p-4 flex flex-col lg:flex-row items-center justify-between gap-2 md:gap-4 overflow-hidden my-1">
                             <div class="flex items-center justify-between w-full lg:w-auto gap-3">
                                 <div class="flex items-center gap-3 shrink-0">
@@ -1199,11 +1222,13 @@
                     if (idx < weatherPoints.length - 1) {
                         let lineCol = wp.type === 'upcoming' ? 'bg-brand-teal/50' : 'bg-surface-600';
                         if (wp.type === 'current') lineCol = 'bg-brand-blue/50';
-                        container.innerHTML += `<div class="w-2 h-6 ${lineCol} -my-1 z-0 rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)]"></div>`;
+                        htmlBuffer += `<div class="w-2 h-6 ${lineCol} -my-1 z-0 rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)]"></div>`;
                     }
                 });
                 
-                container.innerHTML += '</div>';
+                htmlBuffer += '</div>';
+                // Single DOM write
+                container.innerHTML = htmlBuffer;
 
             } catch (err) {
                 container.innerHTML = `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`;
@@ -1224,12 +1249,18 @@
             return arr[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
-        // Global System Purge Handler
+        // --- Custom DOM Modal Replaces Window Prompts ---
         window.purgeSystem = function() {
-            if (confirm("CRITICAL WARNING: This will completely wipe all saved coordinates, telemetry data, and routing memory. Proceed?")) {
-                localStorage.clear();
-                window.location.reload(true);
-            }
+            document.getElementById('custom-modal').classList.remove('hidden');
+        }
+
+        window.closeModal = function() {
+            document.getElementById('custom-modal').classList.add('hidden');
+        }
+
+        window.executePurge = function() {
+            localStorage.clear();
+            window.location.reload(true);
         }
 
         window.toggleAudio = function() {
