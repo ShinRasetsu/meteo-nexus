@@ -9,23 +9,19 @@
     <link rel="manifest" id="manifest-placeholder">
     <meta name="theme-color" content="#000000">
     
-    <!-- Chart.js for Telemetry Visualization -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- FontAwesome for UI Icons -->
+    <!-- External Dependencies (Deferred for faster Time-to-Interactive) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts: Inter (UI) and JetBrains Mono (Data) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
-    <!-- Leaflet & Routing Machine for Mapping -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
-    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js" defer></script>
 
-    <!-- Tailwind CSS (CDN Config for Single-File App) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- LocalForage for Offline Telemetry Caching -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
+    
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -343,7 +339,7 @@
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
-            lastHeading: 0, currentSpeed: 0, sensorHeading: null, maxSpeed: 0, 
+            lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, maxSpeed: 0, 
             routeNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
@@ -528,6 +524,8 @@
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
 
+            const EMA_ALPHA_SPEED = 0.4; // Exponentional Moving Average config for velocity stabilization
+
             state.gpsWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     const lat = pos.coords.latitude;
@@ -582,14 +580,18 @@
                         }
 
                         if (!isGlitch) {
-                            const speedKmH = Math.round(rawSpeedKmh);
-                            state.currentSpeed = speedKmH;
+                            // EMA Velocity Filter for UI Stability
+                            if (state.smoothedSpeed === null) state.smoothedSpeed = rawSpeedKmh;
+                            else state.smoothedSpeed = (EMA_ALPHA_SPEED * rawSpeedKmh) + ((1 - EMA_ALPHA_SPEED) * state.smoothedSpeed);
+                            
+                            const displaySpeedKmH = Math.round(state.smoothedSpeed);
+                            state.currentSpeed = displaySpeedKmH;
                             state.lastSpeedTimestamp = now;
                             
-                            updateText(DOM.liveSpeed, speedKmH);
+                            updateText(DOM.liveSpeed, displaySpeedKmH);
                             
-                            if (speedKmH > state.maxSpeed && speedKmH < 350 && accuracy <= 25) {
-                                state.maxSpeed = speedKmH;
+                            if (displaySpeedKmH > state.maxSpeed && displaySpeedKmH < 350 && accuracy <= 25) {
+                                state.maxSpeed = displaySpeedKmH;
                                 updateText(DOM.maxSpeed, state.maxSpeed);
                             }
                         }
@@ -631,7 +633,12 @@
                         }
 
                         if (state.userMarker) {
-                            state.userMarker.setLatLng([lat, lon]);
+                            // Apply simple movement thresholding to prevent stationary map jitter
+                            const moveDist = L.latLng(state.lastHudLat, state.lastHudLon).distanceTo(L.latLng(lat, lon));
+                            if (moveDist > 2 || state.currentSpeed >= 2) {
+                                state.userMarker.setLatLng([lat, lon]);
+                            }
+
                             const markerEl = state.userMarker.getElement();
                             if (markerEl) {
                                 const dot = markerEl.querySelector('#user-dot');
@@ -1010,6 +1017,7 @@
         }
 
         // --- EN-ROUTE TELEMETRY FETCH ---
+        // OPTIMIZED: Precomputes cumulative distances for O(N) path node targeting
         async function fetchRouteIntelligence(route) {
             const secIntel = document.getElementById('sec-intel');
             
@@ -1026,26 +1034,34 @@
                 const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
                 const nodes = [];
                 
+                // O(N) pre-computation to avoid CPU stalling on long multi-node coordinate iterations
+                let cumulativeDistances = new Float32Array(coords.length);
+                cumulativeDistances[0] = 0;
+                for (let j = 1; j < coords.length; j++) {
+                    cumulativeDistances[j] = cumulativeDistances[j-1] + coords[j-1].distanceTo(coords[j]);
+                }
+
+                let searchIdx = 1;
                 for (let i = 1; i <= totalFutureNodesCount; i++) {
                     const targetDist = i * intervalDist;
-                    let currentDist = 0;
-                    let foundPoint = coords[0];
-
-                    for (let j = 0; j < coords.length - 1; j++) {
-                        const p1 = coords[j];
-                        const p2 = coords[j+1];
-                        const d = p1.distanceTo(p2);
-                        if (currentDist + d >= targetDist) {
-                            const ratio = (targetDist - currentDist) / d;
-                            foundPoint = L.latLng(
-                                p1.lat + (p2.lat - p1.lat) * ratio,
-                                p1.lng + (p2.lng - p1.lng) * ratio
-                            );
-                            break;
-                        }
-                        currentDist += d;
+                    
+                    while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) {
+                        searchIdx++;
                     }
-                    nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
+
+                    if (searchIdx < coords.length) {
+                        const p1 = coords[searchIdx - 1];
+                        const p2 = coords[searchIdx];
+                        const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
+                        const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
+                        const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
+
+                        const foundPoint = L.latLng(
+                            p1.lat + (p2.lat - p1.lat) * ratio,
+                            p1.lng + (p2.lng - p1.lng) * ratio
+                        );
+                        nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
+                    }
                 }
                 state.routeNodes = nodes;
             }
