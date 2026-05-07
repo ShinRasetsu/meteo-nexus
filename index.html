@@ -24,6 +24,8 @@
 
     <!-- Tailwind CSS (CDN Config for Single-File App) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- LocalForage for Offline Telemetry Caching -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -1361,6 +1363,117 @@
             });
         }
 
+        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
+            if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
+            let curr = dCurr.current; 
+            const h = dFore.hourly; 
+            const hSol = dSolar.hourly;
+            
+            let nowIndex = 0;
+            if (isOffline) {
+                let minDiff = Infinity;
+                h.time.forEach((t, i) => {
+                    const diff = Math.abs(new Date(t).getTime() - Date.now());
+                    if (diff < minDiff) { minDiff = diff; nowIndex = i; }
+                });
+                
+                curr = {
+                    temperature_2m: h.temperature_2m[nowIndex],
+                    apparent_temperature: h.temperature_2m[nowIndex], 
+                    relative_humidity_2m: 50, 
+                    weather_code: h.weather_code[nowIndex],
+                    wind_speed_10m: h.wind_speed_10m ? h.wind_speed_10m[nowIndex] : 0,
+                    wind_direction_10m: h.wind_direction_10m ? h.wind_direction_10m[nowIndex] : 0,
+                    is_day: (new Date().getHours() > 6 && new Date().getHours() < 18) ? 1 : 0
+                };
+            } else {
+                nowIndex = h.time.findIndex(t => t.startsWith(curr.time.substring(0, 13)));
+                if (nowIndex === -1) nowIndex = new Date().getHours();
+            }
+            
+            const clean = (arr) => arr.map(v => v === null ? 0 : v);
+            const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
+            const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
+            
+            ['eu','us','de','jp'].forEach((id, idx) => {
+                const el = document.getElementById(`stat-${id}`);
+                const arr = [rEU, rUS, rDE, rJP][idx];
+                if(!arr || arr.every(v=>v===null)) { 
+                    updateClass(el, "font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
+                    updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`); 
+                } else { 
+                    updateClass(el, "font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
+                    updateHTML(el, id.toUpperCase()); 
+                }
+            });
+
+            const rainData = { eu: clean(rEU.slice(nowIndex, nowIndex + 24)), us: clean(rUS.slice(nowIndex, nowIndex + 24)), de: clean(rDE.slice(nowIndex, nowIndex + 24)), jp: clean(rJP.slice(nowIndex, nowIndex + 24)) };
+            const uvData = hSol.uv_index.slice(nowIndex, nowIndex + 24).map(v => v === null ? 0 : v);
+            const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + 24));
+            const times = h.time.slice(nowIndex, nowIndex + 24).map(t => { let s = t.slice(11, 16); return s === "00:00" ? "00:00 (+1d)" : s; });
+            
+            const hourlyAgreement = [];
+            for (let i = 0; i < 24; i++) {
+                let v = 0; if(rainData.eu[i]>0.1)v++; if(rainData.us[i]>0.1)v++; if(rainData.de[i]>0.1)v++; if(rainData.jp[i]>0.1)v++;
+                hourlyAgreement.push((v/4)*100);
+            }
+            
+            const currentAgreement = hourlyAgreement[0] || 0;
+            let currentVotes = (currentAgreement / 100) * 4;
+            let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
+
+            updateText(DOM.metricTemp, Math.round(curr.temperature_2m) + '°');
+            updateText(DOM.metricFeels, Math.round(curr.apparent_temperature) + '°');
+            updateText(DOM.metricHum, curr.relative_humidity_2m + '%');
+            updateText(DOM.metricAgree, `${currentAgreement.toFixed(0)}%`);
+            updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
+            updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`);
+            
+            const maxUV = Math.max(...uvData);
+            updateText(DOM.metricUvVal, maxUV.toFixed(1));
+            updateText(DOM.metricUvTime, "@ " + times[uvData.indexOf(maxUV)].replace(" (+1d)", ""));
+            
+            let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin'; 
+            if (curr.is_day === 0) bIcon = bIcon.replace('sun', 'moon'); 
+            
+            updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ");
+            
+            if (currentVotes >= 3) { 
+                DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red'); 
+                updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`); 
+                updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase'); 
+                updateText(DOM.statusText, "RAIN LIKELY");
+                if (currentAgreement >= CONFIG.sonarThreshold && !isOffline) playSonarPing();
+            } else if (incomingRain) {
+                DOM.mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning'); 
+                updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`); 
+                updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'); 
+                updateText(DOM.statusText, "INCOMING RAIN (1-3H)");
+            } else if (currentVotes >= 1) {
+                DOM.mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50'); 
+                updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`); 
+                updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'); 
+                updateText(DOM.statusText, "RAIN POSSIBLE");
+            } else {
+                DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50'); 
+                updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid ${bIcon} text-brand-success`); 
+                updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase'); 
+                updateText(DOM.statusText, "STABLE");
+            }
+
+            if (isOffline) {
+                updateText(DOM.weatherDesc, "OFFLINE: RTC INTERPOLATION");
+                DOM.weatherDesc.classList.remove("text-gray-300");
+                DOM.weatherDesc.classList.add("text-brand-orange");
+            } else {
+                updateText(DOM.weatherDesc, WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`);
+                DOM.weatherDesc.classList.remove("text-brand-orange");
+                DOM.weatherDesc.classList.add("text-gray-300");
+            }
+            
+            renderChart(times, rainData, solarData, uvData, hourlyAgreement);
+        }
+
         // --- LOCAL METRICS DATA FETCH ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
@@ -1368,7 +1481,7 @@
             state.telemetryCache.lat = lat;
             state.telemetryCache.lon = lon;
             
-            if (!skipReverseGeo) {
+            if (!skipReverseGeo && navigator.onLine) {
                 fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
                     .then(r => r.json())
                     .then(d => {
@@ -1377,6 +1490,8 @@
                     }).catch(() => {});
             }
             try {
+                if (!navigator.onLine) throw new Error("Browser is offline.");
+
                 const [rCurr, rFore, rSolar] = await Promise.all([
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`),
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`),
@@ -1384,85 +1499,20 @@
                 ]);
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 
-                if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
-                const curr = dCurr.current; const h = dFore.hourly; const hSol = dSolar.hourly;
-                
-                let nowIndex = h.time.findIndex(t => t.startsWith(curr.time.substring(0, 13)));
-                if (nowIndex === -1) nowIndex = new Date().getHours();
-                
-                const clean = (arr) => arr.map(v => v === null ? 0 : v);
-                const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
-                const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
-                
-                ['eu','us','de','jp'].forEach((id, idx) => {
-                    const el = document.getElementById(`stat-${id}`);
-                    const arr = [rEU, rUS, rDE, rJP][idx];
-                    if(!arr || arr.every(v=>v===null)) { 
-                        updateClass(el, "font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
-                        updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`); 
-                    } else { 
-                        updateClass(el, "font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
-                        updateHTML(el, id.toUpperCase()); 
+                await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
+                processTelemetryPayload(dCurr, dFore, dSolar, false);
+
+            } catch (e) { 
+                console.warn("Network Error. Failing over to IndexedDB LocalForage cache.", e);
+                try {
+                    const cached = await localforage.getItem('telemetry_payload');
+                    if (cached) {
+                        processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true);
                     }
-                });
-
-                const rainData = { eu: clean(rEU.slice(nowIndex, nowIndex + 24)), us: clean(rUS.slice(nowIndex, nowIndex + 24)), de: clean(rDE.slice(nowIndex, nowIndex + 24)), jp: clean(rJP.slice(nowIndex, nowIndex + 24)) };
-                const uvData = hSol.uv_index.slice(nowIndex, nowIndex + 24).map(v => v === null ? 0 : v);
-                const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + 24));
-                const times = h.time.slice(nowIndex, nowIndex + 24).map(t => { let s = t.slice(11, 16); return s === "00:00" ? "00:00 (+1d)" : s; });
-                
-                const hourlyAgreement = [];
-                for (let i = 0; i < 24; i++) {
-                    let v = 0; if(rainData.eu[i]>0.1)v++; if(rainData.us[i]>0.1)v++; if(rainData.de[i]>0.1)v++; if(rainData.jp[i]>0.1)v++;
-                    hourlyAgreement.push((v/4)*100);
+                } catch (cacheErr) {
+                    console.error("Cache Read Failed:", cacheErr);
                 }
-                
-                const currentAgreement = hourlyAgreement[0] || 0;
-                let currentVotes = (currentAgreement / 100) * 4;
-                let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
-
-                updateText(DOM.metricTemp, Math.round(curr.temperature_2m) + '°');
-                updateText(DOM.metricFeels, Math.round(curr.apparent_temperature) + '°');
-                updateText(DOM.metricHum, curr.relative_humidity_2m + '%');
-                updateText(DOM.metricAgree, `${currentAgreement.toFixed(0)}%`);
-                updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
-                updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`);
-                
-                const maxUV = Math.max(...uvData);
-                updateText(DOM.metricUvVal, maxUV.toFixed(1));
-                updateText(DOM.metricUvTime, "@ " + times[uvData.indexOf(maxUV)].replace(" (+1d)", ""));
-                updateText(DOM.weatherDesc, WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`);
-
-                let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin'; 
-                if (curr.is_day === 0) bIcon = bIcon.replace('sun', 'moon'); 
-                
-                updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ");
-                
-                if (currentVotes >= 3) { 
-                    DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red'); 
-                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`); 
-                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase'); 
-                    updateText(DOM.statusText, "RAIN LIKELY");
-                    if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
-                } else if (incomingRain) {
-                    DOM.mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning'); 
-                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`); 
-                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'); 
-                    updateText(DOM.statusText, "INCOMING RAIN (1-3H)");
-                } else if (currentVotes >= 1) {
-                    DOM.mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50'); 
-                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`); 
-                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'); 
-                    updateText(DOM.statusText, "RAIN POSSIBLE");
-                } else {
-                    DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50'); 
-                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid ${bIcon} text-brand-success`); 
-                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase'); 
-                    updateText(DOM.statusText, "STABLE");
-                }
-                
-                renderChart(times, rainData, solarData, uvData, hourlyAgreement);
-            } catch (e) { console.error(e); }
+            }
         }
 
         window.resetToAuto = function() {
@@ -1536,7 +1586,33 @@
             document.getElementById('manifest-placeholder').setAttribute('href', 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(pwaManifest)));
 
             if ('serviceWorker' in navigator) {
-                const swCode = `self.addEventListener('install', (e) => self.skipWaiting()); self.addEventListener('activate', (e) => self.clients.claim()); self.addEventListener('fetch', (e) => { e.respondWith(fetch(e.request).catch(() => new Response('Offline Mode Active.'))); });`;
+                const swCode = `
+                    const CACHE_NAME = 'meteonexus-v2';
+                    self.addEventListener('install', (e) => self.skipWaiting());
+                    self.addEventListener('activate', (e) => {
+                        e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => { if(k !== CACHE_NAME) return caches.delete(k); }))));
+                        self.clients.claim();
+                    });
+                    self.addEventListener('fetch', (e) => {
+                        const url = new URL(e.request.url);
+                        if (url.hostname.includes('tile.openstreetmap.org')) {
+                            e.respondWith(
+                                caches.match(e.request).then(res => {
+                                    return res || fetch(e.request).then(netRes => {
+                                        return caches.open(CACHE_NAME).then(cache => {
+                                            cache.put(e.request, netRes.clone());
+                                            return netRes;
+                                        });
+                                    });
+                                }).catch(() => new Response(''))
+                            );
+                        } else if (url.hostname.includes('api.open-meteo.com')) {
+                            e.respondWith(fetch(e.request));
+                        } else {
+                            e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+                        }
+                    });
+                `;
                 const swBlob = new Blob([swCode], { type: 'application/javascript' });
                 navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(e => console.warn('PWA SW block:', e));
             }
