@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
     <link rel="manifest" id="manifest-placeholder">
@@ -43,7 +43,7 @@
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-        body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; }
+        body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
         
         input:focus, button:focus { outline: none; box-shadow: 0 0 0 4px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
@@ -52,7 +52,7 @@
         .leaflet-control-scale-line { background: rgba(17, 17, 17, 0.9) !important; color: #14b8a6 !important; border: 1px solid #2a2a2a !important; border-top: none !important; text-shadow: none !important; box-shadow: none !important; border-bottom: 2px solid #14b8a6 !important; border-left: 2px solid #14b8a6 !important; border-right: 2px solid #14b8a6 !important; border-radius: 0 0 4px 4px; font-weight: bold; font-family: 'JetBrains Mono', monospace; }
         
         /* Enforce GPU rendering context for high-frequency update elements */
-        #hud-map, #user-dir-wrapper, #live-compass-icon { will-change: transform; transform: translateZ(0); }
+        #hud-map, #user-dir-wrapper, #live-compass-icon { will-change: transform; transform: translateZ(0); backface-visibility: hidden; }
         
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
@@ -77,7 +77,7 @@
                 <i class="fa-solid fa-download animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
             <button onclick="purgeSystem()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
-                <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE CACHE</span>
+                <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
             <button id="audio-btn" onclick="toggleAudio()" class="flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
                 <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
@@ -306,53 +306,45 @@
         };
 
         let state = {
-            mode: 'auto',
-            autoCoords: null,
-            targetCoords: null,
-            coords: {}, 
-            isMapLocked: true,  
-            lastHudLat: 0,
-            lastHudLon: 0,
-            cumulativeHeading: 0, 
-            lastHeading: 0,
-            currentSpeed: 0,
-            sensorHeading: null, 
-            maxSpeed: 0, 
-            routeNodes: null, 
-            targetTimezone: null, 
-            chart: null,
-            audioEnabled: false,
-            lastPing: 0,
-            mapObj: null,
-            routeCtrl: null,
-            gpsWatchId: null, 
-            userMarker: null, 
-            interceptMarkers: [], // Array for Object Pooling
-            userAuth: null,
-            lastIntelFetch: 0, 
-            tacticalMode: 1, 
-            scaleCtrl: null,
-            currentRouteCoords: null,
-            focusedSection: null,
-            lastSpeedTimestamp: 0,
-            telemetryCache: { timestamp: 0, lat: 0, lon: 0 } // Level 2 Network Cache
+            mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
+            isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
+            lastHeading: 0, currentSpeed: 0, sensorHeading: null, maxSpeed: 0, 
+            routeNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
+            lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
+            userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
+            tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
+            lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 }
         };
 
-        // DOM Memoization (Reduces traversal overhead in loops)
+        // DOM Memoization & Dirty Checking Helpers
         const DOM = {
-            maxSpeed: document.getElementById('max-speed'),
-            liveSpeed: document.getElementById('live-speed'),
-            liveHeadingDeg: document.getElementById('live-heading-deg'),
-            liveHeadingTxt: document.getElementById('live-heading-txt'),
-            liveCompassIcon: document.getElementById('live-compass-icon'),
-            hudMap: document.getElementById('hud-map'),
-            accUi: document.getElementById('gps-acc-ui'),
-            statusEl: document.getElementById('route-status'),
-            navBtn: document.getElementById('native-nav-btn'),
-            timelineContainer: document.getElementById('timeline-container')
+            maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
+            liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
+            liveCompassIcon: document.getElementById('live-compass-icon'), hudMap: document.getElementById('hud-map'),
+            accUi: document.getElementById('gps-acc-ui'), statusEl: document.getElementById('route-status'),
+            navBtn: document.getElementById('native-nav-btn'), timelineContainer: document.getElementById('timeline-container'),
+            localTimeText: document.getElementById('local-time-text'), locationBadge: document.getElementById('location-badge'),
+            metricTemp: document.getElementById('metric-temp'), metricFeels: document.getElementById('metric-feels'),
+            metricHum: document.getElementById('metric-hum'), metricAgree: document.getElementById('metric-agree'),
+            metricWindSpeed: document.getElementById('metric-wind-speed'), metricWindDir: document.getElementById('metric-wind-dir'),
+            metricUvVal: document.getElementById('metric-uv-val'), metricUvTime: document.getElementById('metric-uv-time'),
+            weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
+            statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text')
         };
 
-        DOM.maxSpeed.innerText = state.maxSpeed;
+        const updateText = (el, val) => { if (el && el.innerText !== String(val)) el.innerText = val; };
+        const updateHTML = (el, val) => { if (el && el.innerHTML !== val) el.innerHTML = val; };
+        const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
+
+        updateText(DOM.maxSpeed, state.maxSpeed);
+
+        // --- SINGLETON AUDIO CONTEXT ---
+        let globalAudioCtx = null;
+        function getAudioContext() {
+            if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (globalAudioCtx.state === 'suspended') globalAudioCtx.resume();
+            return globalAudioCtx;
+        }
 
         // --- AUTHENTICATION ---
         async function initAuth() {
@@ -373,24 +365,22 @@
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                }
-            } catch (err) {
-                console.warn('MeteoNexus: Screen Wake Lock restricted.');
-            }
+                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+            } catch (err) { console.warn('MeteoNexus: Screen Wake Lock restricted.'); }
         }
 
         document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') { requestWakeLock(); }
+            if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
         document.body.addEventListener('click', function initSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(response => {
-                    if (response === 'granted') { console.log('Magnetometer Hardware Hooked.'); }
+                    if (response === 'granted') console.log('Magnetometer Hardware Hooked.');
                 }).catch(console.error);
             }
+            // Prime Audio Context
+            getAudioContext();
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -439,18 +429,17 @@
             }
         };
 
-        // --- HARDWARE MAGNETOMETER HOOKS (rAF Sync) ---
+        // --- HARDWARE MAGNETOMETER HOOKS (rAF Sync & Deadband) ---
         let headingRafId = null;
         let pendingHeading = null;
 
         function updateHeadingDisplay(heading) {
             if (heading === null || isNaN(heading)) return;
-            pendingHeading = heading;
+            // Apply 0.5 deg deadband filter to suppress rendering jitters
+            if (Math.abs(heading - state.lastHeading) < 0.5) return; 
             
-            // Decouple from hardware polling rate, sync directly to display pipeline (60/120Hz)
-            if (!headingRafId) {
-                headingRafId = requestAnimationFrame(renderHeadingUpdate);
-            }
+            pendingHeading = heading;
+            if (!headingRafId) headingRafId = requestAnimationFrame(renderHeadingUpdate);
         }
 
         function renderHeadingUpdate() {
@@ -463,8 +452,8 @@
             state.cumulativeHeading += delta;
             state.lastHeading = heading;
             
-            DOM.liveHeadingDeg.innerText = Math.round(heading).toString().padStart(3, '0') + '°';
-            DOM.liveHeadingTxt.innerText = getWindDirection(heading);
+            updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
+            updateText(DOM.liveHeadingTxt, getWindDirection(heading));
             DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
             
             if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
@@ -511,14 +500,14 @@
                     
                     if (DOM.accUi) {
                         if (accuracy <= 15) {
-                            DOM.accUi.innerHTML = `<i class="fa-solid fa-satellite text-brand-success"></i> GNSS: HIGH (${Math.round(accuracy)}m)`;
-                            DOM.accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
+                            updateHTML(DOM.accUi, `<i class="fa-solid fa-satellite text-brand-success"></i> GNSS: HIGH (${Math.round(accuracy)}m)`);
+                            updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap");
                         } else if (accuracy <= 60) {
-                            DOM.accUi.innerHTML = `<i class="fa-solid fa-satellite text-brand-warning"></i> GNSS: MED (${Math.round(accuracy)}m)`;
-                            DOM.accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
+                            updateHTML(DOM.accUi, `<i class="fa-solid fa-satellite text-brand-warning"></i> GNSS: MED (${Math.round(accuracy)}m)`);
+                            updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap");
                         } else {
-                            DOM.accUi.innerHTML = `<i class="fa-solid fa-tower-cell text-brand-orange animate-pulse"></i> LTE/A-GPS (${Math.round(accuracy)}m)`;
-                            DOM.accUi.className = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
+                            updateHTML(DOM.accUi, `<i class="fa-solid fa-tower-cell text-brand-orange animate-pulse"></i> LTE/A-GPS (${Math.round(accuracy)}m)`);
+                            updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap");
                         }
                     }
 
@@ -529,15 +518,12 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        // Level 2 Spatial Caching for API calls
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
                         
-                        // Only fetch if forced (dist > 1.5km) OR if 5 minutes have passed since last fetch. Saves immense battery.
                         if (distMovedKm > CONFIG.cacheDistThresholdKm || (Date.now() - state.telemetryCache.timestamp > CONFIG.cacheTTL)) {
                             fetchData(lat, lon, false);
                         }
                         
-                        // --- HYBRID TELEMETRY GATE & SPEED FILTER ---
                         const now = Date.now();
                         let timeDeltaSec = (now - state.lastSpeedTimestamp) / 1000;
                         if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
@@ -551,9 +537,7 @@
                             const maxAccelKmhPerSec = 54; 
                             const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
                             const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
-                            if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) {
-                                isGlitch = true; 
-                            }
+                            if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) isGlitch = true; 
                         }
 
                         if (!isGlitch) {
@@ -561,16 +545,14 @@
                             state.currentSpeed = speedKmH;
                             state.lastSpeedTimestamp = now;
                             
-                            // Batch DOM update in rAF via another variable if needed, but innerText is fast enough here.
-                            DOM.liveSpeed.innerText = speedKmH;
+                            updateText(DOM.liveSpeed, speedKmH);
                             
                             if (speedKmH > state.maxSpeed && speedKmH < 350 && accuracy <= 25) {
                                 state.maxSpeed = speedKmH;
-                                DOM.maxSpeed.innerText = state.maxSpeed;
+                                updateText(DOM.maxSpeed, state.maxSpeed);
                             }
                         }
 
-                        // --- DYNAMIC MULTI-NODE TRACKING ---
                         if (state.routeNodes) {
                             let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
                             if (activeNodeIndex !== -1) {
@@ -591,7 +573,7 @@
                                     visibleNodes.forEach(vn => {
                                         let vnD = L.latLng(lat, lon).distanceTo(L.latLng(vn.lat, vn.lon));
                                         const distEl = document.getElementById(`node-dist-${vn.id}`);
-                                        if (distEl) distEl.innerText = (vnD/1000).toFixed(1) + ' KM AHEAD';
+                                        if (distEl) updateText(distEl, (vnD/1000).toFixed(1) + ' KM AHEAD');
                                     });
                                 }
                             }
@@ -644,15 +626,15 @@
                             state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
                             
                             if (!state.targetCoords) {
-                                DOM.statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
-                                DOM.statusEl.className = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap";
+                                updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
+                                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
                             }
                         }
                     }
                 },
                 (err) => {
-                    DOM.statusEl.innerText = "GPS SIGNAL LOST";
-                    DOM.statusEl.className = "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap";
+                    updateText(DOM.statusEl, "GPS SIGNAL LOST");
+                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap");
                 },
                 { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
             );
@@ -680,8 +662,8 @@
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                 const scaleLabels = ["", "200m", "100m", "50m", "20m"];
                 
-                btn.innerHTML = `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`;
-                btn.className = "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono";
+                updateHTML(btn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
+                updateClass(btn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 
                 if (state.tacticalMode === 4) {
                     DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
@@ -698,8 +680,8 @@
                 
                 DOM.hudMap.style.transform = `rotate(0deg)`; 
                 
-                btn.innerHTML = `<i class="fa-solid fa-route text-lg md:text-xl"></i>`;
-                btn.className = "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono";
+                updateHTML(btn, `<i class="fa-solid fa-route text-lg md:text-xl"></i>`);
+                updateClass(btn, "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono");
 
                 if (state.currentRouteCoords && state.currentRouteCoords.length > 0) {
                     const bounds = L.latLngBounds(state.currentRouteCoords);
@@ -727,8 +709,8 @@
                 state.isMapLocked = false;
                 DOM.hudMap.style.transform = `rotate(0deg)`;
                 const btn = document.getElementById('tactical-btn');
-                btn.innerHTML = `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`;
-                btn.className = "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono";
+                updateHTML(btn, `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`);
+                updateClass(btn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });
 
             state.userMarker = L.marker([lat, lon], {
@@ -776,7 +758,6 @@
         function updateInterceptMarkersPool(waypoints) {
             if (!state.mapObj) return;
             
-            // Allocate new markers if necessary
             while (state.interceptMarkers.length < waypoints.length) {
                 const marker = L.marker([0, 0], {
                     icon: L.divIcon({
@@ -795,7 +776,6 @@
                 state.interceptMarkers.push({ marker: marker, inUse: false });
             }
 
-            // Update positions and activate
             for (let i = 0; i < waypoints.length; i++) {
                 const wp = waypoints[i];
                 const pItem = state.interceptMarkers[i];
@@ -805,12 +785,11 @@
                 if (el) {
                     el.style.display = 'block';
                     const label = el.querySelector('.node-label');
-                    if (label) label.innerText = `N-${wp.id}`;
+                    if (label) updateText(label, `N-${wp.id}`);
                 }
                 pItem.inUse = true;
             }
 
-            // Deactivate unused markers (saves GC cycles)
             for (let i = waypoints.length; i < state.interceptMarkers.length; i++) {
                 if (state.interceptMarkers[i].inUse) {
                     const el = state.interceptMarkers[i].marker.getElement();
@@ -829,19 +808,19 @@
                     await processGMapLink(clipText);
                     btn.classList.remove('animate-pulse');
                 } else {
-                    DOM.statusEl.innerText = "NO LINK IN CLIPBOARD";
-                    DOM.statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30";
+                    updateText(DOM.statusEl, "NO LINK IN CLIPBOARD");
+                    updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
                 }
             } catch (err) {
                 console.warn("Clipboard Access Error:", err);
-                DOM.statusEl.innerText = "CLIPBOARD PERMISSION DENIED";
-                DOM.statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                updateText(DOM.statusEl, "CLIPBOARD PERMISSION DENIED");
+                updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
             }
         }
 
         async function processGMapLink(url) {
-            DOM.statusEl.innerText = "DECRYPTING TARGET...";
-            DOM.statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
+            updateText(DOM.statusEl, "DECRYPTING TARGET...");
+            updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
 
             try {
                 const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`);
@@ -927,12 +906,12 @@
                 if (lat !== null && lon !== null) {
                     window.activateLiveNavigation(lat, lon);
                 } else {
-                    DOM.statusEl.innerText = "ERR: PIN NOT FOUND";
-                    DOM.statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                    updateText(DOM.statusEl, "ERR: PIN NOT FOUND");
+                    updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
                 }
             } catch(e) {
-                DOM.statusEl.innerText = "ERR: DECRYPTION FAILED";
-                DOM.statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+                updateText(DOM.statusEl, "ERR: DECRYPTION FAILED");
+                updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
                 console.error("Payload Extraction Failed:", e);
             }
         }
@@ -949,13 +928,13 @@
             };
 
             if (state.autoCoords) {
-                DOM.statusEl.innerText = "CALCULATING TACTICAL INTERCEPT...";
-                DOM.statusEl.className = "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse";
+                updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
+                updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
                 if (!state.routeCtrl) { initRoute(); } 
                 else { state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]); }
             } else {
-                DOM.statusEl.innerText = "AWAITING SATELLITE LOCK...";
-                DOM.statusEl.className = "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse";
+                updateText(DOM.statusEl, "AWAITING SATELLITE LOCK...");
+                updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse");
             }
         }
 
@@ -969,8 +948,8 @@
 
             const totalNodes = Math.floor(summary.totalDistance / 5000);
 
-            DOM.statusEl.innerHTML = `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT | ${distKm} KM | ${timeStr} | ${totalNodes} NODES`;
-            DOM.statusEl.className = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap";
+            updateHTML(DOM.statusEl, `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT | ${distKm} KM | ${timeStr} | ${totalNodes} NODES`);
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap");
 
             state.currentRouteCoords = route.coordinates;
 
@@ -982,8 +961,8 @@
         }
 
         function handleRouteError() {
-            DOM.statusEl.innerText = "ROUTING SERVER UNAVAILABLE";
-            DOM.statusEl.className = "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30";
+            updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
+            updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
         async function fetchRouteIntelligence(route) {
@@ -993,7 +972,7 @@
                 secIntel.classList.remove('hidden');
             }
             
-            DOM.timelineContainer.innerHTML = `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`;
+            updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
 
             if (!state.routeNodes || state.routeNodes.length === 0) {
                 const totalDistance = route.summary.totalDistance;
@@ -1058,7 +1037,7 @@
             }
 
             if (waypoints.length <= 1 && uiStackNodes.length === 0) {
-                DOM.timelineContainer.innerHTML = `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`;
+                updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`);
                 return;
             }
 
@@ -1206,21 +1185,27 @@
                 });
                 
                 htmlBuffer += '</div>';
-                DOM.timelineContainer.innerHTML = htmlBuffer;
+                updateHTML(DOM.timelineContainer, htmlBuffer);
 
             } catch (err) {
-                DOM.timelineContainer.innerHTML = `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`;
+                updateHTML(DOM.timelineContainer, `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`);
             }
         }
 
-        setInterval(() => {
-            if (!state.targetTimezone) return;
-            try {
-                document.getElementById('local-time-text').innerText = new Date().toLocaleTimeString('en-US', {
-                    timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-                });
-            } catch(e) {}
-        }, 1000);
+        // --- PRECISION CLOCK SYNC ---
+        function syncClock() {
+            if (state.targetTimezone) {
+                try {
+                    const timeStr = new Date().toLocaleTimeString('en-US', {
+                        timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                    });
+                    updateText(DOM.localTimeText, timeStr);
+                } catch(e) {}
+            }
+            // Self-adjusting timeout to align perfectly with the next whole second, preventing drift and saving battery
+            setTimeout(syncClock, 1000 - (new Date().getTime() % 1000));
+        }
+        syncClock();
 
         function getWindDirection(deg) {
             const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -1245,22 +1230,25 @@
             const icon = document.getElementById('audio-icon');
             const txt = document.getElementById('audio-text');
             if (state.audioEnabled) {
-                btn.className = 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all';
-                icon.className = 'fa-solid fa-volume-high fa-beat-fade text-xl';
-                txt.innerText = "SONAR ACTIVE";
-                new (window.AudioContext || window.webkitAudioContext)().resume().then(() => playSonarPing());
+                updateClass(btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all');
+                updateClass(icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
+                updateText(txt, "SONAR ACTIVE");
+                getAudioContext().resume().then(() => playSonarPing());
             } else {
-                btn.className = 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all';
-                icon.className = 'fa-solid fa-volume-xmark text-xl';
-                txt.innerText = "SONAR OFF";
+                updateClass(btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
+                updateClass(icon, 'fa-solid fa-volume-xmark text-xl');
+                updateText(txt, "SONAR OFF");
             }
         }
 
         function playSonarPing() {
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return; 
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Use Singleton context to prevent max context crashes
+            const ctx = getAudioContext(); 
             const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            
             osc.connect(gain); gain.connect(ctx.destination);
             osc.frequency.setValueAtTime(1200, ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.2);
@@ -1271,10 +1259,31 @@
             state.lastPing = Date.now();
         }
 
+        // --- OPTIMIZED CHART DELTA-UPDATES ---
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
-            const ctx = document.getElementById('mainChart').getContext('2d');
-            if (state.chart) state.chart.destroy();
             const tc = tailwind.config.theme.extend.colors;
+            
+            // Perform Delta-Update if Chart exists to prevent Canvas destruction overhead
+            if (state.chart) {
+                state.chart.data.labels = labels;
+                state.chart.data.datasets[0].data = solarData;
+                state.chart.data.datasets[1].data = uvData;
+                state.chart.data.datasets[2].data = rainData.eu;
+                state.chart.data.datasets[3].data = rainData.us;
+                state.chart.data.datasets[4].data = rainData.de;
+                state.chart.data.datasets[5].data = rainData.jp;
+                
+                // Update Tooltip footer closure values
+                state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
+                    const i = t[0].dataIndex; 
+                    return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; 
+                };
+                
+                state.chart.update('none'); // Update without animation for precision sync
+                return;
+            }
+
+            const ctx = document.getElementById('mainChart').getContext('2d');
             state.chart = new Chart(ctx, {
                 data: {
                     labels: labels,
@@ -1320,7 +1329,7 @@
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-dot"></i> ${city}`;
+                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${city}`);
                     }).catch(() => {});
             }
             try {
@@ -1341,8 +1350,13 @@
                 ['eu','us','de','jp'].forEach((id, idx) => {
                     const el = document.getElementById(`stat-${id}`);
                     const arr = [rEU, rUS, rDE, rJP][idx];
-                    if(!arr || arr.every(v=>v===null)) { el.className="font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"; el.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`; }
-                    else { el.className="font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"; el.innerHTML = id.toUpperCase(); }
+                    if(!arr || arr.every(v=>v===null)) { 
+                        updateClass(el, "font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
+                        updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`); 
+                    } else { 
+                        updateClass(el, "font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
+                        updateHTML(el, id.toUpperCase()); 
+                    }
                 });
 
                 const rainData = { eu: clean(rEU.slice(nowIndex, nowIndex + 24)), us: clean(rUS.slice(nowIndex, nowIndex + 24)), de: clean(rDE.slice(nowIndex, nowIndex + 24)), jp: clean(rJP.slice(nowIndex, nowIndex + 24)) };
@@ -1359,30 +1373,44 @@
                 let currentVotes = (currentAgreement / 100) * 4;
                 let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
 
-                document.getElementById('metric-temp').innerText = Math.round(curr.temperature_2m) + '°';
-                document.getElementById('metric-feels').innerText = Math.round(curr.apparent_temperature) + '°';
-                document.getElementById('metric-hum').innerText = curr.relative_humidity_2m + '%';
-                document.getElementById('metric-agree').innerText = `${currentAgreement.toFixed(0)}%`;
-                document.getElementById('metric-wind-speed').innerText = Math.round(curr.wind_speed_10m);
-                document.getElementById('metric-wind-dir').innerHTML = `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`;
+                updateText(DOM.metricTemp, Math.round(curr.temperature_2m) + '°');
+                updateText(DOM.metricFeels, Math.round(curr.apparent_temperature) + '°');
+                updateText(DOM.metricHum, curr.relative_humidity_2m + '%');
+                updateText(DOM.metricAgree, `${currentAgreement.toFixed(0)}%`);
+                updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
+                updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`);
+                
                 const maxUV = Math.max(...uvData);
-                document.getElementById('metric-uv-val').innerText = maxUV.toFixed(1);
-                document.getElementById('metric-uv-time').innerText = "@ " + times[uvData.indexOf(maxUV)].replace(" (+1d)", "");
-                document.getElementById('weather-desc').innerText = WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`;
+                updateText(DOM.metricUvVal, maxUV.toFixed(1));
+                updateText(DOM.metricUvTime, "@ " + times[uvData.indexOf(maxUV)].replace(" (+1d)", ""));
+                updateText(DOM.weatherDesc, WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`);
 
-                const mainCard = document.getElementById('main-status-card'); const icon = document.getElementById('status-icon'); const text = document.getElementById('status-text');
-                let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin'; if (curr.is_day === 0) { bIcon = bIcon.replace('sun', 'moon'); }
-                mainCard.className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ";
+                let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin'; 
+                if (curr.is_day === 0) bIcon = bIcon.replace('sun', 'moon'); 
+                
+                updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[350px] relative overflow-hidden ");
                 
                 if (currentVotes >= 3) { 
-                    mainCard.classList.add('bg-brand-red/20', 'border-brand-red'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase'; text.innerText = "RAIN LIKELY";
+                    DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red'); 
+                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-red`); 
+                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-red uppercase'); 
+                    updateText(DOM.statusText, "RAIN LIKELY");
                     if (currentAgreement >= CONFIG.sonarThreshold) playSonarPing();
                 } else if (incomingRain) {
-                    mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'; text.innerText = "INCOMING RAIN (1-3H)";
+                    DOM.mainCard.classList.add('bg-brand-warning/20', 'border-brand-warning'); 
+                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-showers-heavy text-brand-warning`); 
+                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'); 
+                    updateText(DOM.statusText, "INCOMING RAIN (1-3H)");
                 } else if (currentVotes >= 1) {
-                    mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'; text.innerText = "RAIN POSSIBLE";
+                    DOM.mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50'); 
+                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid fa-cloud-sun-rain text-brand-warning`); 
+                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-warning uppercase'); 
+                    updateText(DOM.statusText, "RAIN POSSIBLE");
                 } else {
-                    mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50'); icon.className = `text-8xl md:text-9xl mb-4 fa-solid ${bIcon} text-brand-success`; text.className = 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase'; text.innerText = "STABLE";
+                    DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50'); 
+                    updateClass(DOM.statusIcon, `text-8xl md:text-9xl mb-4 fa-solid ${bIcon} text-brand-success`); 
+                    updateClass(DOM.statusText, 'text-4xl md:text-6xl font-black tracking-tight text-brand-success uppercase'); 
+                    updateText(DOM.statusText, "STABLE");
                 }
                 
                 renderChart(times, rainData, solarData, uvData, hourlyAgreement);
@@ -1393,7 +1421,7 @@
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
             state.maxSpeed = 0;
-            DOM.maxSpeed.innerText = '0';
+            updateText(DOM.maxSpeed, '0');
             state.routeNodes = null;
 
             for (let item of state.interceptMarkers) {
@@ -1404,8 +1432,8 @@
             state.lastIntelFetch = 0; 
             state.currentRouteCoords = null; 
             
-            DOM.statusEl.innerHTML = `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`;
-            DOM.statusEl.className = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap";
+            updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
             DOM.navBtn.classList.add('hidden');
             
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
@@ -1437,12 +1465,12 @@
                     initMap(p.coords.latitude, p.coords.longitude); 
                     fetchData(p.coords.latitude, p.coords.longitude, false); 
                 }, () => {
-                    document.getElementById('main-status-card').className = "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden";
-                    document.getElementById('status-icon').className = 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange';
-                    document.getElementById('status-text').innerText = "SEARCH LOCATION";
-                    document.getElementById('status-text').className = "text-4xl md:text-5xl font-black tracking-tight text-brand-orange uppercase";
-                    document.getElementById('weather-desc').innerText = "GPS BLOCKED.";
-                    document.getElementById('location-badge').innerHTML = `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`;
+                    updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden");
+                    updateClass(DOM.statusIcon, 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange');
+                    updateText(DOM.statusText, "SEARCH LOCATION");
+                    updateClass(DOM.statusText, "text-4xl md:text-5xl font-black tracking-tight text-brand-orange uppercase");
+                    updateText(DOM.weatherDesc, "GPS BLOCKED.");
+                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`);
                 }, { timeout: 10000, enableHighAccuracy: true });
             }
         }
