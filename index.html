@@ -240,7 +240,7 @@
     <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
-            <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe all saved coordinates, telemetry data, and routing memory. Proceed?</p>
+            <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations and restart the system. Proceed?</p>
             <div class="flex gap-3 justify-end">
                 <button onclick="closeModal()" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
                 <button onclick="executePurge()" class="px-4 py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge</button>
@@ -306,10 +306,10 @@
         };
 
         let state = {
-            mode: localStorage.getItem('ms_mode') || 'auto',
+            mode: 'auto',
             autoCoords: null,
-            targetCoords: JSON.parse(localStorage.getItem('ms_targetCoords')) || null,
-            coords: JSON.parse(localStorage.getItem('ms_coords')) || {}, 
+            targetCoords: null,
+            coords: {}, 
             isMapLocked: true,  
             lastHudLat: 0,
             lastHudLon: 0,
@@ -317,8 +317,8 @@
             lastHeading: 0,
             currentSpeed: 0,
             sensorHeading: null, 
-            maxSpeed: parseFloat(localStorage.getItem('ms_maxSpeed')) || 0, 
-            routeNodes: JSON.parse(localStorage.getItem('ms_routeNodes')) || null, 
+            maxSpeed: 0, 
+            routeNodes: null, 
             targetTimezone: null, 
             chart: null,
             audioEnabled: false,
@@ -566,7 +566,6 @@
                             
                             if (speedKmH > state.maxSpeed && speedKmH < 350 && accuracy <= 25) {
                                 state.maxSpeed = speedKmH;
-                                localStorage.setItem('ms_maxSpeed', state.maxSpeed);
                                 DOM.maxSpeed.innerText = state.maxSpeed;
                             }
                         }
@@ -586,7 +585,6 @@
                                 
                                 if (d < 1500 || bypassed) {
                                     state.routeNodes[activeNodeIndex].passed = true;
-                                    localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes));
                                     state.lastIntelFetch = 0; 
                                 } else {
                                     let visibleNodes = state.routeNodes.filter(n => !n.passed).slice(0, 4);
@@ -941,10 +939,7 @@
 
         window.activateLiveNavigation = function(destLat, destLon) {
             state.targetCoords = { lat: destLat, lon: destLon }; 
-            localStorage.setItem('ms_targetCoords', JSON.stringify(state.targetCoords)); 
-            
             state.routeNodes = null;
-            localStorage.removeItem('ms_routeNodes');
             
             DOM.navBtn.classList.remove('hidden');
             DOM.navBtn.onclick = () => {
@@ -1029,12 +1024,10 @@
                     nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
                 }
                 state.routeNodes = nodes;
-                localStorage.setItem('ms_routeNodes', JSON.stringify(nodes));
             }
 
             let unpassedNodes = [];
             if (state.routeNodes && state.autoCoords) {
-                let changed = false;
                 const myLatLng = L.latLng(state.autoCoords.lat, state.autoCoords.lon);
                 for (let i = 0; i < state.routeNodes.length; i++) {
                     if (!state.routeNodes[i].passed) {
@@ -1046,13 +1039,11 @@
                         }
                         if (d < 1500 || bypassed) {
                             state.routeNodes[i].passed = true;
-                            changed = true;
                         } else {
                             unpassedNodes.push({ ...state.routeNodes[i], distKm: (d / 1000).toFixed(1), type: 'upcoming' });
                         }
                     }
                 }
-                if (changed) { localStorage.setItem('ms_routeNodes', JSON.stringify(state.routeNodes)); }
             }
 
             // LEVEL 2: Execute Marker Object Pool instead of recreate
@@ -1245,7 +1236,6 @@
         }
 
         window.executePurge = function() {
-            localStorage.clear();
             window.location.reload(true);
         }
 
@@ -1402,14 +1392,9 @@
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
-            localStorage.removeItem('ms_targetCoords'); 
-            
             state.maxSpeed = 0;
-            localStorage.removeItem('ms_maxSpeed');
             DOM.maxSpeed.innerText = '0';
-
             state.routeNodes = null;
-            localStorage.removeItem('ms_routeNodes');
 
             for (let item of state.interceptMarkers) {
                 if (item.marker) state.mapObj.removeLayer(item.marker);
@@ -1426,8 +1411,7 @@
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
             document.getElementById('sec-intel').classList.add('hidden');
             
-            localStorage.removeItem('ms_mode'); state.mode = 'auto'; 
-            
+            state.mode = 'auto'; 
             state.tacticalMode = 1;
             window.applyTacticalMode();
             
