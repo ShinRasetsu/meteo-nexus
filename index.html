@@ -5,21 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
+    <!-- PWA Manifest Placeholder -->
     <link rel="manifest" id="manifest-placeholder">
     <meta name="theme-color" content="#000000">
     
-    <!-- Dependencies -->
+    <!-- Chart.js for Telemetry Visualization -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- FontAwesome for UI Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter (UI) and JetBrains Mono (Data) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
-    <!-- Mapping Dependencies -->
+    <!-- Leaflet & Routing Machine for Mapping -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
     <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
-    <!-- Tailwind CSS Config -->
+    <!-- Tailwind CSS (CDN Config for Single-File App) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -40,32 +43,58 @@
     </script>
 
     <style>
+        /* Custom Scrollbar for HUD aesthetic */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        
+        /* Base Body resets */
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
         
+        /* Focus states and selection prevention */
         input:focus, button:focus { outline: none; box-shadow: 0 0 0 4px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
+        /* Leaflet Overrides */
         .leaflet-routing-container { display: none !important; } 
-        .leaflet-control-scale-line { background: rgba(17, 17, 17, 0.9) !important; color: #14b8a6 !important; border: 1px solid #2a2a2a !important; border-top: none !important; text-shadow: none !important; box-shadow: none !important; border-bottom: 2px solid #14b8a6 !important; border-left: 2px solid #14b8a6 !important; border-right: 2px solid #14b8a6 !important; border-radius: 0 0 4px 4px; font-weight: bold; font-family: 'JetBrains Mono', monospace; }
+        .leaflet-control-scale-line { 
+            background: rgba(17, 17, 17, 0.9) !important; 
+            color: #14b8a6 !important; 
+            border: 1px solid #2a2a2a !important; 
+            border-top: none !important; 
+            text-shadow: none !important; 
+            box-shadow: none !important; 
+            border-bottom: 2px solid #14b8a6 !important; 
+            border-left: 2px solid #14b8a6 !important; 
+            border-right: 2px solid #14b8a6 !important; 
+            border-radius: 0 0 4px 4px; 
+            font-weight: bold; 
+            font-family: 'JetBrains Mono', monospace; 
+        }
         
-        /* Enforce GPU rendering context for high-frequency update elements */
-        #hud-map, #user-dir-wrapper, #live-compass-icon { will-change: transform; transform: translateZ(0); backface-visibility: hidden; }
+        /* GPU Acceleration for high-frequency update elements */
+        #hud-map, #user-dir-wrapper, #live-compass-icon { 
+            will-change: transform; transform: translateZ(0); backface-visibility: hidden; 
+        }
         
+        /* Tactical Map Inversion */
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
 
+        /* Fullscreen Section Handlers */
         .section-hidden { display: none !important; }
-        .section-fullscreen { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important; height: 100vh !important; overflow-y: auto !important; background-color: #000 !important; }
+        .section-fullscreen { 
+            position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
+            z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important; 
+            height: 100vh !important; overflow-y: auto !important; background-color: #000 !important; 
+        }
         .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
         .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
     </style>
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <!-- Header -->
+    <!-- Global Header -->
     <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
         <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
             <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i> 
@@ -236,7 +265,7 @@
         </div>
     </div>
 
-    <!-- Custom Modal Replacement -->
+    <!-- Modals -->
     <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
@@ -248,17 +277,18 @@
         </div>
     </div>
 
-    <!-- CORE ENGINE -->
+    <!-- CORE ENGINE MODULE -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- CLOUD INIT ---
+        // --- CLOUD INIT & FIREBASE BINDINGS ---
         let app, auth, db;
         let isCloudActive = false;
         let appId = 'default-app-id';
 
+        // Attempting connection to Firebase securely.
         try {
             const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
             if (configStr) {
@@ -269,16 +299,18 @@
                 appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 isCloudActive = true;
             }
-        } catch (e) { console.warn("MeteoNexus: Cloud Connection Failed.", e); }
+        } catch (e) { 
+            console.warn("MeteoNexus: Cloud Connection Failed.", e); 
+        }
 
-        // --- GLOBAL STATE & CONFIG ---
+        // --- GLOBAL STATE & CONFIGURATIONS ---
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
-            cacheTTL: 300000, // 5 Minutes
-            cacheDistThresholdKm: 1.5 // 1.5km spatial threshold
+            cacheTTL: 300000, // 5 Min Data Cache
+            cacheDistThresholdKm: 1.5 // Spatial threshold logic
         };
 
         const WMO_CODES = {
@@ -305,6 +337,7 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
+        // Singleton Central State Store
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
@@ -316,7 +349,8 @@
             lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 }
         };
 
-        // DOM Memoization & Dirty Checking Helpers
+        // --- DOM MEMOIZATION & DIRTY CHECKING (Optimization) ---
+        // Prevents layout thrashing by caching selectors and validating state prior to repaint.
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -338,7 +372,7 @@
 
         updateText(DOM.maxSpeed, state.maxSpeed);
 
-        // --- SINGLETON AUDIO CONTEXT ---
+        // --- AUDIO CONTEXT POOLING ---
         let globalAudioCtx = null;
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -346,7 +380,8 @@
             return globalAudioCtx;
         }
 
-        // --- AUTHENTICATION ---
+        // --- AUTHENTICATION FLOW ---
+        // Strictly adheres to requirement: init auth before querying payload.
         async function initAuth() {
             if (!isCloudActive) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -373,14 +408,14 @@
             if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
+        // Initialize sensitive sensors requiring a user interaction context.
         document.body.addEventListener('click', function initSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(response => {
                     if (response === 'granted') console.log('Magnetometer Hardware Hooked.');
                 }).catch(console.error);
             }
-            // Prime Audio Context
-            getAudioContext();
+            getAudioContext(); // Pre-warm Context Pool
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -410,6 +445,7 @@
                         if (iconMobile) iconMobile.className = 'fa-solid fa-compress text-lg';
                         document.body.classList.add('overflow-hidden');
                         
+                        // Force reflow for responsive artifacts after animation frame
                         if (id === 'sec-map' && state.mapObj) {
                             setTimeout(() => state.mapObj.invalidateSize(), 300);
                         } else if (id === 'sec-plot' && state.chart) {
@@ -486,7 +522,7 @@
             }
         });
 
-        // --- BACKGROUND TRACKING ---
+        // --- BACKGROUND TRACKING ENGINE ---
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
 
@@ -511,6 +547,7 @@
                         }
                     }
 
+                    // Reject erroneous jumps based on extreme inaccuracy
                     if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
                     state.autoCoords = { lat, lon };
@@ -520,6 +557,7 @@
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
                         
+                        // Validate cache distance and TTL thresholds for data fetching
                         if (distMovedKm > CONFIG.cacheDistThresholdKm || (Date.now() - state.telemetryCache.timestamp > CONFIG.cacheTTL)) {
                             fetchData(lat, lon, false);
                         }
@@ -531,6 +569,7 @@
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
                         let isGlitch = false;
 
+                        // Velocity Glitch Rejection Alg
                         if (accuracy > 60) {
                             isGlitch = true;
                         } else {
@@ -553,6 +592,7 @@
                             }
                         }
 
+                        // Waypoint Node intersection verification
                         if (state.routeNodes) {
                             let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
                             if (activeNodeIndex !== -1) {
@@ -754,7 +794,8 @@
             state.routeCtrl.on('routingerror', handleRouteError);
         }
 
-        // --- LEVEL 2: Object Pooling for Intercept Markers ---
+        // --- OBJECT POOLING FOR INTERCEPT MARKERS ---
+        // Avoids continuous instantiation and garbage collection lags on mapping layer
         function updateInterceptMarkersPool(waypoints) {
             if (!state.mapObj) return;
             
@@ -799,6 +840,7 @@
             }
         }
 
+        // --- TARGET INJECTION LOGIC ---
         window.handlePasteAndLoad = async function() {
             const btn = document.getElementById('gmaps-paste-btn');
             try {
@@ -965,6 +1007,7 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
+        // --- EN-ROUTE TELEMETRY FETCH ---
         async function fetchRouteIntelligence(route) {
             const secIntel = document.getElementById('sec-intel');
             
@@ -1025,7 +1068,7 @@
                 }
             }
 
-            // LEVEL 2: Execute Marker Object Pool instead of recreate
+            // Sync unpassed nodes into map object pool
             updateInterceptMarkersPool(unpassedNodes);
             
             const uiStackNodes = unpassedNodes.slice(0, 4);
@@ -1273,7 +1316,7 @@
                 state.chart.data.datasets[4].data = rainData.de;
                 state.chart.data.datasets[5].data = rainData.jp;
                 
-                // Update Tooltip footer closure values
+                // Update Tooltip footer closure values dynamically
                 state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
                     const i = t[0].dataIndex; 
                     return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; 
@@ -1318,6 +1361,7 @@
             });
         }
 
+        // --- LOCAL METRICS DATA FETCH ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             state.telemetryCache.timestamp = Date.now();
@@ -1339,10 +1383,13 @@
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`)
                 ]);
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
+                
                 if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
                 const curr = dCurr.current; const h = dFore.hourly; const hSol = dSolar.hourly;
+                
                 let nowIndex = h.time.findIndex(t => t.startsWith(curr.time.substring(0, 13)));
                 if (nowIndex === -1) nowIndex = new Date().getHours();
+                
                 const clean = (arr) => arr.map(v => v === null ? 0 : v);
                 const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
                 const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
@@ -1369,6 +1416,7 @@
                     let v = 0; if(rainData.eu[i]>0.1)v++; if(rainData.us[i]>0.1)v++; if(rainData.de[i]>0.1)v++; if(rainData.jp[i]>0.1)v++;
                     hourlyAgreement.push((v/4)*100);
                 }
+                
                 const currentAgreement = hourlyAgreement[0] || 0;
                 let currentVotes = (currentAgreement / 100) * 4;
                 let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
@@ -1465,6 +1513,7 @@
                     initMap(p.coords.latitude, p.coords.longitude); 
                     fetchData(p.coords.latitude, p.coords.longitude, false); 
                 }, () => {
+                    // Fallback visual state if GPS location access fails or is blocked
                     updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden");
                     updateClass(DOM.statusIcon, 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange');
                     updateText(DOM.statusText, "SEARCH LOCATION");
@@ -1477,6 +1526,7 @@
 
         if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
         
+        // --- PWA SERVICE WORKER INJECTION ---
         (function initPWA() {
             const pwaManifest = {
                 name: "MeteoNexus Tactical HUD", short_name: "MeteoNexus", start_url: window.location.href, display: "standalone",
@@ -1507,6 +1557,7 @@
             });
         })();
 
+        // Bootstrap App
         runApp(); 
     </script>
 </body>
