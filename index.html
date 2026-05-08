@@ -344,7 +344,8 @@
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
-            lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 }
+            lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
+            lastFetchAttempt: 0 // Added for network debounce
         };
 
         // --- DOM MEMOIZATION & DIRTY CHECKING (Optimization) ---
@@ -557,12 +558,13 @@
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
                         
-                        // Validate cache distance and TTL thresholds for data fetching
-                        if (distMovedKm > CONFIG.cacheDistThresholdKm || (Date.now() - state.telemetryCache.timestamp > CONFIG.cacheTTL)) {
+                        // Validate cache distance and TTL thresholds for data fetching with 10s debounce against jitter
+                        const now = Date.now();
+                        if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
+                            state.lastFetchAttempt = now;
                             fetchData(lat, lon, false);
                         }
                         
-                        const now = Date.now();
                         let timeDeltaSec = (now - state.lastSpeedTimestamp) / 1000;
                         if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
                         
@@ -890,6 +892,20 @@
                 const num = "([+-]?\\d+(?:\\.\\d+)?)"; 
 
                 let originLat = null, originLon = null;
+
+                // Structured URL Parsing fallback pipeline
+                try {
+                    const parsedUrl = new URL(rawUrl);
+                    const destParam = parsedUrl.searchParams.get('destination');
+                    if (destParam) {
+                        const parts = destParam.split(',');
+                        if (parts.length >= 2) {
+                            lat = parseFloat(parts[0]);
+                            lon = parseFloat(parts[1]);
+                        }
+                    }
+                } catch(e) { /* Fallback to regex pipeline if URL is malformed */ }
+
                 const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
                 if (originMatch) {
                     originLat = parseFloat(originMatch[1]);
@@ -907,6 +923,10 @@
                 };
 
                 let candidates = [];
+                if (isValid(lat, lon)) {
+                    candidates.push({ lat, lon, priority: 200 });
+                }
+
                 let destMatch = cleanPayload.match(new RegExp(`destination=${num},${num}`, 'i'));
                 if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
 
@@ -1016,8 +1036,47 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
+        // --- EN-ROUTE TELEMETRY MATH MODULE ---
+        function calculateRouteNodes(route) {
+            const totalDistance = route.summary.totalDistance;
+            const coords = route.coordinates;
+            const intervalDist = 5000; 
+            const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
+            const nodes = [];
+            
+            // O(N) pre-computation to avoid CPU stalling on long multi-node coordinate iterations
+            let cumulativeDistances = new Float32Array(coords.length);
+            cumulativeDistances[0] = 0;
+            for (let j = 1; j < coords.length; j++) {
+                cumulativeDistances[j] = cumulativeDistances[j-1] + coords[j-1].distanceTo(coords[j]);
+            }
+
+            let searchIdx = 1;
+            for (let i = 1; i <= totalFutureNodesCount; i++) {
+                const targetDist = i * intervalDist;
+                
+                while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) {
+                    searchIdx++;
+                }
+
+                if (searchIdx < coords.length) {
+                    const p1 = coords[searchIdx - 1];
+                    const p2 = coords[searchIdx];
+                    const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
+                    const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
+                    const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
+
+                    const foundPoint = L.latLng(
+                        p1.lat + (p2.lat - p1.lat) * ratio,
+                        p1.lng + (p2.lng - p1.lng) * ratio
+                    );
+                    nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
+                }
+            }
+            return nodes;
+        }
+
         // --- EN-ROUTE TELEMETRY FETCH ---
-        // OPTIMIZED: Precomputes cumulative distances for O(N) path node targeting
         async function fetchRouteIntelligence(route) {
             const secIntel = document.getElementById('sec-intel');
             
@@ -1028,42 +1087,7 @@
             updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
 
             if (!state.routeNodes || state.routeNodes.length === 0) {
-                const totalDistance = route.summary.totalDistance;
-                const coords = route.coordinates;
-                const intervalDist = 5000; 
-                const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
-                const nodes = [];
-                
-                // O(N) pre-computation to avoid CPU stalling on long multi-node coordinate iterations
-                let cumulativeDistances = new Float32Array(coords.length);
-                cumulativeDistances[0] = 0;
-                for (let j = 1; j < coords.length; j++) {
-                    cumulativeDistances[j] = cumulativeDistances[j-1] + coords[j-1].distanceTo(coords[j]);
-                }
-
-                let searchIdx = 1;
-                for (let i = 1; i <= totalFutureNodesCount; i++) {
-                    const targetDist = i * intervalDist;
-                    
-                    while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) {
-                        searchIdx++;
-                    }
-
-                    if (searchIdx < coords.length) {
-                        const p1 = coords[searchIdx - 1];
-                        const p2 = coords[searchIdx];
-                        const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
-                        const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
-                        const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
-
-                        const foundPoint = L.latLng(
-                            p1.lat + (p2.lat - p1.lat) * ratio,
-                            p1.lng + (p2.lng - p1.lng) * ratio
-                        );
-                        nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
-                    }
-                }
-                state.routeNodes = nodes;
+                state.routeNodes = calculateRouteNodes(route);
             }
 
             let unpassedNodes = [];
@@ -1379,7 +1403,8 @@
             });
         }
 
-        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
+        // --- TELEMETRY NORMALIZATION MODULE ---
+        function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             let curr = dCurr.current; 
             const h = dFore.hourly; 
@@ -1411,18 +1436,6 @@
             const rEU = h.precipitation_ecmwf_ifs025; const rUS = h.precipitation_gfs_seamless;
             const rDE = h.precipitation_icon_seamless; const rJP = h.precipitation_jma_seamless;
             
-            ['eu','us','de','jp'].forEach((id, idx) => {
-                const el = document.getElementById(`stat-${id}`);
-                const arr = [rEU, rUS, rDE, rJP][idx];
-                if(!arr || arr.every(v=>v===null)) { 
-                    updateClass(el, "font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
-                    updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`); 
-                } else { 
-                    updateClass(el, "font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
-                    updateHTML(el, id.toUpperCase()); 
-                }
-            });
-
             const rainData = { eu: clean(rEU.slice(nowIndex, nowIndex + 24)), us: clean(rUS.slice(nowIndex, nowIndex + 24)), de: clean(rDE.slice(nowIndex, nowIndex + 24)), jp: clean(rJP.slice(nowIndex, nowIndex + 24)) };
             const uvData = hSol.uv_index.slice(nowIndex, nowIndex + 24).map(v => v === null ? 0 : v);
             const solarData = clean(hSol.shortwave_radiation.slice(nowIndex, nowIndex + 24));
@@ -1437,6 +1450,25 @@
             const currentAgreement = hourlyAgreement[0] || 0;
             let currentVotes = (currentAgreement / 100) * 4;
             let incomingRain = false; for (let i=1; i<=3; i++) { if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } }
+
+            return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement, currentAgreement, currentVotes, incomingRain };
+        }
+
+        // --- TELEMETRY UI RENDER MODULE ---
+        function renderTelemetryUI(data, isOffline) {
+            const { curr, rEU, rUS, rDE, rJP, currentAgreement, currentVotes, incomingRain, uvData, times } = data;
+
+            ['eu','us','de','jp'].forEach((id, idx) => {
+                const el = document.getElementById(`stat-${id}`);
+                const arr = [rEU, rUS, rDE, rJP][idx];
+                if(!arr || arr.every(v=>v===null)) { 
+                    updateClass(el, "font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
+                    updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`); 
+                } else { 
+                    updateClass(el, "font-bold px-3 py-1 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
+                    updateHTML(el, id.toUpperCase()); 
+                }
+            });
 
             updateText(DOM.metricTemp, Math.round(curr.temperature_2m) + '°');
             updateText(DOM.metricFeels, Math.round(curr.apparent_temperature) + '°');
@@ -1486,8 +1518,12 @@
                 DOM.weatherDesc.classList.remove("text-brand-orange");
                 DOM.weatherDesc.classList.add("text-gray-300");
             }
-            
-            renderChart(times, rainData, solarData, uvData, hourlyAgreement);
+        }
+
+        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
+            const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline);
+            renderTelemetryUI(data, isOffline);
+            renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement);
         }
 
         // --- LOCAL METRICS DATA FETCH ---
