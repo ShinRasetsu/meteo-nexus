@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MeteoNexus | Active Telemetry HUD 3D</title>
+    <title>MeteoNexus | Active Telemetry HUD</title>
     
     <!-- PWA Manifest Placeholder -->
     <link rel="manifest" id="manifest-placeholder">
@@ -18,9 +18,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
     <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js" defer></script>
-
-    <!-- WebGL High-Performance Dependency -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
@@ -91,11 +88,6 @@
         }
         .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
         .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
-        
-        /* 3D Radar Canvas Override */
-        #radar-3d-canvas {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2000; pointer-events: none; transition: opacity 0.5s;
-        }
     </style>
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
@@ -194,16 +186,12 @@
         </div>
     </div>
 
-    <!-- SECTION 2: TACTICAL MAP WITH 3D OVERLAY -->
+    <!-- SECTION 2: TACTICAL MAP -->
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
                 <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Tracking</span>
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
-                <!-- 3D Toggle UI -->
-                <button onclick="toggleRadarMode()" class="ml-2 bg-brand-purple/20 text-brand-purple border border-brand-purple rounded px-2 py-1 text-[10px] font-black uppercase tracking-widest hover:bg-brand-purple hover:text-black transition-colors" id="btn-3d-toggle">
-                    <i class="fa-solid fa-cube"></i> Enable 3D Radar
-                </button>
             </div>
             <div class="flex flex-row items-center gap-2 shrink-0">
                 <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
@@ -222,11 +210,7 @@
         </div>
         
         <div class="map-wrapper w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
-            <!-- Leaflet 2D Engine -->
-            <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] origin-center transition-opacity duration-500"></div>
-            
-            <!-- Three.js 3D WebGL Overlay Engine -->
-            <canvas id="radar-3d-canvas" class="opacity-0"></canvas>
+            <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] origin-center"></div>
             
             <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%]">
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
@@ -302,6 +286,7 @@
         let isCloudActive = false;
         let appId = 'default-app-id';
 
+        // Attempting connection to Firebase securely.
         try {
             const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
             if (configStr) {
@@ -322,8 +307,8 @@
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
-            cacheTTL: 300000, 
-            cacheDistThresholdKm: 1.5 
+            cacheTTL: 300000, // 5 Min Data Cache
+            cacheDistThresholdKm: 1.5 // Spatial threshold logic
         };
 
         const WMO_CODES = {
@@ -350,6 +335,7 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
+        // Singleton Central State Store
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
@@ -359,9 +345,11 @@
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0, radar3DEnabled: false // 3D State Flag
+            lastFetchAttempt: 0 // Added for network debounce
         };
 
+        // --- DOM MEMOIZATION & DIRTY CHECKING (Optimization) ---
+        // Prevents layout thrashing by caching selectors and validating state prior to repaint.
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -374,8 +362,7 @@
             metricWindSpeed: document.getElementById('metric-wind-speed'), metricWindDir: document.getElementById('metric-wind-dir'),
             metricUvVal: document.getElementById('metric-uv-val'), metricUvTime: document.getElementById('metric-uv-time'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
-            statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
-            radarCanvas: document.getElementById('radar-3d-canvas'), btn3dToggle: document.getElementById('btn-3d-toggle')
+            statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text')
         };
 
         const updateText = (el, val) => { if (el && el.innerText !== String(val)) el.innerText = val; };
@@ -384,6 +371,7 @@
 
         updateText(DOM.maxSpeed, state.maxSpeed);
 
+        // --- AUDIO CONTEXT POOLING ---
         let globalAudioCtx = null;
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -391,6 +379,8 @@
             return globalAudioCtx;
         }
 
+        // --- AUTHENTICATION FLOW ---
+        // Strictly adheres to requirement: init auth before querying payload.
         async function initAuth() {
             if (!isCloudActive) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -405,6 +395,7 @@
             onAuthStateChanged(auth, (user) => { state.userAuth = user; });
         }
 
+        // --- WAKE LOCK & PERMISSIONS ---
         let wakeLock = null;
         async function requestWakeLock() {
             try {
@@ -416,123 +407,18 @@
             if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
+        // Initialize sensitive sensors requiring a user interaction context.
         document.body.addEventListener('click', function initSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(response => {
                     if (response === 'granted') console.log('Magnetometer Hardware Hooked.');
                 }).catch(console.error);
             }
-            getAudioContext(); 
+            getAudioContext(); // Pre-warm Context Pool
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
-        // --- WEBGL THREE.JS ENGINE MODULE ---
-        // Instantiates a 3D tactical wireframe radar to overlay the Leaflet map.
-        const Engine3D = {
-            scene: null, camera: null, renderer: null, grid: null, interceptor: null, isRunning: false, frameId: null,
-            init: function() {
-                if (!window.THREE || this.scene) return;
-                
-                this.scene = new THREE.Scene();
-                // Add subtle fog for depth
-                this.scene.fog = new THREE.FogExp2(0x000000, 0.05);
-
-                const width = DOM.radarCanvas.clientWidth;
-                const height = DOM.radarCanvas.clientHeight;
-                
-                this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-                this.camera.position.set(0, 10, 15); // Elevated angled behind
-                this.camera.lookAt(0, 0, 0);
-
-                this.renderer = new THREE.WebGLRenderer({ canvas: DOM.radarCanvas, alpha: true, antialias: true });
-                this.renderer.setSize(width, height);
-                this.renderer.setPixelRatio(window.devicePixelRatio);
-
-                // Procedural Polar Grid (Tactical Radar Aesthetic)
-                this.grid = new THREE.PolarGridHelper(50, 16, 8, 64, 0x14b8a6, 0x14b8a6);
-                this.grid.material.opacity = 0.2;
-                this.grid.material.transparent = true;
-                this.scene.add(this.grid);
-
-                // Central Interceptor Object (Represents User)
-                const geometry = new THREE.ConeGeometry(0.8, 2.5, 3);
-                const material = new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true });
-                this.interceptor = new THREE.Mesh(geometry, material);
-                this.interceptor.rotation.x = Math.PI / 2; // Point forward
-                this.scene.add(this.interceptor);
-                
-                // Add a target ring
-                const ringGeo = new THREE.RingGeometry(2, 2.1, 32);
-                const ringMat = new THREE.MeshBasicMaterial({ color: 0x14b8a6, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
-                const ring = new THREE.Mesh(ringGeo, ringMat);
-                ring.rotation.x = Math.PI / 2;
-                this.scene.add(ring);
-
-                // Handle Resizing natively
-                window.addEventListener('resize', () => {
-                    if(!this.isRunning) return;
-                    const w = DOM.radarCanvas.clientWidth;
-                    const h = DOM.radarCanvas.clientHeight;
-                    this.renderer.setSize(w, h);
-                    this.camera.aspect = w / h;
-                    this.camera.updateProjectionMatrix();
-                });
-            },
-            start: function() {
-                if(!this.scene) this.init();
-                this.isRunning = true;
-                DOM.radarCanvas.style.opacity = '1';
-                DOM.hudMap.style.opacity = '0.1'; // Dim the 2D map
-                this.animate();
-            },
-            stop: function() {
-                this.isRunning = false;
-                if(this.frameId) cancelAnimationFrame(this.frameId);
-                DOM.radarCanvas.style.opacity = '0';
-                DOM.hudMap.style.opacity = '1'; // Restore 2D map
-            },
-            animate: function() {
-                if (!Engine3D.isRunning) return;
-                Engine3D.frameId = requestAnimationFrame(Engine3D.animate.bind(Engine3D));
-
-                // WebGL Matrix updates based on real-time Telemetry state
-                if (Engine3D.grid) {
-                    // Smoothly rotate the entire grid environment opposite to user heading (simulates compass turn)
-                    const targetRotation = -state.cumulativeHeading * (Math.PI / 180);
-                    // LERP for buttery smooth 60fps GPU rotation interpolation
-                    Engine3D.grid.rotation.y += (targetRotation - Engine3D.grid.rotation.y) * 0.1;
-                    
-                    // Simulate forward movement based on speed
-                    if (state.currentSpeed > 0) {
-                        Engine3D.grid.position.z += (state.currentSpeed / 50); 
-                        // Loop the grid to give infinite scrolling effect
-                        if (Engine3D.grid.position.z > 10) Engine3D.grid.position.z = 0;
-                    }
-                }
-                
-                // Animate interceptor mesh
-                if (Engine3D.interceptor) {
-                    // Add subtle hover effect
-                    Engine3D.interceptor.position.y = Math.sin(Date.now() * 0.005) * 0.2;
-                }
-
-                Engine3D.renderer.render(Engine3D.scene, Engine3D.camera);
-            }
-        };
-
-        window.toggleRadarMode = function() {
-            state.radar3DEnabled = !state.radar3DEnabled;
-            if (state.radar3DEnabled) {
-                updateHTML(DOM.btn3dToggle, `<i class="fa-solid fa-cube fa-beat"></i> 3D Active`);
-                updateClass(DOM.btn3dToggle, "ml-2 bg-brand-purple text-black border border-brand-purple rounded px-2 py-1 text-[10px] font-black uppercase tracking-widest transition-colors");
-                Engine3D.start();
-            } else {
-                updateHTML(DOM.btn3dToggle, `<i class="fa-solid fa-cube"></i> Enable 3D Radar`);
-                updateClass(DOM.btn3dToggle, "ml-2 bg-brand-purple/20 text-brand-purple border border-brand-purple rounded px-2 py-1 text-[10px] font-black uppercase tracking-widest hover:bg-brand-purple hover:text-black transition-colors");
-                Engine3D.stop();
-            }
-        };
-
+        // --- FOCUS ENGINE ---
         window.toggleFocus = function(secId) {
             const sections = ['sec-telemetry', 'sec-map', 'sec-intel', 'sec-plot'];
             const isCurrentlyFocused = state.focusedSection === secId;
@@ -541,23 +427,26 @@
             sections.forEach(id => {
                 const el = document.getElementById(id);
                 const iconDesktop = document.getElementById(`icon-${id}`);
+                const iconMobile = document.getElementById(`icon-${id}-mobile`);
                 
                 if (!el) return;
                 
                 if (state.focusedSection === null) {
                     el.classList.remove('section-hidden', 'section-fullscreen');
                     if (iconDesktop) iconDesktop.className = 'fa-solid fa-expand text-lg';
+                    if (iconMobile) iconMobile.className = 'fa-solid fa-expand text-lg';
                     document.body.classList.remove('overflow-hidden');
                 } else {
                     if (id === secId) {
                         el.classList.remove('section-hidden');
                         el.classList.add('section-fullscreen');
                         if (iconDesktop) iconDesktop.className = 'fa-solid fa-compress text-lg';
+                        if (iconMobile) iconMobile.className = 'fa-solid fa-compress text-lg';
                         document.body.classList.add('overflow-hidden');
                         
-                        if (id === 'sec-map') {
-                            if (state.mapObj) setTimeout(() => state.mapObj.invalidateSize(), 300);
-                            if (Engine3D.isRunning) setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
+                        // Force reflow for responsive artifacts after animation frame
+                        if (id === 'sec-map' && state.mapObj) {
+                            setTimeout(() => state.mapObj.invalidateSize(), 300);
                         } else if (id === 'sec-plot' && state.chart) {
                             setTimeout(() => state.chart.resize(), 300);
                         }
@@ -575,11 +464,13 @@
             }
         };
 
+        // --- HARDWARE MAGNETOMETER HOOKS (rAF Sync & Deadband) ---
         let headingRafId = null;
         let pendingHeading = null;
 
         function updateHeadingDisplay(heading) {
             if (heading === null || isNaN(heading)) return;
+            // Apply 0.5 deg deadband filter to suppress rendering jitters
             if (Math.abs(heading - state.lastHeading) < 0.5) return; 
             
             pendingHeading = heading;
@@ -600,8 +491,7 @@
             updateText(DOM.liveHeadingTxt, getWindDirection(heading));
             DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
             
-            // Only rotate the 2D DOM map if the 3D Radar is disabled
-            if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj && !state.radar3DEnabled) {
+            if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
                 DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
             }
             
@@ -631,10 +521,11 @@
             }
         });
 
+        // --- BACKGROUND TRACKING ENGINE ---
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
 
-            const EMA_ALPHA_SPEED = 0.4; 
+            const EMA_ALPHA_SPEED = 0.4; // Exponentional Moving Average config for velocity stabilization
 
             state.gpsWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
@@ -657,6 +548,7 @@
                         }
                     }
 
+                    // Reject erroneous jumps based on extreme inaccuracy
                     if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
                     state.autoCoords = { lat, lon };
@@ -666,6 +558,7 @@
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
                         
+                        // Validate cache distance and TTL thresholds for data fetching with 10s debounce against jitter
                         const now = Date.now();
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
                             state.lastFetchAttempt = now;
@@ -678,6 +571,7 @@
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
                         let isGlitch = false;
 
+                        // Velocity Glitch Rejection Alg
                         if (accuracy > 60) {
                             isGlitch = true;
                         } else {
@@ -688,6 +582,7 @@
                         }
 
                         if (!isGlitch) {
+                            // EMA Velocity Filter for UI Stability
                             if (state.smoothedSpeed === null) state.smoothedSpeed = rawSpeedKmh;
                             else state.smoothedSpeed = (EMA_ALPHA_SPEED * rawSpeedKmh) + ((1 - EMA_ALPHA_SPEED) * state.smoothedSpeed);
                             
@@ -703,6 +598,7 @@
                             }
                         }
 
+                        // Waypoint Node intersection verification
                         if (state.routeNodes) {
                             let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
                             if (activeNodeIndex !== -1) {
@@ -739,6 +635,7 @@
                         }
 
                         if (state.userMarker) {
+                            // Apply simple movement thresholding to prevent stationary map jitter
                             const moveDist = L.latLng(state.lastHudLat, state.lastHudLon).distanceTo(L.latLng(lat, lon));
                             if (moveDist > 2 || state.currentSpeed >= 2) {
                                 state.userMarker.setLatLng([lat, lon]);
@@ -819,7 +716,7 @@
                 updateHTML(btn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
                 updateClass(btn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 
-                if (state.tacticalMode === 4 && !state.radar3DEnabled) {
+                if (state.tacticalMode === 4) {
                     DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
                 } else {
                     DOM.hudMap.style.transform = `rotate(0deg)`;
@@ -908,6 +805,8 @@
             state.routeCtrl.on('routingerror', handleRouteError);
         }
 
+        // --- OBJECT POOLING FOR INTERCEPT MARKERS ---
+        // Avoids continuous instantiation and garbage collection lags on mapping layer
         function updateInterceptMarkersPool(waypoints) {
             if (!state.mapObj) return;
             
@@ -952,6 +851,7 @@
             }
         }
 
+        // --- TARGET INJECTION LOGIC ---
         window.handlePasteAndLoad = async function() {
             const btn = document.getElementById('gmaps-paste-btn');
             try {
@@ -993,6 +893,7 @@
 
                 let originLat = null, originLon = null;
 
+                // Structured URL Parsing fallback pipeline
                 try {
                     const parsedUrl = new URL(rawUrl);
                     const destParam = parsedUrl.searchParams.get('destination');
@@ -1003,7 +904,7 @@
                             lon = parseFloat(parts[1]);
                         }
                     }
-                } catch(e) { }
+                } catch(e) { /* Fallback to regex pipeline if URL is malformed */ }
 
                 const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
                 if (originMatch) {
@@ -1135,6 +1036,7 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
+        // --- EN-ROUTE TELEMETRY MATH MODULE ---
         function calculateRouteNodes(route) {
             const totalDistance = route.summary.totalDistance;
             const coords = route.coordinates;
@@ -1142,6 +1044,7 @@
             const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
             const nodes = [];
             
+            // O(N) pre-computation to avoid CPU stalling on long multi-node coordinate iterations
             let cumulativeDistances = new Float32Array(coords.length);
             cumulativeDistances[0] = 0;
             for (let j = 1; j < coords.length; j++) {
@@ -1173,6 +1076,7 @@
             return nodes;
         }
 
+        // --- EN-ROUTE TELEMETRY FETCH ---
         async function fetchRouteIntelligence(route) {
             const secIntel = document.getElementById('sec-intel');
             
@@ -1206,6 +1110,7 @@
                 }
             }
 
+            // Sync unpassed nodes into map object pool
             updateInterceptMarkersPool(unpassedNodes);
             
             const uiStackNodes = unpassedNodes.slice(0, 4);
@@ -1372,6 +1277,7 @@
             }
         }
 
+        // --- PRECISION CLOCK SYNC ---
         function syncClock() {
             if (state.targetTimezone) {
                 try {
@@ -1381,6 +1287,7 @@
                     updateText(DOM.localTimeText, timeStr);
                 } catch(e) {}
             }
+            // Self-adjusting timeout to align perfectly with the next whole second, preventing drift and saving battery
             setTimeout(syncClock, 1000 - (new Date().getTime() % 1000));
         }
         syncClock();
@@ -1423,6 +1330,7 @@
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return; 
             
+            // Use Singleton context to prevent max context crashes
             const ctx = getAudioContext(); 
             const osc = ctx.createOscillator(); const gain = ctx.createGain();
             
@@ -1436,9 +1344,11 @@
             state.lastPing = Date.now();
         }
 
+        // --- OPTIMIZED CHART DELTA-UPDATES ---
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const tc = tailwind.config.theme.extend.colors;
             
+            // Perform Delta-Update if Chart exists to prevent Canvas destruction overhead
             if (state.chart) {
                 state.chart.data.labels = labels;
                 state.chart.data.datasets[0].data = solarData;
@@ -1448,12 +1358,13 @@
                 state.chart.data.datasets[4].data = rainData.de;
                 state.chart.data.datasets[5].data = rainData.jp;
                 
+                // Update Tooltip footer closure values dynamically
                 state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
                     const i = t[0].dataIndex; 
                     return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; 
                 };
                 
-                state.chart.update('none');
+                state.chart.update('none'); // Update without animation for precision sync
                 return;
             }
 
@@ -1492,6 +1403,7 @@
             });
         }
 
+        // --- TELEMETRY NORMALIZATION MODULE ---
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             let curr = dCurr.current; 
@@ -1542,6 +1454,7 @@
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement, currentAgreement, currentVotes, incomingRain };
         }
 
+        // --- TELEMETRY UI RENDER MODULE ---
         function renderTelemetryUI(data, isOffline) {
             const { curr, rEU, rUS, rDE, rJP, currentAgreement, currentVotes, incomingRain, uvData, times } = data;
 
@@ -1613,6 +1526,7 @@
             renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement);
         }
 
+        // --- LOCAL METRICS DATA FETCH ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             state.telemetryCache.timestamp = Date.now();
@@ -1701,6 +1615,7 @@
                     initMap(p.coords.latitude, p.coords.longitude); 
                     fetchData(p.coords.latitude, p.coords.longitude, false); 
                 }, () => {
+                    // Fallback visual state if GPS location access fails or is blocked
                     updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden");
                     updateClass(DOM.statusIcon, 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange');
                     updateText(DOM.statusText, "SEARCH LOCATION");
@@ -1713,6 +1628,7 @@
 
         if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
         
+        // --- PWA SERVICE WORKER INJECTION ---
         (function initPWA() {
             const pwaManifest = {
                 name: "MeteoNexus Tactical HUD", short_name: "MeteoNexus", start_url: window.location.href, display: "standalone",
@@ -1769,6 +1685,7 @@
             });
         })();
 
+        // Bootstrap App
         runApp(); 
     </script>
 </body>
