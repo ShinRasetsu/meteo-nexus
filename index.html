@@ -11,10 +11,15 @@
     
     <!-- OPTIMIZATION: Resource Hints for DNS resolution and TLS handshakes -->
     <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+    <link rel="dns-prefetch" href="https://api.open-meteo.com">
     <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- OPTIMIZATION: Preload critical scripts -->
+    <link rel="preload" as="script" href="https://cdn.tailwindcss.com">
+    <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
     
     <!-- External Dependencies (Deferred for faster Time-to-Interactive) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -87,6 +92,9 @@
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
 
+        /* Hardware Accelerated Glide Interpolation for 1Hz GPS Smoothing */
+        .smooth-glide { transition: transform 1s linear !important; will-change: transform; }
+
         /* Fullscreen Section Handlers */
         .section-hidden { display: none !important; }
         .section-fullscreen { 
@@ -108,8 +116,8 @@
         </h1>
         
         <div class="flex flex-wrap items-center gap-2 md:gap-3">
-            <button id="cache-map-btn" onclick="downloadMapCache()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm" title="Offline Cache Route Corridor">
-                <i class="fa-solid fa-download"></i><span class="hidden md:block">CACHE CORRIDOR</span>
+            <button id="cache-map-btn" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Press to Cache. Hold to Clear.">
+                <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
             </button>
             <button id="pwa-install-btn" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
@@ -201,14 +209,14 @@
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
-                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> Tracking</span>
+                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> <span id="gps-acc-text">Tracking</span></span>
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             <div class="flex flex-row items-center gap-2 shrink-0">
                 <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-bolt"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
-                <button onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                <button id="nav-clear-btn" onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-xmark"></i> <span class="hidden sm:inline">Clear</span>
                 </button>
                 <button id="native-nav-btn" class="hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
@@ -278,10 +286,21 @@
     <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
-            <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations and restart the system. Proceed?</p>
+            <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations, clear all cached data, and restart the system. Proceed?</p>
             <div class="flex gap-3 justify-end">
-                <button onclick="closeModal()" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
-                <button onclick="executePurge()" class="px-4 py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge</button>
+                <button onclick="closeModal('custom-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
+                <button onclick="executePurge()" class="px-4 py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="map-clear-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
+            <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-2"><i class="fa-solid fa-map-location-dot"></i> Clear Map Storage?</h3>
+            <p class="text-gray-300 font-mono text-sm mb-6">This will permanently delete all offline map tiles stored in the browser's persistent cache.</p>
+            <div class="flex gap-3 justify-end">
+                <button onclick="closeModal('map-clear-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
+                <button onclick="executeMapClear()" class="px-4 py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Delete Maps</button>
             </div>
         </div>
     </div>
@@ -355,10 +374,10 @@
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0, isCachingMap: false
+            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null
         };
 
-        // DOM Memoization
+        // OPTIMIZATION: Extended DOM Memoization to prevent all layout thrashing and repeated lookups
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -371,7 +390,13 @@
             metricWindSpeed: document.getElementById('metric-wind-speed'), metricWindDir: document.getElementById('metric-wind-dir'),
             metricUvVal: document.getElementById('metric-uv-val'), metricUvTime: document.getElementById('metric-uv-time'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
-            statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text')
+            statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
+            tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
+            secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
+            secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
+            modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal') },
+            audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
+            cacheMapBtn: document.getElementById('cache-map-btn')
         };
 
         // OPTIMIZATION: Strict DOM Update Guards to prevent reflows
@@ -380,6 +405,39 @@
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
 
         updateText(DOM.maxSpeed, state.maxSpeed);
+
+        // --- MAP CACHE BUTTON LOGIC (LONG PRESS) ---
+        let mapHoldTimer = null;
+
+        const triggerMapDownload = () => {
+            if (!state.isCachingMap) window.downloadMapCache();
+        };
+
+        DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 && e.type !== 'touchstart') return; // Left click/touch only
+            if (state.isCachingMap) return;
+            mapHoldTimer = setTimeout(() => {
+                mapHoldTimer = null;
+                DOM.modals.mapClear.classList.remove('hidden');
+            }, 800);
+        });
+
+        DOM.cacheMapBtn.addEventListener('pointerup', (e) => {
+            if (mapHoldTimer) {
+                clearTimeout(mapHoldTimer);
+                mapHoldTimer = null;
+                triggerMapDownload();
+            }
+        });
+
+        DOM.cacheMapBtn.addEventListener('pointerleave', () => {
+            if (mapHoldTimer) {
+                clearTimeout(mapHoldTimer);
+                mapHoldTimer = null;
+            }
+        });
+
+        DOM.cacheMapBtn.addEventListener('contextmenu', e => e.preventDefault());
 
         // --- OFFLINE MAP PRE-FETCHER (PREDICTIVE CORRIDOR) ---
         function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
@@ -390,10 +448,14 @@
             if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) return;
 
             state.isCachingMap = true;
-            const btn = document.getElementById('cache-map-btn');
-            const originalHtml = btn.innerHTML;
+            state.mapAbortController = new AbortController();
+            const signal = state.mapAbortController.signal;
+            
+            const originalHtml = DOM.cacheMapBtn.innerHTML;
             
             try {
+                if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
+
                 const zooms = [14, 15, 16]; 
                 const tileSet = new Set();
 
@@ -413,22 +475,23 @@
 
                 const urls = Array.from(tileSet);
 
-                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i><span class="hidden md:block">0%</span>`;
-                btn.classList.add('bg-brand-teal', 'text-white');
-                btn.classList.remove('bg-brand-teal/10', 'text-brand-teal');
+                DOM.cacheMapBtn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i><span class="hidden md:block">0%</span>`;
+                DOM.cacheMapBtn.classList.add('bg-brand-teal', 'text-white');
+                DOM.cacheMapBtn.classList.remove('bg-brand-teal/10', 'text-brand-teal');
 
-                const CACHE_NAME = 'meteonexus-v2';
+                const CACHE_NAME = 'meteonexus-map-cache';
                 const cache = await caches.open(CACHE_NAME);
                 let downloaded = 0;
                 const concurrency = 5;
 
                 for (let i = 0; i < urls.length; i += concurrency) {
+                    if(signal.aborted) throw new Error("Aborted");
                     const batch = urls.slice(i, i + concurrency);
                     await Promise.all(batch.map(async (url) => {
                         try {
                             const res = await cache.match(url);
                             if (!res) {
-                                const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit' });
+                                const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
                                 if (fetchRes.ok) await cache.put(url, fetchRes);
                             }
                         } catch(e) {}
@@ -437,24 +500,39 @@
                     
                     if (i % 20 === 0) {
                         const pct = Math.round((downloaded / urls.length) * 100);
-                        btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down fa-fade"></i><span class="hidden md:block">${pct}%</span>`;
+                        updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-cloud-arrow-down fa-fade"></i><span class="hidden md:block">${pct}%</span>`);
                     }
                     await new Promise(r => setTimeout(r, 50)); 
                 }
 
-                btn.innerHTML = `<i class="fa-solid fa-check"></i><span class="hidden md:block">CACHED</span>`;
+                updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-check"></i><span class="hidden md:block">CACHED</span>`);
                 
             } catch(err) {
-                console.error("Corridor Cache Error:", err);
-                btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i><span class="hidden md:block">FAILED</span>`;
+                if(err.message !== "Aborted") {
+                    console.error("Corridor Cache Error:", err);
+                    updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-triangle-exclamation"></i><span class="hidden md:block">FAILED</span>`);
+                }
             } finally {
                 setTimeout(() => {
-                    btn.innerHTML = originalHtml;
-                    btn.classList.remove('bg-brand-teal', 'text-white');
-                    btn.classList.add('bg-brand-teal/10', 'text-brand-teal');
+                    updateHTML(DOM.cacheMapBtn, originalHtml);
+                    DOM.cacheMapBtn.classList.remove('bg-brand-teal', 'text-white');
+                    DOM.cacheMapBtn.classList.add('bg-brand-teal/10', 'text-brand-teal');
                     state.isCachingMap = false;
+                    state.mapAbortController = null;
                 }, 3000);
             }
+        };
+
+        window.executeMapClear = async function() {
+            try {
+                if(state.mapAbortController) state.mapAbortController.abort();
+                await caches.delete('meteonexus-map-cache');
+                closeModal('map-clear-modal');
+                updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-trash"></i><span class="hidden md:block">CLEARED</span>`);
+                setTimeout(() => {
+                    updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>`);
+                }, 2000);
+            } catch(e) { console.error("Map cache clear failed:", e); }
         };
 
         // --- AUDIO CONTEXT POOLING ---
@@ -503,38 +581,41 @@
         }, { once: true });
 
         // --- FOCUS ENGINE ---
+        // OPTIMIZATION: Memoized lookups utilized here.
         window.toggleFocus = function(secId) {
-            const sections = ['sec-telemetry', 'sec-map', 'sec-intel', 'sec-plot'];
+            const sections = [
+                {id: 'sec-telemetry', el: DOM.secTelemetry}, 
+                {id: 'sec-map', el: DOM.secMap}, 
+                {id: 'sec-intel', el: DOM.secIntel}, 
+                {id: 'sec-plot', el: DOM.secPlot}
+            ];
             const isCurrentlyFocused = state.focusedSection === secId;
             state.focusedSection = isCurrentlyFocused ? null : secId;
 
-            sections.forEach(id => {
-                const el = document.getElementById(id);
-                const iconDesktop = document.getElementById(`icon-${id}`);
-                const iconMobile = document.getElementById(`icon-${id}-mobile`);
+            sections.forEach(sec => {
+                const el = sec.el;
+                const iconDesktop = document.getElementById(`icon-${sec.id}`);
                 
                 if (!el) return;
                 
                 if (state.focusedSection === null) {
                     el.classList.remove('section-hidden', 'section-fullscreen');
-                    if (iconDesktop) iconDesktop.className = 'fa-solid fa-expand text-lg';
-                    if (iconMobile) iconMobile.className = 'fa-solid fa-expand text-lg';
+                    if (iconDesktop) updateClass(iconDesktop, 'fa-solid fa-expand text-lg');
                     document.body.classList.remove('overflow-hidden');
                 } else {
-                    if (id === secId) {
+                    if (sec.id === secId) {
                         el.classList.remove('section-hidden');
                         el.classList.add('section-fullscreen');
-                        if (iconDesktop) iconDesktop.className = 'fa-solid fa-compress text-lg';
-                        if (iconMobile) iconMobile.className = 'fa-solid fa-compress text-lg';
+                        if (iconDesktop) updateClass(iconDesktop, 'fa-solid fa-compress text-lg');
                         document.body.classList.add('overflow-hidden');
                         
-                        if (id === 'sec-map' && state.mapObj) {
+                        if (sec.id === 'sec-map' && state.mapObj) {
                             setTimeout(() => state.mapObj.invalidateSize(), 300);
-                        } else if (id === 'sec-plot' && state.chart) {
+                        } else if (sec.id === 'sec-plot' && state.chart) {
                             setTimeout(() => state.chart.resize(), 300);
                         }
                     } else {
-                        if (!el.classList.contains('hidden') || id === 'sec-intel') {
+                        if (!el.classList.contains('hidden') || sec.id === 'sec-intel') {
                            el.classList.add('section-hidden');
                            el.classList.remove('section-fullscreen');
                         }
@@ -543,21 +624,20 @@
             });
             
             if (state.focusedSection === null && !state.targetCoords) {
-                document.getElementById('sec-intel').classList.add('hidden');
+                DOM.secIntel.classList.add('hidden');
             }
         };
 
         // --- HARDWARE MAGNETOMETER HOOKS & RENDERING ---
         let headingRafId = null;
         let pendingHeading = null;
-        let lastSensorUpdate = 0; // OPTIMIZATION: Throttle Variable
+        let lastSensorUpdate = 0;
 
         function updateHeadingDisplay(heading) {
             if (heading === null || isNaN(heading)) return;
             if (Math.abs(heading - state.lastHeading) < 0.5) return; 
             
             pendingHeading = heading;
-            // Batch rendering frame via rAF
             if (!headingRafId) headingRafId = requestAnimationFrame(renderHeadingUpdate);
         }
 
@@ -588,7 +668,7 @@
             }
         }
 
-        // OPTIMIZATION: Throttled Sensor Ingress (~20fps max) to save battery
+        // OPTIMIZATION: Throttled Sensor Ingress
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
             if (now - lastSensorUpdate < 50) return;
@@ -625,15 +705,18 @@
                     const accuracy = pos.coords.accuracy; 
                     
                     if (DOM.accUi) {
-                        if (accuracy <= 15) {
-                            updateHTML(DOM.accUi, `<i class="fa-solid fa-satellite text-brand-success"></i> GNSS: HIGH (${Math.round(accuracy)}m)`);
-                            updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap");
-                        } else if (accuracy <= 60) {
-                            updateHTML(DOM.accUi, `<i class="fa-solid fa-satellite text-brand-warning"></i> GNSS: MED (${Math.round(accuracy)}m)`);
-                            updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap");
-                        } else {
-                            updateHTML(DOM.accUi, `<i class="fa-solid fa-tower-cell text-brand-orange animate-pulse"></i> LTE/A-GPS (${Math.round(accuracy)}m)`);
-                            updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap");
+                        const accTextEl = DOM.accUi.querySelector('#gps-acc-text');
+                        if (accTextEl) {
+                            if (accuracy <= 15) {
+                                updateHTML(accTextEl, `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`);
+                                updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap");
+                            } else if (accuracy <= 60) {
+                                updateHTML(accTextEl, `Tracking | GNSS: MED (${Math.round(accuracy)}m)`);
+                                updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap");
+                            } else {
+                                updateHTML(accTextEl, `Tracking | LTE/A-GPS (${Math.round(accuracy)}m)`);
+                                updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap");
+                            }
                         }
                     }
 
@@ -645,8 +728,8 @@
                         initMap(lat, lon);
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
-                        
                         const now = Date.now();
+                        
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
                             state.lastFetchAttempt = now;
                             fetchData(lat, lon, false);
@@ -702,8 +785,11 @@
                                     let visibleNodes = state.routeNodes.filter(n => !n.passed).slice(0, 4);
                                     visibleNodes.forEach(vn => {
                                         let vnD = L.latLng(lat, lon).distanceTo(L.latLng(vn.lat, vn.lon));
-                                        const distEl = document.getElementById(`node-dist-${vn.id}`);
-                                        if (distEl) updateText(distEl, (vnD/1000).toFixed(1) + ' KM AHEAD');
+                                        if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM AHEAD');
+                                        else {
+                                            const distEl = document.getElementById(`node-dist-${vn.id}`);
+                                            if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM AHEAD'); }
+                                        }
                                     });
                                 }
                             }
@@ -720,7 +806,8 @@
 
                         if (state.userMarker) {
                             const moveDist = L.latLng(state.lastHudLat, state.lastHudLon).distanceTo(L.latLng(lat, lon));
-                            if (moveDist > 2 || state.currentSpeed >= 2) {
+                            // OPTIMIZATION: Only update map marker DOM position if moved >0.5m
+                            if (moveDist > 0.5 || state.currentSpeed >= 2) {
                                 state.userMarker.setLatLng([lat, lon]);
                             }
 
@@ -758,7 +845,15 @@
                         if (state.isMapLocked && state.tacticalMode > 0) {
                             const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                             requestAnimationFrame(() => {
-                                state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
+                                const distToCenter = state.mapObj.getCenter().distanceTo([lat, lon]);
+                                if (distToCenter > 500) {
+                                    state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
+                                } else {
+                                    state.mapObj.setView([lat, lon], targetZoom, { 
+                                        animate: true, 
+                                        pan: { duration: 1, easeLinearity: 1 } 
+                                    });
+                                }
                             });
                             
                             if (!state.targetCoords) {
@@ -789,7 +884,6 @@
 
         window.applyTacticalMode = function() {
             if (!state.mapObj) return;
-            const btn = document.getElementById('tactical-btn');
             
             if (state.tacticalMode > 0) {
                 state.isMapLocked = true;
@@ -798,8 +892,8 @@
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                 const scaleLabels = ["", "200m", "100m", "50m", "20m"];
                 
-                updateHTML(btn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
-                updateClass(btn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
+                updateHTML(DOM.tacticalBtn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
+                updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 
                 if (state.tacticalMode === 4) {
                     DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
@@ -816,8 +910,8 @@
                 
                 DOM.hudMap.style.transform = `rotate(0deg)`; 
                 
-                updateHTML(btn, `<i class="fa-solid fa-route text-lg md:text-xl"></i>`);
-                updateClass(btn, "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono");
+                updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-route text-lg md:text-xl"></i>`);
+                updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono");
 
                 if (state.currentRouteCoords && state.currentRouteCoords.length > 0) {
                     const bounds = L.latLngBounds(state.currentRouteCoords);
@@ -830,21 +924,21 @@
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            // OPTIMIZATION: preferCanvas rendering handles polyline heavy tracks natively efficiently
+            // OPTIMIZATION: preferCanvas handles polyline heavy tracks natively
             state.mapObj = L.map('hud-map', {
                 zoomControl: false,
                 preferCanvas: true 
             }).setView([lat, lon], 14);
             
-            // OPTIMIZATION: keepBuffer: 16 buffers loaded tiles in the DOM to prevent reloading.
-            // updateWhenIdle prevents freezing the main thread by delaying tile requests until panning finishes.
+            // OPTIMIZATION: keepBuffer: 8 (reduced memory), updateWhenZooming prevents frame drops
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', 
                 maxZoom: 22, 
                 maxNativeZoom: 18, 
                 detectRetina: true,
-                keepBuffer: 16,
-                updateWhenIdle: true
+                keepBuffer: 8,
+                updateWhenIdle: true,
+                updateWhenZooming: false
             }).addTo(state.mapObj);
 
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
@@ -852,14 +946,13 @@
             state.mapObj.on('dragstart', () => {
                 state.isMapLocked = false;
                 DOM.hudMap.style.transform = `rotate(0deg)`;
-                const btn = document.getElementById('tactical-btn');
-                updateHTML(btn, `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`);
-                updateClass(btn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
+                updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`);
+                updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });
 
             state.userMarker = L.marker([lat, lon], {
                 icon: L.divIcon({
-                    className: 'bg-transparent',
+                    className: 'bg-transparent smooth-glide',
                     html: `
                         <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8 transition-transform duration-500 ease-linear" style="transform: rotate(0deg);">
                             <div id="user-dot" class="absolute bg-brand-success border-[3px] border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all duration-300"></div>
@@ -878,6 +971,9 @@
 
         function initRoute() {
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
+            // Clear existing if necessary
+            if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
+
             state.routeCtrl = L.Routing.control({
                 waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
                 router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
@@ -926,7 +1022,7 @@
                 
                 const el = pItem.marker.getElement();
                 if (el) {
-                    el.style.display = 'block';
+                    if (el.style.display !== 'block') el.style.display = 'block';
                     const label = el.querySelector('.node-label');
                     if (label) updateText(label, `N-${wp.id}`);
                 }
@@ -936,20 +1032,19 @@
             for (let i = waypoints.length; i < state.interceptMarkers.length; i++) {
                 if (state.interceptMarkers[i].inUse) {
                     const el = state.interceptMarkers[i].marker.getElement();
-                    if (el) el.style.display = 'none';
+                    if (el && el.style.display !== 'none') el.style.display = 'none';
                     state.interceptMarkers[i].inUse = false;
                 }
             }
         }
 
         window.handlePasteAndLoad = async function() {
-            const btn = document.getElementById('gmaps-paste-btn');
             try {
                 const clipText = await navigator.clipboard.readText();
                 if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
-                    btn.classList.add('animate-pulse');
+                    DOM.gmapsPasteBtn.classList.add('animate-pulse');
                     await processGMapLink(clipText);
-                    btn.classList.remove('animate-pulse');
+                    DOM.gmapsPasteBtn.classList.remove('animate-pulse');
                 } else {
                     updateText(DOM.statusEl, "NO LINK IN CLIPBOARD");
                     updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
@@ -1113,7 +1208,6 @@
 
             state.currentRouteCoords = route.coordinates;
 
-            // OPTIMIZATION: Auto-Trigger Corridor Caching upon successful route lock.
             if (!state.isCachingMap) {
                 window.downloadMapCache();
             }
@@ -1169,10 +1263,8 @@
         }
 
         async function fetchRouteIntelligence(route) {
-            const secIntel = document.getElementById('sec-intel');
-            
             if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
-                secIntel.classList.remove('hidden');
+                DOM.secIntel.classList.remove('hidden');
             }
             
             updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
@@ -1231,6 +1323,7 @@
                 const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
                 const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
+                // Using Document Fragment conceptually via a single HTML rebuild loop
                 let htmlBuffer = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
                 
                 weatherPoints.forEach((p, idx) => {
@@ -1386,31 +1479,48 @@
         }
 
         window.purgeSystem = function() {
-            document.getElementById('custom-modal').classList.remove('hidden');
+            DOM.modals.custom.classList.remove('hidden');
         }
 
-        window.closeModal = function() {
-            document.getElementById('custom-modal').classList.add('hidden');
+        window.closeModal = function(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
         }
 
-        window.executePurge = function() {
-            window.location.reload(true);
+        window.executePurge = async function() {
+            try {
+                localStorage.clear();
+                sessionStorage.clear();
+                if (window.localforage) await localforage.clear();
+                
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(name => caches.delete(name)));
+                }
+                
+                if ('serviceWorker' in navigator) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for (let registration of registrations) {
+                        await registration.unregister();
+                    }
+                }
+            } catch(e) {
+                console.error('Purge partially failed:', e);
+            } finally {
+                window.location.reload(true);
+            }
         }
 
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
-            const btn = document.getElementById('audio-btn');
-            const icon = document.getElementById('audio-icon');
-            const txt = document.getElementById('audio-text');
             if (state.audioEnabled) {
-                updateClass(btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all');
-                updateClass(icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
-                updateText(txt, "SONAR ACTIVE");
+                updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all');
+                updateClass(DOM.audio.icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
+                updateText(DOM.audio.text, "SONAR ACTIVE");
                 getAudioContext().resume().then(() => playSonarPing());
             } else {
-                updateClass(btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
-                updateClass(icon, 'fa-solid fa-volume-xmark text-xl');
-                updateText(txt, "SONAR OFF");
+                updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
+                updateClass(DOM.audio.icon, 'fa-solid fa-volume-xmark text-xl');
+                updateText(DOM.audio.text, "SONAR OFF");
             }
         }
 
@@ -1669,7 +1779,7 @@
             DOM.navBtn.classList.add('hidden');
             
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
-            document.getElementById('sec-intel').classList.add('hidden');
+            DOM.secIntel.classList.add('hidden');
             
             state.mode = 'auto'; 
             state.tacticalMode = 1;
@@ -1720,19 +1830,26 @@
 
             if ('serviceWorker' in navigator) {
                 const swCode = `
-                    const CACHE_NAME = 'meteonexus-v2';
+                    const APP_CACHE = 'meteonexus-app-v3';
+                    const MAP_CACHE = 'meteonexus-map-cache';
+
                     self.addEventListener('install', (e) => self.skipWaiting());
+                    
                     self.addEventListener('activate', (e) => {
-                        e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => { if(k !== CACHE_NAME) return caches.delete(k); }))));
+                        e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => { 
+                            if(k !== APP_CACHE && k !== MAP_CACHE) return caches.delete(k); 
+                        }))));
                         self.clients.claim();
                     });
+
                     self.addEventListener('fetch', (e) => {
                         const url = new URL(e.request.url);
+                        
                         if (url.hostname.includes('tile.openstreetmap.org')) {
                             e.respondWith(
                                 caches.match(e.request).then(res => {
                                     return res || fetch(e.request).then(netRes => {
-                                        return caches.open(CACHE_NAME).then(cache => {
+                                        return caches.open(MAP_CACHE).then(cache => {
                                             cache.put(e.request, netRes.clone());
                                             return netRes;
                                         });
@@ -1740,9 +1857,9 @@
                                 }).catch(() => new Response(''))
                             );
                         } else if (url.hostname.includes('api.open-meteo.com')) {
-                            // OPTIMIZATION: Stale-while-revalidate for API
+                            // OPTIMIZATION: Stale-while-revalidate for faster TTFB on API calls
                             e.respondWith(
-                                caches.open(CACHE_NAME).then(cache => {
+                                caches.open(APP_CACHE).then(cache => {
                                     return cache.match(e.request).then(cachedResponse => {
                                         const fetchPromise = fetch(e.request).then(networkResponse => {
                                             cache.put(e.request, networkResponse.clone());
