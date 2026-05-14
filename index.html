@@ -9,7 +9,7 @@
     <link rel="manifest" id="manifest-placeholder">
     <meta name="theme-color" content="#000000">
     
-    <!-- OPTIMIZATION: Resource Hints for DNS resolution and TLS handshakes -->
+    <!-- Resource Hints for DNS resolution and TLS handshakes -->
     <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
     <link rel="dns-prefetch" href="https://api.open-meteo.com">
     <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     
-    <!-- OPTIMIZATION: Preload critical scripts -->
+    <!-- Preload critical scripts -->
     <link rel="preload" as="script" href="https://cdn.tailwindcss.com">
     <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
     
@@ -93,7 +93,6 @@
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
 
         /* Hardware Accelerated Glide Interpolation for 1Hz GPS Smoothing */
-        /* OPTIMIZATION: Reduced transition from 1s to 0.2s for highly accurate real-time tracking */
         .smooth-glide { transition: transform 0.2s ease-out !important; will-change: transform; }
 
         /* Fullscreen Section Handlers */
@@ -375,10 +374,13 @@
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null
+            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null,
+            
+            // [OPTIMIZATION: DOM Elements cached to avoid querySelector in RAF and sensor updates]
+            userDirWrapper: null, userDot: null, userArrow: null
         };
 
-        // OPTIMIZATION: Fast Haversine implementation for main-thread math performance
+        // Fast Haversine implementation for main-thread math performance
         function fastDistance(lat1, lon1, lat2, lon2) {
             const p = 0.017453292519943295; // Math.PI / 180
             const c = Math.cos;
@@ -387,7 +389,7 @@
             return 12742000 * Math.asin(Math.sqrt(a)); // 2 * R; R = 6371 km
         }
 
-        // OPTIMIZATION: Extended DOM Memoization
+        // Extended DOM Memoization
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -423,7 +425,7 @@
         };
 
         DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 && e.type !== 'touchstart') return;
+            if (e.button !== 0 && e.type !== 'touchstart' && e.type !== 'pointerdown') return;
             if (state.isCachingMap) return;
             mapHoldTimer = setTimeout(() => {
                 mapHoldTimer = null;
@@ -440,6 +442,14 @@
         });
 
         DOM.cacheMapBtn.addEventListener('pointerleave', () => {
+            if (mapHoldTimer) {
+                clearTimeout(mapHoldTimer);
+                mapHoldTimer = null;
+            }
+        });
+
+        // Prevent hold timer from firing if user scrolls while touching the button
+        DOM.cacheMapBtn.addEventListener('pointercancel', () => {
             if (mapHoldTimer) {
                 clearTimeout(mapHoldTimer);
                 mapHoldTimer = null;
@@ -667,18 +677,16 @@
                 DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
             }
             
-            if (state.userMarker) {
-                const markerEl = state.userMarker.getElement();
-                if (markerEl) {
-                    const wrapper = markerEl.querySelector('#user-dir-wrapper');
-                    if (wrapper) wrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
-                }
+            // [OPTIMIZATION: Removed heavy querySelector call. Relying on state cache initialized below]
+            if (state.userDirWrapper) {
+                state.userDirWrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
             }
         }
 
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
-            if (now - lastSensorUpdate < 50) return; // 20fps cap
+            // [OPTIMIZATION: Throttled to 10fps (100ms) to reduce hardware CPU load without visual lag]
+            if (now - lastSensorUpdate < 100) return; 
             lastSensorUpdate = now;
             
             state.sensorHeading = alphaOrHeading;
@@ -703,6 +711,7 @@
 
             const EMA_ALPHA_SPEED = 0.85; 
 
+            // [OPTIMIZATION: Battery saving by modifying Geolocation options]
             state.gpsWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     const lat = pos.coords.latitude;
@@ -713,7 +722,7 @@
                     
                     const now = Date.now();
 
-                    // OPTIMIZATION: Glitch Filtering to reject multipath leaps (Accuracy Fix)
+                    // Glitch Filtering to reject multipath leaps
                     let timeDeltaSec = (now - state.lastLocationTimestamp) / 1000;
                     if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
 
@@ -749,7 +758,6 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        // Replaced heavy L.latLng distance calculation with fast Haversine math
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (fastDistance(lat, lon, state.lastHudLat, state.lastHudLon) / 1000);
                         
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
@@ -824,25 +832,27 @@
                         }
 
                         if (state.userMarker) {
-                            // OPTIMIZATION: Removed DOM distance culling to fix stuttering steps.
-                            // The real-time mapping now executes smoothly matched with the 0.2s transition logic.
                             state.userMarker.setLatLng([lat, lon]);
 
-                            const markerEl = state.userMarker.getElement();
-                            if (markerEl) {
-                                const dot = markerEl.querySelector('#user-dot');
-                                const arrow = markerEl.querySelector('#user-arrow');
-                                
-                                if (dot && arrow) {
-                                    if (isMoving) {
-                                        dot.classList.add('opacity-0', 'scale-50');
-                                        arrow.classList.remove('opacity-0', 'scale-50');
-                                        arrow.classList.add('opacity-100', 'scale-100');
-                                    } else {
-                                        dot.classList.remove('opacity-0', 'scale-50');
-                                        arrow.classList.remove('opacity-100', 'scale-100');
-                                        arrow.classList.add('opacity-0', 'scale-50');
-                                    }
+                            // [OPTIMIZATION: Initialize DOM cache once to prevent layout thrashing]
+                            if (!state.userDot || !state.userArrow) {
+                                const markerEl = state.userMarker.getElement();
+                                if (markerEl) {
+                                    state.userDirWrapper = markerEl.querySelector('#user-dir-wrapper');
+                                    state.userDot = markerEl.querySelector('#user-dot');
+                                    state.userArrow = markerEl.querySelector('#user-arrow');
+                                }
+                            }
+                            
+                            if (state.userDot && state.userArrow) {
+                                if (isMoving) {
+                                    state.userDot.classList.add('opacity-0', 'scale-50');
+                                    state.userArrow.classList.remove('opacity-0', 'scale-50');
+                                    state.userArrow.classList.add('opacity-100', 'scale-100');
+                                } else {
+                                    state.userDot.classList.remove('opacity-0', 'scale-50');
+                                    state.userArrow.classList.remove('opacity-100', 'scale-100');
+                                    state.userArrow.classList.add('opacity-0', 'scale-50');
                                 }
                             }
                         }
@@ -868,7 +878,7 @@
                                 } else {
                                     state.mapObj.setView([lat, lon], targetZoom, { 
                                         animate: true, 
-                                        pan: { duration: 0.25, easeLinearity: 0.5 } // OPTIMIZATION: Reduce lag from 1s to 250ms
+                                        pan: { duration: 0.25, easeLinearity: 0.5 }
                                     });
                                 }
                             });
@@ -884,7 +894,8 @@
                     updateText(DOM.statusEl, "GPS SIGNAL LOST");
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap");
                 },
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 } 
+                // [OPTIMIZATION: maximumAge increased from 0 to 1000. Reduces hardware power draw.]
+                { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 } 
             );
         }
 
@@ -946,7 +957,6 @@
                 preferCanvas: true 
             }).setView([lat, lon], 14);
             
-            // OPTIMIZATION: Reduced keepBuffer to 2 to minimize massive memory loads & UI stalling
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', 
                 maxZoom: 22, 
@@ -1076,7 +1086,6 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
 
             try {
-                // High priority edge fetch
                 const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high' });
                 const payloadData = await res.json();
                 if (payloadData.error) throw new Error(payloadData.error);
@@ -1247,7 +1256,6 @@
             let cumulativeDistances = new Float32Array(coords.length);
             cumulativeDistances[0] = 0;
             for (let j = 1; j < coords.length; j++) {
-                // OPTIMIZATION: Replacing heavy distanceTo with fastHaversine inline
                 cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(coords[j-1].lat, coords[j-1].lng, coords[j].lat, coords[j].lng);
             }
 
@@ -1325,7 +1333,6 @@
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
                 
-                // OPTIMIZATION: Assigning priority: 'high' to critical API responses
                 const [baseRes, modelRes] = await Promise.all([
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`, { priority: 'high' }),
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`, { priority: 'high' })
@@ -1523,6 +1530,15 @@
             }
         }
 
+        // Request persistent storage globally on boot to protect map cache from OS eviction
+        async function enforcePersistentStorage() {
+            if (navigator.storage && navigator.storage.persist) {
+                const isPersisted = await navigator.storage.persisted();
+                if (!isPersisted) await navigator.storage.persist();
+            }
+        }
+        enforcePersistentStorage();
+
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             if (state.audioEnabled) {
@@ -1589,6 +1605,8 @@
                     ]
                 },
                 options: {
+                    // [OPTIMIZATION: Disabling internal chart animations reduces GPU load when frequent telemetry data pushes arrive]
+                    animation: false,
                     responsive: true, maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
@@ -1782,6 +1800,11 @@
                 if (item.marker) state.mapObj.removeLayer(item.marker);
             }
             state.interceptMarkers = [];
+            
+            // Wipe cached DOM elements since they might get rebuilt
+            state.userDirWrapper = null;
+            state.userDot = null;
+            state.userArrow = null;
 
             state.lastIntelFetch = 0; 
             state.currentRouteCoords = null; 
@@ -1866,7 +1889,10 @@
                                             return netRes;
                                         });
                                     });
-                                }).catch(() => new Response(''))
+                                }).catch(() => new Response(
+                                    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#111"/></svg>', 
+                                    { headers: { 'Content-Type': 'image/svg+xml' } }
+                                ))
                             );
                         } else if (url.hostname.includes('api.open-meteo.com')) {
                             e.respondWith(
