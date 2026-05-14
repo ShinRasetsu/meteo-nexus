@@ -9,6 +9,13 @@
     <link rel="manifest" id="manifest-placeholder">
     <meta name="theme-color" content="#000000">
     
+    <!-- OPTIMIZATION: Resource Hints for DNS resolution and TLS handshakes -->
+    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
     <!-- External Dependencies (Deferred for faster Time-to-Interactive) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -23,6 +30,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
     
     <script>
+        // Tailwind Configuration
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -99,9 +107,12 @@
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
         </h1>
         
-        <div class="flex items-center gap-2 md:gap-3">
+        <div class="flex flex-wrap items-center gap-2 md:gap-3">
+            <button id="cache-map-btn" onclick="downloadMapCache()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm" title="Offline Cache Route Corridor">
+                <i class="fa-solid fa-download"></i><span class="hidden md:block">CACHE CORRIDOR</span>
+            </button>
             <button id="pwa-install-btn" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
-                <i class="fa-solid fa-download animate-bounce"></i><span class="hidden md:block">INSTALL</span>
+                <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
             <button onclick="purgeSystem()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
@@ -286,7 +297,6 @@
         let isCloudActive = false;
         let appId = 'default-app-id';
 
-        // Attempting connection to Firebase securely.
         try {
             const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
             if (configStr) {
@@ -307,8 +317,8 @@
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: 75,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
-            cacheTTL: 300000, // 5 Min Data Cache
-            cacheDistThresholdKm: 1.5 // Spatial threshold logic
+            cacheTTL: 300000, 
+            cacheDistThresholdKm: 1.5 
         };
 
         const WMO_CODES = {
@@ -345,11 +355,10 @@
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0 // Added for network debounce
+            lastFetchAttempt: 0, isCachingMap: false
         };
 
-        // --- DOM MEMOIZATION & DIRTY CHECKING (Optimization) ---
-        // Prevents layout thrashing by caching selectors and validating state prior to repaint.
+        // DOM Memoization
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -365,11 +374,88 @@
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text')
         };
 
-        const updateText = (el, val) => { if (el && el.innerText !== String(val)) el.innerText = val; };
-        const updateHTML = (el, val) => { if (el && el.innerHTML !== val) el.innerHTML = val; };
+        // OPTIMIZATION: Strict DOM Update Guards to prevent reflows
+        const updateText = (el, val) => { if (el && el.textContent !== String(val)) el.textContent = val; };
+        const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
 
         updateText(DOM.maxSpeed, state.maxSpeed);
+
+        // --- OFFLINE MAP PRE-FETCHER (PREDICTIVE CORRIDOR) ---
+        function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
+        function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
+
+        window.downloadMapCache = async function() {
+            if (state.isCachingMap) return;
+            if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) return;
+
+            state.isCachingMap = true;
+            const btn = document.getElementById('cache-map-btn');
+            const originalHtml = btn.innerHTML;
+            
+            try {
+                const zooms = [14, 15, 16]; 
+                const tileSet = new Set();
+
+                state.currentRouteCoords.forEach(coord => {
+                    zooms.forEach(z => {
+                        const x = lon2tile(coord.lng, z); 
+                        const y = lat2tile(coord.lat, z);
+                        const s = ['a', 'b', 'c'][Math.floor(Math.random() * 3)];
+                        
+                        for(let dx = -1; dx <= 1; dx++) {
+                            for(let dy = -1; dy <= 1; dy++) {
+                                tileSet.add(`https://${s}.tile.openstreetmap.org/${z}/${x+dx}/${y+dy}.png`);
+                            }
+                        }
+                    });
+                });
+
+                const urls = Array.from(tileSet);
+
+                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i><span class="hidden md:block">0%</span>`;
+                btn.classList.add('bg-brand-teal', 'text-white');
+                btn.classList.remove('bg-brand-teal/10', 'text-brand-teal');
+
+                const CACHE_NAME = 'meteonexus-v2';
+                const cache = await caches.open(CACHE_NAME);
+                let downloaded = 0;
+                const concurrency = 5;
+
+                for (let i = 0; i < urls.length; i += concurrency) {
+                    const batch = urls.slice(i, i + concurrency);
+                    await Promise.all(batch.map(async (url) => {
+                        try {
+                            const res = await cache.match(url);
+                            if (!res) {
+                                const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit' });
+                                if (fetchRes.ok) await cache.put(url, fetchRes);
+                            }
+                        } catch(e) {}
+                        downloaded++;
+                    }));
+                    
+                    if (i % 20 === 0) {
+                        const pct = Math.round((downloaded / urls.length) * 100);
+                        btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down fa-fade"></i><span class="hidden md:block">${pct}%</span>`;
+                    }
+                    await new Promise(r => setTimeout(r, 50)); 
+                }
+
+                btn.innerHTML = `<i class="fa-solid fa-check"></i><span class="hidden md:block">CACHED</span>`;
+                
+            } catch(err) {
+                console.error("Corridor Cache Error:", err);
+                btn.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i><span class="hidden md:block">FAILED</span>`;
+            } finally {
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('bg-brand-teal', 'text-white');
+                    btn.classList.add('bg-brand-teal/10', 'text-brand-teal');
+                    state.isCachingMap = false;
+                }, 3000);
+            }
+        };
 
         // --- AUDIO CONTEXT POOLING ---
         let globalAudioCtx = null;
@@ -380,7 +466,6 @@
         }
 
         // --- AUTHENTICATION FLOW ---
-        // Strictly adheres to requirement: init auth before querying payload.
         async function initAuth() {
             if (!isCloudActive) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -407,14 +492,13 @@
             if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
-        // Initialize sensitive sensors requiring a user interaction context.
         document.body.addEventListener('click', function initSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(response => {
                     if (response === 'granted') console.log('Magnetometer Hardware Hooked.');
                 }).catch(console.error);
             }
-            getAudioContext(); // Pre-warm Context Pool
+            getAudioContext(); 
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -444,7 +528,6 @@
                         if (iconMobile) iconMobile.className = 'fa-solid fa-compress text-lg';
                         document.body.classList.add('overflow-hidden');
                         
-                        // Force reflow for responsive artifacts after animation frame
                         if (id === 'sec-map' && state.mapObj) {
                             setTimeout(() => state.mapObj.invalidateSize(), 300);
                         } else if (id === 'sec-plot' && state.chart) {
@@ -464,16 +547,17 @@
             }
         };
 
-        // --- HARDWARE MAGNETOMETER HOOKS (rAF Sync & Deadband) ---
+        // --- HARDWARE MAGNETOMETER HOOKS & RENDERING ---
         let headingRafId = null;
         let pendingHeading = null;
+        let lastSensorUpdate = 0; // OPTIMIZATION: Throttle Variable
 
         function updateHeadingDisplay(heading) {
             if (heading === null || isNaN(heading)) return;
-            // Apply 0.5 deg deadband filter to suppress rendering jitters
             if (Math.abs(heading - state.lastHeading) < 0.5) return; 
             
             pendingHeading = heading;
+            // Batch rendering frame via rAF
             if (!headingRafId) headingRafId = requestAnimationFrame(renderHeadingUpdate);
         }
 
@@ -504,20 +588,25 @@
             }
         }
 
+        // OPTIMIZATION: Throttled Sensor Ingress (~20fps max) to save battery
+        function handleOrientationUpdate(alphaOrHeading) {
+            const now = Date.now();
+            if (now - lastSensorUpdate < 50) return;
+            lastSensorUpdate = now;
+            
+            state.sensorHeading = alphaOrHeading;
+            if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
+        }
+
         window.addEventListener('deviceorientationabsolute', (e) => {
-            if (e.alpha !== null) {
-                state.sensorHeading = 360 - e.alpha;
-                if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
-            }
+            if (e.alpha !== null) handleOrientationUpdate(360 - e.alpha);
         });
 
         window.addEventListener('deviceorientation', (e) => {
             if (e.webkitCompassHeading) {
-                state.sensorHeading = e.webkitCompassHeading;
-                if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
+                handleOrientationUpdate(e.webkitCompassHeading);
             } else if (e.absolute && e.alpha !== null) {
-                state.sensorHeading = 360 - e.alpha;
-                if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
+                handleOrientationUpdate(360 - e.alpha);
             }
         });
 
@@ -525,7 +614,7 @@
         function startBackgroundTracking() {
             if (state.gpsWatchId) return; 
 
-            const EMA_ALPHA_SPEED = 0.4; // Exponentional Moving Average config for velocity stabilization
+            const EMA_ALPHA_SPEED = 0.85; 
 
             state.gpsWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
@@ -548,7 +637,6 @@
                         }
                     }
 
-                    // Reject erroneous jumps based on extreme inaccuracy
                     if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
                     state.autoCoords = { lat, lon };
@@ -558,7 +646,6 @@
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
                         
-                        // Validate cache distance and TTL thresholds for data fetching with 10s debounce against jitter
                         const now = Date.now();
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
                             state.lastFetchAttempt = now;
@@ -571,8 +658,7 @@
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
                         let isGlitch = false;
 
-                        // Velocity Glitch Rejection Alg
-                        if (accuracy > 60) {
+                        if (accuracy > 120) { 
                             isGlitch = true;
                         } else {
                             const maxAccelKmhPerSec = 54; 
@@ -582,7 +668,6 @@
                         }
 
                         if (!isGlitch) {
-                            // EMA Velocity Filter for UI Stability
                             if (state.smoothedSpeed === null) state.smoothedSpeed = rawSpeedKmh;
                             else state.smoothedSpeed = (EMA_ALPHA_SPEED * rawSpeedKmh) + ((1 - EMA_ALPHA_SPEED) * state.smoothedSpeed);
                             
@@ -598,7 +683,6 @@
                             }
                         }
 
-                        // Waypoint Node intersection verification
                         if (state.routeNodes) {
                             let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
                             if (activeNodeIndex !== -1) {
@@ -635,7 +719,6 @@
                         }
 
                         if (state.userMarker) {
-                            // Apply simple movement thresholding to prevent stationary map jitter
                             const moveDist = L.latLng(state.lastHudLat, state.lastHudLon).distanceTo(L.latLng(lat, lon));
                             if (moveDist > 2 || state.currentSpeed >= 2) {
                                 state.userMarker.setLatLng([lat, lon]);
@@ -674,7 +757,9 @@
                         
                         if (state.isMapLocked && state.tacticalMode > 0) {
                             const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                            state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
+                            requestAnimationFrame(() => {
+                                state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
+                            });
                             
                             if (!state.targetCoords) {
                                 updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
@@ -687,7 +772,7 @@
                     updateText(DOM.statusEl, "GPS SIGNAL LOST");
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap");
                 },
-                { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 } 
             );
         }
 
@@ -745,13 +830,21 @@
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            state.mapObj = L.map('hud-map', {zoomControl: false}).setView([lat, lon], 14);
+            // OPTIMIZATION: preferCanvas rendering handles polyline heavy tracks natively efficiently
+            state.mapObj = L.map('hud-map', {
+                zoomControl: false,
+                preferCanvas: true 
+            }).setView([lat, lon], 14);
             
+            // OPTIMIZATION: keepBuffer: 16 buffers loaded tiles in the DOM to prevent reloading.
+            // updateWhenIdle prevents freezing the main thread by delaying tile requests until panning finishes.
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', 
                 maxZoom: 22, 
                 maxNativeZoom: 18, 
-                detectRetina: true
+                detectRetina: true,
+                keepBuffer: 16,
+                updateWhenIdle: true
             }).addTo(state.mapObj);
 
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
@@ -805,8 +898,6 @@
             state.routeCtrl.on('routingerror', handleRouteError);
         }
 
-        // --- OBJECT POOLING FOR INTERCEPT MARKERS ---
-        // Avoids continuous instantiation and garbage collection lags on mapping layer
         function updateInterceptMarkersPool(waypoints) {
             if (!state.mapObj) return;
             
@@ -851,7 +942,6 @@
             }
         }
 
-        // --- TARGET INJECTION LOGIC ---
         window.handlePasteAndLoad = async function() {
             const btn = document.getElementById('gmaps-paste-btn');
             try {
@@ -893,7 +983,6 @@
 
                 let originLat = null, originLon = null;
 
-                // Structured URL Parsing fallback pipeline
                 try {
                     const parsedUrl = new URL(rawUrl);
                     const destParam = parsedUrl.searchParams.get('destination');
@@ -904,7 +993,7 @@
                             lon = parseFloat(parts[1]);
                         }
                     }
-                } catch(e) { /* Fallback to regex pipeline if URL is malformed */ }
+                } catch(e) { }
 
                 const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
                 if (originMatch) {
@@ -1024,6 +1113,11 @@
 
             state.currentRouteCoords = route.coordinates;
 
+            // OPTIMIZATION: Auto-Trigger Corridor Caching upon successful route lock.
+            if (!state.isCachingMap) {
+                window.downloadMapCache();
+            }
+
             const now = Date.now();
             if (!state.lastIntelFetch || now - state.lastIntelFetch > 300000) {
                 state.lastIntelFetch = now;
@@ -1036,7 +1130,6 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
-        // --- EN-ROUTE TELEMETRY MATH MODULE ---
         function calculateRouteNodes(route) {
             const totalDistance = route.summary.totalDistance;
             const coords = route.coordinates;
@@ -1044,7 +1137,6 @@
             const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
             const nodes = [];
             
-            // O(N) pre-computation to avoid CPU stalling on long multi-node coordinate iterations
             let cumulativeDistances = new Float32Array(coords.length);
             cumulativeDistances[0] = 0;
             for (let j = 1; j < coords.length; j++) {
@@ -1076,7 +1168,6 @@
             return nodes;
         }
 
-        // --- EN-ROUTE TELEMETRY FETCH ---
         async function fetchRouteIntelligence(route) {
             const secIntel = document.getElementById('sec-intel');
             
@@ -1110,7 +1201,6 @@
                 }
             }
 
-            // Sync unpassed nodes into map object pool
             updateInterceptMarkersPool(unpassedNodes);
             
             const uiStackNodes = unpassedNodes.slice(0, 4);
@@ -1277,7 +1367,6 @@
             }
         }
 
-        // --- PRECISION CLOCK SYNC ---
         function syncClock() {
             if (state.targetTimezone) {
                 try {
@@ -1287,7 +1376,6 @@
                     updateText(DOM.localTimeText, timeStr);
                 } catch(e) {}
             }
-            // Self-adjusting timeout to align perfectly with the next whole second, preventing drift and saving battery
             setTimeout(syncClock, 1000 - (new Date().getTime() % 1000));
         }
         syncClock();
@@ -1330,7 +1418,6 @@
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return; 
             
-            // Use Singleton context to prevent max context crashes
             const ctx = getAudioContext(); 
             const osc = ctx.createOscillator(); const gain = ctx.createGain();
             
@@ -1344,11 +1431,9 @@
             state.lastPing = Date.now();
         }
 
-        // --- OPTIMIZED CHART DELTA-UPDATES ---
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const tc = tailwind.config.theme.extend.colors;
             
-            // Perform Delta-Update if Chart exists to prevent Canvas destruction overhead
             if (state.chart) {
                 state.chart.data.labels = labels;
                 state.chart.data.datasets[0].data = solarData;
@@ -1358,13 +1443,13 @@
                 state.chart.data.datasets[4].data = rainData.de;
                 state.chart.data.datasets[5].data = rainData.jp;
                 
-                // Update Tooltip footer closure values dynamically
                 state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
                     const i = t[0].dataIndex; 
                     return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; 
                 };
                 
-                state.chart.update('none'); // Update without animation for precision sync
+                // OPTIMIZATION: 'none' mode prevents blocking render animations.
+                state.chart.update('none'); 
                 return;
             }
 
@@ -1403,7 +1488,6 @@
             });
         }
 
-        // --- TELEMETRY NORMALIZATION MODULE ---
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             let curr = dCurr.current; 
@@ -1454,7 +1538,6 @@
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement, currentAgreement, currentVotes, incomingRain };
         }
 
-        // --- TELEMETRY UI RENDER MODULE ---
         function renderTelemetryUI(data, isOffline) {
             const { curr, rEU, rUS, rDE, rJP, currentAgreement, currentVotes, incomingRain, uvData, times } = data;
 
@@ -1526,7 +1609,6 @@
             renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement);
         }
 
-        // --- LOCAL METRICS DATA FETCH ---
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             state.telemetryCache.timestamp = Date.now();
@@ -1615,7 +1697,6 @@
                     initMap(p.coords.latitude, p.coords.longitude); 
                     fetchData(p.coords.latitude, p.coords.longitude, false); 
                 }, () => {
-                    // Fallback visual state if GPS location access fails or is blocked
                     updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-6 md:p-8 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[350px] relative overflow-hidden");
                     updateClass(DOM.statusIcon, 'text-8xl md:text-9xl mb-4 fa-solid fa-map-location-dot text-brand-orange');
                     updateText(DOM.statusText, "SEARCH LOCATION");
@@ -1659,7 +1740,18 @@
                                 }).catch(() => new Response(''))
                             );
                         } else if (url.hostname.includes('api.open-meteo.com')) {
-                            e.respondWith(fetch(e.request));
+                            // OPTIMIZATION: Stale-while-revalidate for API
+                            e.respondWith(
+                                caches.open(CACHE_NAME).then(cache => {
+                                    return cache.match(e.request).then(cachedResponse => {
+                                        const fetchPromise = fetch(e.request).then(networkResponse => {
+                                            cache.put(e.request, networkResponse.clone());
+                                            return networkResponse;
+                                        }).catch(() => cachedResponse);
+                                        return cachedResponse || fetchPromise;
+                                    })
+                                })
+                            );
                         } else {
                             e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
                         }
