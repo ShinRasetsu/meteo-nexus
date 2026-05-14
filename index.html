@@ -93,7 +93,8 @@
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
 
         /* Hardware Accelerated Glide Interpolation for 1Hz GPS Smoothing */
-        .smooth-glide { transition: transform 1s linear !important; will-change: transform; }
+        /* OPTIMIZATION: Reduced transition from 1s to 0.2s for highly accurate real-time tracking */
+        .smooth-glide { transition: transform 0.2s ease-out !important; will-change: transform; }
 
         /* Fullscreen Section Handlers */
         .section-hidden { display: none !important; }
@@ -373,11 +374,20 @@
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
-            lastSpeedTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
+            lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null
         };
 
-        // OPTIMIZATION: Extended DOM Memoization to prevent all layout thrashing and repeated lookups
+        // OPTIMIZATION: Fast Haversine implementation for main-thread math performance
+        function fastDistance(lat1, lon1, lat2, lon2) {
+            const p = 0.017453292519943295; // Math.PI / 180
+            const c = Math.cos;
+            const a = 0.5 - c((lat2 - lat1) * p)/2 + 
+                      c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
+            return 12742000 * Math.asin(Math.sqrt(a)); // 2 * R; R = 6371 km
+        }
+
+        // OPTIMIZATION: Extended DOM Memoization
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -399,7 +409,6 @@
             cacheMapBtn: document.getElementById('cache-map-btn')
         };
 
-        // OPTIMIZATION: Strict DOM Update Guards to prevent reflows
         const updateText = (el, val) => { if (el && el.textContent !== String(val)) el.textContent = val; };
         const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
@@ -414,7 +423,7 @@
         };
 
         DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 && e.type !== 'touchstart') return; // Left click/touch only
+            if (e.button !== 0 && e.type !== 'touchstart') return;
             if (state.isCachingMap) return;
             mapHoldTimer = setTimeout(() => {
                 mapHoldTimer = null;
@@ -581,7 +590,6 @@
         }, { once: true });
 
         // --- FOCUS ENGINE ---
-        // OPTIMIZATION: Memoized lookups utilized here.
         window.toggleFocus = function(secId) {
             const sections = [
                 {id: 'sec-telemetry', el: DOM.secTelemetry}, 
@@ -668,10 +676,9 @@
             }
         }
 
-        // OPTIMIZATION: Throttled Sensor Ingress
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
-            if (now - lastSensorUpdate < 50) return;
+            if (now - lastSensorUpdate < 50) return; // 20fps cap
             lastSensorUpdate = now;
             
             state.sensorHeading = alphaOrHeading;
@@ -704,6 +711,21 @@
                     const speed = pos.coords.speed;
                     const accuracy = pos.coords.accuracy; 
                     
+                    const now = Date.now();
+
+                    // OPTIMIZATION: Glitch Filtering to reject multipath leaps (Accuracy Fix)
+                    let timeDeltaSec = (now - state.lastLocationTimestamp) / 1000;
+                    if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
+
+                    if (state.lastHudLat !== 0) {
+                        const distMovedM = fastDistance(state.lastHudLat, state.lastHudLon, lat, lon);
+                        const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
+
+                        // If jump requires >350km/h and accuracy is bad, reject completely.
+                        if (impliedSpeedKmh > 350 && accuracy > 10) return;
+                    }
+                    state.lastLocationTimestamp = now;
+
                     if (DOM.accUi) {
                         const accTextEl = DOM.accUi.querySelector('#gps-acc-text');
                         if (accTextEl) {
@@ -727,16 +749,13 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        const distMovedKm = (state.lastHudLat === 0) ? 999 : (L.latLng(lat, lon).distanceTo(L.latLng(state.lastHudLat, state.lastHudLon)) / 1000);
-                        const now = Date.now();
+                        // Replaced heavy L.latLng distance calculation with fast Haversine math
+                        const distMovedKm = (state.lastHudLat === 0) ? 999 : (fastDistance(lat, lon, state.lastHudLat, state.lastHudLon) / 1000);
                         
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
                             state.lastFetchAttempt = now;
                             fetchData(lat, lon, false);
                         }
-                        
-                        let timeDeltaSec = (now - state.lastSpeedTimestamp) / 1000;
-                        if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
                         
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
                         let isGlitch = false;
@@ -770,11 +789,11 @@
                             let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
                             if (activeNodeIndex !== -1) {
                                 let activeNode = state.routeNodes[activeNodeIndex];
-                                let d = L.latLng(lat, lon).distanceTo(L.latLng(activeNode.lat, activeNode.lon));
+                                let d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
                                 
                                 let bypassed = false;
                                 for(let j = activeNodeIndex + 1; j < Math.min(activeNodeIndex + 3, state.routeNodes.length); j++) {
-                                    let futureDist = L.latLng(lat, lon).distanceTo(L.latLng(state.routeNodes[j].lat, state.routeNodes[j].lon));
+                                    let futureDist = fastDistance(lat, lon, state.routeNodes[j].lat, state.routeNodes[j].lon);
                                     if (futureDist < d - 1500) { bypassed = true; break; }
                                 }
                                 
@@ -784,7 +803,7 @@
                                 } else {
                                     let visibleNodes = state.routeNodes.filter(n => !n.passed).slice(0, 4);
                                     visibleNodes.forEach(vn => {
-                                        let vnD = L.latLng(lat, lon).distanceTo(L.latLng(vn.lat, vn.lon));
+                                        let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
                                         if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM AHEAD');
                                         else {
                                             const distEl = document.getElementById(`node-dist-${vn.id}`);
@@ -805,11 +824,9 @@
                         }
 
                         if (state.userMarker) {
-                            const moveDist = L.latLng(state.lastHudLat, state.lastHudLon).distanceTo(L.latLng(lat, lon));
-                            // OPTIMIZATION: Only update map marker DOM position if moved >0.5m
-                            if (moveDist > 0.5 || state.currentSpeed >= 2) {
-                                state.userMarker.setLatLng([lat, lon]);
-                            }
+                            // OPTIMIZATION: Removed DOM distance culling to fix stuttering steps.
+                            // The real-time mapping now executes smoothly matched with the 0.2s transition logic.
+                            state.userMarker.setLatLng([lat, lon]);
 
                             const markerEl = state.userMarker.getElement();
                             if (markerEl) {
@@ -851,7 +868,7 @@
                                 } else {
                                     state.mapObj.setView([lat, lon], targetZoom, { 
                                         animate: true, 
-                                        pan: { duration: 1, easeLinearity: 1 } 
+                                        pan: { duration: 0.25, easeLinearity: 0.5 } // OPTIMIZATION: Reduce lag from 1s to 250ms
                                     });
                                 }
                             });
@@ -924,19 +941,18 @@
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            // OPTIMIZATION: preferCanvas handles polyline heavy tracks natively
             state.mapObj = L.map('hud-map', {
                 zoomControl: false,
                 preferCanvas: true 
             }).setView([lat, lon], 14);
             
-            // OPTIMIZATION: keepBuffer: 8 (reduced memory), updateWhenZooming prevents frame drops
+            // OPTIMIZATION: Reduced keepBuffer to 2 to minimize massive memory loads & UI stalling
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', 
                 maxZoom: 22, 
                 maxNativeZoom: 18, 
                 detectRetina: true,
-                keepBuffer: 8,
+                keepBuffer: 2,
                 updateWhenIdle: true,
                 updateWhenZooming: false
             }).addTo(state.mapObj);
@@ -954,7 +970,7 @@
                 icon: L.divIcon({
                     className: 'bg-transparent smooth-glide',
                     html: `
-                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8 transition-transform duration-500 ease-linear" style="transform: rotate(0deg);">
+                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8 transition-transform duration-200 ease-linear" style="transform: rotate(0deg);">
                             <div id="user-dot" class="absolute bg-brand-success border-[3px] border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all duration-300"></div>
                             <svg id="user-arrow" class="absolute w-7 h-7 drop-shadow-[0_0_12px_rgba(34,197,94,1)] opacity-0 scale-50 transition-all duration-300" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
                                 <path d="M12 2L20 21L12 17L4 21L12 2Z" fill="#22c55e" stroke="white" stroke-width="1.5"/>
@@ -971,7 +987,6 @@
 
         function initRoute() {
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
-            // Clear existing if necessary
             if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
 
             state.routeCtrl = L.Routing.control({
@@ -1061,7 +1076,8 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
 
             try {
-                const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`);
+                // High priority edge fetch
+                const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high' });
                 const payloadData = await res.json();
                 if (payloadData.error) throw new Error(payloadData.error);
 
@@ -1107,9 +1123,7 @@
                 };
 
                 let candidates = [];
-                if (isValid(lat, lon)) {
-                    candidates.push({ lat, lon, priority: 200 });
-                }
+                if (isValid(lat, lon)) candidates.push({ lat, lon, priority: 200 });
 
                 let destMatch = cleanPayload.match(new RegExp(`destination=${num},${num}`, 'i'));
                 if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
@@ -1167,7 +1181,6 @@
             } catch(e) {
                 updateText(DOM.statusEl, "ERR: DECRYPTION FAILED");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
-                console.error("Payload Extraction Failed:", e);
             }
         }
 
@@ -1234,7 +1247,8 @@
             let cumulativeDistances = new Float32Array(coords.length);
             cumulativeDistances[0] = 0;
             for (let j = 1; j < coords.length; j++) {
-                cumulativeDistances[j] = cumulativeDistances[j-1] + coords[j-1].distanceTo(coords[j]);
+                // OPTIMIZATION: Replacing heavy distanceTo with fastHaversine inline
+                cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(coords[j-1].lat, coords[j-1].lng, coords[j].lat, coords[j].lng);
             }
 
             let searchIdx = 1;
@@ -1252,10 +1266,10 @@
                     const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
                     const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
 
-                    const foundPoint = L.latLng(
-                        p1.lat + (p2.lat - p1.lat) * ratio,
-                        p1.lng + (p2.lng - p1.lng) * ratio
-                    );
+                    const foundPoint = {
+                        lat: p1.lat + (p2.lat - p1.lat) * ratio,
+                        lng: p1.lng + (p2.lng - p1.lng) * ratio
+                    };
                     nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
                 }
             }
@@ -1275,13 +1289,12 @@
 
             let unpassedNodes = [];
             if (state.routeNodes && state.autoCoords) {
-                const myLatLng = L.latLng(state.autoCoords.lat, state.autoCoords.lon);
                 for (let i = 0; i < state.routeNodes.length; i++) {
                     if (!state.routeNodes[i].passed) {
-                        let d = myLatLng.distanceTo(L.latLng(state.routeNodes[i].lat, state.routeNodes[i].lon));
+                        let d = fastDistance(state.autoCoords.lat, state.autoCoords.lon, state.routeNodes[i].lat, state.routeNodes[i].lon);
                         let bypassed = false;
                         for(let j = i + 1; j < Math.min(i + 3, state.routeNodes.length); j++) {
-                            let futureDist = myLatLng.distanceTo(L.latLng(state.routeNodes[j].lat, state.routeNodes[j].lon));
+                            let futureDist = fastDistance(state.autoCoords.lat, state.autoCoords.lon, state.routeNodes[j].lat, state.routeNodes[j].lon);
                             if (futureDist < d - 1500) { bypassed = true; break; }
                         }
                         if (d < 1500 || bypassed) {
@@ -1312,9 +1325,10 @@
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
                 
+                // OPTIMIZATION: Assigning priority: 'high' to critical API responses
                 const [baseRes, modelRes] = await Promise.all([
-                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`),
-                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`)
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto`, { priority: 'high' }),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`, { priority: 'high' })
                 ]);
                 
                 const baseData = await baseRes.json();
@@ -1323,7 +1337,6 @@
                 const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
                 const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
-                // Using Document Fragment conceptually via a single HTML rebuild loop
                 let htmlBuffer = '<div class="flex flex-col items-center w-full px-1 md:px-4">';
                 
                 weatherPoints.forEach((p, idx) => {
@@ -1558,7 +1571,6 @@
                     return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; 
                 };
                 
-                // OPTIMIZATION: 'none' mode prevents blocking render animations.
                 state.chart.update('none'); 
                 return;
             }
@@ -1726,7 +1738,7 @@
             state.telemetryCache.lon = lon;
             
             if (!skipReverseGeo && navigator.onLine) {
-                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
+                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high' })
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
@@ -1737,9 +1749,9 @@
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
                 const [rCurr, rFore, rSolar] = await Promise.all([
-                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`),
-                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`),
-                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`)
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto`, { priority: 'high' }),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`, { priority: 'high' }),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`, { priority: 'high' })
                 ]);
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 
@@ -1857,17 +1869,15 @@
                                 }).catch(() => new Response(''))
                             );
                         } else if (url.hostname.includes('api.open-meteo.com')) {
-                            // OPTIMIZATION: Stale-while-revalidate for faster TTFB on API calls
                             e.respondWith(
-                                caches.open(APP_CACHE).then(cache => {
-                                    return cache.match(e.request).then(cachedResponse => {
-                                        const fetchPromise = fetch(e.request).then(networkResponse => {
+                                fetch(e.request)
+                                    .then(networkResponse => {
+                                        return caches.open(APP_CACHE).then(cache => {
                                             cache.put(e.request, networkResponse.clone());
                                             return networkResponse;
-                                        }).catch(() => cachedResponse);
-                                        return cachedResponse || fetchPromise;
+                                        });
                                     })
-                                })
+                                    .catch(() => caches.match(e.request))
                             );
                         } else {
                             e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
