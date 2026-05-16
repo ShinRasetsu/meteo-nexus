@@ -213,6 +213,14 @@
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             <div class="flex flex-row items-center gap-2 shrink-0">
+                <!-- INJECT: Fuel Tracking Buttons -->
+                <button id="fuel-trigger-btn" class="bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                    <i class="fa-solid fa-gas-pump"></i> <span class="hidden sm:inline">Pit Stop</span>
+                </button>
+                <button onclick="document.getElementById('fuel-settings-modal').classList.remove('hidden')" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+                
                 <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-bolt"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
@@ -283,6 +291,34 @@
     </div>
 
     <!-- Modals -->
+    <!-- INJECT: Fuel Preferences Modal -->
+    <div id="fuel-settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
+            <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Fuel Parameters</h3>
+            <div class="space-y-4 font-mono">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Target Brand</label>
+                    <input type="text" id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors" placeholder="e.g. Shell, Petron">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Fuel Type</label>
+                    <select id="pref-type" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
+                        <option value="Gasoline">Gasoline</option>
+                        <option value="Diesel">Diesel</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
+                    <input type="text" id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors" placeholder="e.g. V-Power Racing">
+                </div>
+            </div>
+            <div class="flex gap-3 justify-end mt-6">
+                <button onclick="closeModal('fuel-settings-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
+                <button id="save-fuel-btn" class="px-4 py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Save Config</button>
+            </div>
+        </div>
+    </div>
+
     <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
@@ -406,7 +442,8 @@
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
-            modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal') },
+            modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
+            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), type: document.getElementById('pref-type'), variant: document.getElementById('pref-variant') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn')
         };
@@ -1823,9 +1860,96 @@
             runApp();
         }
 
+        // --- FUEL INTERCEPT MANAGER ---
+        const FuelManager = {
+            storageKey: 'meteo_fuel_prefs',
+            getConfig: function() {
+                const def = { brand: 'Shell', type: 'Gasoline', variant: 'V-Power Racing' };
+                try { const stored = localStorage.getItem(this.storageKey); return stored ? JSON.parse(stored) : def; } 
+                catch(e) { return def; }
+            },
+            saveConfig: function(conf) {
+                localStorage.setItem(this.storageKey, JSON.stringify(conf));
+                updateText(DOM.statusEl, "FUEL CONFIG SAVED");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap");
+            },
+            findNearest: async function(lat, lon) {
+                const conf = this.getConfig();
+                const query = `[out:json][timeout:10];(node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:15000,${lat},${lon});way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:15000,${lat},${lon}););out center;`;
+                const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+                
+                try {
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (!data.elements || data.elements.length === 0) return null;
+                    
+                    let nearest = null; let minDist = Infinity;
+                    data.elements.forEach(el => {
+                        const tLat = el.lat || el.center.lat; const tLon = el.lon || el.center.lon;
+                        const d = fastDistance(lat, lon, tLat, tLon);
+                        if (d < minDist) { minDist = d; nearest = { lat: tLat, lon: tLon, name: el.tags.name || conf.brand, dist: (d/1000).toFixed(1) }; }
+                    });
+                    return nearest;
+                } catch(e) { return null; }
+            },
+            triggerIntercept: async function() {
+                if (!state.autoCoords) {
+                    updateText(DOM.statusEl, "NO GPS LOCK FOR FUEL");
+                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
+                    return;
+                }
+                
+                updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-fade mr-2"></i> SCANNING FOR ${this.getConfig().brand}...`);
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
+                
+                const station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
+                
+                if (station) {
+                    // Inject marker mapping UI
+                    L.marker([station.lat, station.lon], {
+                        icon: L.divIcon({
+                            className: 'custom-fuel-icon',
+                            html: `<div class="bg-brand-orange text-black border-2 border-black rounded-full w-8 h-8 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.8)]"><i class="fa-solid fa-gas-pump"></i></div>`,
+                            iconSize: [32, 32], iconAnchor: [16, 16]
+                        })
+                    }).addTo(state.mapObj).bindPopup(`<b>${station.name}</b><br>${this.getConfig().variant}<br>${station.dist}km away`).openPopup();
+                    
+                    // Modify routing constraints to utilize OSMR
+                    if (state.routeCtrl) {
+                        let wps = state.routeCtrl.getWaypoints();
+                        if (wps.length > 1 && wps[0].latLng && wps[wps.length -1].latLng) {
+                            wps.splice(1, 0, L.latLng(station.lat, station.lon)); 
+                            state.routeCtrl.setWaypoints(wps);
+                        } else {
+                            window.activateLiveNavigation(station.lat, station.lon);
+                        }
+                    } else {
+                        window.activateLiveNavigation(station.lat, station.lon);
+                    }
+                } else {
+                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${this.getConfig().brand.toUpperCase()} IN 15KM`);
+                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
+                }
+            },
+            init: function() {
+                const conf = this.getConfig();
+                DOM.fuel.brand.value = conf.brand;
+                DOM.fuel.type.value = conf.type;
+                DOM.fuel.variant.value = conf.variant;
+                
+                DOM.fuel.save.addEventListener('click', () => {
+                    this.saveConfig({ brand: DOM.fuel.brand.value, type: DOM.fuel.type.value, variant: DOM.fuel.variant.value });
+                    closeModal('fuel-settings-modal');
+                });
+                
+                DOM.fuel.trigger.addEventListener('click', () => this.triggerIntercept());
+            }
+        };
+
         function runApp() {
             requestWakeLock();
             startBackgroundTracking();
+            FuelManager.init(); // Initialize Fuel Routing Engine
             
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); 
