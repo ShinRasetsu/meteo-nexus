@@ -23,7 +23,7 @@
     
     <!-- External Dependencies (Deferred for faster Time-to-Interactive) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -54,7 +54,8 @@
     </script>
 
     <style>
-        /* Custom Scrollbar for HUD aesthetic */
+        /* Custom Scrollbar for HUD aesthetic & Firefox Standards */
+        html { scrollbar-width: thin; scrollbar-color: #333 #111; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
@@ -343,6 +344,8 @@
 
     <!-- CORE ENGINE MODULE -->
     <script type="module">
+        "use strict";
+
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -373,7 +376,8 @@
             sonarThreshold: 75,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
             cacheTTL: 300000, 
-            cacheDistThresholdKm: 1.5 
+            cacheDistThresholdKm: 1.5,
+            routingIntervalNodeDist: 5000 // 5km routing node intervals
         };
 
         const WMO_CODES = {
@@ -550,7 +554,9 @@
                                 const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
                                 if (fetchRes.ok) await cache.put(url, fetchRes);
                             }
-                        } catch(e) {}
+                        } catch(e) {
+                            // Suppress individual fetch failure logging to avoid console flooding on intermittent networks
+                        }
                         downloaded++;
                     }));
                     
@@ -1036,6 +1042,7 @@
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
             if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
 
+            // Using OSRM public demo server. In production, utilize Mapbox/GraphHopper.
             state.routeCtrl = L.Routing.control({
                 waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
                 router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
@@ -1260,7 +1267,7 @@
             const timeHr = Math.floor(summary.totalTime / 3600);
             let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
 
-            const totalNodes = Math.floor(summary.totalDistance / 5000);
+            const totalNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
 
             updateHTML(DOM.statusEl, `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT | ${distKm} KM | ${timeStr} | ${totalNodes} NODES`);
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap");
@@ -1286,7 +1293,7 @@
         function calculateRouteNodes(route) {
             const totalDistance = route.summary.totalDistance;
             const coords = route.coordinates;
-            const intervalDist = 5000; 
+            const intervalDist = CONFIG.routingIntervalNodeDist; 
             const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
             const nodes = [];
             
@@ -1375,6 +1382,8 @@
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto`, { priority: 'high' })
                 ]);
                 
+                if (!baseRes.ok || !modelRes.ok) throw new Error("Weather API Error");
+
                 const baseData = await baseRes.json();
                 const modelData = await modelRes.json();
                 
@@ -1421,7 +1430,6 @@
                     const rainProb = (votes / 4) * 100;
                     const isWet = prec >= 0.2 || rainProb >= 50; 
 
-                    const pathText = isWet ? 'WET TARMAC' : 'DRY TARMAC';
                     const pathColor = isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-brand-success drop-shadow-md';
                     const pathIcon = isWet ? 'fa-water' : 'fa-road';
                     const uvColor = uv >= 8 ? 'text-brand-red font-black drop-shadow-md' : (uv >= 5 ? 'text-brand-orange drop-shadow-md' : 'text-brand-purple drop-shadow-md');
@@ -1513,6 +1521,7 @@
                 updateHTML(DOM.timelineContainer, htmlBuffer);
 
             } catch (err) {
+                console.warn(err);
                 updateHTML(DOM.timelineContainer, `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`);
             }
         }
@@ -1808,6 +1817,9 @@
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto`, { priority: 'high' }),
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto`, { priority: 'high' })
                 ]);
+                
+                if (!rCurr.ok || !rFore.ok || !rSolar.ok) throw new Error("Weather API Error");
+
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
@@ -1880,6 +1892,7 @@
                 
                 try {
                     const res = await fetch(url);
+                    if (!res.ok) throw new Error("Overpass API Error");
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
                     
