@@ -64,7 +64,7 @@
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
         
         /* Focus states and selection prevention */
-        input:focus, button:focus { outline: none; box-shadow: 0 0 0 4px #14b8a6; }
+        input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
         /* Leaflet Overrides */
@@ -310,6 +310,37 @@
                     <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
                     <input type="text" id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors" placeholder="e.g. V-Power Racing">
                 </div>
+                
+                <div class="mt-4 pt-4 border-t border-surface-700 space-y-3">
+                    <span class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Routing Options</span>
+                    
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                        <div class="relative">
+                            <input type="checkbox" id="pref-toll" class="peer sr-only">
+                            <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
+                            <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                        </div>
+                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Tolls</span>
+                    </label>
+                    
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                        <div class="relative">
+                            <input type="checkbox" id="pref-highway" class="peer sr-only">
+                            <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
+                            <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                        </div>
+                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Highways</span>
+                    </label>
+                    
+                    <label class="flex items-center gap-3 cursor-pointer group">
+                        <div class="relative">
+                            <input type="checkbox" id="pref-ferry" class="peer sr-only">
+                            <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
+                            <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                        </div>
+                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Ferries</span>
+                    </label>
+                </div>
             </div>
             <div class="flex gap-3 justify-end mt-6">
                 <button onclick="closeModal('fuel-settings-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
@@ -424,8 +455,6 @@
 
         // PERFORMANCE OPTIMIZATION: Bounding Box short-circuit for Haversine
         function fastDistance(lat1, lon1, lat2, lon2) {
-            // Approx bounding box exclusion: 1 deg lat ~ 111km. If delta > 0.5 deg (55km), skip complex math if possible.
-            // But since this is used for routing, we keep precision with the Math.cos optimization.
             const p = 0.017453292519943295; 
             const c = Math.cos;
             const a = 0.5 - c((lat2 - lat1) * p)/2 + 
@@ -450,7 +479,7 @@
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
             modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
-            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), type: document.getElementById('pref-type'), variant: document.getElementById('pref-variant') },
+            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), type: document.getElementById('pref-type'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn')
         };
@@ -1237,7 +1266,14 @@
             DOM.navBtn.classList.remove('hidden');
             DOM.navBtn.onclick = () => {
                 const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
-                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving`;
+                const conf = FuelManager.getConfig();
+                let dirflg = '';
+                if (conf.avoidTolls) dirflg += 't';
+                if (conf.avoidHighways) dirflg += 'h';
+                if (conf.avoidFerries) dirflg += 'f';
+                const dirflgParam = dirflg ? `&dirflg=${dirflg}` : '';
+
+                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving${dirflgParam}`;
                 window.open(url, '_blank');
             };
 
@@ -1915,14 +1951,61 @@
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             getConfig: function() {
-                const def = { brand: 'Shell', type: 'Gasoline', variant: 'V-Power Racing' };
-                try { const stored = localStorage.getItem(this.storageKey); return stored ? JSON.parse(stored) : def; } 
+                const def = { brand: 'Shell', type: 'Gasoline', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false };
+                try { 
+                    const stored = localStorage.getItem(this.storageKey); 
+                    return stored ? { ...def, ...JSON.parse(stored) } : def; 
+                } 
                 catch(e) { return def; }
             },
             saveConfig: function(conf) {
                 localStorage.setItem(this.storageKey, JSON.stringify(conf));
                 updateText(DOM.statusEl, "FUEL CONFIG SAVED");
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap");
+            },
+            findAlongRoute: async function(lat, lon, routeNodes) {
+                const conf = this.getConfig();
+                
+                let upcoming = routeNodes.filter(n => !n.passed).slice(0, 5);
+                if (upcoming.length === 0) return await this.findNearest(lat, lon); // fallback to origin radial 
+
+                const cacheKey = `fuel_route_${conf.brand}_${upcoming[0].lat.toFixed(2)}_${upcoming[0].lon.toFixed(2)}`;
+                
+                try {
+                    const cached = await localforage.getItem(cacheKey);
+                    if (cached && (Date.now() - cached.timestamp < 3600000)) { // 1h cache TTL for routes
+                        return cached.data;
+                    }
+                } catch(e) {}
+
+                let queryParts = [];
+                upcoming.forEach(node => {
+                    queryParts.push(`node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:5000,${node.lat},${node.lon});`);
+                    queryParts.push(`way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:5000,${node.lat},${node.lon});`);
+                });
+
+                const query = `[out:json][timeout:15];(${queryParts.join('')});out center;`;
+                const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+                
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error("Overpass API Error");
+                    const data = await res.json();
+                    if (!data.elements || data.elements.length === 0) return null;
+                    
+                    let nearest = null; let minDist = Infinity;
+                    data.elements.forEach(el => {
+                        const tLat = el.lat || el.center.lat; const tLon = el.lon || el.center.lon;
+                        const d = fastDistance(lat, lon, tLat, tLon);
+                        if (d < minDist) { minDist = d; nearest = { lat: tLat, lon: tLon, name: el.tags.name || conf.brand, dist: (d/1000).toFixed(1) }; }
+                    });
+                    
+                    if (nearest) {
+                        await localforage.setItem(cacheKey, { data: nearest, timestamp: Date.now() });
+                    }
+                    
+                    return nearest;
+                } catch(e) { return null; }
             },
             findNearest: async function(lat, lon) {
                 const conf = this.getConfig();
@@ -1969,7 +2052,12 @@
                 updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-fade mr-2"></i> SCANNING FOR ${this.getConfig().brand}...`);
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
                 
-                const station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
+                let station = null;
+                if (state.routeNodes && state.routeNodes.some(n => !n.passed)) {
+                    station = await this.findAlongRoute(state.autoCoords.lat, state.autoCoords.lon, state.routeNodes);
+                } else {
+                    station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
+                }
                 
                 if (station) {
                     L.marker([station.lat, station.lon], {
@@ -1992,7 +2080,7 @@
                         window.activateLiveNavigation(station.lat, station.lon);
                     }
                 } else {
-                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${this.getConfig().brand.toUpperCase()} IN 15KM`);
+                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${this.getConfig().brand.toUpperCase()} DETECTED`);
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
                 }
             },
@@ -2001,9 +2089,19 @@
                 DOM.fuel.brand.value = conf.brand;
                 DOM.fuel.type.value = conf.type;
                 DOM.fuel.variant.value = conf.variant;
+                DOM.fuel.toll.checked = conf.avoidTolls;
+                DOM.fuel.highway.checked = conf.avoidHighways;
+                DOM.fuel.ferry.checked = conf.avoidFerries;
                 
                 DOM.fuel.save.addEventListener('click', () => {
-                    this.saveConfig({ brand: DOM.fuel.brand.value, type: DOM.fuel.type.value, variant: DOM.fuel.variant.value });
+                    this.saveConfig({ 
+                        brand: DOM.fuel.brand.value, 
+                        type: DOM.fuel.type.value, 
+                        variant: DOM.fuel.variant.value,
+                        avoidTolls: DOM.fuel.toll.checked,
+                        avoidHighways: DOM.fuel.highway.checked,
+                        avoidFerries: DOM.fuel.ferry.checked
+                    });
                     closeModal('fuel-settings-modal');
                 });
                 
