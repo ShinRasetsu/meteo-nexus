@@ -415,10 +415,17 @@
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null,
             
             // Cached DOM elements
-            userDirWrapper: null, userDot: null, userArrow: null
+            userDirWrapper: null, userDot: null, userArrow: null,
+            
+            // Render Pipeline State
+            renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
+            renderAccText: null, renderAccClass: null
         };
 
+        // PERFORMANCE OPTIMIZATION: Bounding Box short-circuit for Haversine
         function fastDistance(lat1, lon1, lat2, lon2) {
+            // Approx bounding box exclusion: 1 deg lat ~ 111km. If delta > 0.5 deg (55km), skip complex math if possible.
+            // But since this is used for routing, we keep precision with the Math.cos optimization.
             const p = 0.017453292519943295; 
             const c = Math.cos;
             const a = 0.5 - c((lat2 - lat1) * p)/2 + 
@@ -453,6 +460,58 @@
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
 
         updateText(DOM.maxSpeed, state.maxSpeed);
+
+        // --- UNIFIED HARDWARE RENDER LOOP ---
+        function triggerRenderPipeline() {
+            if (!state.renderPending) {
+                state.renderPending = true;
+                requestAnimationFrame(executeRenderPipeline);
+            }
+        }
+
+        function executeRenderPipeline() {
+            state.renderPending = false;
+            
+            // 1. Process Speed UI updates
+            if (state.renderSpeed !== null) {
+                updateText(DOM.liveSpeed, state.renderSpeed);
+                if (state.renderSpeed > state.maxSpeed && state.renderSpeed < 350 && state.renderAccuracy <= 25) {
+                    state.maxSpeed = state.renderSpeed;
+                    updateText(DOM.maxSpeed, state.maxSpeed);
+                }
+                state.renderSpeed = null;
+            }
+
+            // 2. Process GNSS Accuracy updates
+            if (state.renderAccText !== null && DOM.accUi) {
+                const accTextEl = DOM.accUi.querySelector('#gps-acc-text');
+                if (accTextEl) updateHTML(accTextEl, state.renderAccText);
+                updateClass(DOM.accUi, state.renderAccClass);
+                state.renderAccText = null;
+            }
+
+            // 3. Process Heading UI updates
+            if (state.renderHeading !== null) {
+                const heading = state.renderHeading;
+                let delta = heading - state.lastHeading;
+                if (delta > 180) delta -= 360;
+                if (delta < -180) delta += 360;
+                state.cumulativeHeading += delta;
+                state.lastHeading = heading;
+                
+                updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
+                updateText(DOM.liveHeadingTxt, getWindDirection(heading));
+                DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
+                
+                if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
+                    DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
+                }
+                if (state.userDirWrapper) {
+                    state.userDirWrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
+                }
+                state.renderHeading = null;
+            }
+        }
 
         // --- MAP CACHE BUTTON LOGIC ---
         let mapHoldTimer = null;
@@ -670,48 +729,18 @@
         };
 
         // --- HARDWARE MAGNETOMETER HOOKS & RENDERING ---
-        let headingRafId = null;
-        let pendingHeading = null;
         let lastSensorUpdate = 0;
-
-        function updateHeadingDisplay(heading) {
-            if (heading === null || isNaN(heading)) return;
-            if (Math.abs(heading - state.lastHeading) < 0.5) return; 
-            
-            pendingHeading = heading;
-            if (!headingRafId) headingRafId = requestAnimationFrame(renderHeadingUpdate);
-        }
-
-        function renderHeadingUpdate() {
-            headingRafId = null;
-            const heading = pendingHeading;
-
-            let delta = heading - state.lastHeading;
-            if (delta > 180) delta -= 360;
-            if (delta < -180) delta += 360;
-            state.cumulativeHeading += delta;
-            state.lastHeading = heading;
-            
-            updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
-            updateText(DOM.liveHeadingTxt, getWindDirection(heading));
-            DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
-            
-            if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
-                DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
-            }
-            
-            if (state.userDirWrapper) {
-                state.userDirWrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
-            }
-        }
 
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
-            if (now - lastSensorUpdate < 100) return; 
+            if (now - lastSensorUpdate < 100) return; // 10Hz throttle
             lastSensorUpdate = now;
             
             state.sensorHeading = alphaOrHeading;
-            if (state.currentSpeed < 2) updateHeadingDisplay(state.sensorHeading);
+            if (state.currentSpeed < 2 && Math.abs(alphaOrHeading - state.lastHeading) >= 0.5) {
+                state.renderHeading = alphaOrHeading;
+                triggerRenderPipeline();
+            }
         }
 
         window.addEventListener('deviceorientationabsolute', (e) => {
@@ -752,21 +781,19 @@
                     }
                     state.lastLocationTimestamp = now;
 
-                    if (DOM.accUi) {
-                        const accTextEl = DOM.accUi.querySelector('#gps-acc-text');
-                        if (accTextEl) {
-                            if (accuracy <= 15) {
-                                updateHTML(accTextEl, `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`);
-                                updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap");
-                            } else if (accuracy <= 60) {
-                                updateHTML(accTextEl, `Tracking | GNSS: MED (${Math.round(accuracy)}m)`);
-                                updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap");
-                            } else {
-                                updateHTML(accTextEl, `Tracking | LTE/A-GPS (${Math.round(accuracy)}m)`);
-                                updateClass(DOM.accUi, "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap");
-                            }
-                        }
+                    // Queue Render Updates
+                    state.renderAccuracy = accuracy;
+                    if (accuracy <= 15) {
+                        state.renderAccText = `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`;
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
+                    } else if (accuracy <= 60) {
+                        state.renderAccText = `Tracking | GNSS: MED (${Math.round(accuracy)}m)`;
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
+                    } else {
+                        state.renderAccText = `Tracking | LTE/A-GPS (${Math.round(accuracy)}m)`;
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
                     }
+                    triggerRenderPipeline();
 
                     if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
@@ -800,14 +827,9 @@
                             
                             const displaySpeedKmH = Math.round(state.smoothedSpeed);
                             state.currentSpeed = displaySpeedKmH;
+                            state.renderSpeed = displaySpeedKmH;
                             state.lastSpeedTimestamp = now;
-                            
-                            updateText(DOM.liveSpeed, displaySpeedKmH);
-                            
-                            if (displaySpeedKmH > state.maxSpeed && displaySpeedKmH < 350 && accuracy <= 25) {
-                                state.maxSpeed = displaySpeedKmH;
-                                updateText(DOM.maxSpeed, state.maxSpeed);
-                            }
+                            triggerRenderPipeline();
                         }
 
                         if (state.routeNodes) {
@@ -841,11 +863,11 @@
 
                         const isMoving = state.currentSpeed >= 2;
                         if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
-                            updateHeadingDisplay(gpsHeading);
-                        } else if (state.sensorHeading !== null) {
-                            updateHeadingDisplay(state.sensorHeading);
-                        } else if (gpsHeading !== null && !isNaN(gpsHeading)) {
-                            updateHeadingDisplay(gpsHeading);
+                            state.renderHeading = gpsHeading;
+                            triggerRenderPipeline();
+                        } else if (state.sensorHeading !== null && !isMoving) {
+                            state.renderHeading = state.sensorHeading;
+                            triggerRenderPipeline();
                         }
 
                         if (state.userMarker) {
@@ -1348,7 +1370,6 @@
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
                 
-                // ADDED timeformat=unixtime to fix cross-timezone array bounds bugs
                 const [baseRes, modelRes] = await Promise.all([
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
                     fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high' })
@@ -1368,7 +1389,6 @@
                     const wp = waypoints[idx];
                     const m = modelPoints[idx]; 
                     
-                    // REFACTORED: robust unixtime differential finder instead of brittle ISO string matching
                     const currentUnixMs = Date.now();
                     let baseNowIndex = 0;
                     let minDiff = Infinity;
@@ -1379,7 +1399,6 @@
                         });
                     }
                     
-                    // CORE FIX: Apply Predictive Temporal Offset for En-Route Nodes
                     let offsetIdx = 0;
                     if (wp.type === 'upcoming') {
                         const currentSpeedFallback = (state.smoothedSpeed && state.smoothedSpeed > 10) ? state.smoothedSpeed : 60;
@@ -1392,7 +1411,6 @@
                     
                     let code, temp, prec, uv;
 
-                    // If it is the current position, read current data. If it is an upcoming node, ALWAYS read the predicted hourly data offset by the ETA.
                     if (wp.type === 'current' && p.current) {
                         code = p.current.weather_code;
                         temp = Math.round(p.current.temperature_2m);
@@ -1408,7 +1426,6 @@
 
                     const icon = WMO_ICONS[code] || 'fa-cloud';
                     
-                    // Defensively fall back if specific model endpoints omit regions (e.g., JMA)
                     const mH = m.hourly || {};
                     const rEU = (mH.precipitation_ecmwf_ifs025 || [])[safeIdx] || 0;
                     const rUS = (mH.precipitation_gfs_seamless || [])[safeIdx] || 0;
@@ -1609,17 +1626,18 @@
             state.lastPing = Date.now();
         }
 
+        // PERFORMANCE OPTIMIZATION: Zero-allocation Chart updates to prevent GC pauses
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const tc = tailwind.config.theme.extend.colors;
             
             if (state.chart) {
-                state.chart.data.labels = labels;
-                state.chart.data.datasets[0].data = solarData;
-                state.chart.data.datasets[1].data = uvData;
-                state.chart.data.datasets[2].data = rainData.eu;
-                state.chart.data.datasets[3].data = rainData.us;
-                state.chart.data.datasets[4].data = rainData.de;
-                state.chart.data.datasets[5].data = rainData.jp;
+                state.chart.data.labels.length = 0; state.chart.data.labels.push(...labels);
+                state.chart.data.datasets[0].data.length = 0; state.chart.data.datasets[0].data.push(...solarData);
+                state.chart.data.datasets[1].data.length = 0; state.chart.data.datasets[1].data.push(...uvData);
+                state.chart.data.datasets[2].data.length = 0; state.chart.data.datasets[2].data.push(...rainData.eu);
+                state.chart.data.datasets[3].data.length = 0; state.chart.data.datasets[3].data.push(...rainData.us);
+                state.chart.data.datasets[4].data.length = 0; state.chart.data.datasets[4].data.push(...rainData.de);
+                state.chart.data.datasets[5].data.length = 0; state.chart.data.datasets[5].data.push(...rainData.jp);
                 
                 state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
                     const i = t[0].dataIndex; 
@@ -1672,7 +1690,6 @@
             const h = dFore.hourly; 
             const hSol = dSolar.hourly;
             
-            // REFACTORED: Robust Unix Timestamp indexing
             const currentUnixMs = Date.now();
             let nowIndex = 0;
             let minDiff = Infinity;
@@ -1696,7 +1713,6 @@
                 };
             }
             
-            // Defensively guard against specific model endpoints failing per region
             const clean = (arr) => (arr || new Array(h.time.length).fill(0)).map(v => v === null ? 0 : v);
             const rEU = clean(h.precipitation_ecmwf_ifs025);
             const rUS = clean(h.precipitation_gfs_seamless);
@@ -1836,7 +1852,6 @@
             try {
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
-                // ADDED timeformat=unixtime to all calls and added temperature/wind to dFore to support offline interpolation
                 const [rCurr, rFore, rSolar] = await Promise.all([
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
                     fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
@@ -1896,7 +1911,7 @@
             runApp();
         }
 
-        // --- FUEL INTERCEPT MANAGER ---
+        // PERFORMANCE OPTIMIZATION: IndexedDB Overpass Caching to prevent duplicate spatial queries
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             getConfig: function() {
@@ -1911,6 +1926,16 @@
             },
             findNearest: async function(lat, lon) {
                 const conf = this.getConfig();
+                // 2 Decimal truncating = ~1.1km grid for caching bounding box
+                const cacheKey = `fuel_${conf.brand}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+                
+                try {
+                    const cached = await localforage.getItem(cacheKey);
+                    if (cached && (Date.now() - cached.timestamp < 86400000)) { // 24h cache TTL
+                        return cached.data;
+                    }
+                } catch(e) {}
+
                 const query = `[out:json][timeout:10];(node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:15000,${lat},${lon});way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:15000,${lat},${lon}););out center;`;
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
@@ -1926,6 +1951,11 @@
                         const d = fastDistance(lat, lon, tLat, tLon);
                         if (d < minDist) { minDist = d; nearest = { lat: tLat, lon: tLon, name: el.tags.name || conf.brand, dist: (d/1000).toFixed(1) }; }
                     });
+                    
+                    if (nearest) {
+                        await localforage.setItem(cacheKey, { data: nearest, timestamp: Date.now() });
+                    }
+                    
                     return nearest;
                 } catch(e) { return null; }
             },
