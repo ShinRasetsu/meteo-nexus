@@ -297,18 +297,22 @@
             <div class="space-y-4 font-mono">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Target Brand</label>
-                    <input type="text" id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors" placeholder="e.g. Shell, Petron">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Fuel Type</label>
-                    <select id="pref-type" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
-                        <option value="Gasoline">Gasoline</option>
-                        <option value="Diesel">Diesel</option>
+                    <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
+                        <!-- Options generated dynamically -->
                     </select>
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
-                    <input type="text" id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors" placeholder="e.g. V-Power Racing">
+                    <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
+                        <!-- Options generated dynamically based on brand -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Base Type</label>
+                    <select id="pref-type" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
+                        <option value="Gasoline">Gasoline</option>
+                        <option value="Diesel">Diesel</option>
+                    </select>
                 </div>
                 
                 <div class="mt-4 pt-4 border-t border-surface-700 space-y-3">
@@ -431,6 +435,18 @@
             80: 'fa-cloud-rain', 81: 'fa-cloud-showers-heavy', 82: 'fa-cloud-showers-water',
             85: 'fa-snowflake', 86: 'fa-snowflake',
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
+        };
+
+        const FUEL_CATALOG = {
+            "Shell": ["V-Power Racing", "V-Power Gasoline", "V-Power Diesel", "FuelSave Gasoline", "FuelSave Diesel"],
+            "Petron": ["Blaze 100", "XCS", "Xtra Advance", "Turbo Diesel", "Diesel Max"],
+            "Caltex": ["Platinum with Techron", "Silver with Techron", "Diesel with Techron D"],
+            "Seaoil": ["Extreme 97", "Extreme 95", "Extreme U", "Exceed Diesel"],
+            "Unioil": ["Euro 5 Premium 97", "Euro 5 Premium 95", "Euro 5 Unleaded 91", "Euro 5 Diesel"],
+            "Cleanfuel": ["Premium 95", "Clean91", "Diesel", "AutoLPG"],
+            "Flying V": ["Thunder Plus", "Thunder", "Unleaded", "Diesel"],
+            "PTT": ["Blue Innovation 97", "Blue Innovation 95", "Blue Innovation 91", "Blue Diesel"],
+            "Phoenix": ["Premium 98", "Premium 95", "Super Unleaded", "Diesel"]
         };
 
         // Singleton Central State Store
@@ -2086,9 +2102,43 @@
             },
             init: function() {
                 const conf = this.getConfig();
-                DOM.fuel.brand.value = conf.brand;
+                
+                // Populate Target Brand Dropdown
+                DOM.fuel.brand.innerHTML = '';
+                Object.keys(FUEL_CATALOG).forEach(brand => {
+                    const opt = document.createElement('option');
+                    opt.value = brand;
+                    opt.textContent = brand;
+                    DOM.fuel.brand.appendChild(opt);
+                });
+
+                // Helper to dynamically render variants based on chosen brand
+                const updateVariants = (selectedBrand) => {
+                    DOM.fuel.variant.innerHTML = '';
+                    const variants = FUEL_CATALOG[selectedBrand] || ["Any"];
+                    variants.forEach(variant => {
+                        const opt = document.createElement('option');
+                        opt.value = variant;
+                        opt.textContent = variant;
+                        DOM.fuel.variant.appendChild(opt);
+                    });
+                };
+
+                // Add Dependency Listener
+                DOM.fuel.brand.addEventListener('change', (e) => {
+                    updateVariants(e.target.value);
+                });
+
+                // Set initial values safely based on persistence
+                DOM.fuel.brand.value = FUEL_CATALOG[conf.brand] ? conf.brand : 'Shell';
+                updateVariants(DOM.fuel.brand.value);
+                
+                // Ensure variant fallback safety if switching brands and the cached variant doesn't match
+                if (Array.from(DOM.fuel.variant.options).some(opt => opt.value === conf.variant)) {
+                    DOM.fuel.variant.value = conf.variant;
+                }
+
                 DOM.fuel.type.value = conf.type;
-                DOM.fuel.variant.value = conf.variant;
                 DOM.fuel.toll.checked = conf.avoidTolls;
                 DOM.fuel.highway.checked = conf.avoidHighways;
                 DOM.fuel.ferry.checked = conf.avoidFerries;
