@@ -1764,6 +1764,21 @@
                     is_day: (new Date().getHours() > 6 && new Date().getHours() < 18) ? 1 : 0
                 };
             }
+
+            // Raw structural health check before 'clean' normalizes missing data to 0
+            const checkHealth = (rawArr) => {
+                if (!rawArr || !Array.isArray(rawArr)) return false;
+                // If Open-Meteo returns pure nulls, the node is out of geographical bounds.
+                if (rawArr.every(v => v === null)) return false;
+                return true;
+            };
+
+            const nodeHealth = [
+                checkHealth(h.precipitation_ecmwf_ifs025),
+                checkHealth(h.precipitation_gfs_seamless),
+                checkHealth(h.precipitation_icon_seamless),
+                checkHealth(h.precipitation_jma_seamless)
+            ];
             
             const clean = (arr) => (arr || new Array(h.time.length).fill(0)).map(v => v === null ? 0 : v);
             const rEU = clean(h.precipitation_ecmwf_ifs025);
@@ -1807,16 +1822,19 @@
                 if (hourlyAgreement[i] >= 75) { incomingRain = true; break; } 
             }
 
-            return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement, currentAgreement, currentVotes, incomingRain };
+            return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement, currentAgreement, currentVotes, incomingRain, nodeHealth };
         }
 
         function renderTelemetryUI(data, isOffline) {
-            const { curr, rEU, rUS, rDE, rJP, currentAgreement, currentVotes, incomingRain, uvData, times } = data;
+            const { curr, rEU, rUS, rDE, rJP, currentAgreement, currentVotes, incomingRain, uvData, times, nodeHealth } = data;
 
             ['eu','us','de','jp'].forEach((id, idx) => {
                 const el = document.getElementById(`stat-${id}`);
-                const arr = [rEU, rUS, rDE, rJP][idx];
-                if(!arr || arr.every(v=>v===0)) { 
+                
+                // Read health state directly assigned during payload normalization
+                const isHealthy = nodeHealth ? nodeHealth[idx] : true; 
+
+                if(!isHealthy) { 
                     updateClass(el, "font-bold px-3 py-1 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest"); 
                     updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`); 
                 } else { 
