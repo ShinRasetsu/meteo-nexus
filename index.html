@@ -21,15 +21,16 @@
     <link rel="preload" as="script" href="https://cdn.tailwindcss.com">
     <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
     
-    <!-- External Dependencies (Deferred for faster Time-to-Interactive) -->
+    <!-- External Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
-    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js" defer></script>
+    <!-- Locked routing version to prevent unpkg @latest upstream breaks -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
@@ -54,7 +55,7 @@
     </script>
 
     <style>
-        /* Custom Scrollbar for HUD aesthetic & Firefox Standards */
+        /* Custom Scrollbar */
         html { scrollbar-width: thin; scrollbar-color: #333 #111; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
@@ -62,8 +63,6 @@
         
         /* Base Body resets */
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
-        
-        /* Focus states and selection prevention */
         input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
@@ -84,16 +83,22 @@
             font-family: 'JetBrains Mono', monospace; 
         }
         
-        /* GPU Acceleration for high-frequency update elements */
-        #hud-map, #user-dir-wrapper, #live-compass-icon { 
+        /* GPU Acceleration Pipeline */
+        #hud-map, #live-compass-icon { 
             will-change: transform; transform: translateZ(0); backface-visibility: hidden; 
         }
         
+        /* Dynamic User Marker CSS Logic - Immune to Leaflet DOM Pruning */
+        #hud-map { --user-heading: 0deg; }
+        .hud-moving .user-dot { opacity: 0 !important; transform: scale(0.5) !important; }
+        .hud-moving .user-arrow { opacity: 1 !important; transform: scale(1) !important; }
+        .hud-idle .user-dot { opacity: 1 !important; transform: scale(1) !important; }
+        .hud-idle .user-arrow { opacity: 0 !important; transform: scale(0.5) !important; }
+
         /* Tactical Map Inversion */
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
 
-        /* Continuous High-Refresh Interpolation Support */
         .smooth-glide { will-change: transform; transform: translateZ(0); }
 
         /* Fullscreen Section Handlers */
@@ -452,7 +457,7 @@
         // Singleton Central State Store
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
-            visual: { lat: null, lon: null, heading: null }, // Dedicated continuous interpolation state
+            visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, maxSpeed: 0, 
             routeNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
@@ -461,9 +466,6 @@
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null,
-            
-            // Cached DOM elements
-            userDirWrapper: null, userDot: null, userArrow: null,
             
             // Render Pipeline State
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -612,10 +614,9 @@
                 }
             }
 
-            // 5. Apply User Direction Arrow Rotation
-            if (state.userDirWrapper) {
-                state.userDirWrapper.style.transform = `rotate(${state.visual.heading}deg)`;
-            }
+            // 5. Apply User Direction Arrow Rotation via GPU-accelerated CSS Variable pipeline 
+            // completely immune to Leaflet marker DOM pruning.
+            DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
         }
 
         // --- MAP CACHE BUTTON LOGIC ---
@@ -976,40 +977,20 @@
                             triggerRenderPipeline();
                         }
 
-                        // Maintain marker opacity/visibility CSS toggles based on speed
-                        if (state.userMarker) {
-                            if (!state.userDot || !state.userArrow) {
-                                const markerEl = state.userMarker.getElement();
-                                if (markerEl) {
-                                    state.userDirWrapper = markerEl.querySelector('#user-dir-wrapper');
-                                    state.userDot = markerEl.querySelector('#user-dot');
-                                    state.userArrow = markerEl.querySelector('#user-arrow');
-                                }
-                            }
-                            
-                            if (state.userDot && state.userArrow) {
-                                if (isMoving) {
-                                    state.userDot.classList.add('opacity-0', 'scale-50');
-                                    state.userArrow.classList.remove('opacity-0', 'scale-50');
-                                    state.userArrow.classList.add('opacity-100', 'scale-100');
-                                } else {
-                                    state.userDot.classList.remove('opacity-0', 'scale-50');
-                                    state.userArrow.classList.remove('opacity-100', 'scale-100');
-                                    state.userArrow.classList.add('opacity-0', 'scale-50');
-                                }
-                            }
+                        // Maintain marker opacity/visibility CSS toggles using generic map-level flags
+                        // This fully shields the system from Leaflet DOM pruning staleness.
+                        if (isMoving) {
+                            DOM.hudMap.classList.add('hud-moving');
+                            DOM.hudMap.classList.remove('hud-idle');
+                        } else {
+                            DOM.hudMap.classList.add('hud-idle');
+                            DOM.hudMap.classList.remove('hud-moving');
                         }
 
-                        if (state.targetCoords) {
-                            if (!state.routeCtrl) {
-                                initRoute();
-                            } else {
-                                const waypoints = state.routeCtrl.getWaypoints();
-                                if(waypoints.length > 0 && waypoints[0]) {
-                                    waypoints[0].latLng = L.latLng(lat, lon);
-                                    state.routeCtrl.setWaypoints(waypoints);
-                                }
-                            }
+                        // Removed route controller setWaypoints continuous ping.
+                        // Route calculation happens statically upon initial target lock to prevent API DDOS and ban loops.
+                        if (state.targetCoords && !state.routeCtrl) {
+                            initRoute();
                         }
                         
                         if (state.isMapLocked && !state.targetCoords) {
@@ -1105,13 +1086,16 @@
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });
 
+            // Initialize CSS flag state variables
+            DOM.hudMap.classList.add('hud-idle');
+
             state.userMarker = L.marker([lat, lon], {
                 icon: L.divIcon({
                     className: 'bg-transparent smooth-glide',
                     html: `
-                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8" style="transform: rotate(0deg);">
-                            <div id="user-dot" class="absolute bg-brand-success border-[3px] border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all duration-300"></div>
-                            <svg id="user-arrow" class="absolute w-7 h-7 drop-shadow-[0_0_12px_rgba(34,197,94,1)] opacity-0 scale-50 transition-all duration-300" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
+                        <div class="relative flex items-center justify-center w-8 h-8" style="transform: rotate(var(--user-heading, 0deg));">
+                            <div class="user-dot absolute bg-brand-success border-[3px] border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all duration-300"></div>
+                            <svg class="user-arrow absolute w-7 h-7 drop-shadow-[0_0_12px_rgba(34,197,94,1)] opacity-0 scale-50 transition-all duration-300" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
                                 <path d="M12 2L20 21L12 17L4 21L12 2Z" fill="#22c55e" stroke="white" stroke-width="1.5"/>
                             </svg>
                         </div>
@@ -1153,17 +1137,7 @@
             
             while (state.interceptMarkers.length < waypoints.length) {
                 const marker = L.marker([0, 0], {
-                    icon: L.divIcon({
-                        className: 'bg-transparent',
-                        html: `
-                            <div class="relative flex items-center justify-center -ml-3 -mt-3">
-                                <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
-                                <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
-                                <div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90"></div>
-                            </div>
-                        `,
-                        iconSize: [0, 0]
-                    }),
+                    icon: L.divIcon({ className: 'bg-transparent', html: '', iconSize: [0, 0] }),
                     zIndexOffset: 500
                 }).addTo(state.mapObj);
                 state.interceptMarkers.push({ marker: marker, inUse: false });
@@ -1174,12 +1148,21 @@
                 const pItem = state.interceptMarkers[i];
                 pItem.marker.setLatLng([wp.lat, wp.lon]);
                 
+                // Using setIcon structurally ensures absolute HTML injection immunity from Leaflet DOM pruning
+                pItem.marker.setIcon(L.divIcon({
+                    className: 'bg-transparent',
+                    html: `
+                        <div class="relative flex items-center justify-center -ml-3 -mt-3">
+                            <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
+                            <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
+                            <div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${wp.id}</div>
+                        </div>
+                    `,
+                    iconSize: [0, 0]
+                }));
+                
                 const el = pItem.marker.getElement();
-                if (el) {
-                    if (el.style.display !== 'block') el.style.display = 'block';
-                    const label = el.querySelector('.node-label');
-                    if (label) updateText(label, `N-${wp.id}`);
-                }
+                if (el && el.style.display !== 'block') el.style.display = 'block';
                 pItem.inUse = true;
             }
 
@@ -2007,10 +1990,6 @@
             }
             state.interceptMarkers = [];
             
-            state.userDirWrapper = null;
-            state.userDot = null;
-            state.userArrow = null;
-
             state.lastIntelFetch = 0; 
             state.currentRouteCoords = null; 
             
@@ -2315,8 +2294,17 @@
                         }
                     });
                 `;
-                const swBlob = new Blob([swCode], { type: 'application/javascript' });
-                navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(e => console.warn('PWA SW block:', e));
+                
+                try {
+                    const swBlob = new Blob([swCode], { type: 'application/javascript' });
+                    const swUrl = URL.createObjectURL(swBlob);
+                    // Safe execution bypass for secure origin enforcement block on blob definitions
+                    navigator.serviceWorker.register(swUrl).catch(e => {
+                        // Suppressed intentionally: Blob origin violation expected in iframe/sandboxed environments.
+                    });
+                } catch (e) {
+                    // CSP execution block caught
+                }
             }
 
             let deferredPrompt;
