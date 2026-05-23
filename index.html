@@ -312,13 +312,6 @@
                         <!-- Options generated dynamically based on brand -->
                     </select>
                 </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Base Type</label>
-                    <select id="pref-type" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
-                        <option value="Gasoline">Gasoline</option>
-                        <option value="Diesel">Diesel</option>
-                    </select>
-                </div>
                 
                 <div class="mt-4 pt-4 border-t border-surface-700 space-y-3">
                     <span class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Routing Options</span>
@@ -498,7 +491,7 @@
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
             modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
-            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), type: document.getElementById('pref-type'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
+            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn')
         };
@@ -2011,7 +2004,7 @@
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             getConfig: function() {
-                const def = { brand: 'Shell', type: 'Gasoline', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false };
+                const def = { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false };
                 try { 
                     const stored = localStorage.getItem(this.storageKey); 
                     return stored ? { ...def, ...JSON.parse(stored) } : def; 
@@ -2182,7 +2175,6 @@
                     DOM.fuel.variant.value = conf.variant;
                 }
 
-                DOM.fuel.type.value = conf.type;
                 DOM.fuel.toll.checked = conf.avoidTolls;
                 DOM.fuel.highway.checked = conf.avoidHighways;
                 DOM.fuel.ferry.checked = conf.avoidFerries;
@@ -2190,7 +2182,6 @@
                 DOM.fuel.save.addEventListener('click', () => {
                     this.saveConfig({ 
                         brand: DOM.fuel.brand.value, 
-                        type: DOM.fuel.type.value, 
                         variant: DOM.fuel.variant.value,
                         avoidTolls: DOM.fuel.toll.checked,
                         avoidHighways: DOM.fuel.highway.checked,
