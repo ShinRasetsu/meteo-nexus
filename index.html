@@ -93,8 +93,8 @@
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
 
-        /* Hardware Accelerated Glide Interpolation for 1Hz GPS Smoothing */
-        .smooth-glide { transition: transform 0.2s ease-out !important; will-change: transform; }
+        /* Continuous High-Refresh Interpolation Support */
+        .smooth-glide { will-change: transform; transform: translateZ(0); }
 
         /* Fullscreen Section Handlers */
         .section-hidden { display: none !important; }
@@ -452,6 +452,7 @@
         // Singleton Central State Store
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
+            visual: { lat: null, lon: null, heading: null }, // Dedicated continuous interpolation state
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, maxSpeed: 0, 
             routeNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
@@ -548,13 +549,72 @@
                 updateText(DOM.liveHeadingTxt, getWindDirection(heading));
                 DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
                 
-                if (state.isMapLocked && state.tacticalMode === 4 && state.mapObj) {
-                    DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
-                }
-                if (state.userDirWrapper) {
-                    state.userDirWrapper.style.transform = `rotate(${state.cumulativeHeading}deg)`;
-                }
                 state.renderHeading = null;
+            }
+        }
+
+        // --- 60FPS CONTINUOUS VISUAL INTERPOLATION (SMOOTH GLIDE) ---
+        let lastVisualFrameTime = performance.now();
+        
+        function smoothVisualsLoop(time) {
+            requestAnimationFrame(smoothVisualsLoop);
+            const dt = Math.min(time - lastVisualFrameTime, 100);
+            lastVisualFrameTime = time;
+
+            if (!state.mapObj || !state.autoCoords) return;
+
+            // 1. Position Interpolation
+            if (state.visual.lat === null) {
+                state.visual.lat = state.autoCoords.lat;
+                state.visual.lon = state.autoCoords.lon;
+            } else {
+                const dLat = state.autoCoords.lat - state.visual.lat;
+                const dLon = state.autoCoords.lon - state.visual.lon;
+                const distSq = (dLat * dLat) + (dLon * dLon);
+
+                // Snap fallback if GPS jumped substantially (> ~500m)
+                if (distSq > 0.000025) {
+                    state.visual.lat = state.autoCoords.lat;
+                    state.visual.lon = state.autoCoords.lon;
+                } else if (distSq > 1e-12) {
+                    // Frame-independent exponential moving average (Lerp)
+                    // 250ms time constant creates an ultra-smooth glide bridging standard 1Hz pings
+                    const lerpPos = 1 - Math.exp(-dt / 250); 
+                    state.visual.lat += dLat * lerpPos;
+                    state.visual.lon += dLon * lerpPos;
+                }
+            }
+
+            // 2. Heading Interpolation
+            if (state.visual.heading === null) {
+                state.visual.heading = state.cumulativeHeading;
+            } else {
+                const dHeading = state.cumulativeHeading - state.visual.heading;
+                if (Math.abs(dHeading) > 0.1) {
+                    const lerpHeading = 1 - Math.exp(-dt / 150);
+                    state.visual.heading += dHeading * lerpHeading;
+                }
+            }
+
+            // 3. Apply to User Marker
+            if (state.userMarker) {
+                state.userMarker.setLatLng([state.visual.lat, state.visual.lon]);
+            }
+
+            // 4. Apply to Tactical Map View
+            if (state.isMapLocked && state.tacticalMode > 0) {
+                const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
+                state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
+                
+                // Synchronized map rotation for tracking
+                if (state.tacticalMode === 4) {
+                    DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
+                }
+            }
+
+            // 5. Apply User Direction Arrow Rotation
+            if (state.userDirWrapper) {
+                state.userDirWrapper.style.transform = `rotate(${state.visual.heading}deg)`;
             }
         }
 
@@ -842,6 +902,7 @@
 
                     if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
+                    // Update pure coordinate state target (interpolator will handle visuals)
                     state.autoCoords = { lat, lon };
 
                     if (!state.mapObj) {
@@ -915,9 +976,8 @@
                             triggerRenderPipeline();
                         }
 
+                        // Maintain marker opacity/visibility CSS toggles based on speed
                         if (state.userMarker) {
-                            state.userMarker.setLatLng([lat, lon]);
-
                             if (!state.userDot || !state.userArrow) {
                                 const markerEl = state.userMarker.getElement();
                                 if (markerEl) {
@@ -952,24 +1012,9 @@
                             }
                         }
                         
-                        if (state.isMapLocked && state.tacticalMode > 0) {
-                            const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                            requestAnimationFrame(() => {
-                                const distToCenter = state.mapObj.getCenter().distanceTo([lat, lon]);
-                                if (distToCenter > 500) {
-                                    state.mapObj.setView([lat, lon], targetZoom, { animate: false }); 
-                                } else {
-                                    state.mapObj.setView([lat, lon], targetZoom, { 
-                                        animate: true, 
-                                        pan: { duration: 0.25, easeLinearity: 0.5 }
-                                    });
-                                }
-                            });
-                            
-                            if (!state.targetCoords) {
-                                updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
-                                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
-                            }
+                        if (state.isMapLocked && !state.targetCoords) {
+                            updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
+                            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
                         }
                     }
                 },
@@ -1005,13 +1050,15 @@
                 updateHTML(DOM.tacticalBtn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 
-                if (state.tacticalMode === 4) {
-                    DOM.hudMap.style.transform = `rotate(${-state.cumulativeHeading}deg)`;
-                } else {
+                // Clear rotational transform if disabling rotating mode
+                if (state.tacticalMode !== 4) {
                     DOM.hudMap.style.transform = `rotate(0deg)`;
                 }
 
-                if (state.autoCoords) {
+                // Snap view when immediately re-engaging tracking to prevent conflicting ease animations
+                if (state.visual.lat !== null) {
+                    state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, {animate: false});
+                } else if (state.autoCoords) {
                     state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: false});
                 }
             } else {
@@ -1062,7 +1109,7 @@
                 icon: L.divIcon({
                     className: 'bg-transparent smooth-glide',
                     html: `
-                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8 transition-transform duration-200 ease-linear" style="transform: rotate(0deg);">
+                        <div id="user-dir-wrapper" class="relative flex items-center justify-center w-8 h-8" style="transform: rotate(0deg);">
                             <div id="user-dot" class="absolute bg-brand-success border-[3px] border-white rounded-full w-5 h-5 shadow-[0_0_15px_rgba(34,197,94,0.8)] transition-all duration-300"></div>
                             <svg id="user-arrow" class="absolute w-7 h-7 drop-shadow-[0_0_12px_rgba(34,197,94,1)] opacity-0 scale-50 transition-all duration-300" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5">
                                 <path d="M12 2L20 21L12 17L4 21L12 2Z" fill="#22c55e" stroke="white" stroke-width="1.5"/>
@@ -2181,6 +2228,9 @@
             requestWakeLock();
             startBackgroundTracking();
             FuelManager.init();
+            
+            // Kick off the continuous 60fps smoothing engine
+            requestAnimationFrame(smoothVisualsLoop);
             
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); 
