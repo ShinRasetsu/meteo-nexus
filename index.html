@@ -573,8 +573,8 @@
                     state.visual.lon = state.autoCoords.lon;
                 } else if (distSq > 1e-12) {
                     // Frame-independent exponential moving average (Lerp)
-                    // 250ms time constant creates an ultra-smooth glide bridging standard 1Hz pings
-                    const lerpPos = 1 - Math.exp(-dt / 250); 
+                    // Reduced time constant from 250ms to 60ms for fast, responsive fluid glide
+                    const lerpPos = 1 - Math.exp(-dt / 60); 
                     state.visual.lat += dLat * lerpPos;
                     state.visual.lon += dLon * lerpPos;
                 }
@@ -586,7 +586,8 @@
             } else {
                 const dHeading = state.cumulativeHeading - state.visual.heading;
                 if (Math.abs(dHeading) > 0.1) {
-                    const lerpHeading = 1 - Math.exp(-dt / 150);
+                    // Reduced time constant from 150ms to 40ms for sharp directional responsiveness
+                    const lerpHeading = 1 - Math.exp(-dt / 40);
                     state.visual.heading += dHeading * lerpHeading;
                 }
             }
@@ -1306,13 +1307,14 @@
             DOM.navBtn.onclick = () => {
                 const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
                 const conf = FuelManager.getConfig();
-                let dirflg = '';
-                if (conf.avoidTolls) dirflg += 't';
-                if (conf.avoidHighways) dirflg += 'h';
-                if (conf.avoidFerries) dirflg += 'f';
-                const dirflgParam = dirflg ? `&dirflg=${dirflg}` : '';
+                
+                let avoidParams = [];
+                if (conf.avoidTolls) avoidParams.push('tolls');
+                if (conf.avoidHighways) avoidParams.push('highways');
+                if (conf.avoidFerries) avoidParams.push('ferries');
+                const avoidStr = avoidParams.length > 0 ? `&avoid=${avoidParams.join(',')}` : '';
 
-                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving${dirflgParam}`;
+                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving${avoidStr}`;
                 window.open(url, '_blank');
             };
 
