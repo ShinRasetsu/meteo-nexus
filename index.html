@@ -474,6 +474,13 @@
             return 12742000 * Math.asin(Math.sqrt(a)); 
         }
 
+        // XSS Mitigation: Sanitize external API payloads before DOM insertion
+        const sanitizeHTML = (str) => {
+            const temp = document.createElement('div');
+            temp.textContent = str;
+            return temp.innerHTML;
+        };
+
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -848,12 +855,22 @@
 
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
-            if (now - lastSensorUpdate < 33) return; // ~30Hz throttle (Improved from 10Hz)
+            if (now - lastSensorUpdate < 33) return; // ~30Hz throttle
             lastSensorUpdate = now;
             
-            state.sensorHeading = alphaOrHeading;
-            if (state.currentSpeed < 2 && Math.abs(alphaOrHeading - state.lastHeading) >= 0.5) {
-                state.renderHeading = alphaOrHeading;
+            // EMA filter logic to reduce raw sensor jitter at low speeds
+            if (state.sensorHeading === null) {
+                state.sensorHeading = alphaOrHeading;
+            } else {
+                let diff = alphaOrHeading - state.sensorHeading;
+                if (diff > 180) diff -= 360;
+                if (diff < -180) diff += 360;
+                // 0.2 Alpha coefficient for responsive but smooth compass filtering
+                state.sensorHeading = (state.sensorHeading + diff * 0.2 + 360) % 360; 
+            }
+            
+            if (state.currentSpeed < 2 && Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) {
+                state.renderHeading = state.sensorHeading;
                 triggerRenderPipeline();
             }
         }
@@ -892,6 +909,7 @@
                     if (state.lastHudLat !== 0) {
                         const distMovedM = fastDistance(state.lastHudLat, state.lastHudLon, lat, lon);
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
+                        // Strict boundary filter: If implied speed is Mach 0.3+ and accuracy is poor, it's a cell tower teleport bounce
                         if (impliedSpeedKmh > 350 && accuracy > 10) return;
                     }
                     state.lastLocationTimestamp = now;
@@ -996,7 +1014,6 @@
                             DOM.hudMap.classList.remove('hud-moving');
                         }
 
-                        // Removed route controller setWaypoints continuous ping.
                         // Route calculation happens statically upon initial target lock to prevent API DDOS and ban loops.
                         if (state.targetCoords && !state.routeCtrl) {
                             initRoute();
@@ -1164,7 +1181,7 @@
                         <div class="relative flex items-center justify-center -ml-3 -mt-3">
                             <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
                             <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
-                            <div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${wp.id}</div>
+                            <div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${sanitizeHTML(wp.id)}</div>
                         </div>
                     `,
                     iconSize: [0, 0]
@@ -1642,16 +1659,18 @@
             }
         }
 
+        // PERFORMANCE: Tied UI updates to requestAnimationFrame for battery efficiency and synchronization
         function syncClock() {
+            const now = new Date();
             if (state.targetTimezone) {
                 try {
-                    const timeStr = new Date().toLocaleTimeString('en-US', {
+                    const timeStr = now.toLocaleTimeString('en-US', {
                         timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
                     });
-                    updateText(DOM.localTimeText, timeStr);
+                    requestAnimationFrame(() => updateText(DOM.localTimeText, timeStr));
                 } catch(e) {}
             }
-            setTimeout(syncClock, 1000 - (new Date().getTime() % 1000));
+            setTimeout(syncClock, 1000 - (now.getTime() % 1000));
         }
         syncClock();
 
@@ -1969,7 +1988,7 @@
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${city}`);
+                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`);
                     }).catch(() => {});
             }
             try {
@@ -2158,7 +2177,7 @@
                             html: `<div class="bg-brand-orange text-black border-2 border-black rounded-full w-8 h-8 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.8)]"><i class="fa-solid fa-gas-pump"></i></div>`,
                             iconSize: [32, 32], iconAnchor: [16, 16]
                         })
-                    }).addTo(state.mapObj).bindPopup(`<b>${station.name}</b><br>${this.getConfig().variant}<br>${station.dist}km away`).openPopup();
+                    }).addTo(state.mapObj).bindPopup(`<b>${sanitizeHTML(station.name)}</b><br>${sanitizeHTML(this.getConfig().variant)}<br>${sanitizeHTML(station.dist)}km away`).openPopup();
                     
                     if (state.routeCtrl) {
                         let wps = state.routeCtrl.getWaypoints();
@@ -2174,7 +2193,7 @@
                         window.activateLiveNavigation(station.lat, station.lon);
                     }
                 } else {
-                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${this.getConfig().brand.toUpperCase()} DETECTED`);
+                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${sanitizeHTML(this.getConfig().brand).toUpperCase()} DETECTED`);
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
                 }
             },
@@ -2267,9 +2286,17 @@
                 }, { timeout: 10000, enableHighAccuracy: true });
             }
         }
-
-        if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
         
+        // Ensure defer-loaded resources are available before execution
+        function checkDependenciesAndRun() {
+            if (typeof localforage === 'undefined' || typeof Chart === 'undefined' || typeof L === 'undefined' || typeof L.Routing === 'undefined') {
+                setTimeout(checkDependenciesAndRun, 50);
+                return;
+            }
+            if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
+            runApp(); 
+        }
+
         // --- PWA SERVICE WORKER INJECTION ---
         (function initPWA() {
             const pwaManifest = {
@@ -2355,8 +2382,8 @@
             });
         })();
 
-        // Bootstrap App
-        runApp(); 
+        // Bootstrap App Pipeline
+        checkDependenciesAndRun();
     </script>
 </body>
 </html>
