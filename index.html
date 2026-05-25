@@ -458,7 +458,7 @@
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null,
+            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarker: null,
             
             // Render Pipeline State
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -586,8 +586,9 @@
             } else {
                 const dHeading = state.cumulativeHeading - state.visual.heading;
                 if (Math.abs(dHeading) > 0.1) {
-                    // Reduced time constant from 150ms to 40ms for sharp directional responsiveness
-                    const lerpHeading = 1 - Math.exp(-dt / 40);
+                    // Adaptive time constant: Slower for 1Hz GPS data to prevent stair-stepping, fast for 30Hz compass data
+                    const timeConstant = (state.currentSpeed >= 2) ? 350 : 40;
+                    const lerpHeading = 1 - Math.exp(-dt / timeConstant);
                     state.visual.heading += dHeading * lerpHeading;
                 }
             }
@@ -600,17 +601,31 @@
             // 4. Apply to Tactical Map View
             if (state.isMapLocked && state.tacticalMode > 0) {
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
+                
+                // Micro-jitter optimization for Leaflet setView caching
+                const dMapLat = state.visual.lat - (state.lastSetViewLat || 0);
+                const dMapLon = state.visual.lon - (state.lastSetViewLon || 0);
+                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 1e-12) {
+                    state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
+                    state.lastSetViewLat = state.visual.lat;
+                    state.lastSetViewLon = state.visual.lon;
+                }
                 
                 // Synchronized map rotation for tracking
                 if (state.tacticalMode === 4) {
-                    DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
+                    if (Math.abs(state.visual.heading - (state.lastCssHeading || 0)) > 0.1) {
+                        DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
+                        state.lastCssHeading = state.visual.heading;
+                    }
                 }
             }
 
             // 5. Apply User Direction Arrow Rotation via GPU-accelerated CSS Variable pipeline 
             // completely immune to Leaflet marker DOM pruning.
-            DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
+            if (Math.abs(state.visual.heading - (state.lastArrowHeading || 0)) > 0.1) {
+                DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
+                state.lastArrowHeading = state.visual.heading;
+            }
         }
 
         // --- MAP CACHE BUTTON LOGIC ---
@@ -833,7 +848,7 @@
 
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
-            if (now - lastSensorUpdate < 100) return; // 10Hz throttle
+            if (now - lastSensorUpdate < 33) return; // ~30Hz throttle (Improved from 10Hz)
             lastSensorUpdate = now;
             
             state.sensorHeading = alphaOrHeading;
@@ -1304,19 +1319,6 @@
             state.routeNodes = null;
             
             DOM.navBtn.classList.remove('hidden');
-            DOM.navBtn.onclick = () => {
-                const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
-                const conf = FuelManager.getConfig();
-                
-                let avoidParams = [];
-                if (conf.avoidTolls) avoidParams.push('tolls');
-                if (conf.avoidHighways) avoidParams.push('highways');
-                if (conf.avoidFerries) avoidParams.push('ferries');
-                const avoidStr = avoidParams.length > 0 ? `&avoid=${avoidParams.join(',')}` : '';
-
-                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving${avoidStr}`;
-                window.open(url, '_blank');
-            };
 
             if (state.autoCoords) {
                 updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
@@ -1352,6 +1354,32 @@
             if (!state.lastIntelFetch || now - state.lastIntelFetch > 300000) {
                 state.lastIntelFetch = now;
                 fetchRouteIntelligence(route);
+            }
+
+            // Bind Native Nav generation dynamically to active route waypoints (including Pit Stops)
+            const wps = state.routeCtrl.getWaypoints();
+            if (wps && wps.length > 1) {
+                DOM.navBtn.onclick = () => {
+                    const conf = FuelManager.getConfig();
+                    let avoidParams = [];
+                    if (conf.avoidTolls) avoidParams.push('tolls');
+                    if (conf.avoidHighways) avoidParams.push('highways');
+                    if (conf.avoidFerries) avoidParams.push('ferries');
+                    const avoidStr = avoidParams.length > 0 ? `&avoid=${avoidParams.join(',')}` : '';
+
+                    const originStr = wps[0].latLng ? `${wps[0].latLng.lat},${wps[0].latLng.lng}` : (state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '');
+                    const destLatLng = wps[wps.length - 1].latLng;
+                    const destStr = destLatLng ? `${destLatLng.lat},${destLatLng.lng}` : '';
+
+                    let waypointsStr = '';
+                    if (wps.length > 2) {
+                        const via = wps.slice(1, -1).filter(wp => wp.latLng).map(wp => `${wp.latLng.lat},${wp.latLng.lng}`).join('|');
+                        if (via) waypointsStr = `&waypoints=${encodeURIComponent(via)}`;
+                    }
+
+                    const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&travelmode=driving${waypointsStr}${avoidStr}`;
+                    window.open(url, '_blank');
+                };
             }
         }
 
@@ -1980,6 +2008,11 @@
             updateText(DOM.maxSpeed, '0');
             state.routeNodes = null;
 
+            if (state.fuelMarker) {
+                state.mapObj.removeLayer(state.fuelMarker);
+                state.fuelMarker = null;
+            }
+
             for (let item of state.interceptMarkers) {
                 if (item.marker) state.mapObj.removeLayer(item.marker);
             }
@@ -2115,7 +2148,11 @@
                 }
                 
                 if (station) {
-                    L.marker([station.lat, station.lon], {
+                    if (state.fuelMarker) {
+                        state.mapObj.removeLayer(state.fuelMarker);
+                    }
+                    
+                    state.fuelMarker = L.marker([station.lat, station.lon], {
                         icon: L.divIcon({
                             className: 'custom-fuel-icon',
                             html: `<div class="bg-brand-orange text-black border-2 border-black rounded-full w-8 h-8 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.8)]"><i class="fa-solid fa-gas-pump"></i></div>`,
@@ -2125,9 +2162,11 @@
                     
                     if (state.routeCtrl) {
                         let wps = state.routeCtrl.getWaypoints();
-                        if (wps.length > 1 && wps[0].latLng && wps[wps.length -1].latLng) {
-                            wps.splice(1, 0, L.latLng(station.lat, station.lon)); 
-                            state.routeCtrl.setWaypoints(wps);
+                        if (wps.length >= 2) {
+                            const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
+                            const dest = wps[wps.length - 1].latLng;
+                            // Strictly enforce maximum 3 waypoints: [Origin, PitStop, Destination]
+                            state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
                         } else {
                             window.activateLiveNavigation(station.lat, station.lon);
                         }
