@@ -459,7 +459,7 @@
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarker: null,
-            isFuelOnlyRoute: false,
+            isFuelOnlyRoute: false, _isRoutingRetry: false,
             
             // Render Pipeline State
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -1141,13 +1141,67 @@
             window.applyTacticalMode();
         }
 
-        function initRoute() {
+        function handleRouteError(e, existingWaypoints) {
+            console.warn("Routing error:", e);
+            
+            // Fallback mechanism if the active OSRM server rejects exclude params
+            const conf = FuelManager.getConfig();
+            if ((conf.avoidTolls || conf.avoidHighways || conf.avoidFerries) && !state._isRoutingRetry) {
+                console.warn("OSRM backend rejected the exclusion parameters. Retrying route strictly without exclusions...");
+                state._isRoutingRetry = true;
+                
+                updateText(DOM.statusEl, "EXCLUSIONS UNSUPPORTED. RETRYING...");
+                updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
+                
+                if (state.routeCtrl) {
+                    state.mapObj.removeControl(state.routeCtrl);
+                    state.routeCtrl = null;
+                }
+                
+                // Immediately retry, bypassing exclude logic to preserve app usability
+                initRoute(true, existingWaypoints);
+                return;
+            }
+
+            updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
+            updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
+        }
+
+        function initRoute(bypassExclude = false, existingWaypoints = null) {
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
             if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
 
+            const conf = FuelManager.getConfig();
+            let excludeClasses = [];
+            
+            // Construct exclusion payload based on active settings
+            if (!bypassExclude) {
+                if (conf.avoidTolls) excludeClasses.push('toll');
+                if (conf.avoidHighways) excludeClasses.push('motorway');
+                if (conf.avoidFerries) excludeClasses.push('ferry');
+            }
+
+            let rOpts = {
+                alternatives: false,
+                steps: true,
+                overview: 'full'
+            };
+            
+            if (excludeClasses.length > 0) {
+                rOpts.exclude = excludeClasses.join(',');
+            }
+
+            const wps = existingWaypoints || [ 
+                L.latLng(state.autoCoords.lat, state.autoCoords.lon), 
+                L.latLng(state.targetCoords.lat, state.targetCoords.lon) 
+            ];
+
             state.routeCtrl = L.Routing.control({
-                waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
-                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
+                waypoints: wps,
+                router: L.Routing.osrmv1({ 
+                    serviceUrl: 'https://router.project-osrm.org/route/v1',
+                    routingOptions: rOpts
+                }),
                 lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
                 show: false, addWaypoints: false, 
                 fitSelectedRoutes: false, 
@@ -1161,8 +1215,12 @@
                     });
                 }
             }).addTo(state.mapObj);
-            state.routeCtrl.on('routesfound', updateRouteStatus);
-            state.routeCtrl.on('routingerror', handleRouteError);
+            
+            state.routeCtrl.on('routesfound', (e) => {
+                state._isRoutingRetry = false; // Reset fallback flag upon success
+                updateRouteStatus(e);
+            });
+            state.routeCtrl.on('routingerror', (e) => handleRouteError(e, wps));
         }
 
         function updateInterceptMarkersPool(waypoints) {
@@ -1355,8 +1413,13 @@
             if (state.autoCoords) {
                 updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
-                if (!state.routeCtrl) { initRoute(); } 
-                else { state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]); }
+                
+                // Always forcibly clear out previous internal router controls to guarantee fresh fuel/routing options apply correctly
+                if (state.routeCtrl) {
+                    state.mapObj.removeControl(state.routeCtrl);
+                    state.routeCtrl = null;
+                }
+                initRoute(); 
             } else {
                 updateText(DOM.statusEl, "AWAITING SATELLITE LOCK...");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse");
@@ -1394,6 +1457,7 @@
                 DOM.navBtn.onclick = () => {
                     const conf = FuelManager.getConfig();
                     let avoidParams = [];
+                    // Adhere stringent to Google Maps Native URL guidelines (avoid=tolls,highways,ferries)
                     if (conf.avoidTolls) avoidParams.push('tolls');
                     if (conf.avoidHighways) avoidParams.push('highways');
                     if (conf.avoidFerries) avoidParams.push('ferries');
@@ -1413,11 +1477,6 @@
                     window.open(url, '_blank');
                 };
             }
-        }
-
-        function handleRouteError() {
-            updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
-            updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
         function calculateRouteNodes(route) {
@@ -2261,14 +2320,25 @@
                 DOM.fuel.ferry.checked = conf.avoidFerries;
                 
                 DOM.fuel.save.addEventListener('click', () => {
-                    this.saveConfig({ 
+                    FuelManager.saveConfig({ 
                         brand: DOM.fuel.brand.value, 
                         variant: DOM.fuel.variant.value,
                         avoidTolls: DOM.fuel.toll.checked,
                         avoidHighways: DOM.fuel.highway.checked,
                         avoidFerries: DOM.fuel.ferry.checked
                     });
+                    
                     closeModal('fuel-settings-modal');
+                    
+                    // Immediately rebuild routing infrastructure retaining waypoints to apply the new avoid logic 
+                    if (state.routeCtrl) {
+                        const wps = state.routeCtrl.getWaypoints();
+                        state.mapObj.removeControl(state.routeCtrl);
+                        state.routeCtrl = null;
+                        initRoute(false, wps);
+                    } else if (state.targetCoords && state.autoCoords) {
+                        window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon, state.isFuelOnlyRoute);
+                    }
                 });
                 
                 DOM.fuel.trigger.addEventListener('click', () => this.triggerIntercept());
