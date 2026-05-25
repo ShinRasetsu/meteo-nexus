@@ -459,6 +459,7 @@
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarker: null,
+            isFuelOnlyRoute: false,
             
             // Render Pipeline State
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -785,12 +786,18 @@
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
-            } catch (err) {}
+                if ('wakeLock' in navigator) {
+                    if (wakeLock !== null) return;
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        wakeLock = null; // Clear lock memory for regeneration hook
+                    });
+                }
+            } catch (err) { console.warn('Wake Lock request failed:', err); }
         }
 
         document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
+            if (wakeLock === null && document.visibilityState === 'visible') requestWakeLock();
         });
 
         document.body.addEventListener('click', function initSensors() {
@@ -1203,18 +1210,25 @@
 
         window.handlePasteAndLoad = async function() {
             try {
-                const clipText = await navigator.clipboard.readText();
+                let clipText = "";
+                try {
+                    clipText = await navigator.clipboard.readText();
+                } catch (err) {
+                    console.warn("Clipboard restricted by execution bounds. Applying manual fallback.", err);
+                    clipText = prompt("Clipboard access requires user permission in this sandbox. Please paste the target link directly here:");
+                }
+                
                 if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
                     DOM.gmapsPasteBtn.classList.add('animate-pulse');
                     await processGMapLink(clipText);
                     DOM.gmapsPasteBtn.classList.remove('animate-pulse');
-                } else {
-                    updateText(DOM.statusEl, "NO LINK IN CLIPBOARD");
+                } else if (clipText) {
+                    updateText(DOM.statusEl, "INVALID LINK FORMAT");
                     updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
                 }
             } catch (err) {
-                console.warn("Clipboard Access Error:", err);
-                updateText(DOM.statusEl, "CLIPBOARD PERMISSION DENIED");
+                console.warn("Link parsing pipeline failed:", err);
+                updateText(DOM.statusEl, "SYSTEM ERROR: PASTE FAILED");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
             }
         }
@@ -1331,9 +1345,10 @@
             }
         }
 
-        window.activateLiveNavigation = function(destLat, destLon) {
+        window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false) {
             state.targetCoords = { lat: destLat, lon: destLon }; 
             state.routeNodes = null;
+            state.isFuelOnlyRoute = isFuelOnly;
             
             DOM.navBtn.classList.remove('hidden');
 
@@ -2039,6 +2054,7 @@
             
             state.lastIntelFetch = 0; 
             state.currentRouteCoords = null; 
+            state.isFuelOnlyRoute = false;
             
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
@@ -2180,17 +2196,22 @@
                     }).addTo(state.mapObj).bindPopup(`<b>${sanitizeHTML(station.name)}</b><br>${sanitizeHTML(this.getConfig().variant)}<br>${sanitizeHTML(station.dist)}km away`).openPopup();
                     
                     if (state.routeCtrl) {
-                        let wps = state.routeCtrl.getWaypoints();
-                        if (wps.length >= 2) {
+                        if (state.isFuelOnlyRoute) {
+                            window.activateLiveNavigation(station.lat, station.lon, true);
+                        } else {
+                            let wps = state.routeCtrl.getWaypoints();
                             const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
-                            const dest = wps[wps.length - 1].latLng;
+                            const dest = L.latLng(state.targetCoords.lat, state.targetCoords.lon);
+                            
+                            // Clear nodes to force intelligence recalculation on the new path
+                            state.routeNodes = null;
+                            state.lastIntelFetch = 0;
+                            
                             // Strictly enforce maximum 3 waypoints: [Origin, PitStop, Destination]
                             state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
-                        } else {
-                            window.activateLiveNavigation(station.lat, station.lon);
                         }
                     } else {
-                        window.activateLiveNavigation(station.lat, station.lon);
+                        window.activateLiveNavigation(station.lat, station.lon, true);
                     }
                 } else {
                     updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${sanitizeHTML(this.getConfig().brand).toUpperCase()} DETECTED`);
@@ -2357,9 +2378,13 @@
                 try {
                     const swBlob = new Blob([swCode], { type: 'application/javascript' });
                     const swUrl = URL.createObjectURL(swBlob);
+                    
                     // Safe execution bypass for secure origin enforcement block on blob definitions
-                    navigator.serviceWorker.register(swUrl).catch(e => {
+                    navigator.serviceWorker.register(swUrl, { scope: '/' }).catch(e => {
                         // Suppressed intentionally: Blob origin violation expected in iframe/sandboxed environments.
+                    }).finally(() => {
+                        // Garbage collect the blob URL immediately to avoid memory leak footprint
+                        setTimeout(() => URL.revokeObjectURL(swUrl), 1000);
                     });
                 } catch (e) {
                     // CSP execution block caught
