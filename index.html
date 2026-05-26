@@ -538,7 +538,7 @@
         updateText(DOM.maxSpeed, state.maxSpeed);
 
         window.reportRoutingFallback = function() {
-            updateText(DOM.statusEl, "EXCLUSIONS UNAVAILABLE. USING EXPRESSWAY.");
+            updateText(DOM.statusEl, "ROUTE EXCLUSIONS FAILED. FALLING BACK...");
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap");
         };
 
@@ -579,30 +579,23 @@
                 const conf = FuelManager.getConfig();
                 const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
                 
-                const getValhallaPayload = (costingStr) => ({
+                const getValhallaPayload = () => ({
                     locations: waypoints.map(wp => ({ lat: wp.latLng.lat, lon: wp.latLng.lng })),
-                    costing: costingStr,
+                    costing: "auto",
                     units: "kilometers",
                     costing_options: {
                         auto: {
                             toll_booth_penalty: conf.avoidTolls ? 10000 : 0,
                             toll_booth_cost: conf.avoidTolls ? 10000 : 0,
                             use_tolls: conf.avoidTolls ? 0 : 1, // 0 strictly avoids
-                            use_highways: conf.avoidHighways ? 0.05 : 1, // 0 strictly avoids, 0.05 heavily penalizes
-                            use_ferry: conf.avoidFerries ? 0 : 1
-                        },
-                        auto_shorter: {
-                            toll_booth_penalty: conf.avoidTolls ? 10000 : 0,
-                            toll_booth_cost: conf.avoidTolls ? 10000 : 0,
-                            use_tolls: conf.avoidTolls ? 0 : 1,
-                            use_highways: conf.avoidHighways ? 0.05 : 1,
+                            use_highways: conf.avoidHighways ? 0 : 1, // 0 strictly avoids, increased from 0.05
                             use_ferry: conf.avoidFerries ? 0 : 1
                         }
                     }
                 });
 
-                const fetchValhalla = async (endpoint, costing) => {
-                    const req = getValhallaPayload(costing);
+                const fetchValhalla = async (endpoint) => {
+                    const req = getValhallaPayload();
                     const res = await fetchWithTimeout(endpoint, {
                         method: 'POST',
                         body: JSON.stringify(req),
@@ -622,9 +615,9 @@
                     });
 
                     return {
-                        name: `Valhalla Tactical Route (${costing})`,
+                        name: `Valhalla Tactical Route (auto)`,
                         engine: 'VALHALLA',
-                        mode: costing === 'auto' ? 'FAST' : 'ECO',
+                        mode: 'FAST',
                         coordinates: coords,
                         instructions: [], 
                         summary: { totalDistance: totalDist, totalTime: totalTime },
@@ -651,10 +644,10 @@
 
                 try {
                     // Race the routing engines for optimal consensus
-                    // Splitting Valhalla load between two recognized FOSSGIS aliases to prevent immediate rate limit drops
+                    // Fixed auto_shorter parameter crash by defaulting to standard auto mode.
                     const promises = [
-                        fetchValhalla('https://valhalla1.openstreetmap.de/route', 'auto'),
-                        fetchValhalla('https://valhalla.openstreetmap.de/route', 'auto_shorter')
+                        fetchValhalla('https://valhalla1.openstreetmap.de/route'),
+                        fetchValhalla('https://valhalla.openstreetmap.de/route')
                     ];
                     
                     // Only dispatch standard OSRM if exclusions aren't requested (since OSRM public doesn't support them)
@@ -1577,11 +1570,19 @@
             
             const engineTag = window.lastWinningEngine ? `[${window.lastWinningEngine}] ` : '';
 
-            // Do not override UI if Valhalla exception triggered a warning class fallback injection
-            if (!DOM.statusEl.textContent.includes("EXCLUSIONS UNAVAILABLE")) {
-                updateHTML(DOM.statusEl, `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT ${engineTag}| ${distKm} KM | ${timeStr} | ${totalNodes} NODES`);
-                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap");
+            const conf = FuelManager.getConfig();
+            const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
+
+            let statusText = `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT ${engineTag}| ${distKm} KM | ${timeStr} | ${totalNodes} NODES`;
+            let statusClass = "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap";
+
+            if (window.lastWinningEngine === "OSRM-FALLBACK" && hasExclusions) {
+                statusText = `<i class="fa-solid fa-triangle-exclamation fa-fade mr-2"></i> AVOIDANCE FAILED | ${engineTag}| ${distKm} KM | ${timeStr}`;
+                statusClass = "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap";
             }
+
+            updateHTML(DOM.statusEl, statusText);
+            updateClass(DOM.statusEl, statusClass);
 
             // Retrieve decoded polygon coords
             if (route.coordinates && Array.isArray(route.coordinates)) {
@@ -2394,6 +2395,10 @@
                 let station = null;
                 if (state.routeNodes && state.routeNodes.some(n => !n.passed)) {
                     station = await this.findAlongRoute(state.autoCoords.lat, state.autoCoords.lon, state.routeNodes);
+                    // Add fallback to radius search if strict route search yields no results
+                    if (!station) {
+                        station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
+                    }
                 } else {
                     station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
                 }
