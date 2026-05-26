@@ -486,7 +486,7 @@
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarker: null,
-            isFuelOnlyRoute: false, _isRoutingRetry: false,
+            isFuelOnlyRoute: false,
             
             // Render Pipeline State
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -536,6 +536,155 @@
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
 
         updateText(DOM.maxSpeed, state.maxSpeed);
+
+        window.reportRoutingFallback = function() {
+            updateText(DOM.statusEl, "EXCLUSIONS UNAVAILABLE. USING EXPRESSWAY.");
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap");
+        };
+
+        // --- VALHALLA DECODER (ZERO-ALLOCATION POLYLINE DECOMPRESSION) ---
+        function decodeValhallaPolyline(str) {
+            let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+            const factor = 1e6; // Valhalla strictly uses 6 digits of precision
+            while (index < str.length) {
+                byte = null; shift = 0; result = 0;
+                do {
+                    byte = str.charCodeAt(index++) - 63;
+                    result |= (byte & 0x1f) << shift;
+                    shift += 5;
+                } while (byte >= 0x20);
+                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+                
+                shift = 0; result = 0;
+                do {
+                    byte = str.charCodeAt(index++) - 63;
+                    result |= (byte & 0x1f) << shift;
+                    shift += 5;
+                } while (byte >= 0x20);
+                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+                
+                coordinates.push(L.latLng(lat / factor, lng / factor));
+            }
+            return coordinates;
+        }
+
+        // --- SMART ROUTER (MULTI-ENGINE RESOLVER) ---
+        // Dynamically shifts between concurrent routing engines (Valhalla Fastest, Valhalla Eco, OSRM Standard) 
+        // to automatically resolve the most optimal intercept path.
+        const SmartRouter = L.Class.extend({
+            initialize: function(options) {
+                this.osrm = L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' });
+            },
+            route: async function(waypoints, callback, context, options) {
+                const conf = FuelManager.getConfig();
+                const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
+                
+                const getValhallaPayload = (costingStr) => ({
+                    locations: waypoints.map(wp => ({ lat: wp.latLng.lat, lon: wp.latLng.lng })),
+                    costing: costingStr,
+                    units: "kilometers",
+                    costing_options: {
+                        auto: {
+                            toll_booth_penalty: conf.avoidTolls ? 10000 : 0,
+                            toll_booth_cost: conf.avoidTolls ? 10000 : 0,
+                            use_tolls: conf.avoidTolls ? 0 : 1, // 0 strictly avoids
+                            use_highways: conf.avoidHighways ? 0.05 : 1, // 0 strictly avoids, 0.05 heavily penalizes
+                            use_ferry: conf.avoidFerries ? 0 : 1
+                        },
+                        auto_shorter: {
+                            toll_booth_penalty: conf.avoidTolls ? 10000 : 0,
+                            toll_booth_cost: conf.avoidTolls ? 10000 : 0,
+                            use_tolls: conf.avoidTolls ? 0 : 1,
+                            use_highways: conf.avoidHighways ? 0.05 : 1,
+                            use_ferry: conf.avoidFerries ? 0 : 1
+                        }
+                    }
+                });
+
+                const fetchValhalla = async (endpoint, costing) => {
+                    const req = getValhallaPayload(costing);
+                    const res = await fetchWithTimeout(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify(req),
+                        timeout: 12000
+                    });
+                    if (!res.ok) throw new Error(`Valhalla endpoint ${endpoint} unreachable.`);
+                    const data = await res.json();
+
+                    let totalDist = 0;
+                    let totalTime = 0;
+                    let coords = [];
+                    
+                    data.trip.legs.forEach(leg => {
+                        totalDist += leg.summary.length * 1000;
+                        totalTime += leg.summary.time;
+                        coords = coords.concat(decodeValhallaPolyline(leg.shape));
+                    });
+
+                    return {
+                        name: `Valhalla Tactical Route (${costing})`,
+                        engine: 'VALHALLA',
+                        mode: costing === 'auto' ? 'FAST' : 'ECO',
+                        coordinates: coords,
+                        instructions: [], 
+                        summary: { totalDistance: totalDist, totalTime: totalTime },
+                        inputWaypoints: waypoints,
+                        waypoints: waypoints
+                    };
+                };
+
+                const fetchOSRM = () => new Promise((resolve, reject) => {
+                    if (hasExclusions) {
+                        reject(new Error("OSRM ignores exclusions, skipped."));
+                        return;
+                    }
+                    this.osrm.route(waypoints, (err, routes) => {
+                        if (err || !routes || routes.length === 0) reject(err || new Error("OSRM failed"));
+                        else {
+                            let r = routes[0];
+                            r.engine = 'OSRM';
+                            r.mode = 'STD';
+                            resolve(r);
+                        }
+                    }, context, options);
+                });
+
+                try {
+                    // Race the routing engines for optimal consensus
+                    // Splitting Valhalla load between two recognized FOSSGIS aliases to prevent immediate rate limit drops
+                    const promises = [
+                        fetchValhalla('https://valhalla1.openstreetmap.de/route', 'auto'),
+                        fetchValhalla('https://valhalla.openstreetmap.de/route', 'auto_shorter')
+                    ];
+                    
+                    // Only dispatch standard OSRM if exclusions aren't requested (since OSRM public doesn't support them)
+                    if (!hasExclusions) {
+                        promises.push(fetchOSRM());
+                    }
+
+                    const results = await Promise.allSettled(promises);
+                    const successfulRoutes = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+
+                    if (successfulRoutes.length === 0) {
+                        throw new Error("All parallel routing requests failed.");
+                    }
+
+                    // Score and select the absolute optimal route by prioritizing shortest estimated time (Fastest Intercept)
+                    successfulRoutes.sort((a, b) => a.summary.totalTime - b.summary.totalTime);
+                    const optimalRoute = successfulRoutes[0];
+                    
+                    // Pass the winning engine back to the global state for UI display
+                    window.lastWinningEngine = `${optimalRoute.engine}-${optimalRoute.mode}`;
+
+                    callback.call(context, null, [optimalRoute]);
+                } catch(e) {
+                    console.warn("Optimal Routing Engine Consensus Failed. Attempting pure OSRM fallback (Exclusions Ignored).", e);
+                    if (window.reportRoutingFallback) window.reportRoutingFallback();
+                    window.lastWinningEngine = "OSRM-FALLBACK";
+                    this.osrm.route(waypoints, callback, context, options);
+                }
+            }
+        });
 
         // --- UNIFIED HARDWARE RENDER LOOP ---
         function triggerRenderPipeline() {
@@ -716,7 +865,7 @@
 
                 state.currentRouteCoords.forEach(coord => {
                     zooms.forEach(z => {
-                        const x = lon2tile(coord.lng, z); 
+                        const x = lon2tile(coord.lng || coord.lon, z); 
                         const y = lat2tile(coord.lat, z);
                         const s = ['a', 'b', 'c'][Math.floor(Math.random() * 3)];
                         
@@ -1176,27 +1325,7 @@
         }
 
         function handleRouteError(e, existingWaypoints) {
-            console.warn("Routing error:", e);
-            
-            // Fallback mechanism if the active OSRM server rejects exclude params
-            const conf = FuelManager.getConfig();
-            if ((conf.avoidTolls || conf.avoidHighways || conf.avoidFerries) && !state._isRoutingRetry) {
-                console.warn("OSRM backend rejected the exclusion parameters. Retrying route strictly without exclusions...");
-                state._isRoutingRetry = true;
-                
-                updateText(DOM.statusEl, "EXCLUSIONS UNSUPPORTED. RETRYING...");
-                updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
-                
-                if (state.routeCtrl) {
-                    state.mapObj.removeControl(state.routeCtrl);
-                    state.routeCtrl = null;
-                }
-                
-                // Immediately retry, bypassing exclude logic to preserve app usability
-                initRoute(true, existingWaypoints);
-                return;
-            }
-
+            console.warn("Routing error intercepted at top level:", e);
             updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
@@ -1205,26 +1334,6 @@
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
             if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
 
-            const conf = FuelManager.getConfig();
-            let excludeClasses = [];
-            
-            // Construct exclusion payload based on active settings
-            if (!bypassExclude) {
-                if (conf.avoidTolls) excludeClasses.push('toll');
-                if (conf.avoidHighways) excludeClasses.push('motorway');
-                if (conf.avoidFerries) excludeClasses.push('ferry');
-            }
-
-            let rOpts = {
-                alternatives: false,
-                steps: true,
-                overview: 'full'
-            };
-            
-            if (excludeClasses.length > 0) {
-                rOpts.exclude = excludeClasses.join(',');
-            }
-
             const wps = existingWaypoints || [ 
                 L.latLng(state.autoCoords.lat, state.autoCoords.lon), 
                 L.latLng(state.targetCoords.lat, state.targetCoords.lon) 
@@ -1232,10 +1341,7 @@
 
             state.routeCtrl = L.Routing.control({
                 waypoints: wps,
-                router: L.Routing.osrmv1({ 
-                    serviceUrl: 'https://router.project-osrm.org/route/v1',
-                    routingOptions: rOpts
-                }),
+                router: new SmartRouter(),
                 lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
                 show: false, addWaypoints: false, 
                 fitSelectedRoutes: false, 
@@ -1251,7 +1357,6 @@
             }).addTo(state.mapObj);
             
             state.routeCtrl.on('routesfound', (e) => {
-                state._isRoutingRetry = false; // Reset fallback flag upon success
                 updateRouteStatus(e);
             });
             state.routeCtrl.on('routingerror', (e) => handleRouteError(e, wps));
@@ -1469,11 +1574,20 @@
             let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
 
             const totalNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
+            
+            const engineTag = window.lastWinningEngine ? `[${window.lastWinningEngine}] ` : '';
 
-            updateHTML(DOM.statusEl, `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT | ${distKm} KM | ${timeStr} | ${totalNodes} NODES`);
-            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap");
+            // Do not override UI if Valhalla exception triggered a warning class fallback injection
+            if (!DOM.statusEl.textContent.includes("EXCLUSIONS UNAVAILABLE")) {
+                updateHTML(DOM.statusEl, `<i class=\"fa-solid fa-satellite fa-fade mr-2\"></i> INTERCEPT ${engineTag}| ${distKm} KM | ${timeStr} | ${totalNodes} NODES`);
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 shadow-[0_0_15px_rgba(34,197,94,0.2)] whitespace-nowrap");
+            }
 
-            state.currentRouteCoords = route.coordinates;
+            // Retrieve decoded polygon coords
+            if (route.coordinates && Array.isArray(route.coordinates)) {
+                // Ensure array structures match Leaflet standards exactly (both latLng objects or literal array parsing)
+                state.currentRouteCoords = route.coordinates.map(c => c.lat ? c : L.latLng(c[0], c[1]));
+            }
 
             if (!state.isCachingMap) {
                 window.downloadMapCache();
@@ -1515,7 +1629,9 @@
 
         function calculateRouteNodes(route) {
             const totalDistance = route.summary.totalDistance;
-            const coords = route.coordinates;
+            const coords = state.currentRouteCoords; // Use globally parsed array instead of raw engine return
+            if (!coords || coords.length === 0) return [];
+
             const intervalDist = CONFIG.routingIntervalNodeDist; 
             const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
             const nodes = [];
