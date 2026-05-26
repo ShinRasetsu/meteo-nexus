@@ -480,7 +480,7 @@
             visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, maxSpeed: 0, 
-            routeNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
+            routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
@@ -569,8 +569,8 @@
         }
 
         // --- SMART ROUTER (MULTI-ENGINE RESOLVER) ---
-        // Dynamically shifts between concurrent routing engines (Valhalla Fastest, Valhalla Eco, OSRM Standard) 
-        // to automatically resolve the most optimal intercept path.
+        // Dynamically shifts between concurrent routing engines (OSRM Standard, Valhalla) 
+        // prioritizing OSRM, enforcing Valhalla strictly only when exclusions are requested.
         const SmartRouter = L.Class.extend({
             initialize: function(options) {
                 this.osrm = L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' });
@@ -579,17 +579,29 @@
                 const conf = FuelManager.getConfig();
                 const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
                 
+                const fetchOSRM = () => new Promise((resolve, reject) => {
+                    this.osrm.route(waypoints, (err, routes) => {
+                        if (err || !routes || routes.length === 0) reject(err || new Error("OSRM failed"));
+                        else {
+                            let r = routes[0];
+                            r.engine = 'OSRM';
+                            r.mode = 'STD';
+                            resolve(r);
+                        }
+                    }, context, options);
+                });
+
                 const getValhallaPayload = () => ({
                     locations: waypoints.map(wp => ({ lat: wp.latLng.lat, lon: wp.latLng.lng })),
                     costing: "auto",
                     units: "kilometers",
                     costing_options: {
                         auto: {
-                            toll_booth_penalty: conf.avoidTolls ? 10000 : 0,
-                            toll_booth_cost: conf.avoidTolls ? 10000 : 0,
+                            toll_booth_penalty: conf.avoidTolls ? 999999 : 0,
+                            toll_booth_cost: conf.avoidTolls ? 999999 : 0,
                             use_tolls: conf.avoidTolls ? 0 : 1, // 0 strictly avoids
-                            use_highways: conf.avoidHighways ? 0 : 1, // 0 strictly avoids, increased from 0.05
-                            use_ferry: conf.avoidFerries ? 0 : 1
+                            use_highways: conf.avoidHighways ? 0 : 1, // 0 strictly avoids
+                            use_ferry: conf.avoidFerries ? 0 : 1 // 0 strictly avoids
                         }
                     }
                 });
@@ -626,40 +638,30 @@
                     };
                 };
 
-                const fetchOSRM = () => new Promise((resolve, reject) => {
-                    if (hasExclusions) {
-                        reject(new Error("OSRM ignores exclusions, skipped."));
-                        return;
+                // OSRM is designated as the absolute best and primary engine when no exclusions are needed
+                if (!hasExclusions) {
+                    try {
+                        const osrmRoute = await fetchOSRM();
+                        window.lastWinningEngine = `${osrmRoute.engine}-${osrmRoute.mode}`;
+                        callback.call(context, null, [osrmRoute]);
+                        return; // Exit early since OSRM succeeded
+                    } catch (e) {
+                        console.warn("OSRM Primary Engine Failed. Attempting Valhalla fallback.", e);
                     }
-                    this.osrm.route(waypoints, (err, routes) => {
-                        if (err || !routes || routes.length === 0) reject(err || new Error("OSRM failed"));
-                        else {
-                            let r = routes[0];
-                            r.engine = 'OSRM';
-                            r.mode = 'STD';
-                            resolve(r);
-                        }
-                    }, context, options);
-                });
+                }
 
                 try {
-                    // Race the routing engines for optimal consensus
-                    // Fixed auto_shorter parameter crash by defaulting to standard auto mode.
+                    // Race the Valhalla routing engines for strict exclusion enforcement or fallback
                     const promises = [
                         fetchValhalla('https://valhalla1.openstreetmap.de/route'),
                         fetchValhalla('https://valhalla.openstreetmap.de/route')
                     ];
                     
-                    // Only dispatch standard OSRM if exclusions aren't requested (since OSRM public doesn't support them)
-                    if (!hasExclusions) {
-                        promises.push(fetchOSRM());
-                    }
-
                     const results = await Promise.allSettled(promises);
                     const successfulRoutes = results.filter(r => r.status === 'fulfilled').map(r => r.value);
 
                     if (successfulRoutes.length === 0) {
-                        throw new Error("All parallel routing requests failed.");
+                        throw new Error("All Valhalla routing requests failed.");
                     }
 
                     // Score and select the absolute optimal route by prioritizing shortest estimated time (Fastest Intercept)
@@ -1149,23 +1151,26 @@
                             triggerRenderPipeline();
                         }
 
-                        if (state.routeNodes) {
-                            let activeNodeIndex = state.routeNodes.findIndex(n => !n.passed);
+                        // Local helper to strictly process nodes and update bypass status symmetrically
+                        const processNodes = (nodesToProcess) => {
+                            if (!nodesToProcess) return;
+                            let activeNodeIndex = nodesToProcess.findIndex(n => !n.passed);
                             if (activeNodeIndex !== -1) {
-                                let activeNode = state.routeNodes[activeNodeIndex];
+                                let activeNode = nodesToProcess[activeNodeIndex];
                                 let d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
                                 
                                 let bypassed = false;
-                                for(let j = activeNodeIndex + 1; j < Math.min(activeNodeIndex + 3, state.routeNodes.length); j++) {
-                                    let futureDist = fastDistance(lat, lon, state.routeNodes[j].lat, state.routeNodes[j].lon);
+                                for(let j = activeNodeIndex + 1; j < Math.min(activeNodeIndex + 3, nodesToProcess.length); j++) {
+                                    let futureDist = fastDistance(lat, lon, nodesToProcess[j].lat, nodesToProcess[j].lon);
                                     if (futureDist < d - 1500) { bypassed = true; break; }
                                 }
                                 
                                 if (d < 1500 || bypassed) {
-                                    state.routeNodes[activeNodeIndex].passed = true;
+                                    nodesToProcess[activeNodeIndex].passed = true;
                                     state.lastIntelFetch = 0; 
-                                } else {
-                                    let visibleNodes = state.routeNodes.filter(n => !n.passed).slice(0, 4);
+                                } else if (nodesToProcess === state.routeNodes) {
+                                    // Only render physical UI distance tags for the currently active visible route UI
+                                    let visibleNodes = nodesToProcess.filter(n => !n.passed).slice(0, 4);
                                     visibleNodes.forEach(vn => {
                                         let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
                                         if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM AHEAD');
@@ -1176,7 +1181,10 @@
                                     });
                                 }
                             }
-                        }
+                        };
+
+                        processNodes(state.routeNodes);
+                        processNodes(state.originalRouteNodes);
 
                         const isMoving = state.currentSpeed >= 2;
                         if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
@@ -1677,6 +1685,11 @@
 
             if (!state.routeNodes || state.routeNodes.length === 0) {
                 state.routeNodes = calculateRouteNodes(route);
+                
+                // Unconditionally preserve original base trajectory to guarantee pitstop scans never deviate from the primary NAV Link intent
+                if (!state.fuelMarker) {
+                    state.originalRouteNodes = state.routeNodes.map(node => ({ ...node }));
+                }
             }
 
             let unpassedNodes = [];
@@ -2258,6 +2271,7 @@
             state.maxSpeed = 0;
             updateText(DOM.maxSpeed, '0');
             state.routeNodes = null;
+            state.originalRouteNodes = null;
 
             if (state.fuelMarker) {
                 state.mapObj.removeLayer(state.fuelMarker);
@@ -2389,12 +2403,31 @@
                     return;
                 }
                 
+                // CRITICAL: Actively purge any previous pitstops to ensure the upcoming scan is pristine
+                if (state.fuelMarker) {
+                    state.mapObj.removeLayer(state.fuelMarker);
+                    state.fuelMarker = null;
+                }
+
+                // If currently routing, strip existing intermediate pitstop waypoints from the engine controller
+                if (state.routeCtrl && state.targetCoords && !state.isFuelOnlyRoute) {
+                    let wps = state.routeCtrl.getWaypoints();
+                    if (wps.length > 2) {
+                        const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
+                        const dest = L.latLng(state.targetCoords.lat, state.targetCoords.lon);
+                        state.routeCtrl.setWaypoints([origin, dest]); // Clean reset
+                    }
+                }
+
                 updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-fade mr-2"></i> SCANNING FOR ${this.getConfig().brand}...`);
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
                 
+                // Force usage of the specifically preserved original base trajectory regardless of deviations
+                let searchNodes = state.originalRouteNodes || state.routeNodes;
+
                 let station = null;
-                if (state.routeNodes && state.routeNodes.some(n => !n.passed)) {
-                    station = await this.findAlongRoute(state.autoCoords.lat, state.autoCoords.lon, state.routeNodes);
+                if (searchNodes && searchNodes.some(n => !n.passed)) {
+                    station = await this.findAlongRoute(state.autoCoords.lat, state.autoCoords.lon, searchNodes);
                     // Add fallback to radius search if strict route search yields no results
                     if (!station) {
                         station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
