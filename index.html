@@ -36,12 +36,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
     
     <script>
-        // Decoupled Theme constants for safe programmatic access
-        const THEME_COLORS = { 
-            teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', 
-            orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' 
-        };
-
         // Tailwind Configuration
         tailwind.config = {
             darkMode: 'class',
@@ -52,7 +46,7 @@
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
-                        brand: THEME_COLORS,
+                        brand: { teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' },
                         surface: { 900: '#111111', 800: '#1a1a1a', 700: '#2a2a2a' }
                     }
                 }
@@ -318,6 +312,13 @@
                         <!-- Options generated dynamically based on brand -->
                     </select>
                 </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Base Type</label>
+                    <select id="pref-type" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
+                        <option value="Gasoline">Gasoline</option>
+                        <option value="Diesel">Diesel</option>
+                    </select>
+                </div>
                 
                 <div class="mt-4 pt-4 border-t border-surface-700 space-y-3">
                     <span class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Routing Options</span>
@@ -386,27 +387,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- DEFENSIVE FETCH WRAPPER ---
-        const fetchWithTimeout = async (url, options = {}) => {
-            const timeout = options.timeout || 15000;
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), timeout);
-            
-            // Allow merging external signals if provided
-            const combinedSignal = options.signal ? 
-                (AbortSignal.any ? AbortSignal.any([options.signal, controller.signal]) : controller.signal) 
-                : controller.signal;
-
-            try {
-                const res = await fetch(url, { ...options, signal: combinedSignal });
-                clearTimeout(id);
-                return res;
-            } catch (e) {
-                clearTimeout(id);
-                throw e;
-            }
-        };
 
         // --- CLOUD INIT & FIREBASE BINDINGS ---
         let app, auth, db;
@@ -485,8 +465,7 @@
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarker: null,
-            isFuelOnlyRoute: false, _isRoutingRetry: false,
+            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null,
             
             // Render Pipeline State
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -501,13 +480,6 @@
                       c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
             return 12742000 * Math.asin(Math.sqrt(a)); 
         }
-
-        // XSS Mitigation: Sanitize external API payloads before DOM insertion
-        const sanitizeHTML = (str) => {
-            const temp = document.createElement('div');
-            temp.textContent = str;
-            return temp.innerHTML;
-        };
 
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
@@ -526,7 +498,7 @@
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
             modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
-            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
+            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), type: document.getElementById('pref-type'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn')
         };
@@ -608,8 +580,8 @@
                     state.visual.lon = state.autoCoords.lon;
                 } else if (distSq > 1e-12) {
                     // Frame-independent exponential moving average (Lerp)
-                    // Reduced time constant from 250ms to 60ms for fast, responsive fluid glide
-                    const lerpPos = 1 - Math.exp(-dt / 60); 
+                    // 250ms time constant creates an ultra-smooth glide bridging standard 1Hz pings
+                    const lerpPos = 1 - Math.exp(-dt / 250); 
                     state.visual.lat += dLat * lerpPos;
                     state.visual.lon += dLon * lerpPos;
                 }
@@ -621,9 +593,7 @@
             } else {
                 const dHeading = state.cumulativeHeading - state.visual.heading;
                 if (Math.abs(dHeading) > 0.1) {
-                    // Adaptive time constant: Slower for 1Hz GPS data to prevent stair-stepping, fast for 30Hz compass data
-                    const timeConstant = (state.currentSpeed >= 2) ? 350 : 40;
-                    const lerpHeading = 1 - Math.exp(-dt / timeConstant);
+                    const lerpHeading = 1 - Math.exp(-dt / 150);
                     state.visual.heading += dHeading * lerpHeading;
                 }
             }
@@ -636,32 +606,17 @@
             // 4. Apply to Tactical Map View
             if (state.isMapLocked && state.tacticalMode > 0) {
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                
-                // Micro-jitter optimization for Leaflet setView caching.
-                // Threshold increased to 1e-9 to prevent sub-millimeter lerp drifts from triggering DOM matrix recalculations.
-                const dMapLat = state.visual.lat - (state.lastSetViewLat || 0);
-                const dMapLon = state.visual.lon - (state.lastSetViewLon || 0);
-                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 1e-9) { 
-                    state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
-                    state.lastSetViewLat = state.visual.lat;
-                    state.lastSetViewLon = state.visual.lon;
-                }
+                state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
                 
                 // Synchronized map rotation for tracking
                 if (state.tacticalMode === 4) {
-                    if (Math.abs(state.visual.heading - (state.lastCssHeading || 0)) > 0.1) {
-                        DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
-                        state.lastCssHeading = state.visual.heading;
-                    }
+                    DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
                 }
             }
 
             // 5. Apply User Direction Arrow Rotation via GPU-accelerated CSS Variable pipeline 
             // completely immune to Leaflet marker DOM pruning.
-            if (Math.abs(state.visual.heading - (state.lastArrowHeading || 0)) > 0.1) {
-                DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
-                state.lastArrowHeading = state.visual.heading;
-            }
+            DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
         }
 
         // --- MAP CACHE BUTTON LOGIC ---
@@ -745,7 +700,6 @@
                         try {
                             const res = await cache.match(url);
                             if (!res) {
-                                // Direct fetch timeout explicitly bypassed here intentionally to favor native browser concurrent limits on tiles
                                 const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
                                 if (fetchRes.ok) await cache.put(url, fetchRes);
                             }
@@ -792,13 +746,13 @@
         let globalAudioCtx = null;
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (globalAudioCtx.state === 'suspended') globalAudioCtx.resume();
             return globalAudioCtx;
         }
 
         // --- AUTHENTICATION FLOW ---
         async function initAuth() {
             if (!isCloudActive) return;
-            if (!auth) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token).catch(e => signInAnonymously(auth));
             } else {
@@ -815,18 +769,12 @@
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    if (wakeLock !== null) return;
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    wakeLock.addEventListener('release', () => {
-                        wakeLock = null; // Clear lock memory for regeneration hook
-                    });
-                }
-            } catch (err) { console.warn('Wake Lock request failed:', err); }
+                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+            } catch (err) {}
         }
 
         document.addEventListener('visibilitychange', async () => {
-            if (wakeLock === null && document.visibilityState === 'visible') requestWakeLock();
+            if (wakeLock !== null && document.visibilityState === 'visible') requestWakeLock();
         });
 
         document.body.addEventListener('click', function initSensors() {
@@ -835,8 +783,7 @@
                     if (response === 'granted') console.log('Magnetometer Hooked.');
                 }).catch(console.error);
             }
-            const ctx = getAudioContext(); 
-            if (ctx.state === 'suspended') ctx.resume();
+            getAudioContext(); 
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -889,41 +836,27 @@
 
         // --- HARDWARE MAGNETOMETER HOOKS & RENDERING ---
         let lastSensorUpdate = 0;
-        let hasAbsoluteOrientation = false;
 
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
-            if (now - lastSensorUpdate < 33) return; // ~30Hz throttle
+            if (now - lastSensorUpdate < 100) return; // 10Hz throttle
             lastSensorUpdate = now;
             
-            // EMA filter logic to reduce raw sensor jitter at low speeds
-            if (state.sensorHeading === null) {
-                state.sensorHeading = alphaOrHeading;
-            } else {
-                let diff = alphaOrHeading - state.sensorHeading;
-                if (diff > 180) diff -= 360;
-                if (diff < -180) diff += 360;
-                // 0.2 Alpha coefficient for responsive but smooth compass filtering
-                state.sensorHeading = (state.sensorHeading + diff * 0.2 + 360) % 360; 
-            }
-            
-            if (state.currentSpeed < 2 && Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) {
-                state.renderHeading = state.sensorHeading;
+            state.sensorHeading = alphaOrHeading;
+            if (state.currentSpeed < 2 && Math.abs(alphaOrHeading - state.lastHeading) >= 0.5) {
+                state.renderHeading = alphaOrHeading;
                 triggerRenderPipeline();
             }
         }
 
         window.addEventListener('deviceorientationabsolute', (e) => {
-            if (e.alpha !== null) {
-                hasAbsoluteOrientation = true;
-                handleOrientationUpdate(360 - e.alpha);
-            }
+            if (e.alpha !== null) handleOrientationUpdate(360 - e.alpha);
         });
 
         window.addEventListener('deviceorientation', (e) => {
             if (e.webkitCompassHeading) {
                 handleOrientationUpdate(e.webkitCompassHeading);
-            } else if (!hasAbsoluteOrientation && e.absolute && e.alpha !== null) {
+            } else if (e.absolute && e.alpha !== null) {
                 handleOrientationUpdate(360 - e.alpha);
             }
         });
@@ -950,7 +883,6 @@
                     if (state.lastHudLat !== 0) {
                         const distMovedM = fastDistance(state.lastHudLat, state.lastHudLon, lat, lon);
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
-                        // Strict boundary filter: If implied speed is Mach 0.3+ and accuracy is poor, it's a cell tower teleport bounce
                         if (impliedSpeedKmh > 350 && accuracy > 10) return;
                     }
                     state.lastLocationTimestamp = now;
@@ -1055,6 +987,7 @@
                             DOM.hudMap.classList.remove('hud-moving');
                         }
 
+                        // Removed route controller setWaypoints continuous ping.
                         // Route calculation happens statically upon initial target lock to prevent API DDOS and ban loops.
                         if (state.targetCoords && !state.routeCtrl) {
                             initRoute();
@@ -1175,67 +1108,13 @@
             window.applyTacticalMode();
         }
 
-        function handleRouteError(e, existingWaypoints) {
-            console.warn("Routing error:", e);
-            
-            // Fallback mechanism if the active OSRM server rejects exclude params
-            const conf = FuelManager.getConfig();
-            if ((conf.avoidTolls || conf.avoidHighways || conf.avoidFerries) && !state._isRoutingRetry) {
-                console.warn("OSRM backend rejected the exclusion parameters. Retrying route strictly without exclusions...");
-                state._isRoutingRetry = true;
-                
-                updateText(DOM.statusEl, "EXCLUSIONS UNSUPPORTED. RETRYING...");
-                updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
-                
-                if (state.routeCtrl) {
-                    state.mapObj.removeControl(state.routeCtrl);
-                    state.routeCtrl = null;
-                }
-                
-                // Immediately retry, bypassing exclude logic to preserve app usability
-                initRoute(true, existingWaypoints);
-                return;
-            }
-
-            updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
-            updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
-        }
-
-        function initRoute(bypassExclude = false, existingWaypoints = null) {
+        function initRoute() {
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
             if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
 
-            const conf = FuelManager.getConfig();
-            let excludeClasses = [];
-            
-            // Construct exclusion payload based on active settings
-            if (!bypassExclude) {
-                if (conf.avoidTolls) excludeClasses.push('toll');
-                if (conf.avoidHighways) excludeClasses.push('motorway');
-                if (conf.avoidFerries) excludeClasses.push('ferry');
-            }
-
-            let rOpts = {
-                alternatives: false,
-                steps: true,
-                overview: 'full'
-            };
-            
-            if (excludeClasses.length > 0) {
-                rOpts.exclude = excludeClasses.join(',');
-            }
-
-            const wps = existingWaypoints || [ 
-                L.latLng(state.autoCoords.lat, state.autoCoords.lon), 
-                L.latLng(state.targetCoords.lat, state.targetCoords.lon) 
-            ];
-
             state.routeCtrl = L.Routing.control({
-                waypoints: wps,
-                router: L.Routing.osrmv1({ 
-                    serviceUrl: 'https://router.project-osrm.org/route/v1',
-                    routingOptions: rOpts
-                }),
+                waypoints: [ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(state.targetCoords.lat, state.targetCoords.lon) ],
+                router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' }),
                 lineOptions: { styles: [{ color: '#3b82f6', weight: 6, opacity: 0.9 }] },
                 show: false, addWaypoints: false, 
                 fitSelectedRoutes: false, 
@@ -1249,12 +1128,8 @@
                     });
                 }
             }).addTo(state.mapObj);
-            
-            state.routeCtrl.on('routesfound', (e) => {
-                state._isRoutingRetry = false; // Reset fallback flag upon success
-                updateRouteStatus(e);
-            });
-            state.routeCtrl.on('routingerror', (e) => handleRouteError(e, wps));
+            state.routeCtrl.on('routesfound', updateRouteStatus);
+            state.routeCtrl.on('routingerror', handleRouteError);
         }
 
         function updateInterceptMarkersPool(waypoints) {
@@ -1280,7 +1155,7 @@
                         <div class="relative flex items-center justify-center -ml-3 -mt-3">
                             <div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div>
                             <div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div>
-                            <div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${sanitizeHTML(wp.id)}</div>
+                            <div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${wp.id}</div>
                         </div>
                     `,
                     iconSize: [0, 0]
@@ -1302,25 +1177,18 @@
 
         window.handlePasteAndLoad = async function() {
             try {
-                let clipText = "";
-                try {
-                    clipText = await navigator.clipboard.readText();
-                } catch (err) {
-                    console.warn("Clipboard restricted by execution bounds. Applying manual fallback.", err);
-                    clipText = prompt("Clipboard access requires user permission in this sandbox. Please paste the target link directly here:");
-                }
-                
+                const clipText = await navigator.clipboard.readText();
                 if (clipText && (clipText.includes('http') || clipText.includes('maps'))) {
                     DOM.gmapsPasteBtn.classList.add('animate-pulse');
                     await processGMapLink(clipText);
                     DOM.gmapsPasteBtn.classList.remove('animate-pulse');
-                } else if (clipText) {
-                    updateText(DOM.statusEl, "INVALID LINK FORMAT");
+                } else {
+                    updateText(DOM.statusEl, "NO LINK IN CLIPBOARD");
                     updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
                 }
             } catch (err) {
-                console.warn("Link parsing pipeline failed:", err);
-                updateText(DOM.statusEl, "SYSTEM ERROR: PASTE FAILED");
+                console.warn("Clipboard Access Error:", err);
+                updateText(DOM.statusEl, "CLIPBOARD PERMISSION DENIED");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
             }
         }
@@ -1330,7 +1198,7 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
 
             try {
-                const res = await fetchWithTimeout(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high', timeout: 20000 });
+                const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high' });
                 const payloadData = await res.json();
                 if (payloadData.error) throw new Error(payloadData.error);
 
@@ -1437,23 +1305,29 @@
             }
         }
 
-        window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false) {
+        window.activateLiveNavigation = function(destLat, destLon) {
             state.targetCoords = { lat: destLat, lon: destLon }; 
             state.routeNodes = null;
-            state.isFuelOnlyRoute = isFuelOnly;
             
             DOM.navBtn.classList.remove('hidden');
+            DOM.navBtn.onclick = () => {
+                const originStr = state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '';
+                const conf = FuelManager.getConfig();
+                let dirflg = '';
+                if (conf.avoidTolls) dirflg += 't';
+                if (conf.avoidHighways) dirflg += 'h';
+                if (conf.avoidFerries) dirflg += 'f';
+                const dirflgParam = dirflg ? `&dirflg=${dirflg}` : '';
+
+                const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destLat},${destLon}&travelmode=driving${dirflgParam}`;
+                window.open(url, '_blank');
+            };
 
             if (state.autoCoords) {
                 updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
-                
-                // Always forcibly clear out previous internal router controls to guarantee fresh fuel/routing options apply correctly
-                if (state.routeCtrl) {
-                    state.mapObj.removeControl(state.routeCtrl);
-                    state.routeCtrl = null;
-                }
-                initRoute(); 
+                if (!state.routeCtrl) { initRoute(); } 
+                else { state.routeCtrl.setWaypoints([ L.latLng(state.autoCoords.lat, state.autoCoords.lon), L.latLng(destLat, destLon) ]); }
             } else {
                 updateText(DOM.statusEl, "AWAITING SATELLITE LOCK...");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse");
@@ -1484,33 +1358,11 @@
                 state.lastIntelFetch = now;
                 fetchRouteIntelligence(route);
             }
+        }
 
-            // Bind Native Nav generation dynamically to active route waypoints (including Pit Stops)
-            const wps = state.routeCtrl.getWaypoints();
-            if (wps && wps.length > 1) {
-                DOM.navBtn.onclick = () => {
-                    const conf = FuelManager.getConfig();
-                    let avoidParams = [];
-                    // Adhere stringent to Google Maps Native URL guidelines (avoid=tolls,highways,ferries)
-                    if (conf.avoidTolls) avoidParams.push('tolls');
-                    if (conf.avoidHighways) avoidParams.push('highways');
-                    if (conf.avoidFerries) avoidParams.push('ferries');
-                    const avoidStr = avoidParams.length > 0 ? `&avoid=${avoidParams.join(',')}` : '';
-
-                    const originStr = wps[0].latLng ? `${wps[0].latLng.lat},${wps[0].latLng.lng}` : (state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '');
-                    const destLatLng = wps[wps.length - 1].latLng;
-                    const destStr = destLatLng ? `${destLatLng.lat},${destLatLng.lng}` : '';
-
-                    let waypointsStr = '';
-                    if (wps.length > 2) {
-                        const via = wps.slice(1, -1).filter(wp => wp.latLng).map(wp => `${wp.latLng.lat},${wp.latLng.lng}`).join('|');
-                        if (via) waypointsStr = `&waypoints=${encodeURIComponent(via)}`;
-                    }
-
-                    const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&travelmode=driving${waypointsStr}${avoidStr}`;
-                    window.open(url, '_blank');
-                };
-            }
+        function handleRouteError() {
+            updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
+            updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
         function calculateRouteNodes(route) {
@@ -1601,8 +1453,8 @@
                 const lons = waypoints.map(w => w.lon).join(',');
                 
                 const [baseRes, modelRes] = await Promise.all([
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 })
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high' })
                 ]);
                 
                 if (!baseRes.ok || !modelRes.ok) throw new Error("Weather API Error");
@@ -1767,18 +1619,16 @@
             }
         }
 
-        // PERFORMANCE: Tied UI updates to requestAnimationFrame for battery efficiency and synchronization
         function syncClock() {
-            const now = new Date();
             if (state.targetTimezone) {
                 try {
-                    const timeStr = now.toLocaleTimeString('en-US', {
+                    const timeStr = new Date().toLocaleTimeString('en-US', {
                         timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
                     });
-                    requestAnimationFrame(() => updateText(DOM.localTimeText, timeStr));
+                    updateText(DOM.localTimeText, timeStr);
                 } catch(e) {}
             }
-            setTimeout(syncClock, 1000 - (now.getTime() % 1000));
+            setTimeout(syncClock, 1000 - (new Date().getTime() % 1000));
         }
         syncClock();
 
@@ -1829,22 +1679,15 @@
 
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
-            const ctx = getAudioContext();
-            
             if (state.audioEnabled) {
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all');
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
                 updateText(DOM.audio.text, "SONAR ACTIVE");
-                
-                if (ctx.state === 'suspended') ctx.resume();
-                ctx.resume().then(() => playSonarPing());
+                getAudioContext().resume().then(() => playSonarPing());
             } else {
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-xmark text-xl');
                 updateText(DOM.audio.text, "SONAR OFF");
-                
-                // Suspend audio context explicitly to release lock and save battery on mobile devices
-                if (ctx.state === 'running') ctx.suspend();
             }
         }
 
@@ -1867,7 +1710,7 @@
 
         // PERFORMANCE OPTIMIZATION: Zero-allocation Chart updates to prevent GC pauses
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
-            const tc = THEME_COLORS;
+            const tc = tailwind.config.theme.extend.colors;
             
             if (state.chart) {
                 state.chart.data.labels.length = 0; state.chart.data.labels.push(...labels);
@@ -1892,11 +1735,11 @@
                 data: {
                     labels: labels,
                     datasets: [
-                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: tc.orange + '40', borderColor: tc.orange, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
-                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: tc.purple + '40', borderColor: tc.purple, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
-                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.blue, backgroundColor: tc.blue + '33', fill: true, borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'GFS', data: rainData.us, borderColor: tc.teal, backgroundColor: tc.teal + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'ICON', data: rainData.de, borderColor: tc.warning, borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: tc.brand.orange + '40', borderColor: tc.brand.orange, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
+                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: tc.brand.purple + '40', borderColor: tc.brand.purple, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
+                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.brand.blue, backgroundColor: tc.brand.blue + '33', fill: true, borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'GFS', data: rainData.us, borderColor: tc.brand.teal, backgroundColor: tc.brand.teal + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'ICON', data: rainData.de, borderColor: tc.brand.warning, borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'JMA', data: rainData.jp, borderColor: '#ec4899', borderWidth: 2, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
                     ]
                 },
@@ -1910,13 +1753,13 @@
                             callbacks: {
                                 label: function(c) { let l = c.dataset.label + ': ' || ''; if(c.parsed.y !== null) { l += c.parsed.y.toFixed(1); if(c.dataset.yAxisID==='y_solar') l+=' W/m²'; else if(c.dataset.yAxisID==='y_uv') l+=' Index'; else l+=' mm'; } return l; },
                                 footer: function(t) { const i = t[0].dataIndex; return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; }
-                            }, titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' }, bodyFont: { family: 'JetBrains Mono', size: 12 }, footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' }, footerColor: tc.teal
+                            }, titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' }, bodyFont: { family: 'JetBrains Mono', size: 12 }, footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' }, footerColor: tc.brand.teal
                         }
                     }, 
                     scales: {
                         x: { grid: { display: false }, ticks: { color: '#6b7280', maxTicksLimit: 12, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'} } },
                         y_rain: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 2 },
-                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.brand.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.brand.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
                         y_uv: { type: 'linear', display: false, min: 0, max: 15 }
                     }
                 }
@@ -2099,20 +1942,20 @@
             state.telemetryCache.lon = lon;
             
             if (!skipReverseGeo && navigator.onLine) {
-                fetchWithTimeout(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 })
+                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high' })
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
-                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`);
+                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${city}`);
                     }).catch(() => {});
             }
             try {
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
                 const [rCurr, rFore, rSolar] = await Promise.all([
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 })
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
+                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high' })
                 ]);
                 
                 if (!rCurr.ok || !rFore.ok || !rSolar.ok) throw new Error("Weather API Error");
@@ -2142,11 +1985,6 @@
             updateText(DOM.maxSpeed, '0');
             state.routeNodes = null;
 
-            if (state.fuelMarker) {
-                state.mapObj.removeLayer(state.fuelMarker);
-                state.fuelMarker = null;
-            }
-
             for (let item of state.interceptMarkers) {
                 if (item.marker) state.mapObj.removeLayer(item.marker);
             }
@@ -2154,7 +1992,6 @@
             
             state.lastIntelFetch = 0; 
             state.currentRouteCoords = null; 
-            state.isFuelOnlyRoute = false;
             
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
@@ -2174,7 +2011,7 @@
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             getConfig: function() {
-                const def = { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false };
+                const def = { brand: 'Shell', type: 'Gasoline', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false };
                 try { 
                     const stored = localStorage.getItem(this.storageKey); 
                     return stored ? { ...def, ...JSON.parse(stored) } : def; 
@@ -2211,7 +2048,7 @@
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
                 try {
-                    const res = await fetchWithTimeout(url, { timeout: 20000 });
+                    const res = await fetch(url);
                     if (!res.ok) throw new Error("Overpass API Error");
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
@@ -2246,7 +2083,7 @@
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
                 try {
-                    const res = await fetchWithTimeout(url, { timeout: 15000 });
+                    const res = await fetch(url);
                     if (!res.ok) throw new Error("Overpass API Error");
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
@@ -2283,38 +2120,27 @@
                 }
                 
                 if (station) {
-                    if (state.fuelMarker) {
-                        state.mapObj.removeLayer(state.fuelMarker);
-                    }
-                    
-                    state.fuelMarker = L.marker([station.lat, station.lon], {
+                    L.marker([station.lat, station.lon], {
                         icon: L.divIcon({
                             className: 'custom-fuel-icon',
                             html: `<div class="bg-brand-orange text-black border-2 border-black rounded-full w-8 h-8 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.8)]"><i class="fa-solid fa-gas-pump"></i></div>`,
                             iconSize: [32, 32], iconAnchor: [16, 16]
                         })
-                    }).addTo(state.mapObj).bindPopup(`<b>${sanitizeHTML(station.name)}</b><br>${sanitizeHTML(this.getConfig().variant)}<br>${sanitizeHTML(station.dist)}km away`).openPopup();
+                    }).addTo(state.mapObj).bindPopup(`<b>${station.name}</b><br>${this.getConfig().variant}<br>${station.dist}km away`).openPopup();
                     
                     if (state.routeCtrl) {
-                        if (state.isFuelOnlyRoute) {
-                            window.activateLiveNavigation(station.lat, station.lon, true);
+                        let wps = state.routeCtrl.getWaypoints();
+                        if (wps.length > 1 && wps[0].latLng && wps[wps.length -1].latLng) {
+                            wps.splice(1, 0, L.latLng(station.lat, station.lon)); 
+                            state.routeCtrl.setWaypoints(wps);
                         } else {
-                            let wps = state.routeCtrl.getWaypoints();
-                            const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
-                            const dest = L.latLng(state.targetCoords.lat, state.targetCoords.lon);
-                            
-                            // Clear nodes to force intelligence recalculation on the new path
-                            state.routeNodes = null;
-                            state.lastIntelFetch = 0;
-                            
-                            // Strictly enforce maximum 3 waypoints: [Origin, PitStop, Destination]
-                            state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
+                            window.activateLiveNavigation(station.lat, station.lon);
                         }
                     } else {
-                        window.activateLiveNavigation(station.lat, station.lon, true);
+                        window.activateLiveNavigation(station.lat, station.lon);
                     }
                 } else {
-                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${sanitizeHTML(this.getConfig().brand).toUpperCase()} DETECTED`);
+                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-triangle-exclamation mr-2"></i> NO ${this.getConfig().brand.toUpperCase()} DETECTED`);
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
                 }
             },
@@ -2356,30 +2182,21 @@
                     DOM.fuel.variant.value = conf.variant;
                 }
 
+                DOM.fuel.type.value = conf.type;
                 DOM.fuel.toll.checked = conf.avoidTolls;
                 DOM.fuel.highway.checked = conf.avoidHighways;
                 DOM.fuel.ferry.checked = conf.avoidFerries;
                 
                 DOM.fuel.save.addEventListener('click', () => {
-                    FuelManager.saveConfig({ 
+                    this.saveConfig({ 
                         brand: DOM.fuel.brand.value, 
+                        type: DOM.fuel.type.value, 
                         variant: DOM.fuel.variant.value,
                         avoidTolls: DOM.fuel.toll.checked,
                         avoidHighways: DOM.fuel.highway.checked,
                         avoidFerries: DOM.fuel.ferry.checked
                     });
-                    
                     closeModal('fuel-settings-modal');
-                    
-                    // Immediately rebuild routing infrastructure retaining waypoints to apply the new avoid logic 
-                    if (state.routeCtrl) {
-                        const wps = state.routeCtrl.getWaypoints();
-                        state.mapObj.removeControl(state.routeCtrl);
-                        state.routeCtrl = null;
-                        initRoute(false, wps);
-                    } else if (state.targetCoords && state.autoCoords) {
-                        window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon, state.isFuelOnlyRoute);
-                    }
                 });
                 
                 DOM.fuel.trigger.addEventListener('click', () => this.triggerIntercept());
@@ -2418,17 +2235,9 @@
                 }, { timeout: 10000, enableHighAccuracy: true });
             }
         }
-        
-        // Ensure defer-loaded resources are available before execution
-        function checkDependenciesAndRun() {
-            if (typeof localforage === 'undefined' || typeof Chart === 'undefined' || typeof L === 'undefined' || typeof L.Routing === 'undefined') {
-                setTimeout(checkDependenciesAndRun, 50);
-                return;
-            }
-            if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
-            runApp(); 
-        }
 
+        if (state.targetCoords) { window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon); }
+        
         // --- PWA SERVICE WORKER INJECTION ---
         (function initPWA() {
             const pwaManifest = {
@@ -2489,13 +2298,9 @@
                 try {
                     const swBlob = new Blob([swCode], { type: 'application/javascript' });
                     const swUrl = URL.createObjectURL(swBlob);
-                    
                     // Safe execution bypass for secure origin enforcement block on blob definitions
-                    navigator.serviceWorker.register(swUrl, { scope: '/' }).catch(e => {
+                    navigator.serviceWorker.register(swUrl).catch(e => {
                         // Suppressed intentionally: Blob origin violation expected in iframe/sandboxed environments.
-                    }).finally(() => {
-                        // Garbage collect the blob URL immediately to avoid memory leak footprint
-                        setTimeout(() => URL.revokeObjectURL(swUrl), 1000);
                     });
                 } catch (e) {
                     // CSP execution block caught
@@ -2518,8 +2323,8 @@
             });
         })();
 
-        // Bootstrap App Pipeline
-        checkDependenciesAndRun();
+        // Bootstrap App
+        runApp(); 
     </script>
 </body>
 </html>
