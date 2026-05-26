@@ -36,6 +36,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
     
     <script>
+        // Decoupled Theme constants for safe programmatic access
+        const THEME_COLORS = { 
+            teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', 
+            orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' 
+        };
+
         // Tailwind Configuration
         tailwind.config = {
             darkMode: 'class',
@@ -46,7 +52,7 @@
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
-                        brand: { teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' },
+                        brand: THEME_COLORS,
                         surface: { 900: '#111111', 800: '#1a1a1a', 700: '#2a2a2a' }
                     }
                 }
@@ -381,6 +387,27 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // --- DEFENSIVE FETCH WRAPPER ---
+        const fetchWithTimeout = async (url, options = {}) => {
+            const timeout = options.timeout || 15000;
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
+            
+            // Allow merging external signals if provided
+            const combinedSignal = options.signal ? 
+                (AbortSignal.any ? AbortSignal.any([options.signal, controller.signal]) : controller.signal) 
+                : controller.signal;
+
+            try {
+                const res = await fetch(url, { ...options, signal: combinedSignal });
+                clearTimeout(id);
+                return res;
+            } catch (e) {
+                clearTimeout(id);
+                throw e;
+            }
+        };
+
         // --- CLOUD INIT & FIREBASE BINDINGS ---
         let app, auth, db;
         let isCloudActive = false;
@@ -610,10 +637,11 @@
             if (state.isMapLocked && state.tacticalMode > 0) {
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                 
-                // Micro-jitter optimization for Leaflet setView caching
+                // Micro-jitter optimization for Leaflet setView caching.
+                // Threshold increased to 1e-9 to prevent sub-millimeter lerp drifts from triggering DOM matrix recalculations.
                 const dMapLat = state.visual.lat - (state.lastSetViewLat || 0);
                 const dMapLon = state.visual.lon - (state.lastSetViewLon || 0);
-                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 1e-12) {
+                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 1e-9) { 
                     state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
                     state.lastSetViewLat = state.visual.lat;
                     state.lastSetViewLon = state.visual.lon;
@@ -717,6 +745,7 @@
                         try {
                             const res = await cache.match(url);
                             if (!res) {
+                                // Direct fetch timeout explicitly bypassed here intentionally to favor native browser concurrent limits on tiles
                                 const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
                                 if (fetchRes.ok) await cache.put(url, fetchRes);
                             }
@@ -763,13 +792,13 @@
         let globalAudioCtx = null;
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (globalAudioCtx.state === 'suspended') globalAudioCtx.resume();
             return globalAudioCtx;
         }
 
         // --- AUTHENTICATION FLOW ---
         async function initAuth() {
             if (!isCloudActive) return;
+            if (!auth) return;
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token).catch(e => signInAnonymously(auth));
             } else {
@@ -806,7 +835,8 @@
                     if (response === 'granted') console.log('Magnetometer Hooked.');
                 }).catch(console.error);
             }
-            getAudioContext(); 
+            const ctx = getAudioContext(); 
+            if (ctx.state === 'suspended') ctx.resume();
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -859,6 +889,7 @@
 
         // --- HARDWARE MAGNETOMETER HOOKS & RENDERING ---
         let lastSensorUpdate = 0;
+        let hasAbsoluteOrientation = false;
 
         function handleOrientationUpdate(alphaOrHeading) {
             const now = Date.now();
@@ -883,13 +914,16 @@
         }
 
         window.addEventListener('deviceorientationabsolute', (e) => {
-            if (e.alpha !== null) handleOrientationUpdate(360 - e.alpha);
+            if (e.alpha !== null) {
+                hasAbsoluteOrientation = true;
+                handleOrientationUpdate(360 - e.alpha);
+            }
         });
 
         window.addEventListener('deviceorientation', (e) => {
             if (e.webkitCompassHeading) {
                 handleOrientationUpdate(e.webkitCompassHeading);
-            } else if (e.absolute && e.alpha !== null) {
+            } else if (!hasAbsoluteOrientation && e.absolute && e.alpha !== null) {
                 handleOrientationUpdate(360 - e.alpha);
             }
         });
@@ -1296,7 +1330,7 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
 
             try {
-                const res = await fetch(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high' });
+                const res = await fetchWithTimeout(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high', timeout: 20000 });
                 const payloadData = await res.json();
                 if (payloadData.error) throw new Error(payloadData.error);
 
@@ -1567,8 +1601,8 @@
                 const lons = waypoints.map(w => w.lon).join(',');
                 
                 const [baseRes, modelRes] = await Promise.all([
-                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
-                    fetch(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high' })
+                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
+                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 })
                 ]);
                 
                 if (!baseRes.ok || !modelRes.ok) throw new Error("Weather API Error");
@@ -1795,15 +1829,22 @@
 
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
+            const ctx = getAudioContext();
+            
             if (state.audioEnabled) {
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all');
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
                 updateText(DOM.audio.text, "SONAR ACTIVE");
-                getAudioContext().resume().then(() => playSonarPing());
+                
+                if (ctx.state === 'suspended') ctx.resume();
+                ctx.resume().then(() => playSonarPing());
             } else {
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-xmark text-xl');
                 updateText(DOM.audio.text, "SONAR OFF");
+                
+                // Suspend audio context explicitly to release lock and save battery on mobile devices
+                if (ctx.state === 'running') ctx.suspend();
             }
         }
 
@@ -1826,7 +1867,7 @@
 
         // PERFORMANCE OPTIMIZATION: Zero-allocation Chart updates to prevent GC pauses
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
-            const tc = tailwind.config.theme.extend.colors;
+            const tc = THEME_COLORS;
             
             if (state.chart) {
                 state.chart.data.labels.length = 0; state.chart.data.labels.push(...labels);
@@ -1851,11 +1892,11 @@
                 data: {
                     labels: labels,
                     datasets: [
-                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: tc.brand.orange + '40', borderColor: tc.brand.orange, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
-                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: tc.brand.purple + '40', borderColor: tc.brand.purple, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
-                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.brand.blue, backgroundColor: tc.brand.blue + '33', fill: true, borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'GFS', data: rainData.us, borderColor: tc.brand.teal, backgroundColor: tc.brand.teal + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'ICON', data: rainData.de, borderColor: tc.brand.warning, borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'bar', label: 'Solar (W/m²)', data: solarData, backgroundColor: tc.orange + '40', borderColor: tc.orange, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
+                        { type: 'bar', label: 'UV Index', data: uvData, backgroundColor: tc.purple + '40', borderColor: tc.purple, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv', grouped: true },
+                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.blue, backgroundColor: tc.blue + '33', fill: true, borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'GFS', data: rainData.us, borderColor: tc.teal, backgroundColor: tc.teal + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'ICON', data: rainData.de, borderColor: tc.warning, borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'JMA', data: rainData.jp, borderColor: '#ec4899', borderWidth: 2, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
                     ]
                 },
@@ -1869,13 +1910,13 @@
                             callbacks: {
                                 label: function(c) { let l = c.dataset.label + ': ' || ''; if(c.parsed.y !== null) { l += c.parsed.y.toFixed(1); if(c.dataset.yAxisID==='y_solar') l+=' W/m²'; else if(c.dataset.yAxisID==='y_uv') l+=' Index'; else l+=' mm'; } return l; },
                                 footer: function(t) { const i = t[0].dataIndex; return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; }
-                            }, titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' }, bodyFont: { family: 'JetBrains Mono', size: 12 }, footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' }, footerColor: tc.brand.teal
+                            }, titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' }, bodyFont: { family: 'JetBrains Mono', size: 12 }, footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' }, footerColor: tc.teal
                         }
                     }, 
                     scales: {
                         x: { grid: { display: false }, ticks: { color: '#6b7280', maxTicksLimit: 12, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'} } },
                         y_rain: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 2 },
-                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.brand.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.brand.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
                         y_uv: { type: 'linear', display: false, min: 0, max: 15 }
                     }
                 }
@@ -2058,7 +2099,7 @@
             state.telemetryCache.lon = lon;
             
             if (!skipReverseGeo && navigator.onLine) {
-                fetch(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high' })
+                fetchWithTimeout(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 })
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
@@ -2069,9 +2110,9 @@
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
                 const [rCurr, rFore, rSolar] = await Promise.all([
-                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
-                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high' }),
-                    fetch(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high' })
+                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
+                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
+                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 })
                 ]);
                 
                 if (!rCurr.ok || !rFore.ok || !rSolar.ok) throw new Error("Weather API Error");
@@ -2170,7 +2211,7 @@
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
                 try {
-                    const res = await fetch(url);
+                    const res = await fetchWithTimeout(url, { timeout: 20000 });
                     if (!res.ok) throw new Error("Overpass API Error");
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
@@ -2205,7 +2246,7 @@
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
                 try {
-                    const res = await fetch(url);
+                    const res = await fetchWithTimeout(url, { timeout: 15000 });
                     if (!res.ok) throw new Error("Overpass API Error");
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
