@@ -28,7 +28,6 @@
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-    <!-- Locked routing version to prevent unpkg @latest upstream breaks -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
 
@@ -36,13 +35,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
     
     <script>
-        // Decoupled Theme constants for safe programmatic access
         const THEME_COLORS = { 
             teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', 
             orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' 
         };
 
-        // Tailwind Configuration
         tailwind.config = {
             darkMode: 'class',
             theme: {
@@ -61,18 +58,15 @@
     </script>
 
     <style>
-        /* Custom Scrollbar */
         html { scrollbar-width: thin; scrollbar-color: #333 #111; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         
-        /* Base Body resets */
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
         input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
-        /* Leaflet Overrides */
         .leaflet-routing-container { display: none !important; } 
         .leaflet-control-scale-line { 
             background: rgba(17, 17, 17, 0.9) !important; 
@@ -89,25 +83,20 @@
             font-family: 'JetBrains Mono', monospace; 
         }
         
-        /* GPU Acceleration Pipeline */
         #hud-map, #live-compass-icon { 
             will-change: transform; transform: translateZ(0); backface-visibility: hidden; 
         }
         
-        /* Dynamic User Marker CSS Logic - Immune to Leaflet DOM Pruning */
         #hud-map { --user-heading: 0deg; }
         .hud-moving .user-dot { opacity: 0 !important; transform: scale(0.5) !important; }
         .hud-moving .user-arrow { opacity: 1 !important; transform: scale(1) !important; }
         .hud-idle .user-dot { opacity: 1 !important; transform: scale(1) !important; }
         .hud-idle .user-arrow { opacity: 0 !important; transform: scale(0.5) !important; }
 
-        /* Tactical Map Inversion */
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
-
         .smooth-glide { will-change: transform; transform: translateZ(0); }
 
-        /* Fullscreen Section Handlers */
         .section-hidden { display: none !important; }
         .section-fullscreen { 
             position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
@@ -120,7 +109,6 @@
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <!-- Global Header -->
     <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
         <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
             <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i> 
@@ -144,7 +132,6 @@
         </div>
     </header>
 
-    <!-- SECTION 1: LOCAL TELEMETRY -->
     <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
@@ -217,7 +204,6 @@
         </div>
     </div>
 
-    <!-- SECTION 2: TACTICAL MAP -->
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
@@ -281,7 +267,6 @@
         </div>
     </div>
 
-    <!-- SECTION 3: ROUTE INTELLIGENCE -->
     <div id="sec-intel" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
@@ -290,7 +275,6 @@
         <div id="timeline-container" class="pb-2 no-select"></div>
     </div>
 
-    <!-- SECTION 4: TELEMETRY PLOT -->
     <div id="sec-plot" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8 transition-all duration-300">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
@@ -301,22 +285,17 @@
         </div>
     </div>
 
-    <!-- Modals -->
     <div id="fuel-settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
             <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Fuel Parameters</h3>
             <div class="space-y-4 font-mono">
                 <div>
                     <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Target Brand</label>
-                    <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
-                        <!-- Options generated dynamically -->
-                    </select>
+                    <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                 </div>
                 <div>
                     <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
-                    <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors">
-                        <!-- Options generated dynamically based on brand -->
-                    </select>
+                    <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                 </div>
                 
                 <div class="mt-4 pt-4 border-t border-surface-700 space-y-3">
@@ -387,26 +366,44 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- DEFENSIVE FETCH WRAPPER ---
-        const fetchWithTimeout = async (url, options = {}) => {
+        // --- DEFENSIVE FETCH WRAPPER WITH EXPONENTIAL BACKOFF ---
+        const fetchWithRetry = async (url, options = {}, retries = 3, backoff = 500) => {
             const timeout = options.timeout || 15000;
-            const controller = new AbortController();
-            const id = setTimeout(() => controller.abort(), timeout);
-            
-            // Allow merging external signals if provided
-            const combinedSignal = options.signal ? 
-                (AbortSignal.any ? AbortSignal.any([options.signal, controller.signal]) : controller.signal) 
-                : controller.signal;
+            for (let i = 0; i < retries; i++) {
+                const controller = new AbortController();
+                const id = setTimeout(() => controller.abort(), timeout);
+                const combinedSignal = options.signal ? 
+                    (AbortSignal.any ? AbortSignal.any([options.signal, controller.signal]) : controller.signal) 
+                    : controller.signal;
 
-            try {
-                const res = await fetch(url, { ...options, signal: combinedSignal });
-                clearTimeout(id);
-                return res;
-            } catch (e) {
-                clearTimeout(id);
-                throw e;
+                try {
+                    const res = await fetch(url, { ...options, signal: combinedSignal });
+                    clearTimeout(id);
+                    if (res.ok || res.status < 500) return res; // Pass through client errors, retry server errors
+                } catch (e) {
+                    clearTimeout(id);
+                    if (i === retries - 1) throw e;
+                }
+                // Exponential backoff with jitter
+                await new Promise(r => setTimeout(r, backoff * Math.pow(2, i) + (Math.random() * 200)));
             }
+            throw new Error(`Fetch failed after ${retries} retries: ${url}`);
         };
+
+        // Static GC-Friendly RegExp instances
+        const RX_NUM = "([+-]?\\d+(?:\\.\\d+)?)";
+        const RX_DIR = new RegExp(`\\/dir\\/${RX_NUM},${RX_NUM}\\/`, 'i');
+        const RX_DEST = new RegExp(`destination=${RX_NUM},${RX_NUM}`, 'i');
+        const RX_MARKERS = /markers=([^"&>]+)/i;
+        const RX_PB_EXACT = new RegExp(`!([13])d${RX_NUM}!([24])d${RX_NUM}`, 'g');
+        const FALLBACK_REGEXES = [
+            new RegExp(`(?:search|loc)\\/${RX_NUM},${RX_NUM}`, 'i'),
+            new RegExp(`(?:query|q)=loc:${RX_NUM},${RX_NUM}`, 'i'),
+            new RegExp(`(?:query|q)=${RX_NUM},${RX_NUM}`, 'i'),
+            new RegExp(`place\\/.*?\\/@${RX_NUM},${RX_NUM}`, 'i'),
+            new RegExp(`ll=${RX_NUM},${RX_NUM}`, 'i'),
+            new RegExp(`@${RX_NUM},${RX_NUM}`, 'i')
+        ];
 
         // --- CLOUD INIT & FIREBASE BINDINGS ---
         let app, auth, db;
@@ -479,7 +476,7 @@
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
             visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0, 
-            lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, maxSpeed: 0, 
+            lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0, 
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
@@ -569,8 +566,6 @@
         }
 
         // --- SMART ROUTER (MULTI-ENGINE RESOLVER) ---
-        // Dynamically shifts between concurrent routing engines (OSRM Standard, Valhalla) 
-        // prioritizing OSRM, enforcing Valhalla strictly only when exclusions are requested.
         const SmartRouter = L.Class.extend({
             initialize: function(options) {
                 this.osrm = L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' });
@@ -608,14 +603,13 @@
 
                 const fetchValhalla = async (endpoint) => {
                     const req = getValhallaPayload();
-                    const res = await fetchWithTimeout(endpoint, {
+                    const res = await fetchWithRetry(endpoint, {
                         method: 'POST',
                         body: JSON.stringify(req),
                         timeout: 12000
-                    });
-                    if (!res.ok) throw new Error(`Valhalla endpoint ${endpoint} unreachable.`);
+                    }, 2, 500); // 2 retries for routing
+                    
                     const data = await res.json();
-
                     let totalDist = 0;
                     let totalTime = 0;
                     let coords = [];
@@ -638,20 +632,18 @@
                     };
                 };
 
-                // OSRM is designated as the absolute best and primary engine when no exclusions are needed
                 if (!hasExclusions) {
                     try {
                         const osrmRoute = await fetchOSRM();
                         window.lastWinningEngine = `${osrmRoute.engine}-${osrmRoute.mode}`;
                         callback.call(context, null, [osrmRoute]);
-                        return; // Exit early since OSRM succeeded
+                        return; 
                     } catch (e) {
                         console.warn("OSRM Primary Engine Failed. Attempting Valhalla fallback.", e);
                     }
                 }
 
                 try {
-                    // Race the Valhalla routing engines for strict exclusion enforcement or fallback
                     const promises = [
                         fetchValhalla('https://valhalla1.openstreetmap.de/route'),
                         fetchValhalla('https://valhalla.openstreetmap.de/route')
@@ -664,13 +656,10 @@
                         throw new Error("All Valhalla routing requests failed.");
                     }
 
-                    // Score and select the absolute optimal route by prioritizing shortest estimated time (Fastest Intercept)
                     successfulRoutes.sort((a, b) => a.summary.totalTime - b.summary.totalTime);
                     const optimalRoute = successfulRoutes[0];
                     
-                    // Pass the winning engine back to the global state for UI display
                     window.lastWinningEngine = `${optimalRoute.engine}-${optimalRoute.mode}`;
-
                     callback.call(context, null, [optimalRoute]);
                 } catch(e) {
                     console.warn("Optimal Routing Engine Consensus Failed. Attempting pure OSRM fallback (Exclusions Ignored).", e);
@@ -692,7 +681,23 @@
         function executeRenderPipeline() {
             state.renderPending = false;
             
-            // 1. Process Speed UI updates
+            // Sensor Fusion processing decoupled to rAF
+            if (state.rawSensorHeading !== null) {
+                if (state.sensorHeading === null) {
+                    state.sensorHeading = state.rawSensorHeading;
+                } else {
+                    let diff = state.rawSensorHeading - state.sensorHeading;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    state.sensorHeading = (state.sensorHeading + diff * 0.75 + 360) % 360; 
+                }
+                
+                if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) {
+                    state.renderHeading = state.sensorHeading;
+                }
+                state.rawSensorHeading = null;
+            }
+
             if (state.renderSpeed !== null) {
                 updateText(DOM.liveSpeed, state.renderSpeed);
                 if (state.renderSpeed > state.maxSpeed && state.renderSpeed < 350 && state.renderAccuracy <= 25) {
@@ -702,7 +707,6 @@
                 state.renderSpeed = null;
             }
 
-            // 2. Process GNSS Accuracy updates
             if (state.renderAccText !== null && DOM.accUi) {
                 const accTextEl = DOM.accUi.querySelector('#gps-acc-text');
                 if (accTextEl) updateHTML(accTextEl, state.renderAccText);
@@ -710,7 +714,6 @@
                 state.renderAccText = null;
             }
 
-            // 3. Process Heading UI updates
             if (state.renderHeading !== null) {
                 const heading = state.renderHeading;
                 let delta = heading - state.lastHeading;
@@ -727,33 +730,47 @@
             }
         }
 
-        // --- 60FPS CONTINUOUS VISUAL INTERPOLATION (SMOOTH GLIDE) ---
+        // --- 60FPS CONTINUOUS VISUAL INTERPOLATION & DEAD RECKONING ---
         let lastVisualFrameTime = performance.now();
         
         function smoothVisualsLoop(time) {
             requestAnimationFrame(smoothVisualsLoop);
-            const dt = Math.min(time - lastVisualFrameTime, 100);
+            const dt = Math.min(time - lastVisualFrameTime, 100); // clamp at 10fps minimum equivalent
             lastVisualFrameTime = time;
 
             if (!state.mapObj || !state.autoCoords) return;
 
-            // 1. Position Interpolation
+            // Execute buffered sensor reads for 60fps alignment
+            if (state.rawSensorHeading !== null) triggerRenderPipeline();
+
+            // 1. Position Extrapolation (Dead Reckoning) & Interpolation
+            let targetLat = state.autoCoords.lat;
+            let targetLon = state.autoCoords.lon;
+            
+            const timeSinceFix = Date.now() - state.lastLocationTimestamp;
+            // Dead reckoning projection applied between 0 and 3 seconds of last valid GPS fix while moving
+            if (timeSinceFix > 0 && timeSinceFix < 3000 && state.currentSpeed >= 2) {
+                const speedMs = state.currentSpeed / 3.6;
+                const headingRad = (state.visual.heading || state.cumulativeHeading || 0) * (Math.PI / 180);
+                const projectedDistanceM = speedMs * (timeSinceFix / 1000);
+                
+                targetLat += (projectedDistanceM * Math.cos(headingRad)) / 111320;
+                targetLon += (projectedDistanceM * Math.sin(headingRad)) / (40075000 * Math.cos(targetLat * Math.PI / 180) / 360);
+            }
+
             if (state.visual.lat === null) {
-                state.visual.lat = state.autoCoords.lat;
-                state.visual.lon = state.autoCoords.lon;
+                state.visual.lat = targetLat;
+                state.visual.lon = targetLon;
             } else {
-                const dLat = state.autoCoords.lat - state.visual.lat;
-                const dLon = state.autoCoords.lon - state.visual.lon;
+                const dLat = targetLat - state.visual.lat;
+                const dLon = targetLon - state.visual.lon;
                 const distSq = (dLat * dLat) + (dLon * dLon);
 
-                // Snap fallback if GPS jumped substantially (> ~500m)
-                if (distSq > 0.000025) {
-                    state.visual.lat = state.autoCoords.lat;
-                    state.visual.lon = state.autoCoords.lon;
+                if (distSq > 0.000025) { // ~500m snap threshold
+                    state.visual.lat = targetLat;
+                    state.visual.lon = targetLon;
                 } else if (distSq > 1e-12) {
-                    // Frame-independent exponential moving average (Lerp)
-                    // Reduced time constant from 250ms to 60ms for fast, responsive fluid glide
-                    const lerpPos = 1 - Math.exp(-dt / 60); 
+                    const lerpPos = 1 - Math.exp(-dt / 180); 
                     state.visual.lat += dLat * lerpPos;
                     state.visual.lon += dLon * lerpPos;
                 }
@@ -765,8 +782,7 @@
             } else {
                 const dHeading = state.cumulativeHeading - state.visual.heading;
                 if (Math.abs(dHeading) > 0.1) {
-                    // Adaptive time constant: Slower for 1Hz GPS data to prevent stair-stepping, fast for 30Hz compass data
-                    const timeConstant = (state.currentSpeed >= 2) ? 350 : 40;
+                    const timeConstant = (state.currentSpeed >= 2) ? 90 : 30;
                     const lerpHeading = 1 - Math.exp(-dt / timeConstant);
                     state.visual.heading += dHeading * lerpHeading;
                 }
@@ -781,17 +797,16 @@
             if (state.isMapLocked && state.tacticalMode > 0) {
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
                 
-                // Micro-jitter optimization for Leaflet setView caching.
-                // Threshold increased to 1e-9 to prevent sub-millimeter lerp drifts from triggering DOM matrix recalculations.
+                // Micro-jitter optimization. Threshold calibrated to 2.5e-9 (~1.5 meters) 
+                // to prevent heavy Leaflet layout thrashing while CSS variables handle sub-pixel smoothing.
                 const dMapLat = state.visual.lat - (state.lastSetViewLat || 0);
                 const dMapLon = state.visual.lon - (state.lastSetViewLon || 0);
-                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 1e-9) { 
+                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 2.5e-9) { 
                     state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
                     state.lastSetViewLat = state.visual.lat;
                     state.lastSetViewLon = state.visual.lon;
                 }
                 
-                // Synchronized map rotation for tracking
                 if (state.tacticalMode === 4) {
                     if (Math.abs(state.visual.heading - (state.lastCssHeading || 0)) > 0.1) {
                         DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
@@ -800,8 +815,7 @@
                 }
             }
 
-            // 5. Apply User Direction Arrow Rotation via GPU-accelerated CSS Variable pipeline 
-            // completely immune to Leaflet marker DOM pruning.
+            // 5. Apply User Direction Arrow Rotation via CSS variables
             if (Math.abs(state.visual.heading - (state.lastArrowHeading || 0)) > 0.1) {
                 DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
                 state.lastArrowHeading = state.visual.heading;
@@ -889,7 +903,6 @@
                         try {
                             const res = await cache.match(url);
                             if (!res) {
-                                // Direct fetch timeout explicitly bypassed here intentionally to favor native browser concurrent limits on tiles
                                 const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
                                 if (fetchRes.ok) await cache.put(url, fetchRes);
                             }
@@ -1031,30 +1044,12 @@
             }
         };
 
-        // --- HARDWARE MAGNETOMETER HOOKS & RENDERING ---
-        let lastSensorUpdate = 0;
+        // --- HARDWARE MAGNETOMETER HOOKS ---
         let hasAbsoluteOrientation = false;
 
         function handleOrientationUpdate(alphaOrHeading) {
-            const now = Date.now();
-            if (now - lastSensorUpdate < 33) return; // ~30Hz throttle
-            lastSensorUpdate = now;
-            
-            // EMA filter logic to reduce raw sensor jitter at low speeds
-            if (state.sensorHeading === null) {
-                state.sensorHeading = alphaOrHeading;
-            } else {
-                let diff = alphaOrHeading - state.sensorHeading;
-                if (diff > 180) diff -= 360;
-                if (diff < -180) diff += 360;
-                // 0.2 Alpha coefficient for responsive but smooth compass filtering
-                state.sensorHeading = (state.sensorHeading + diff * 0.2 + 360) % 360; 
-            }
-            
-            if (state.currentSpeed < 2 && Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) {
-                state.renderHeading = state.sensorHeading;
-                triggerRenderPipeline();
-            }
+            // Buffer the raw sensor output. Calculation moved strictly to rAF to eliminate event-loop overload.
+            state.rawSensorHeading = alphaOrHeading;
         }
 
         window.addEventListener('deviceorientationabsolute', (e) => {
@@ -1094,12 +1089,10 @@
                     if (state.lastHudLat !== 0) {
                         const distMovedM = fastDistance(state.lastHudLat, state.lastHudLon, lat, lon);
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
-                        // Strict boundary filter: If implied speed is Mach 0.3+ and accuracy is poor, it's a cell tower teleport bounce
-                        if (impliedSpeedKmh > 350 && accuracy > 10) return;
+                        if (impliedSpeedKmh > 350 && accuracy > 10) return; // Ignore teleport anomalies
                     }
                     state.lastLocationTimestamp = now;
 
-                    // Queue Render Updates
                     state.renderAccuracy = accuracy;
                     if (accuracy <= 15) {
                         state.renderAccText = `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`;
@@ -1115,7 +1108,7 @@
 
                     if (accuracy > 3000 && state.lastHudLat !== 0) return; 
 
-                    // Update pure coordinate state target (interpolator will handle visuals)
+                    // Coordinate assignment - Extrapolation algorithm handles visual glide
                     state.autoCoords = { lat, lon };
 
                     if (!state.mapObj) {
@@ -1151,10 +1144,14 @@
                             triggerRenderPipeline();
                         }
 
-                        // Local helper to strictly process nodes and update bypass status symmetrically
+                        // Local helper using pre-allocated logic loop (GC optimization over heavy `.map/.filter`)
                         const processNodes = (nodesToProcess) => {
                             if (!nodesToProcess) return;
-                            let activeNodeIndex = nodesToProcess.findIndex(n => !n.passed);
+                            let activeNodeIndex = -1;
+                            for (let i = 0; i < nodesToProcess.length; i++) {
+                                if (!nodesToProcess[i].passed) { activeNodeIndex = i; break; }
+                            }
+                            
                             if (activeNodeIndex !== -1) {
                                 let activeNode = nodesToProcess[activeNodeIndex];
                                 let d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
@@ -1169,16 +1166,19 @@
                                     nodesToProcess[activeNodeIndex].passed = true;
                                     state.lastIntelFetch = 0; 
                                 } else if (nodesToProcess === state.routeNodes) {
-                                    // Only render physical UI distance tags for the currently active visible route UI
-                                    let visibleNodes = nodesToProcess.filter(n => !n.passed).slice(0, 4);
-                                    visibleNodes.forEach(vn => {
+                                    // Update UI dists dynamically inline
+                                    let count = 0;
+                                    for (let v = activeNodeIndex; v < nodesToProcess.length && count < 4; v++) {
+                                        let vn = nodesToProcess[v];
+                                        if (vn.passed) continue;
                                         let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
                                         if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM AHEAD');
                                         else {
                                             const distEl = document.getElementById(`node-dist-${vn.id}`);
                                             if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM AHEAD'); }
                                         }
-                                    });
+                                        count++;
+                                    }
                                 }
                             }
                         };
@@ -1187,16 +1187,17 @@
                         processNodes(state.originalRouteNodes);
 
                         const isMoving = state.currentSpeed >= 2;
-                        if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
+                        // Hardware Compass Validation Fallback
+                        const hasActiveCompass = (state.rawSensorHeading !== null || state.sensorHeading !== null);
+                        
+                        if (isMoving && !hasActiveCompass && gpsHeading !== null && !isNaN(gpsHeading)) {
                             state.renderHeading = gpsHeading;
                             triggerRenderPipeline();
-                        } else if (state.sensorHeading !== null && !isMoving) {
+                        } else if (state.sensorHeading !== null && !hasActiveCompass && !isMoving) {
                             state.renderHeading = state.sensorHeading;
                             triggerRenderPipeline();
                         }
 
-                        // Maintain marker opacity/visibility CSS toggles using generic map-level flags
-                        // This fully shields the system from Leaflet DOM pruning staleness.
                         if (isMoving) {
                             DOM.hudMap.classList.add('hud-moving');
                             DOM.hudMap.classList.remove('hud-idle');
@@ -1205,7 +1206,6 @@
                             DOM.hudMap.classList.remove('hud-moving');
                         }
 
-                        // Route calculation happens statically upon initial target lock to prevent API DDOS and ban loops.
                         if (state.targetCoords && !state.routeCtrl) {
                             initRoute();
                         }
@@ -1248,12 +1248,10 @@
                 updateHTML(DOM.tacticalBtn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 
-                // Clear rotational transform if disabling rotating mode
                 if (state.tacticalMode !== 4) {
                     DOM.hudMap.style.transform = `rotate(0deg)`;
                 }
 
-                // Snap view when immediately re-engaging tracking to prevent conflicting ease animations
                 if (state.visual.lat !== null) {
                     state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, {animate: false});
                 } else if (state.autoCoords) {
@@ -1303,7 +1301,6 @@
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });
 
-            // Initialize CSS flag state variables
             DOM.hudMap.classList.add('hud-idle');
 
             state.userMarker = L.marker([lat, lon], {
@@ -1379,7 +1376,6 @@
                 const pItem = state.interceptMarkers[i];
                 pItem.marker.setLatLng([wp.lat, wp.lon]);
                 
-                // Using setIcon structurally ensures absolute HTML injection immunity from Leaflet DOM pruning
                 pItem.marker.setIcon(L.divIcon({
                     className: 'bg-transparent',
                     html: `
@@ -1436,7 +1432,7 @@
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
 
             try {
-                const res = await fetchWithTimeout(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high', timeout: 20000 });
+                const res = await fetchWithRetry(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high', timeout: 20000 }, 2, 500);
                 const payloadData = await res.json();
                 if (payloadData.error) throw new Error(payloadData.error);
 
@@ -1449,8 +1445,6 @@
                 let cleanUrl = rawUrl.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
 
                 let lat = null, lon = null;
-                const num = "([+-]?\\d+(?:\\.\\d+)?)"; 
-
                 let originLat = null, originLon = null;
 
                 try {
@@ -1465,7 +1459,7 @@
                     }
                 } catch(e) { }
 
-                const originMatch = cleanUrl.match(new RegExp(`\\/dir\\/${num},${num}\\/`, 'i'));
+                const originMatch = cleanUrl.match(RX_DIR);
                 if (originMatch) {
                     originLat = parseFloat(originMatch[1]);
                     originLon = parseFloat(originMatch[2]);
@@ -1484,21 +1478,20 @@
                 let candidates = [];
                 if (isValid(lat, lon)) candidates.push({ lat, lon, priority: 200 });
 
-                let destMatch = cleanPayload.match(new RegExp(`destination=${num},${num}`, 'i'));
+                let destMatch = cleanPayload.match(RX_DEST);
                 if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
 
-                const markerMatch = cleanPayload.match(/markers=([^"&>]+)/i);
+                const markerMatch = cleanPayload.match(RX_MARKERS);
                 if (markerMatch) {
                     const markersList = markerMatch[1].split(/%7C|\|/i);
                     const validCoords = markersList.map(p => {
-                        let m = p.match(new RegExp(`^${num},${num}`));
+                        let m = p.match(new RegExp(`^${RX_NUM},${RX_NUM}`));
                         return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
                     }).filter(c => c !== null);
                     if (validCoords.length > 0) candidates.push({ ...validCoords[validCoords.length - 1], priority: 90 });
                 }
 
-                const pbExact = new RegExp(`!([13])d${num}!([24])d${num}`, 'g');
-                const pbMatches = [...cleanPayload.matchAll(pbExact)];
+                const pbMatches = [...cleanPayload.matchAll(RX_PB_EXACT)];
                 if (pbMatches.length > 0) {
                     let pbCoords = pbMatches.map(m => {
                         if (m[1] === '1') return { lat: parseFloat(m[4]), lon: parseFloat(m[2]) }; 
@@ -1508,17 +1501,8 @@
                     if (pbCoords.length > 0) candidates.push({ ...pbCoords[pbCoords.length - 1], priority: 80 });
                 }
 
-                const fallbacks = [
-                    new RegExp(`(?:search|loc)\\/${num},${num}`, 'i'),
-                    new RegExp(`(?:query|q)=loc:${num},${num}`, 'i'),
-                    new RegExp(`(?:query|q)=${num},${num}`, 'i'),
-                    new RegExp(`place\\/.*?\\/@${num},${num}`, 'i'),
-                    new RegExp(`ll=${num},${num}`, 'i'),
-                    new RegExp(`@${num},${num}`, 'i')
-                ];
-
                 let fbPriority = 70;
-                for (let rx of fallbacks) {
+                for (let rx of FALLBACK_REGEXES) {
                     const match = cleanPayload.match(rx);
                     if (match) candidates.push({ lat: parseFloat(match[1]), lon: parseFloat(match[2]), priority: fbPriority });
                     fbPriority--;
@@ -1554,7 +1538,6 @@
                 updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
                 updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
                 
-                // Always forcibly clear out previous internal router controls to guarantee fresh fuel/routing options apply correctly
                 if (state.routeCtrl) {
                     state.mapObj.removeControl(state.routeCtrl);
                     state.routeCtrl = null;
@@ -1592,9 +1575,7 @@
             updateHTML(DOM.statusEl, statusText);
             updateClass(DOM.statusEl, statusClass);
 
-            // Retrieve decoded polygon coords
             if (route.coordinates && Array.isArray(route.coordinates)) {
-                // Ensure array structures match Leaflet standards exactly (both latLng objects or literal array parsing)
                 state.currentRouteCoords = route.coordinates.map(c => c.lat ? c : L.latLng(c[0], c[1]));
             }
 
@@ -1608,13 +1589,11 @@
                 fetchRouteIntelligence(route);
             }
 
-            // Bind Native Nav generation dynamically to active route waypoints (including Pit Stops)
             const wps = state.routeCtrl.getWaypoints();
             if (wps && wps.length > 1) {
                 DOM.navBtn.onclick = () => {
                     const conf = FuelManager.getConfig();
                     let avoidParams = [];
-                    // Adhere stringent to Google Maps Native URL guidelines (avoid=tolls,highways,ferries)
                     if (conf.avoidTolls) avoidParams.push('tolls');
                     if (conf.avoidHighways) avoidParams.push('highways');
                     if (conf.avoidFerries) avoidParams.push('ferries');
@@ -1638,12 +1617,12 @@
 
         function calculateRouteNodes(route) {
             const totalDistance = route.summary.totalDistance;
-            const coords = state.currentRouteCoords; // Use globally parsed array instead of raw engine return
+            const coords = state.currentRouteCoords; 
             if (!coords || coords.length === 0) return [];
 
             const intervalDist = CONFIG.routingIntervalNodeDist; 
             const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
-            const nodes = [];
+            const nodes = new Array(totalFutureNodesCount);
             
             let cumulativeDistances = new Float32Array(coords.length);
             cumulativeDistances[0] = 0;
@@ -1666,14 +1645,15 @@
                     const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
                     const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
 
-                    const foundPoint = {
+                    nodes[i-1] = {
                         lat: p1.lat + (p2.lat - p1.lat) * ratio,
-                        lng: p1.lng + (p2.lng - p1.lng) * ratio
+                        lon: p1.lng + (p2.lng - p1.lng) * ratio,
+                        id: i,
+                        passed: false
                     };
-                    nodes.push({ lat: foundPoint.lat, lon: foundPoint.lng, id: i, passed: false });
                 }
             }
-            return nodes;
+            return nodes.filter(n => n !== undefined);
         }
 
         async function fetchRouteIntelligence(route) {
@@ -1686,7 +1666,6 @@
             if (!state.routeNodes || state.routeNodes.length === 0) {
                 state.routeNodes = calculateRouteNodes(route);
                 
-                // Unconditionally preserve original base trajectory to guarantee pitstop scans never deviate from the primary NAV Link intent
                 if (!state.fuelMarker) {
                     state.originalRouteNodes = state.routeNodes.map(node => ({ ...node }));
                 }
@@ -1694,6 +1673,7 @@
 
             let unpassedNodes = [];
             if (state.routeNodes && state.autoCoords) {
+                // Pre-allocated extraction to prevent map/filter GC thrash on rapid intel polls
                 for (let i = 0; i < state.routeNodes.length; i++) {
                     if (!state.routeNodes[i].passed) {
                         let d = fastDistance(state.autoCoords.lat, state.autoCoords.lon, state.routeNodes[i].lat, state.routeNodes[i].lon);
@@ -1713,7 +1693,10 @@
 
             updateInterceptMarkersPool(unpassedNodes);
             
-            const uiStackNodes = unpassedNodes.slice(0, 4);
+            const uiStackNodes = [];
+            for (let i = 0; i < Math.min(4, unpassedNodes.length); i++) {
+                uiStackNodes.push(unpassedNodes[i]);
+            }
             uiStackNodes.reverse(); 
 
             const waypoints = [...uiStackNodes];
@@ -1731,12 +1714,10 @@
                 const lons = waypoints.map(w => w.lon).join(',');
                 
                 const [baseRes, modelRes] = await Promise.all([
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 })
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 500),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 500)
                 ]);
                 
-                if (!baseRes.ok || !modelRes.ok) throw new Error("Weather API Error");
-
                 const baseData = await baseRes.json();
                 const modelData = await modelRes.json();
                 
@@ -1973,7 +1954,6 @@
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-xmark text-xl');
                 updateText(DOM.audio.text, "SONAR OFF");
                 
-                // Suspend audio context explicitly to release lock and save battery on mobile devices
                 if (ctx.state === 'running') ctx.suspend();
             }
         }
@@ -1995,7 +1975,6 @@
             state.lastPing = Date.now();
         }
 
-        // PERFORMANCE OPTIMIZATION: Zero-allocation Chart updates to prevent GC pauses
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement) {
             const tc = THEME_COLORS;
             
@@ -2082,10 +2061,8 @@
                 };
             }
 
-            // Raw structural health check before 'clean' normalizes missing data to 0
             const checkHealth = (rawArr) => {
                 if (!rawArr || !Array.isArray(rawArr)) return false;
-                // If Open-Meteo returns pure nulls, the node is out of geographical bounds.
                 if (rawArr.every(v => v === null)) return false;
                 return true;
             };
@@ -2097,7 +2074,15 @@
                 checkHealth(h.precipitation_jma_seamless)
             ];
             
-            const clean = (arr) => (arr || new Array(h.time.length).fill(0)).map(v => v === null ? 0 : v);
+            const clean = (arr) => {
+                const limit = h.time.length;
+                const src = arr || new Array(limit).fill(0);
+                const result = new Array(limit);
+                for (let i = 0; i < limit; i++) {
+                    result[i] = src[i] === null ? 0 : src[i];
+                }
+                return result;
+            };
             const rEU = clean(h.precipitation_ecmwf_ifs025);
             const rUS = clean(h.precipitation_gfs_seamless);
             const rDE = clean(h.precipitation_icon_seamless);
@@ -2113,23 +2098,28 @@
             };
             
             const uvArr = hSol.uv_index || new Array(h.time.length).fill(0);
-            const uvData = uvArr.slice(nowIndex, maxSlice).map(v => v === null ? 0 : v);
+            
+            const uvData = new Array(maxSlice - nowIndex);
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
+                uvData[i] = uvArr[j] === null ? 0 : uvArr[j];
+            }
             const solarData = clean(hSol.shortwave_radiation).slice(nowIndex, maxSlice);
             
-            const times = h.time.slice(nowIndex, maxSlice).map(t => { 
-                const date = new Date(t * 1000);
+            const times = new Array(maxSlice - nowIndex);
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
+                const date = new Date(h.time[j] * 1000);
                 const s = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-                return s === "00:00" || s === "24:00" ? "00:00 (+1d)" : s; 
-            });
+                times[i] = (s === "00:00" || s === "24:00") ? "00:00 (+1d)" : s;
+            }
             
-            const hourlyAgreement = [];
+            const hourlyAgreement = new Array(rainData.eu.length);
             for (let i = 0; i < rainData.eu.length; i++) {
                 let v = 0; 
                 if(rainData.eu[i]>0.1)v++; 
                 if(rainData.us[i]>0.1)v++; 
                 if(rainData.de[i]>0.1)v++; 
                 if(rainData.jp[i]>0.1)v++;
-                hourlyAgreement.push((v/4)*100);
+                hourlyAgreement[i] = (v/4)*100;
             }
             
             const currentAgreement = hourlyAgreement[0] || 0;
@@ -2143,12 +2133,10 @@
         }
 
         function renderTelemetryUI(data, isOffline) {
-            const { curr, rEU, rUS, rDE, rJP, currentAgreement, currentVotes, incomingRain, uvData, times, nodeHealth } = data;
+            const { curr, currentAgreement, currentVotes, incomingRain, uvData, times, nodeHealth } = data;
 
             ['eu','us','de','jp'].forEach((id, idx) => {
                 const el = document.getElementById(`stat-${id}`);
-                
-                // Read health state directly assigned during payload normalization
                 const isHealthy = nodeHealth ? nodeHealth[idx] : true; 
 
                 if(!isHealthy) { 
@@ -2229,7 +2217,7 @@
             state.telemetryCache.lon = lon;
             
             if (!skipReverseGeo && navigator.onLine) {
-                fetchWithTimeout(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 })
+                fetchWithRetry(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 }, 2, 500)
                     .then(r => r.json())
                     .then(d => {
                         const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
@@ -2240,13 +2228,11 @@
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
                 const [rCurr, rFore, rSolar] = await Promise.all([
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }),
-                    fetchWithTimeout(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 })
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
                 ]);
                 
-                if (!rCurr.ok || !rFore.ok || !rSolar.ok) throw new Error("Weather API Error");
-
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
@@ -2301,7 +2287,6 @@
             runApp();
         }
 
-        // PERFORMANCE OPTIMIZATION: IndexedDB Overpass Caching to prevent duplicate spatial queries
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             getConfig: function() {
@@ -2320,8 +2305,12 @@
             findAlongRoute: async function(lat, lon, routeNodes) {
                 const conf = this.getConfig();
                 
-                let upcoming = routeNodes.filter(n => !n.passed).slice(0, 5);
-                if (upcoming.length === 0) return await this.findNearest(lat, lon); // fallback to origin radial 
+                let upcoming = [];
+                for (let i = 0; i < routeNodes.length && upcoming.length < 5; i++) {
+                    if (!routeNodes[i].passed) upcoming.push(routeNodes[i]);
+                }
+                
+                if (upcoming.length === 0) return await this.findNearest(lat, lon); 
 
                 const cacheKey = `fuel_route_${conf.brand}_${upcoming[0].lat.toFixed(2)}_${upcoming[0].lon.toFixed(2)}`;
                 
@@ -2342,8 +2331,7 @@
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
                 try {
-                    const res = await fetchWithTimeout(url, { timeout: 20000 });
-                    if (!res.ok) throw new Error("Overpass API Error");
+                    const res = await fetchWithRetry(url, { timeout: 20000 }, 2, 500);
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
                     
@@ -2363,12 +2351,11 @@
             },
             findNearest: async function(lat, lon) {
                 const conf = this.getConfig();
-                // 2 Decimal truncating = ~1.1km grid for caching bounding box
                 const cacheKey = `fuel_${conf.brand}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
                 
                 try {
                     const cached = await localforage.getItem(cacheKey);
-                    if (cached && (Date.now() - cached.timestamp < 86400000)) { // 24h cache TTL
+                    if (cached && (Date.now() - cached.timestamp < 86400000)) { 
                         return cached.data;
                     }
                 } catch(e) {}
@@ -2377,8 +2364,7 @@
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 
                 try {
-                    const res = await fetchWithTimeout(url, { timeout: 15000 });
-                    if (!res.ok) throw new Error("Overpass API Error");
+                    const res = await fetchWithRetry(url, { timeout: 15000 }, 2, 500);
                     const data = await res.json();
                     if (!data.elements || data.elements.length === 0) return null;
                     
@@ -2403,32 +2389,28 @@
                     return;
                 }
                 
-                // CRITICAL: Actively purge any previous pitstops to ensure the upcoming scan is pristine
                 if (state.fuelMarker) {
                     state.mapObj.removeLayer(state.fuelMarker);
                     state.fuelMarker = null;
                 }
 
-                // If currently routing, strip existing intermediate pitstop waypoints from the engine controller
                 if (state.routeCtrl && state.targetCoords && !state.isFuelOnlyRoute) {
                     let wps = state.routeCtrl.getWaypoints();
                     if (wps.length > 2) {
                         const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
                         const dest = L.latLng(state.targetCoords.lat, state.targetCoords.lon);
-                        state.routeCtrl.setWaypoints([origin, dest]); // Clean reset
+                        state.routeCtrl.setWaypoints([origin, dest]); 
                     }
                 }
 
                 updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-fade mr-2"></i> SCANNING FOR ${this.getConfig().brand}...`);
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
                 
-                // Force usage of the specifically preserved original base trajectory regardless of deviations
                 let searchNodes = state.originalRouteNodes || state.routeNodes;
 
                 let station = null;
                 if (searchNodes && searchNodes.some(n => !n.passed)) {
                     station = await this.findAlongRoute(state.autoCoords.lat, state.autoCoords.lon, searchNodes);
-                    // Add fallback to radius search if strict route search yields no results
                     if (!station) {
                         station = await this.findNearest(state.autoCoords.lat, state.autoCoords.lon);
                     }
@@ -2457,11 +2439,9 @@
                             const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
                             const dest = L.latLng(state.targetCoords.lat, state.targetCoords.lon);
                             
-                            // Clear nodes to force intelligence recalculation on the new path
                             state.routeNodes = null;
                             state.lastIntelFetch = 0;
                             
-                            // Strictly enforce maximum 3 waypoints: [Origin, PitStop, Destination]
                             state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
                         }
                     } else {
@@ -2475,7 +2455,6 @@
             init: function() {
                 const conf = this.getConfig();
                 
-                // Populate Target Brand Dropdown
                 DOM.fuel.brand.innerHTML = '';
                 Object.keys(FUEL_CATALOG).forEach(brand => {
                     const opt = document.createElement('option');
@@ -2484,7 +2463,6 @@
                     DOM.fuel.brand.appendChild(opt);
                 });
 
-                // Helper to dynamically render variants based on chosen brand
                 const updateVariants = (selectedBrand) => {
                     DOM.fuel.variant.innerHTML = '';
                     const variants = FUEL_CATALOG[selectedBrand] || ["Any"];
@@ -2496,16 +2474,13 @@
                     });
                 };
 
-                // Add Dependency Listener
                 DOM.fuel.brand.addEventListener('change', (e) => {
                     updateVariants(e.target.value);
                 });
 
-                // Set initial values safely based on persistence
                 DOM.fuel.brand.value = FUEL_CATALOG[conf.brand] ? conf.brand : 'Shell';
                 updateVariants(DOM.fuel.brand.value);
                 
-                // Ensure variant fallback safety if switching brands and the cached variant doesn't match
                 if (Array.from(DOM.fuel.variant.options).some(opt => opt.value === conf.variant)) {
                     DOM.fuel.variant.value = conf.variant;
                 }
@@ -2525,7 +2500,6 @@
                     
                     closeModal('fuel-settings-modal');
                     
-                    // Immediately rebuild routing infrastructure retaining waypoints to apply the new avoid logic 
                     if (state.routeCtrl) {
                         const wps = state.routeCtrl.getWaypoints();
                         state.mapObj.removeControl(state.routeCtrl);
@@ -2545,7 +2519,6 @@
             startBackgroundTracking();
             FuelManager.init();
             
-            // Kick off the continuous 60fps smoothing engine
             requestAnimationFrame(smoothVisualsLoop);
             
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
@@ -2573,7 +2546,6 @@
             }
         }
         
-        // Ensure defer-loaded resources are available before execution
         function checkDependenciesAndRun() {
             if (typeof localforage === 'undefined' || typeof Chart === 'undefined' || typeof L === 'undefined' || typeof L.Routing === 'undefined') {
                 setTimeout(checkDependenciesAndRun, 50);
@@ -2644,15 +2616,11 @@
                     const swBlob = new Blob([swCode], { type: 'application/javascript' });
                     const swUrl = URL.createObjectURL(swBlob);
                     
-                    // Safe execution bypass for secure origin enforcement block on blob definitions
                     navigator.serviceWorker.register(swUrl, { scope: '/' }).catch(e => {
-                        // Suppressed intentionally: Blob origin violation expected in iframe/sandboxed environments.
                     }).finally(() => {
-                        // Garbage collect the blob URL immediately to avoid memory leak footprint
                         setTimeout(() => URL.revokeObjectURL(swUrl), 1000);
                     });
                 } catch (e) {
-                    // CSP execution block caught
                 }
             }
 
@@ -2672,7 +2640,6 @@
             });
         })();
 
-        // Bootstrap App Pipeline
         checkDependenciesAndRun();
     </script>
 </body>
