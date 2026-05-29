@@ -66,6 +66,12 @@
         /* Hide scrollbar for timeline carousel but keep functionality */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Custom scrollbar for horizontal tracks */
+        .horizontal-scroll { scrollbar-width: thin; scrollbar-color: #14b8a6 #1a1a1a; }
+        .horizontal-scroll::-webkit-scrollbar { height: 8px; }
+        .horizontal-scroll::-webkit-scrollbar-track { background: #1a1a1a; border-radius: 4px; }
+        .horizontal-scroll::-webkit-scrollbar-thumb { background: #14b8a6; border-radius: 4px; }
         
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
         input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
@@ -1705,7 +1711,7 @@
                 waypoints.push({ lat: state.autoCoords.lat, lon: state.autoCoords.lon, type: 'current', offsetKm: 0 });
             }
 
-            // Cap the upcoming nodes to exactly 2 succeeding nodes as requested
+            // Cap the upcoming nodes to exactly 2 succeeding nodes to preserve 3-node behavior
             const MAX_API_NODES = 2; 
             for (let i = 0; i < Math.min(MAX_API_NODES, unpassedNodes.length); i++) {
                 waypoints.push(unpassedNodes[i]);
@@ -1731,7 +1737,8 @@
                 const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
                 const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
-                let htmlBuffer = `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto snap-y snap-mandatory gap-4 pb-4 pt-2 no-scrollbar scroll-smooth w-full max-h-[60vh] md:max-h-[500px]">`;
+                // Redesigned to horizontal carousel track
+                let htmlBuffer = `<div id="timeline-scroll-track" class="flex flex-row overflow-x-auto snap-x snap-mandatory gap-4 pb-4 pt-2 horizontal-scroll scroll-smooth w-full relative">`;
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
@@ -1833,8 +1840,9 @@
                         displayLabel = "POS";
                     }
 
+                    // Modified to be a horizontal card
                     htmlBuffer += `
-                        <div class="shrink-0 snap-start w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 overflow-hidden relative mb-1">
+                        <div class="shrink-0 snap-start w-[85%] sm:w-[320px] md:w-[380px] ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl rounded-l-md shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 overflow-hidden relative mb-1">
                             <div class="flex items-start justify-between w-full gap-3">
                                 <div class="flex items-center gap-3 shrink-0">
                                     <div class="w-16 h-16 md:w-[72px] md:h-[72px] rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
@@ -1873,8 +1881,8 @@
                     track.addEventListener('scroll', () => {
                         if (state.timelineIdleTimer) clearTimeout(state.timelineIdleTimer);
                         state.timelineIdleTimer = setTimeout(() => {
-                            // Smooth scroll snap back to the start (current + next few nodes)
-                            track.scrollTo({ top: 0, behavior: 'smooth' });
+                            // Smooth scroll snap back to the start (current + next few nodes) horizontally
+                            track.scrollTo({ left: 0, behavior: 'smooth' });
                         }, 4000); // Wait 4 seconds after scrolling stops
                     });
                 }
