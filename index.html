@@ -1705,8 +1705,8 @@
                 waypoints.push({ lat: state.autoCoords.lat, lon: state.autoCoords.lon, type: 'current', offsetKm: 0 });
             }
 
-            // Cap the upcoming nodes to a safe URL length limit for Open-Meteo (~14 upcoming + 1 current = 15 total)
-            const MAX_API_NODES = 14; 
+            // Cap the upcoming nodes to exactly 2 succeeding nodes as requested
+            const MAX_API_NODES = 2; 
             for (let i = 0; i < Math.min(MAX_API_NODES, unpassedNodes.length); i++) {
                 waypoints.push(unpassedNodes[i]);
             }
@@ -1731,7 +1731,7 @@
                 const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
                 const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
-                let htmlBuffer = `<div id="timeline-scroll-track" class="flex flex-row overflow-x-auto snap-x snap-mandatory gap-4 pb-4 pt-2 no-scrollbar scroll-smooth w-full h-auto">`;
+                let htmlBuffer = `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto snap-y snap-mandatory gap-4 pb-4 pt-2 no-scrollbar scroll-smooth w-full max-h-[60vh] md:max-h-[500px]">`;
                 
                 weatherPoints.forEach((p, idx) => {
                     const wp = waypoints[idx];
@@ -1834,7 +1834,7 @@
                     }
 
                     htmlBuffer += `
-                        <div class="shrink-0 snap-start w-[85vw] sm:w-[340px] ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 overflow-hidden relative m-1">
+                        <div class="shrink-0 snap-start w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 overflow-hidden relative mb-1">
                             <div class="flex items-start justify-between w-full gap-3">
                                 <div class="flex items-center gap-3 shrink-0">
                                     <div class="w-16 h-16 md:w-[72px] md:h-[72px] rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
@@ -1874,7 +1874,7 @@
                         if (state.timelineIdleTimer) clearTimeout(state.timelineIdleTimer);
                         state.timelineIdleTimer = setTimeout(() => {
                             // Smooth scroll snap back to the start (current + next few nodes)
-                            track.scrollTo({ left: 0, behavior: 'smooth' });
+                            track.scrollTo({ top: 0, behavior: 'smooth' });
                         }, 4000); // Wait 4 seconds after scrolling stops
                     });
                 }
