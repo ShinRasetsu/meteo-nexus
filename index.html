@@ -505,7 +505,7 @@
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
-            isFuelOnlyRoute: false,
+            isFuelOnlyRoute: false, customRouteWaypoints: null,
             timelineIdleTimer: null,
             
             // Render Pipeline State
@@ -1357,10 +1357,18 @@
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
             if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); }
 
-            const wps = existingWaypoints || [ 
-                L.latLng(state.autoCoords.lat, state.autoCoords.lon), 
-                L.latLng(state.targetCoords.lat, state.targetCoords.lon) 
-            ];
+            let wps;
+            if (existingWaypoints) {
+                wps = existingWaypoints;
+            } else if (state.customRouteWaypoints && state.customRouteWaypoints.length > 1) {
+                wps = [...state.customRouteWaypoints];
+                wps[0] = L.latLng(state.autoCoords.lat, state.autoCoords.lon);
+            } else {
+                wps = [
+                    L.latLng(state.autoCoords.lat, state.autoCoords.lon),
+                    L.latLng(state.targetCoords.lat, state.targetCoords.lon)
+                ];
+            }
 
             state.routeCtrl = L.Routing.control({
                 waypoints: wps,
@@ -1471,24 +1479,7 @@
 
                 let lat = null, lon = null;
                 let originLat = null, originLon = null;
-
-                try {
-                    const parsedUrl = new URL(rawUrl);
-                    const destParam = parsedUrl.searchParams.get('destination');
-                    if (destParam) {
-                        const parts = destParam.split(',');
-                        if (parts.length >= 2) {
-                            lat = parseFloat(parts[0]);
-                            lon = parseFloat(parts[1]);
-                        }
-                    }
-                } catch(e) { }
-
-                const originMatch = cleanUrl.match(RX_DIR);
-                if (originMatch) {
-                    originLat = parseFloat(originMatch[1]);
-                    originLon = parseFloat(originMatch[2]);
-                }
+                let explicitWaypoints = [];
 
                 const isValid = (tLat, tLon) => {
                     if (tLat === null || tLon === null || isNaN(tLat) || isNaN(tLon)) return false;
@@ -1499,6 +1490,54 @@
                     }
                     return true;
                 };
+
+                // MULTI-NODE TRAJECTORY EXTRACTION
+                const dirMatch = cleanUrl.match(/\/dir\/([^\?]+)/i);
+                if (dirMatch) {
+                    const pathPart = dirMatch[1].split(/\/@|\/data=/i)[0];
+                    const segments = pathPart.split('/');
+                    for (const seg of segments) {
+                        const decodedSeg = decodeURIComponent(seg);
+                        const m = decodedSeg.match(/^([+-]?\d+(?:\.\d+)?),([+-]?\d+(?:\.\d+)?)$/);
+                        if (m) {
+                            const wpLat = parseFloat(m[1]);
+                            const wpLon = parseFloat(m[2]);
+                            if (isValid(wpLat, wpLon)) explicitWaypoints.push(L.latLng(wpLat, wpLon));
+                        }
+                    }
+                }
+
+                // DEDUPLICATE ADJACENT WAYPOINTS (PREVENTS ROUTING ENGINE LOOP-BACKS)
+                let cleanWaypoints = [];
+                for (let i = 0; i < explicitWaypoints.length; i++) {
+                    if (i === 0 || explicitWaypoints[i].lat !== explicitWaypoints[i-1].lat || explicitWaypoints[i].lng !== explicitWaypoints[i-1].lng) {
+                        cleanWaypoints.push(explicitWaypoints[i]);
+                    }
+                }
+                explicitWaypoints = cleanWaypoints;
+
+                // IF TARGET HAS EXPLICIT VIA-POINTS, ENFORCE EXACT ROUTE
+                if (explicitWaypoints.length >= 2) {
+                    const dest = explicitWaypoints[explicitWaypoints.length - 1];
+                    lat = dest.lat;
+                    lon = dest.lng;
+
+                    let finalWaypoints = [];
+                    if (state.autoCoords) {
+                        finalWaypoints.push(L.latLng(state.autoCoords.lat, state.autoCoords.lon));
+                        // Snap origin logic: Bypass GMaps origin if current GPS is within 1km radius
+                        let distToOrigin = fastDistance(state.autoCoords.lat, state.autoCoords.lon, explicitWaypoints[0].lat, explicitWaypoints[0].lng);
+                        let startIndex = (distToOrigin < 1000) ? 1 : 0;
+                        for (let i = startIndex; i < explicitWaypoints.length; i++) {
+                            finalWaypoints.push(explicitWaypoints[i]);
+                        }
+                    } else {
+                        finalWaypoints = explicitWaypoints;
+                    }
+
+                    window.activateLiveNavigation(lat, lon, false, finalWaypoints);
+                    return;
+                }
 
                 let candidates = [];
                 if (isValid(lat, lon)) candidates.push({ lat, lon, priority: 200 });
@@ -1552,8 +1591,9 @@
             }
         }
 
-        window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false) {
+        window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false, customWaypoints = null) {
             state.targetCoords = { lat: destLat, lon: destLon }; 
+            state.customRouteWaypoints = customWaypoints;
             state.routeNodes = null;
             state.isFuelOnlyRoute = isFuelOnly;
             
@@ -2270,6 +2310,7 @@
         window.resetToAuto = function() {
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
+            state.customRouteWaypoints = null;
             state.maxSpeed = 0;
             updateText(DOM.maxSpeed, '0');
             state.routeNodes = null;
