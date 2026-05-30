@@ -1361,8 +1361,7 @@
             if (existingWaypoints) {
                 wps = existingWaypoints;
             } else if (state.customRouteWaypoints && state.customRouteWaypoints.length > 1) {
-                wps = [...state.customRouteWaypoints];
-                wps[0] = L.latLng(state.autoCoords.lat, state.autoCoords.lon);
+                wps = [...state.customRouteWaypoints]; // Now respects exact parsed waypoints without destroying origin
             } else {
                 wps = [
                     L.latLng(state.autoCoords.lat, state.autoCoords.lon),
