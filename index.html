@@ -350,6 +350,18 @@
                         <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Ferries</span>
                     </label>
                 </div>
+                
+                <div class="mt-4 pt-4 border-t border-surface-700">
+                    <div class="flex justify-between items-center bg-surface-800 p-3 rounded-lg border border-surface-600">
+                        <div>
+                            <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Verify 24/7 & Stock</span>
+                            <span class="block text-xs font-black text-brand-orange uppercase tracking-widest mt-0.5">Official Source</span>
+                        </div>
+                        <button id="btn-official-locator" class="bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open
+                        </button>
+                    </div>
+                </div>
             </div>
             <div class="flex gap-3 justify-end mt-6">
                 <button onclick="closeModal('fuel-settings-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
@@ -384,19 +396,22 @@
     <script type="module">
         "use strict";
 
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
         // --- DEFENSIVE FETCH WRAPPER WITH EXPONENTIAL BACKOFF ---
         const fetchWithRetry = async (url, options = {}, retries = 3, backoff = 500) => {
             const timeout = options.timeout || 15000;
             for (let i = 0; i < retries; i++) {
                 const controller = new AbortController();
                 const id = setTimeout(() => controller.abort(), timeout);
-                const combinedSignal = options.signal ? 
-                    (AbortSignal.any ? AbortSignal.any([options.signal, controller.signal]) : controller.signal) 
-                    : controller.signal;
+                
+                // Hardware-safe polyfill for AbortSignal combining
+                let combinedSignal = controller.signal;
+                if (options.signal) {
+                    if (typeof AbortSignal !== 'undefined' && AbortSignal.any) {
+                        combinedSignal = AbortSignal.any([options.signal, controller.signal]);
+                    } else {
+                        options.signal.addEventListener('abort', () => controller.abort());
+                    }
+                }
 
                 try {
                     const res = await fetch(url, { ...options, signal: combinedSignal });
@@ -432,19 +447,35 @@
         let isCloudActive = false;
         let appId = 'default-app-id';
 
-        try {
-            const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-            if (configStr) {
-                const firebaseConfig = JSON.parse(configStr);
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                isCloudActive = true;
+        async function initializeCloudServices() {
+            try {
+                const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+                if (configStr) {
+                    const firebaseConfig = JSON.parse(configStr);
+                    // Dynamically import Firebase to prevent total app failure if blocked by privacy extensions/adblockers
+                    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+                    const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                    const { getFirestore } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                    
+                    app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    isCloudActive = true;
+                    
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
+                    } else {
+                        await signInAnonymously(auth).catch(console.error);
+                    }
+                    onAuthStateChanged(auth, (user) => { state.userAuth = user; });
+                }
+            } catch (e) { 
+                console.warn("MeteoNexus: Cloud Connection Blocked or Failed. App operating in isolated local mode.", e); 
             }
-        } catch (e) { 
-            console.warn("MeteoNexus: Cloud Connection Failed.", e); 
         }
+        
+        initializeCloudServices();
 
         // --- GLOBAL STATE & CONFIGURATIONS ---
         const CONFIG = {
@@ -493,6 +524,55 @@
             "Phoenix": ["Premium 98", "Premium 95", "Super Unleaded", "Diesel"]
         };
 
+        const BRAND_LINKS = {
+            "Shell": "https://find.shell.com/ph/fuel/locations/en_PH",
+            "Petron": "https://www.petron.com/station-finder/",
+            "Caltex": "https://www.caltex.com/ph/find-a-caltex-station.html",
+            "Seaoil": "https://www.seaoil.com.ph/station-locator",
+            "Unioil": "https://unioil.com/station-locator",
+            "Cleanfuel": "https://www.cleanfuel.ph/stations/",
+            "Flying V": "https://www.flyingv.com.ph/station-locator/",
+            "PTT": "https://www.pttphilippines.com/station-locator/",
+            "Phoenix": "https://www.phoenixfuels.ph/station-locator/"
+        };
+
+        const VARIANT_OSM_MAP = {
+            "Blaze 100": "fuel:octane_100",
+            "XCS": "fuel:octane_95",
+            "Xtra Advance": "fuel:octane_91",
+            "Turbo Diesel": "fuel:diesel",
+            "Diesel Max": "fuel:diesel",
+            "V-Power Racing": "fuel:octane_98", 
+            "V-Power Gasoline": "fuel:octane_95",
+            "V-Power Diesel": "fuel:diesel",
+            "FuelSave Gasoline": "fuel:octane_91",
+            "FuelSave Diesel": "fuel:diesel",
+            "Platinum with Techron": "fuel:octane_95",
+            "Silver with Techron": "fuel:octane_91",
+            "Diesel with Techron D": "fuel:diesel",
+            "Extreme 97": "fuel:octane_97",
+            "Extreme 95": "fuel:octane_95",
+            "Extreme U": "fuel:octane_91",
+            "Exceed Diesel": "fuel:diesel",
+            "Euro 5 Premium 97": "fuel:octane_97",
+            "Euro 5 Premium 95": "fuel:octane_95",
+            "Euro 5 Unleaded 91": "fuel:octane_91",
+            "Euro 5 Diesel": "fuel:diesel",
+            "Premium 95": "fuel:octane_95",
+            "Clean91": "fuel:octane_91",
+            "Diesel": "fuel:diesel",
+            "AutoLPG": "fuel:lpg",
+            "Thunder Plus": "fuel:octane_95",
+            "Thunder": "fuel:octane_91",
+            "Unleaded": "fuel:octane_91",
+            "Blue Innovation 97": "fuel:octane_97",
+            "Blue Innovation 95": "fuel:octane_95",
+            "Blue Innovation 91": "fuel:octane_91",
+            "Blue Diesel": "fuel:diesel",
+            "Premium 98": "fuel:octane_98",
+            "Super Unleaded": "fuel:octane_91"
+        };
+
         // Singleton Central State Store
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {}, 
@@ -501,7 +581,7 @@
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0, 
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null, 
-            userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, 
+            userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
@@ -533,7 +613,7 @@
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
             liveCompassIcon: document.getElementById('live-compass-icon'), hudMap: document.getElementById('hud-map'),
-            accUi: document.getElementById('gps-acc-ui'), statusEl: document.getElementById('route-status'),
+            accUi: document.getElementById('gps-acc-ui'), accText: null, statusEl: document.getElementById('route-status'),
             navBtn: document.getElementById('native-nav-btn'), timelineContainer: document.getElementById('timeline-container'),
             localTimeText: document.getElementById('local-time-text'), locationBadge: document.getElementById('location-badge'),
             metricTemp: document.getElementById('metric-temp'), metricFeels: document.getElementById('metric-feels'),
@@ -550,6 +630,10 @@
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn')
         };
+        // Ensure deeply nested dynamic elements are cached
+        if (DOM.accUi) {
+            DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
+        }
 
         const updateText = (el, val) => { if (el && el.textContent !== String(val)) el.textContent = val; };
         const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
@@ -731,8 +815,7 @@
             }
 
             if (state.renderAccText !== null && DOM.accUi) {
-                const accTextEl = DOM.accUi.querySelector('#gps-acc-text');
-                if (accTextEl) updateHTML(accTextEl, state.renderAccText);
+                if (DOM.accText) updateHTML(DOM.accText, state.renderAccText);
                 updateClass(DOM.accUi, state.renderAccClass);
                 state.renderAccText = null;
             }
@@ -927,7 +1010,7 @@
                             const res = await cache.match(url);
                             if (!res) {
                                 const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
-                                if (fetchRes.ok) await cache.put(url, fetchRes);
+                                if (fetchRes.ok) await cache.put(url, fetchRes.clone());
                             }
                         } catch(e) {}
                         downloaded++;
@@ -973,22 +1056,6 @@
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
             return globalAudioCtx;
-        }
-
-        // --- AUTHENTICATION FLOW ---
-        async function initAuth() {
-            if (!isCloudActive) return;
-            if (!auth) return;
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token).catch(e => signInAnonymously(auth));
-            } else {
-                await signInAnonymously(auth).catch(console.error);
-            }
-        }
-        
-        if (isCloudActive) {
-            initAuth();
-            onAuthStateChanged(auth, (user) => { state.userAuth = user; });
         }
 
         // --- WAKE LOCK & PERMISSIONS ---
@@ -1541,6 +1608,15 @@
                 let candidates = [];
                 if (isValid(lat, lon)) candidates.push({ lat, lon, priority: 200 });
 
+                // Cross-Brand Official URL Decryption via JSON/DOM scanning (e.g. find.shell.com)
+                if (url.includes('find.shell.com') || cleanPayload.includes('find.shell.com')) {
+                     const shellLat = cleanPayload.match(/"lat(?:itude)?"\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i) || cleanPayload.match(/data-lat(?:itude)?=["']([+-]?\d+(?:\.\d+)?)["']/i);
+                     const shellLon = cleanPayload.match(/"l(?:on|n)g(?:itude)?"\s*[:=]\s*([+-]?\d+(?:\.\d+)?)/i) || cleanPayload.match(/data-l(?:on|n)g(?:itude)?=["']([+-]?\d+(?:\.\d+)?)["']/i);
+                     if (shellLat && shellLon) {
+                          candidates.push({ lat: parseFloat(shellLat[1]), lon: parseFloat(shellLon[1]), priority: 250 });
+                     }
+                }
+
                 let destMatch = cleanPayload.match(RX_DEST);
                 if (destMatch) candidates.push({ lat: parseFloat(destMatch[1]), lon: parseFloat(destMatch[2]), priority: 100 });
 
@@ -1650,7 +1726,9 @@
             const now = Date.now();
             if (!state.lastIntelFetch || now - state.lastIntelFetch > 300000) {
                 state.lastIntelFetch = now;
-                fetchRouteIntelligence(route);
+                if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
+                state.intelFetchAbortController = new AbortController();
+                fetchRouteIntelligence(route, state.intelFetchAbortController.signal);
             }
 
             const wps = state.routeCtrl.getWaypoints();
@@ -1720,12 +1798,21 @@
             return nodes.filter(n => n !== undefined);
         }
 
-        async function fetchRouteIntelligence(route) {
+        async function fetchRouteIntelligence(route, signal) {
+            if (signal && signal.aborted) return;
+            
             if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
                 DOM.secIntel.classList.remove('hidden');
             }
             
-            updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
+            // Retain scroll position context during background reflow updates to prevent jarring UI jumps
+            let scrollPos = 0;
+            const scrollTrack = document.getElementById('timeline-scroll-track');
+            if (scrollTrack) scrollPos = scrollTrack.scrollTop;
+            
+            if (!scrollTrack) {
+                updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
+            }
 
             if (!state.routeNodes || state.routeNodes.length === 0) {
                 state.routeNodes = calculateRouteNodes(route);
@@ -1778,13 +1865,15 @@
                 const lons = waypoints.map(w => w.lon).join(',');
                 
                 const [baseRes, modelRes] = await Promise.all([
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 500),
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 500)
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500)
                 ]);
                 
                 const baseData = await baseRes.json();
                 const modelData = await modelRes.json();
                 
+                if (signal && signal.aborted) return;
+
                 const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
                 const modelPoints = Array.isArray(modelData) ? modelData : [modelData];
                 
@@ -1926,8 +2015,14 @@
                 
                 htmlBuffer += '</div>';
                 updateHTML(DOM.timelineContainer, htmlBuffer);
+                
+                if (scrollPos > 0) {
+                    const newScrollTrack = document.getElementById('timeline-scroll-track');
+                    if (newScrollTrack) newScrollTrack.scrollTop = scrollPos;
+                }
 
             } catch (err) {
+                if (signal && signal.aborted) return;
                 console.warn(err);
                 updateHTML(DOM.timelineContainer, `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`);
             }
@@ -2307,6 +2402,11 @@
         }
 
         window.resetToAuto = function() {
+            if (state.intelFetchAbortController) {
+                state.intelFetchAbortController.abort();
+                state.intelFetchAbortController = null;
+            }
+
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
             state.customRouteWaypoints = null;
@@ -2358,6 +2458,54 @@
                 updateText(DOM.statusEl, "FUEL CONFIG SAVED");
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap");
             },
+            
+            // Dual-Tier Variant Filtering Logic
+            _processOverpassPayload: function(data, lat, lon, targetBrand, targetVariant) {
+                if (!data.elements || data.elements.length === 0) return [];
+                
+                let results = new Map();
+                let exactMatchesCount = 0;
+                const reqOsmTag = VARIANT_OSM_MAP[targetVariant];
+
+                data.elements.forEach(el => {
+                    const tLat = el.lat || el.center.lat; 
+                    const tLon = el.lon || el.center.lon;
+                    const id = `${tLat.toFixed(4)},${tLon.toFixed(4)}`;
+                    
+                    if (!results.has(id)) {
+                        const d = fastDistance(lat, lon, tLat, tLon);
+                        let isExact = false;
+                        
+                        if (reqOsmTag && el.tags && el.tags[reqOsmTag] === 'yes') {
+                            isExact = true;
+                            exactMatchesCount++;
+                        }
+                        
+                        results.set(id, { 
+                            lat: tLat, lon: tLon, 
+                            name: el.tags.name || targetBrand, 
+                            dist: (d/1000).toFixed(1),
+                            isExact: isExact
+                        });
+                    }
+                });
+                
+                let finalArray = Array.from(results.values());
+                let isStrictFiltered = false;
+                
+                // Tier 1 Enforcer: If OSM contains exact tag matches, filter strictly
+                if (exactMatchesCount > 0 && reqOsmTag) {
+                    finalArray = finalArray.filter(s => s.isExact);
+                    isStrictFiltered = true;
+                }
+                // Tier 2 Fallback: If 0 exact tags (due to sparse OSM data), bypass filter and return all Brand matches
+                
+                finalArray.sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
+                finalArray.forEach(s => { s.strictFilterActive = isStrictFiltered; });
+                
+                return { stations: finalArray, isStrict: isStrictFiltered };
+            },
+
             findAllAlongRoute: async function(lat, lon, routeNodes) {
                 const conf = this.getConfig();
                 let upcoming = [];
@@ -2392,22 +2540,11 @@
                 try {
                     const res = await fetchWithRetry(url, { timeout: 25000 }, 2, 500);
                     const data = await res.json();
-                    if (!data.elements || data.elements.length === 0) return [];
                     
-                    let results = new Map();
-                    data.elements.forEach(el => {
-                        const tLat = el.lat || el.center.lat; const tLon = el.lon || el.center.lon;
-                        const id = `${tLat.toFixed(4)},${tLon.toFixed(4)}`;
-                        if (!results.has(id)) {
-                            const d = fastDistance(lat, lon, tLat, tLon);
-                            results.set(id, { lat: tLat, lon: tLon, name: el.tags.name || conf.brand, dist: (d/1000).toFixed(1) });
-                        }
-                    });
-                    
-                    const finalData = Array.from(results.values()).sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
-                    await localforage.setItem(cacheKey, { data: finalData, timestamp: Date.now() });
-                    return finalData;
-                } catch(e) { return []; }
+                    const processedData = this._processOverpassPayload(data, lat, lon, conf.brand, conf.variant);
+                    await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() });
+                    return processedData;
+                } catch(e) { return { stations: [], isStrict: false }; }
             },
             findAllNearest: async function(lat, lon) {
                 const conf = this.getConfig();
@@ -2424,22 +2561,11 @@
                 try {
                     const res = await fetchWithRetry(url, { timeout: 15000 }, 2, 500);
                     const data = await res.json();
-                    if (!data.elements || data.elements.length === 0) return [];
                     
-                    let results = new Map();
-                    data.elements.forEach(el => {
-                        const tLat = el.lat || el.center.lat; const tLon = el.lon || el.center.lon;
-                        const id = `${tLat.toFixed(4)},${tLon.toFixed(4)}`;
-                        if (!results.has(id)) {
-                            const d = fastDistance(lat, lon, tLat, tLon);
-                            results.set(id, { lat: tLat, lon: tLon, name: el.tags.name || conf.brand, dist: (d/1000).toFixed(1) });
-                        }
-                    });
-                    
-                    const finalData = Array.from(results.values()).sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
-                    await localforage.setItem(cacheKey, { data: finalData, timestamp: Date.now() });
-                    return finalData;
-                } catch(e) { return []; }
+                    const processedData = this._processOverpassPayload(data, lat, lon, conf.brand, conf.variant);
+                    await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() });
+                    return processedData;
+                } catch(e) { return { stations: [], isStrict: false }; }
             },
             triggerIntercept: async function() {
                 if (!state.autoCoords) {
@@ -2457,22 +2583,24 @@
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
                 
                 let searchNodes = state.originalRouteNodes || state.routeNodes;
-                let stations = [];
+                let payload = { stations: [], isStrict: false };
 
                 if (searchNodes && searchNodes.some(n => !n.passed)) {
-                    stations = await this.findAllAlongRoute(state.autoCoords.lat, state.autoCoords.lon, searchNodes);
-                    if (!stations || stations.length === 0) {
-                        stations = await this.findAllNearest(state.autoCoords.lat, state.autoCoords.lon);
+                    payload = await this.findAllAlongRoute(state.autoCoords.lat, state.autoCoords.lon, searchNodes);
+                    if (!payload.stations || payload.stations.length === 0) {
+                        payload = await this.findAllNearest(state.autoCoords.lat, state.autoCoords.lon);
                     }
                 } else {
-                    stations = await this.findAllNearest(state.autoCoords.lat, state.autoCoords.lon);
+                    payload = await this.findAllNearest(state.autoCoords.lat, state.autoCoords.lon);
                 }
                 
-                if (stations && stations.length > 0) {
-                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-gas-pump mr-2"></i> FOUND ${stations.length} ${sanitizeHTML(this.getConfig().brand).toUpperCase()}`);
-                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap");
+                if (payload.stations && payload.stations.length > 0) {
+                    const strictBadgeTxt = payload.isStrict ? `<span class="text-brand-success uppercase"><i class="fa-solid fa-check"></i> EXACT FUEL</span>` : `<span class="text-brand-warning uppercase">BRAND MATCH</span>`;
+                    
+                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-gas-pump mr-2"></i> FOUND ${payload.stations.length} ${sanitizeHTML(this.getConfig().brand).toUpperCase()} <span class="hidden md:inline">|</span> <span class="text-[10px] bg-black/40 px-2 py-1 rounded ml-1 tracking-widest">${strictBadgeTxt}</span>`);
+                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap flex items-center");
 
-                    stations.forEach((station) => {
+                    payload.stations.forEach((station) => {
                         const marker = L.marker([station.lat, station.lon], {
                             icon: L.divIcon({
                                 className: 'custom-fuel-icon',
@@ -2484,11 +2612,21 @@
 
                         const popupContent = document.createElement('div');
                         popupContent.className = "p-1";
+                        
+                        const matchBadgeUI = station.strictFilterActive || station.isExact
+                            ? `<span class="text-[9px] bg-brand-success text-black px-2 py-1 rounded font-black uppercase tracking-widest shadow-[0_0_10px_rgba(34,197,94,0.4)]"><i class="fa-solid fa-check-double mr-1"></i> Exact Match</span>`
+                            : `<span class="text-[9px] bg-surface-700 text-gray-400 px-2 py-1 rounded font-bold uppercase tracking-widest" title="Specific fuel variant not tagged in OSM database. Showing Brand matches."><i class="fa-solid fa-circle-info mr-1"></i> Brand Match Only</span>`;
+
                         popupContent.innerHTML = `
-                            <div class="text-center font-sans">
-                                <b class="text-brand-orange text-xs uppercase tracking-widest block mb-1">${sanitizeHTML(station.name)}</b>
+                            <div class="text-center font-sans w-44">
+                                <b class="text-brand-orange text-xs uppercase tracking-widest block mb-1 truncate" title="${sanitizeHTML(station.name)}">${sanitizeHTML(station.name)}</b>
                                 <div class="text-[10px] text-gray-400 font-mono mb-2">${sanitizeHTML(this.getConfig().variant)} &bull; ${sanitizeHTML(station.dist)}km</div>
-                                <button class="set-pitstop-btn bg-brand-orange text-black font-black text-[10px] px-3 py-1.5 rounded-md uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.4)] w-full hover:bg-orange-400 transition-colors">Route Here</button>
+                                <div class="mb-2">${matchBadgeUI}</div>
+                                <div class="flex gap-1.5 mb-2 w-full">
+                                    <button class="verify-official-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600" title="Check Official Availability"><i class="fa-solid fa-globe text-brand-orange mb-0.5 block text-xs"></i>Official</button>
+                                    <button class="verify-gmaps-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600" title="Check 24/7 Hours & Reviews"><i class="fa-solid fa-map-location-dot text-brand-blue mb-0.5 block text-xs"></i>GMaps</button>
+                                </div>
+                                <button class="set-pitstop-btn bg-brand-orange text-black font-black text-[10px] px-3 py-2 rounded-md uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.4)] w-full hover:bg-orange-400 transition-colors"><i class="fa-solid fa-route mr-1"></i> Route Here</button>
                             </div>
                         `;
 
@@ -2502,12 +2640,28 @@
                                     this.setPitstopRoute(station);
                                 };
                             }
+                            
+                            const offBtn = popupContent.querySelector('.verify-official-btn');
+                            if (offBtn) {
+                                offBtn.onclick = () => {
+                                    const url = BRAND_LINKS[this.getConfig().brand] || "https://www.google.com/search?q=" + encodeURIComponent(this.getConfig().brand + " gas station locator");
+                                    window.open(url, '_blank');
+                                };
+                            }
+
+                            const gmapsBtn = popupContent.querySelector('.verify-gmaps-btn');
+                            if (gmapsBtn) {
+                                gmapsBtn.onclick = () => {
+                                    const url = `https://www.google.com/maps/search/${encodeURIComponent(station.name)}+Gas+Station/@${station.lat},${station.lon},17z`;
+                                    window.open(url, '_blank');
+                                };
+                            }
                         });
 
                         state.fuelMarkers.push(marker);
                     });
 
-                    let boundsCoords = stations.map(s => L.latLng(s.lat, s.lon));
+                    let boundsCoords = payload.stations.map(s => L.latLng(s.lat, s.lon));
                     boundsCoords.push(L.latLng(state.autoCoords.lat, state.autoCoords.lon));
                     state.mapObj.fitBounds(L.latLngBounds(boundsCoords), { padding: [50, 50], maxZoom: 14, animate: true });
 
@@ -2530,6 +2684,7 @@
                         
                         state.routeNodes = null;
                         state.lastIntelFetch = 0;
+                        if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
                         
                         state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
                     }
@@ -2568,6 +2723,15 @@
                 
                 if (Array.from(DOM.fuel.variant.options).some(opt => opt.value === conf.variant)) {
                     DOM.fuel.variant.value = conf.variant;
+                }
+
+                const officialBtn = document.getElementById('btn-official-locator');
+                if (officialBtn) {
+                    officialBtn.addEventListener('click', () => {
+                        const currentBrand = DOM.fuel.brand.value;
+                        const url = BRAND_LINKS[currentBrand] || "https://www.google.com/search?q=" + encodeURIComponent(currentBrand + " gas station locator Philippines");
+                        window.open(url, '_blank');
+                    });
                 }
 
                 DOM.fuel.toll.checked = conf.avoidTolls;
@@ -2702,6 +2866,7 @@
                     const swUrl = URL.createObjectURL(swBlob);
                     
                     navigator.serviceWorker.register(swUrl, { scope: '/' }).catch(e => {
+                        // Suppress: Blob origin violation expected in some heavily CSP-sandboxed environments.
                     }).finally(() => {
                         setTimeout(() => URL.revokeObjectURL(swUrl), 1000);
                     });
