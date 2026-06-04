@@ -92,7 +92,8 @@
             font-family: 'JetBrains Mono', monospace; 
         }
         
-        #hud-map, #live-compass-icon { 
+        /* Hardware Acceleration Enforcement */
+        #hud-map, #live-compass-icon, .leaflet-map-pane, .leaflet-layer { 
             will-change: transform; transform: translateZ(0); backface-visibility: hidden; 
         }
         
@@ -138,16 +139,16 @@
         </h1>
         
         <div class="flex flex-wrap items-center gap-2 md:gap-3">
-            <button id="cache-map-btn" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Press to Cache. Hold to Clear.">
+            <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Press to Cache. Hold to Clear.">
                 <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
             </button>
-            <button id="pwa-install-btn" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
+            <button id="pwa-install-btn" aria-label="Install App" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
-            <button onclick="purgeSystem()" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
+            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
-            <button id="audio-btn" onclick="toggleAudio()" class="flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
+            <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
                 <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
                 <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
             </button>
@@ -157,7 +158,7 @@
     <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
-            <button onclick="toggleFocus('sec-telemetry')" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
+            <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
             <div id="main-status-card" class="hud-card lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-surface-800 bg-surface-900 min-h-[200px] md:min-h-[250px] relative overflow-hidden">
@@ -233,23 +234,23 @@
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             <div class="flex flex-row items-center gap-2 shrink-0">
-                <button id="fuel-trigger-btn" class="bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
                     <i class="fa-solid fa-gas-pump"></i> <span class="hidden sm:inline">Pit Stop</span>
                 </button>
-                <button onclick="document.getElementById('fuel-settings-modal').classList.remove('hidden')" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
+                <button onclick="document.getElementById('fuel-settings-modal').classList.remove('hidden')" aria-label="Fuel Settings" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
                     <i class="fa-solid fa-gear"></i>
                 </button>
                 
-                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-bolt"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
-                <button id="nav-clear-btn" onclick="resetToAuto()" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-xmark"></i> <span class="hidden sm:inline">Clear</span>
                 </button>
-                <button id="native-nav-btn" class="hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
+                <button id="native-nav-btn" aria-label="External Navigation" class="hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
                     <i class="fa-solid fa-diamond-turn-right"></i> <span class="hidden sm:inline">Nav</span>
                 </button>
-                <button onclick="toggleFocus('sec-map')" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center">
+                <button onclick="toggleFocus('sec-map')" aria-label="Focus Map" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center">
                     <i class="fa-solid fa-expand text-base" id="icon-sec-map"></i>
                 </button>
             </div>
@@ -292,7 +293,7 @@
     <div id="sec-intel" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300 overflow-hidden">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
-            <button onclick="toggleFocus('sec-intel')" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-intel"></i></button>
+            <button onclick="toggleFocus('sec-intel')" aria-label="Focus Intel" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-intel"></i></button>
         </div>
         <div id="timeline-container" class="pb-2 no-select w-full"></div>
     </div>
@@ -300,7 +301,7 @@
     <div id="sec-plot" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8 transition-all duration-300">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
-            <button onclick="toggleFocus('sec-plot')" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-plot"></i></button>
+            <button onclick="toggleFocus('sec-plot')" aria-label="Focus Plot" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-plot"></i></button>
         </div>
         <div class="chart-wrapper flex-grow w-full relative h-[350px]">
             <canvas id="mainChart"></canvas>
@@ -357,7 +358,7 @@
                             <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Verify 24/7 & Stock</span>
                             <span class="block text-xs font-black text-brand-orange uppercase tracking-widest mt-0.5">Official Source</span>
                         </div>
-                        <button id="btn-official-locator" class="bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
+                        <button id="btn-official-locator" aria-label="Open Official Locator" class="bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
                             <i class="fa-solid fa-arrow-up-right-from-square"></i> Open
                         </button>
                     </div>
@@ -396,7 +397,7 @@
     <script type="module">
         "use strict";
 
-        // --- DEFENSIVE FETCH WRAPPER WITH EXPONENTIAL BACKOFF ---
+        // --- DEFENSIVE FETCH WRAPPER WITH EXPONENTIAL BACKOFF & MEMORY LEAK FIX ---
         const fetchWithRetry = async (url, options = {}, retries = 3, backoff = 500) => {
             const timeout = options.timeout || 15000;
             for (let i = 0; i < retries; i++) {
@@ -405,11 +406,13 @@
                 
                 // Hardware-safe polyfill for AbortSignal combining
                 let combinedSignal = controller.signal;
+                let abortHandler = null;
                 if (options.signal) {
                     if (typeof AbortSignal !== 'undefined' && AbortSignal.any) {
                         combinedSignal = AbortSignal.any([options.signal, controller.signal]);
                     } else {
-                        options.signal.addEventListener('abort', () => controller.abort());
+                        abortHandler = () => controller.abort();
+                        options.signal.addEventListener('abort', abortHandler);
                     }
                 }
 
@@ -420,6 +423,10 @@
                 } catch (e) {
                     clearTimeout(id);
                     if (i === retries - 1) throw e;
+                } finally {
+                    if (abortHandler && options.signal) {
+                        options.signal.removeEventListener('abort', abortHandler);
+                    }
                 }
                 // Exponential backoff with jitter
                 await new Promise(r => setTimeout(r, backoff * Math.pow(2, i) + (Math.random() * 200)));
@@ -1010,6 +1017,7 @@
                             const res = await cache.match(url);
                             if (!res) {
                                 const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
+                                // Ignore 404s cleanly (e.g. ocean tiles) to prevent promise chain breaks
                                 if (fetchRes.ok) await cache.put(url, fetchRes.clone());
                             }
                         } catch(e) {}
@@ -1232,6 +1240,9 @@
                             state.renderSpeed = displaySpeedKmH;
                             state.lastSpeedTimestamp = now;
                             triggerRenderPipeline();
+                        } else {
+                            // If it's a glitch, clear the sensor fusion dampener to prevent false speed peaks
+                            state.smoothedSpeed = state.currentSpeed; 
                         }
 
                         // Local helper using pre-allocated logic loop (GC optimization over heavy `.map/.filter`)
@@ -2623,10 +2634,10 @@
                                 <div class="text-[10px] text-gray-400 font-mono mb-2">${sanitizeHTML(this.getConfig().variant)} &bull; ${sanitizeHTML(station.dist)}km</div>
                                 <div class="mb-2">${matchBadgeUI}</div>
                                 <div class="flex gap-1.5 mb-2 w-full">
-                                    <button class="verify-official-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600" title="Check Official Availability"><i class="fa-solid fa-globe text-brand-orange mb-0.5 block text-xs"></i>Official</button>
-                                    <button class="verify-gmaps-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600" title="Check 24/7 Hours & Reviews"><i class="fa-solid fa-map-location-dot text-brand-blue mb-0.5 block text-xs"></i>GMaps</button>
+                                    <button aria-label="Official Source Verification" class="verify-official-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600" title="Check Official Availability"><i class="fa-solid fa-globe text-brand-orange mb-0.5 block text-xs"></i>Official</button>
+                                    <button aria-label="Google Maps Verification" class="verify-gmaps-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600" title="Check 24/7 Hours & Reviews"><i class="fa-solid fa-map-location-dot text-brand-blue mb-0.5 block text-xs"></i>GMaps</button>
                                 </div>
-                                <button class="set-pitstop-btn bg-brand-orange text-black font-black text-[10px] px-3 py-2 rounded-md uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.4)] w-full hover:bg-orange-400 transition-colors"><i class="fa-solid fa-route mr-1"></i> Route Here</button>
+                                <button aria-label="Route to Pit Stop" class="set-pitstop-btn bg-brand-orange text-black font-black text-[10px] px-3 py-2 rounded-md uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.4)] w-full hover:bg-orange-400 transition-colors"><i class="fa-solid fa-route mr-1"></i> Route Here</button>
                             </div>
                         `;
 
@@ -2835,7 +2846,7 @@
                                 caches.match(e.request).then(res => {
                                     return res || fetch(e.request).then(netRes => {
                                         return caches.open(MAP_CACHE).then(cache => {
-                                            cache.put(e.request, netRes.clone());
+                                            if(netRes.ok) cache.put(e.request, netRes.clone());
                                             return netRes;
                                         });
                                     });
@@ -2845,15 +2856,36 @@
                                 ))
                             );
                         } else if (url.hostname.includes('api.open-meteo.com')) {
+                            // Implements a strict Network vs Timeout race to prevent HUD blocking on poor cellular signals
                             e.respondWith(
-                                fetch(e.request)
-                                    .then(networkResponse => {
-                                        return caches.open(APP_CACHE).then(cache => {
-                                            cache.put(e.request, networkResponse.clone());
-                                            return networkResponse;
-                                        });
-                                    })
-                                    .catch(() => caches.match(e.request))
+                                new Promise((resolve) => {
+                                    let isResolved = false;
+                                    const timeoutId = setTimeout(() => {
+                                        if (!isResolved) {
+                                            caches.match(e.request).then(cachedRes => {
+                                                if (cachedRes) {
+                                                    isResolved = true;
+                                                    resolve(cachedRes);
+                                                }
+                                            });
+                                        }
+                                    }, 2500); // 2.5s threshold for tactile feedback
+                                    
+                                    fetch(e.request).then(netRes => {
+                                        if (!isResolved) {
+                                            isResolved = true;
+                                            clearTimeout(timeoutId);
+                                            caches.open(APP_CACHE).then(cache => cache.put(e.request, netRes.clone()));
+                                            resolve(netRes);
+                                        }
+                                    }).catch(() => {
+                                        if (!isResolved) {
+                                            isResolved = true;
+                                            clearTimeout(timeoutId);
+                                            caches.match(e.request).then(resolve);
+                                        }
+                                    });
+                                })
                             );
                         } else {
                             e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
