@@ -1,0 +1,18 @@
+{
+    "name": "MeteoNexus Tactical HUD",
+    "short_name": "MeteoNexus",
+    "description": "Active Telemetry HUD with real-time weather and routing intelligence.",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#000000",
+    "theme_color": "#000000",
+    "icons": [
+        {
+            "src": "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23000'/%3E%3Cpath d='M256 64L64 448h384L256 64z' fill='%2314b8a6'/%3E%3C/svg%3E",
+            "sizes": "512x512",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}

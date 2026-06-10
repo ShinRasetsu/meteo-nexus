@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <!-- PWA Manifest Placeholder -->
-    <link rel="manifest" id="manifest-placeholder">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     
     <!-- Resource Hints for DNS resolution and TLS handshakes -->
@@ -111,7 +111,7 @@
         .section-fullscreen { 
             position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
             z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important; 
-            height: 100vh !important; overflow-y: auto !important; background-color: #000 !important; 
+            height: 100vh !important; overflow-y: auto !important; background-color: #00 !important; 
         }
         .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
         .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
@@ -2815,95 +2815,13 @@
             runApp(); 
         }
 
-        // --- PWA SERVICE WORKER INJECTION ---
+        // --- PWA SERVICE WORKER REGISTRATION ---
         (function initPWA() {
-            const pwaManifest = {
-                name: "MeteoNexus Tactical HUD", short_name: "MeteoNexus", start_url: window.location.href, display: "standalone",
-                background_color: "#000000", theme_color: "#000000", orientation: "portrait-primary",
-                icons: [{ src: "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23000'/%3E%3Cpath d='M256 64L64 448h384L256 64z' fill='%2314b8a6'/%3E%3C/svg%3E", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }]
-            };
-            document.getElementById('manifest-placeholder').setAttribute('href', 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(pwaManifest)));
-
             if ('serviceWorker' in navigator) {
-                const swCode = `
-                    const APP_CACHE = 'meteonexus-app-v3';
-                    const MAP_CACHE = 'meteonexus-map-cache';
-
-                    self.addEventListener('install', (e) => self.skipWaiting());
-                    
-                    self.addEventListener('activate', (e) => {
-                        e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => { 
-                            if(k !== APP_CACHE && k !== MAP_CACHE) return caches.delete(k); 
-                        }))));
-                        self.clients.claim();
-                    });
-
-                    self.addEventListener('fetch', (e) => {
-                        const url = new URL(e.request.url);
-                        
-                        if (url.hostname.includes('tile.openstreetmap.org')) {
-                            e.respondWith(
-                                caches.match(e.request).then(res => {
-                                    return res || fetch(e.request).then(netRes => {
-                                        return caches.open(MAP_CACHE).then(cache => {
-                                            if(netRes.ok) cache.put(e.request, netRes.clone());
-                                            return netRes;
-                                        });
-                                    });
-                                }).catch(() => new Response(
-                                    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#111"/></svg>', 
-                                    { headers: { 'Content-Type': 'image/svg+xml' } }
-                                ))
-                            );
-                        } else if (url.hostname.includes('api.open-meteo.com')) {
-                            // Implements a strict Network vs Timeout race to prevent HUD blocking on poor cellular signals
-                            e.respondWith(
-                                new Promise((resolve) => {
-                                    let isResolved = false;
-                                    const timeoutId = setTimeout(() => {
-                                        if (!isResolved) {
-                                            caches.match(e.request).then(cachedRes => {
-                                                if (cachedRes) {
-                                                    isResolved = true;
-                                                    resolve(cachedRes);
-                                                }
-                                            });
-                                        }
-                                    }, 2500); // 2.5s threshold for tactile feedback
-                                    
-                                    fetch(e.request).then(netRes => {
-                                        if (!isResolved) {
-                                            isResolved = true;
-                                            clearTimeout(timeoutId);
-                                            caches.open(APP_CACHE).then(cache => cache.put(e.request, netRes.clone()));
-                                            resolve(netRes);
-                                        }
-                                    }).catch(() => {
-                                        if (!isResolved) {
-                                            isResolved = true;
-                                            clearTimeout(timeoutId);
-                                            caches.match(e.request).then(resolve);
-                                        }
-                                    });
-                                })
-                            );
-                        } else {
-                            e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
-                        }
-                    });
-                `;
-                
-                try {
-                    const swBlob = new Blob([swCode], { type: 'application/javascript' });
-                    const swUrl = URL.createObjectURL(swBlob);
-                    
-                    navigator.serviceWorker.register(swUrl, { scope: '/' }).catch(e => {
-                        // Suppress: Blob origin violation expected in some heavily CSP-sandboxed environments.
-                    }).finally(() => {
-                        setTimeout(() => URL.revokeObjectURL(swUrl), 1000);
-                    });
-                } catch (e) {
-                }
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('./sw.js', { scope: './' })
+                        .catch(err => console.warn('ServiceWorker registration failed: ', err));
+                });
             }
 
             let deferredPrompt;
