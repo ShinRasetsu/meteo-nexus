@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <!-- PWA Manifest (Corrected Static Link) -->
+    <!-- PWA Manifest -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     
@@ -441,7 +441,6 @@
 
         // Static GC-Friendly RegExp instances
         const RX_NUM = "([+-]?\\d+(?:\\.\\d+)?)";
-        const RX_DIR = new RegExp(`\\/dir\\/${RX_NUM},${RX_NUM}\\/`, 'i');
         const RX_DEST = new RegExp(`destination=${RX_NUM},${RX_NUM}`, 'i');
         const RX_MARKERS = /markers=([^"&>]+)/i;
         const RX_PB_EXACT = new RegExp(`!([13])d${RX_NUM}!([24])d${RX_NUM}`, 'g');
@@ -458,6 +457,7 @@
         let app, auth, db;
         let isCloudActive = false;
         let appId = 'default-app-id';
+        let firestoreOps = null;
 
         async function initializeCloudServices() {
             try {
@@ -467,27 +467,30 @@
                     // Dynamically import Firebase to prevent total app failure if blocked by privacy extensions/adblockers
                     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
                     const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
-                    const { getFirestore } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                    const { getFirestore, doc, setDoc, getDoc } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
                     
                     app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
                     db = getFirestore(app);
+                    firestoreOps = { doc, setDoc, getDoc };
                     appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                    isCloudActive = true;
                     
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                         await signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
                     } else {
                         await signInAnonymously(auth).catch(console.error);
                     }
-                    onAuthStateChanged(auth, (user) => { state.userAuth = user; });
+                    
+                    // Guaranteed sync auth extraction for downstream validation
+                    state.userAuth = auth.currentUser;
+                    isCloudActive = true;
+                    
+                    onAuthStateChanged(auth, (user) => { state.userAuth = user; isCloudActive = !!user; });
                 }
             } catch (e) { 
                 console.warn("MeteoNexus: Cloud Connection Blocked or Failed. App operating in isolated local mode.", e); 
             }
         }
-        
-        initializeCloudServices();
 
         // --- GLOBAL STATE & CONFIGURATIONS ---
         const CONFIG = {
@@ -869,11 +872,14 @@
             // Dead reckoning projection applied between 0 and 3 seconds of last valid GPS fix while moving
             if (timeSinceFix > 0 && timeSinceFix < 3000 && state.currentSpeed >= 2) {
                 const speedMs = state.currentSpeed / 3.6;
-                const headingRad = (state.visual.heading || state.cumulativeHeading || 0) * (Math.PI / 180);
-                const projectedDistanceM = speedMs * (timeSinceFix / 1000);
-                
-                targetLat += (projectedDistanceM * Math.cos(headingRad)) / 111320;
-                targetLon += (projectedDistanceM * Math.sin(headingRad)) / (40075000 * Math.cos(targetLat * Math.PI / 180) / 360);
+                const rawHeading = state.visual.heading !== null ? state.visual.heading : (state.cumulativeHeading || 0);
+                if (!isNaN(rawHeading)) {
+                    const headingRad = rawHeading * (Math.PI / 180);
+                    const projectedDistanceM = speedMs * (timeSinceFix / 1000);
+                    
+                    targetLat += (projectedDistanceM * Math.cos(headingRad)) / 111320;
+                    targetLon += (projectedDistanceM * Math.sin(headingRad)) / (40075000 * Math.cos(targetLat * Math.PI / 180) / 360);
+                }
             }
 
             if (state.visual.lat === null) {
@@ -2147,7 +2153,7 @@
             const tc = THEME_COLORS;
             
             if (state.chart) {
-                // Fixed Memory Fragmentation vulnerability: Using slice/splice to reassign rather than dynamically expanding length property limits 
+                // Fixed Memory Fragmentation vulnerability: Using splice to reassign rather than dynamically expanding length property limits 
                 state.chart.data.labels.splice(0, state.chart.data.labels.length, ...labels);
                 state.chart.data.datasets[0].data.splice(0, state.chart.data.datasets[0].data.length, ...solarData);
                 state.chart.data.datasets[1].data.splice(0, state.chart.data.datasets[1].data.length, ...uvData);
@@ -2156,11 +2162,8 @@
                 state.chart.data.datasets[4].data.splice(0, state.chart.data.datasets[4].data.length, ...rainData.de);
                 state.chart.data.datasets[5].data.splice(0, state.chart.data.datasets[5].data.length, ...rainData.jp);
                 
-                state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
-                    const i = t[0].dataIndex; 
-                    return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; 
-                };
-                
+                // Deep-bind the reference object to prevent closure memory leak and stale closures
+                state.chart.hourlyAgreementRef = hourlyAgreement;
                 state.chart.update('none'); 
                 return;
             }
@@ -2187,7 +2190,14 @@
                         tooltip: { backgroundColor: '#000', titleColor: '#fff', bodyColor: '#d1d5db', borderColor: '#333', borderWidth: 2, padding: 16, 
                             callbacks: {
                                 label: function(c) { let l = c.dataset.label + ': ' || ''; if(c.parsed.y !== null) { l += c.parsed.y.toFixed(1); if(c.dataset.yAxisID==='y_solar') l+=' W/m²'; else if(c.dataset.yAxisID==='y_uv') l+=' Index'; else l+=' mm'; } return l; },
-                                footer: function(t) { const i = t[0].dataIndex; return `\nRain Model Agreement: ${hourlyAgreement[i].toFixed(0)}%\nPeak UV: ${uvData[i].toFixed(1)} | Solar: ${solarData[i].toFixed(0)}W`; }
+                                footer: function(t) { 
+                                    const i = t[0].dataIndex;
+                                    // Resolves dynamically through chart instance to prevent stale closure data retention
+                                    const uv = state.chart.data.datasets[1].data[i];
+                                    const solar = state.chart.data.datasets[0].data[i];
+                                    const rainAgr = state.chart.hourlyAgreementRef[i];
+                                    return `\nRain Model Agreement: ${rainAgr.toFixed(0)}%\nPeak UV: ${uv.toFixed(1)} | Solar: ${solar.toFixed(0)}W`; 
+                                }
                             }, titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' }, bodyFont: { family: 'JetBrains Mono', size: 12 }, footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' }, footerColor: tc.teal
                         }
                     }, 
@@ -2199,6 +2209,8 @@
                     }
                 }
             });
+            // Attach initial agreement reference
+            state.chart.hourlyAgreementRef = hourlyAgreement;
         }
 
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
@@ -2431,8 +2443,6 @@
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; 
             state.customRouteWaypoints = null;
-            state.maxSpeed = 0;
-            updateText(DOM.maxSpeed, '0');
             state.routeNodes = null;
             state.originalRouteNodes = null;
 
@@ -2466,18 +2476,46 @@
 
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
+            memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false },
             getConfig: function() {
-                const def = { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false };
-                try { 
-                    const stored = localStorage.getItem(this.storageKey); 
-                    return stored ? { ...def, ...JSON.parse(stored) } : def; 
-                } 
-                catch(e) { return def; }
+                return this.memoryConfig;
             },
-            saveConfig: function(conf) {
-                localStorage.setItem(this.storageKey, JSON.stringify(conf));
-                updateText(DOM.statusEl, "FUEL CONFIG SAVED");
-                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap");
+            loadConfig: async function() {
+                try {
+                    // Priority 1: Cloud Firestore Sync
+                    if (isCloudActive && state.userAuth && firestoreOps) {
+                        const docRef = firestoreOps.doc(db, 'artifacts', appId, 'users', state.userAuth.uid, 'settings', 'fuel_prefs');
+                        const docSnap = await firestoreOps.getDoc(docRef);
+                        if (docSnap.exists()) {
+                            this.memoryConfig = { ...this.memoryConfig, ...docSnap.data() };
+                            return; // Bypass local cache if cloud overrides
+                        }
+                    }
+                    // Priority 2: Offline IndexedDB Backup
+                    const stored = await localforage.getItem(this.storageKey);
+                    if (stored) {
+                        this.memoryConfig = { ...this.memoryConfig, ...stored };
+                    }
+                } catch (e) {
+                    console.warn("Storage fetch failed. Using hard defaults.", e);
+                }
+            },
+            saveConfig: async function(conf) {
+                this.memoryConfig = conf;
+                try {
+                    // Sync up to Cloud if active
+                    if (isCloudActive && state.userAuth && firestoreOps) {
+                        const docRef = firestoreOps.doc(db, 'artifacts', appId, 'users', state.userAuth.uid, 'settings', 'fuel_prefs');
+                        await firestoreOps.setDoc(docRef, conf, { merge: true });
+                    }
+                    // Persist locally for offline operation
+                    await localforage.setItem(this.storageKey, conf);
+                    
+                    updateText(DOM.statusEl, "FUEL CONFIG SAVED");
+                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap");
+                } catch(e) {
+                    console.error("Config save failed", e);
+                }
             },
             
             // Dual-Tier Variant Filtering Logic
@@ -2713,7 +2751,8 @@
                     window.activateLiveNavigation(station.lat, station.lon, true);
                 }
             },
-            init: function() {
+            init: async function() {
+                await this.loadConfig();
                 const conf = this.getConfig();
                 
                 DOM.fuel.brand.innerHTML = '';
@@ -2784,10 +2823,10 @@
             }
         };
 
-        function runApp() {
+        async function runApp() {
             requestWakeLock();
             startBackgroundTracking();
-            FuelManager.init();
+            await FuelManager.init(); // Blocking resolution configures the application state before proceeding
             
             requestAnimationFrame(smoothVisualsLoop);
             
