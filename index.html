@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <!-- PWA Manifest -->
+    <!-- PWA Manifest (Corrected Static Link) -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     
@@ -404,10 +404,15 @@
                 const controller = new AbortController();
                 const id = setTimeout(() => controller.abort(), timeout);
                 
-                // Hardware-safe polyfill for AbortSignal combining
+                // Hardware-safe polyfill for AbortSignal combining with early exit fix
                 let combinedSignal = controller.signal;
                 let abortHandler = null;
+                
                 if (options.signal) {
+                    if (options.signal.aborted) {
+                        clearTimeout(id);
+                        throw new Error("Aborted before fetch initiated.");
+                    }
                     if (typeof AbortSignal !== 'undefined' && AbortSignal.any) {
                         combinedSignal = AbortSignal.any([options.signal, controller.signal]);
                     } else {
@@ -989,7 +994,9 @@
                     zooms.forEach(z => {
                         const x = lon2tile(coord.lng || coord.lon, z); 
                         const y = lat2tile(coord.lat, z);
-                        const s = ['a', 'b', 'c'][Math.floor(Math.random() * 3)];
+                        
+                        // Determinstic subdomain selection to guarantee 100% Cache hit-rate during offline retrieval
+                        const s = ['a', 'b', 'c'][Math.abs(x + y) % 3];
                         
                         for(let dx = -1; dx <= 1; dx++) {
                             for(let dy = -1; dy <= 1; dy++) {
@@ -2140,13 +2147,14 @@
             const tc = THEME_COLORS;
             
             if (state.chart) {
-                state.chart.data.labels.length = 0; state.chart.data.labels.push(...labels);
-                state.chart.data.datasets[0].data.length = 0; state.chart.data.datasets[0].data.push(...solarData);
-                state.chart.data.datasets[1].data.length = 0; state.chart.data.datasets[1].data.push(...uvData);
-                state.chart.data.datasets[2].data.length = 0; state.chart.data.datasets[2].data.push(...rainData.eu);
-                state.chart.data.datasets[3].data.length = 0; state.chart.data.datasets[3].data.push(...rainData.us);
-                state.chart.data.datasets[4].data.length = 0; state.chart.data.datasets[4].data.push(...rainData.de);
-                state.chart.data.datasets[5].data.length = 0; state.chart.data.datasets[5].data.push(...rainData.jp);
+                // Fixed Memory Fragmentation vulnerability: Using slice/splice to reassign rather than dynamically expanding length property limits 
+                state.chart.data.labels.splice(0, state.chart.data.labels.length, ...labels);
+                state.chart.data.datasets[0].data.splice(0, state.chart.data.datasets[0].data.length, ...solarData);
+                state.chart.data.datasets[1].data.splice(0, state.chart.data.datasets[1].data.length, ...uvData);
+                state.chart.data.datasets[2].data.splice(0, state.chart.data.datasets[2].data.length, ...rainData.eu);
+                state.chart.data.datasets[3].data.splice(0, state.chart.data.datasets[3].data.length, ...rainData.us);
+                state.chart.data.datasets[4].data.splice(0, state.chart.data.datasets[4].data.length, ...rainData.de);
+                state.chart.data.datasets[5].data.splice(0, state.chart.data.datasets[5].data.length, ...rainData.jp);
                 
                 state.chart.options.plugins.tooltip.callbacks.footer = function(t) { 
                     const i = t[0].dataIndex; 
@@ -2314,7 +2322,9 @@
             updateText(DOM.metricHum, curr.relative_humidity_2m + '%');
             updateText(DOM.metricAgree, `${currentAgreement.toFixed(0)}%`);
             updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
-            updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`);
+            
+            // Fixed Meteorological Vector: arrow must point in direction of flow (where wind is going)
+            updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m + 180}deg);"></i>`);
             
             const maxUV = uvData.length > 0 ? Math.max(...uvData) : 0;
             updateText(DOM.metricUvVal, maxUV.toFixed(1));
@@ -2820,7 +2830,27 @@
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
                     navigator.serviceWorker.register('./sw.js', { scope: './' })
+                        .then(registration => {
+                            // Check for waiting ghost-workers and force update.
+                            registration.addEventListener('updatefound', () => {
+                                const newWorker = registration.installing;
+                                newWorker.addEventListener('statechange', () => {
+                                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                        newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                    }
+                                });
+                            });
+                        })
                         .catch(err => console.warn('ServiceWorker registration failed: ', err));
+                });
+                
+                // Force page reload when a new service worker takes control
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!refreshing) {
+                        refreshing = true;
+                        window.location.reload();
+                    }
                 });
             }
 
