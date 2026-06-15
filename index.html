@@ -55,6 +55,19 @@
                 }
             }
         }
+
+        // DECOUPLED STATE BRIDGE: Connects Core Engine to Active Aero Module
+        // Includes secure TTL timestamps to prevent stale state contamination.
+        window.__METEO_CORE_STATE = {
+            gnssHeading: null,
+            speed: 0,
+            altitude: null,
+            topoAltitude: null,
+            windDir: null,
+            windSpeed: 0,
+            windGust: 0,
+            lastGnssUpdate: 0
+        };
     </script>
 
     <style>
@@ -1155,7 +1168,7 @@
             }
         };
 
-        // --- HARDWARE MAGNETOMETER HOOKS ---
+        // --- HARDWARE MAGNETOMETER HOOKS (Primary UI Compass) ---
         let hasAbsoluteOrientation = false;
 
         function handleOrientationUpdate(alphaOrHeading) {
@@ -1193,6 +1206,16 @@
                     const accuracy = pos.coords.accuracy; 
                     
                     const now = Date.now();
+
+                    // Bridge GNSS Core Telemetry to Active Aero HUD Module securely (No messy fetch hooks)
+                    window.__METEO_CORE_STATE.altitude = pos.coords.altitude;
+                    if (speed !== null) window.__METEO_CORE_STATE.speed = speed;
+                    
+                    // AUDIT FIX: We must stamp the GNSS timestamp unconditionally when receiving a GPS event 
+                    // to prevent staleness and ensure the IMU fallback TTL degrades deterministically.
+                    window.__METEO_CORE_STATE.lastGnssUpdate = now;
+                    
+                    if (gpsHeading !== null && !isNaN(gpsHeading)) window.__METEO_CORE_STATE.gnssHeading = gpsHeading;
 
                     let timeDeltaSec = (now - state.lastLocationTimestamp) / 1000;
                     if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1; 
@@ -2388,6 +2411,16 @@
         }
 
         async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
+            // Decoupled Injection: Push latest environmental forces directly into Active Aero Bridge
+            if (dCurr && dCurr.current) {
+                if (dCurr.current.wind_direction_10m !== undefined) window.__METEO_CORE_STATE.windDir = dCurr.current.wind_direction_10m;
+                if (dCurr.current.wind_speed_10m !== undefined) window.__METEO_CORE_STATE.windSpeed = dCurr.current.wind_speed_10m;
+                if (dCurr.current.wind_gusts_10m !== undefined) window.__METEO_CORE_STATE.windGust = dCurr.current.wind_gusts_10m;
+            }
+            if (dCurr && dCurr.elevation !== undefined) {
+                window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation; // Fallback topological elevation mapped from lat/lon
+            }
+
             const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline);
             renderTelemetryUI(data, isOffline);
             renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement);
@@ -2411,7 +2444,7 @@
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
                 const [rCurr, rFore, rSolar] = await Promise.all([
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&models=ecmwf_ifs025,gfs_seamless,icon_seamless,jma_seamless&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
                 ]);
@@ -2911,71 +2944,67 @@
 
         // --- ACTIVE AERO TELEMETRY EXTENSION ---
         (function initActiveAeroTelemetry() {
-            window.__activeAeroState = { windDir: 0, windSpeed: 0, windGust: 0, gnssHeading: null, deviceHeading: null, speed: 0, altitude: null, pitch: 0, roll: 0, quaternionActive: false };
-            
-            // 1. Hook Fetch for Wind Direction, Speed, and Gusts transparently
-            const origFetch = window.fetch;
-            window.fetch = async function(...args) {
-                const res = await origFetch.apply(this, args);
-                try {
-                    const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-                    if (url.includes('open-meteo')) {
-                        res.clone().json().then(data => {
-                            if (data?.current?.wind_direction_10m !== undefined) {
-                                window.__activeAeroState.windDir = data.current.wind_direction_10m;
-                                window.__activeAeroState.windSpeed = data.current.wind_speed_10m || 0;
-                                window.__activeAeroState.windGust = data.current.wind_gusts_10m || 0;
-                            } else if (data?.current_weather?.winddirection !== undefined) {
-                                window.__activeAeroState.windDir = data.current_weather.winddirection;
-                                window.__activeAeroState.windSpeed = data.current_weather.windspeed || 0;
-                            }
-                        }).catch(()=>{});
-                    }
-                } catch(e) {}
-                return res;
-            };
+            if (window.__aeroMounted) return; // Idempotency Lock: Prevents overlapping rAF cascades
+            window.__aeroMounted = true;
 
-            // 2. Hook Geolocation for GNSS Heading, Speed & Altitude
-            if (navigator.geolocation) {
-                const origWatch = navigator.geolocation.watchPosition;
-                navigator.geolocation.watchPosition = function(success, error, opts) {
-                    return origWatch.call(this, (pos) => {
-                        if (pos.coords.speed !== null) window.__activeAeroState.speed = pos.coords.speed;
-                        if (pos.coords.altitude !== null) window.__activeAeroState.altitude = pos.coords.altitude;
-                        if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
-                            window.__activeAeroState.gnssHeading = pos.coords.heading;
-                        }
-                        if (success) success(pos);
-                    }, error, opts);
-                };
+            const st = window.__METEO_CORE_STATE;
+            st.quaternionActive = false;
+            st.deviceHeading = null;
+            st.pitch = 0;
+            st.roll = 0;
+            
+            // MATH KERNEL: W3C Euler to Horizon-Projected Heading 
+            // Completely circumvents Gimbal Lock at Pitch=90 by blending Top-Edge and Back-Camera matrices.
+            function computeRobustHeading(alpha, beta, gamma) {
+                const rad = Math.PI / 180;
+                const a = alpha * rad, b = beta * rad, g = gamma * rad;
+
+                const cA = Math.cos(a), sA = Math.sin(a);
+                const cB = Math.cos(b), sB = Math.sin(b);
+                const cG = Math.cos(g), sG = Math.sin(g);
+
+                // Phone Top-Edge horizontal projection (used when Flat)
+                const yX = -sA * cB;
+                const yY = cA * cB;
+
+                // Phone Back-Camera horizontal projection (used when Vertical)
+                const zX = -cA * sG - sA * sB * cG;
+                const zY = -sA * sG + cA * sB * cG;
+
+                // Dynamically blend reference axes based on device pitch (beta)
+                const weightY = Math.cos(b);
+                const weightZ = Math.sin(b); 
+                
+                const dirX = yX * Math.abs(weightY) + zX * Math.abs(weightZ);
+                const dirY = yY * Math.abs(weightY) + zY * Math.abs(weightZ);
+
+                let heading = Math.atan2(dirX, dirY) * (180 / Math.PI);
+                if (heading < 0) heading += 360;
+                return heading;
             }
 
-            // 3. Hardware IMU Hook (Gravity Vector Projection & Quaternion Sensor Fusion)
-            // Mitigates iOS & Android Tait-Bryan Euler Angle Gimbal Lock at +/- 90 degrees Pitch
-            
-            // Absolute Orientation Sensor (Modern Chromium Android fix for compass vertical freeze)
+            // 1. Hardware IMU Hook (Gravity Vector Projection & Quaternion Sensor Fusion)
             if ('AbsoluteOrientationSensor' in window) {
                 try {
                     const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
                     sensor.addEventListener('reading', () => {
-                        window.__activeAeroState.quaternionActive = true;
+                        st.quaternionActive = true;
                         const q = sensor.quaternion;
-                        // Project device -Z axis (back camera) to find exact heading vector
+                        // Map the -Z axis (back camera) through the quaternion explicitly
                         const vx = 2 * (q[0]*q[2] - q[3]*q[1]);
                         const vy = 2 * (q[1]*q[2] + q[3]*q[0]);
                         let heading = Math.atan2(vx, vy) * (180 / Math.PI);
-                        window.__activeAeroState.deviceHeading = (heading + 360) % 360;
+                        st.deviceHeading = (heading + 360) % 360;
                     });
                     sensor.start();
-                } catch(e) {} // Fallback seamlessly to Euler below if blocked by Permissions Policy
+                } catch(e) {} 
             }
 
             window.addEventListener('deviceorientation', (e) => {
-                if (e.webkitCompassHeading) {
-                    window.__activeAeroState.deviceHeading = e.webkitCompassHeading;
-                } else if (e.alpha !== null && !window.__activeAeroState.quaternionActive) {
-                    // Fallback for devices without AbsoluteOrientationSensor / iOS WebKit mapping
-                    window.__activeAeroState.deviceHeading = 360 - e.alpha;
+                if (e.webkitCompassHeading !== undefined) {
+                    st.deviceHeading = e.webkitCompassHeading;
+                } else if (e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
+                    st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
                 }
 
                 if (e.beta !== null && e.gamma !== null) {
@@ -2983,28 +3012,27 @@
                     const b = e.beta * rad;
                     const g = e.gamma * rad;
 
-                    // Gravity Vector Extrapolation (Bypasses Gimbal Lock entirely)
+                    // Gravity Vector Extrapolation (Immune to roll flips near vertical)
                     const gx = Math.cos(b) * Math.sin(g);
                     const gy = Math.sin(b);
                     const gz = Math.cos(b) * Math.cos(g);
 
-                    window.__activeAeroState.roll = Math.atan2(gx, gy) * (180 / Math.PI);
-                    window.__activeAeroState.pitch = Math.asin(gz) * (180 / Math.PI); // 90° when flat, 0° when fully vertical
+                    st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
+                    st.pitch = Math.asin(gz) * (180 / Math.PI); 
                 }
             });
 
-            // 4. Safe UI Card Injection 
+            // 2. Safe UI Card Injection 
             function mountActiveAeroUI() {
                 setTimeout(() => {
                     const grids = document.querySelectorAll('.grid');
                     let targetGrid = null;
                     
-                    // Locate main dashboard grid dynamically
                     grids.forEach(g => {
                         if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g;
                     });
                     if (!targetGrid && grids.length > 0) targetGrid = grids[0];
-                    if (!targetGrid) return; // Silent fallback if architecture changed
+                    if (!targetGrid) return; 
 
                     const aeroContainer = document.createElement('div');
                     aeroContainer.className = "lg:col-span-12 w-full mt-2";
@@ -3021,7 +3049,7 @@
                             
                             <div class="flex items-start gap-4">
                                 <div class="text-right pointer-events-none">
-                                    <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">GNSS ALT</span>
+                                    <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
                                     <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
                                         <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
                                         <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
@@ -3096,7 +3124,7 @@
                                 </div>
                                 <!-- Vector Decomposition Output -->
                                 <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
-                                    <span id="ui-radar-crosswind">CROSS: 0</span> <span class="text-surface-600">|</span> <span id="ui-radar-headwind">HEAD: 0</span>
+                                    <span id="ui-radar-crosswind">CRS: 0</span> <span class="text-surface-600">|</span> <span id="ui-radar-headwind">HWD: 0</span>
                                 </div>
                             </div>
                         </div>
@@ -3142,13 +3170,15 @@
                     let smoothedPitch = 0;
                     let smoothedRoll = 0;
 
-                    // Absolute Cardinal Calculation
-                    const getCardinal = (deg) => {
+                    // Dedicated UI state cache to prevent extreme battery/thermal drain from DOM innerHTML thrashing at 60fps
+                    const _uiCache = { alt: '', windSpeed: '', gust: '', ringTrans: '', horizonTrans: '', relAngle: '', windTrans: '', head: '', cross: '' };
+
+                    const getCardinalStr = (deg) => {
                         const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
                         return arr[Math.floor((deg / 22.5) + 0.5) % 16];
                     };
 
-                    // 5. Dedicated Physics Render Loop
+                    // 3. Dedicated Physics Render Loop
                     function renderAero() {
                         requestAnimationFrame(renderAero);
                         
@@ -3164,49 +3194,56 @@
                         
                         if (!elRadarRing) return;
 
-                        const st = window.__activeAeroState;
                         const now = Date.now();
                         let activeHeading = 0;
                         let headingValid = false;
                         
-                        // Hardware GNSS Altimeter with 2D-Fix Fallback
+                        // ALTIMETER LOGIC: Prioritize GNSS -> Fallback to topological elevation map
                         if (elAltContainer) {
+                            let altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
                             if (st.altitude !== null) {
-                                elAltContainer.innerHTML = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>`;
-                            } else {
-                                // Mitigates user perception of a broken UI when a 3D satellite lock fails
-                                elAltContainer.innerHTML = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
+                                altStr = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                            } else if (st.topoAltitude !== null) {
+                                altStr = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
                             }
+                            if (_uiCache.alt !== altStr) { elAltContainer.innerHTML = altStr; _uiCache.alt = altStr; }
                         }
 
-                        if (elWindSpeed) elWindSpeed.textContent = st.windSpeed !== undefined ? Math.round(st.windSpeed) : '--';
+                        if (elWindSpeed) {
+                            const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
+                            if (_uiCache.windSpeed !== wsStr) { elWindSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
+                        }
                         
                         // Gust Boundary Logic
                         if (elGust && st.windGust > 0) {
                             const gustDiff = st.windGust - st.windSpeed;
                             if (gustDiff >= 5) {
-                                elGust.classList.remove('opacity-0');
-                                elGust.textContent = `GUST +${Math.round(gustDiff)}`;
-                            } else {
+                                const gStr = `GUST +${Math.round(gustDiff)}`;
+                                if (_uiCache.gust !== gStr) {
+                                    elGust.classList.remove('opacity-0');
+                                    elGust.textContent = gStr;
+                                    _uiCache.gust = gStr;
+                                }
+                            } else if (_uiCache.gust !== 'hidden') {
                                 elGust.classList.add('opacity-0');
+                                _uiCache.gust = 'hidden';
                             }
                         }
                         
-                        // Artificial Horizon Physics (Gimbal Lock Immune via Gravity Projection)
+                        // Artificial Horizon Physics (Immune to Beta=90 Gimbal Lock)
                         if (elHorizon) {
                             smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
                             smoothedRoll = (0.1 * st.roll) + (0.9 * smoothedRoll);
                             
-                            // Pitch baseline set to 30 degrees (typical natural viewing angle relative to perfect vertical).
                             let pY = (smoothedPitch - 30) * 1.5; 
                             pY = Math.max(-60, Math.min(60, pY)); 
                             
-                            // Invert roll matrix projection for matching physical screen feedback
-                            elHorizon.style.transform = `translateY(${pY}px) rotate(${-smoothedRoll}deg)`;
+                            const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${-smoothedRoll.toFixed(1)}deg)`;
+                            if (_uiCache.horizonTrans !== hTrans) { elHorizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
                         }
                         
-                        // Hardware check: Avoid GNSS compass jitter at low speeds (< 1.0 m/s)
-                        if (st.speed > 1.0 && st.gnssHeading !== null) {
+                        // TTL Hardware Enforcement: Drop GNSS compass priority if GPS fix is older than 3000ms
+                        if (st.speed > 1.5 && st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
                             activeHeading = st.gnssHeading;
                             headingValid = true;
                         } else if (st.deviceHeading !== null) {
@@ -3216,30 +3253,43 @@
 
                         if (headingValid) {
                             // Visual Radar: Rotate the compass ring inversely (Heading-Up display)
-                            elRadarRing.style.transform = `rotate(${-activeHeading}deg)`;
+                            const ringT = `rotate(${-activeHeading.toFixed(1)}deg)`;
+                            if (_uiCache.ringTrans !== ringT) { elRadarRing.style.transform = ringT; _uiCache.ringTrans = ringT; }
                         }
 
                         const wDir = st.windDir; 
-                        if (headingValid && wDir !== null && wDir !== 0) {
-                            // Calculates exact angle wind is striking the user
+                        if (headingValid && wDir !== null) {
                             const relAngle = (wDir - activeHeading + 360) % 360;
                             
+                            // UI Update: Relative Angle with Absolute Cardinal Direction mapped
                             if (elRelAngle) {
-                                elRelAngle.innerHTML = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1 tracking-widest leading-none">&deg; ${getCardinal(wDir)}</span>`;
+                                const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                                if (_uiCache.relAngle !== relStr) { elRelAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
                             }
 
                             // Rotate primary wind hand
-                            if (elRadarWind) elRadarWind.style.transform = `rotate(${relAngle}deg)`;
+                            if (elRadarWind) {
+                                const wT = `rotate(${relAngle.toFixed(1)}deg)`;
+                                if (_uiCache.windTrans !== wT) { elRadarWind.style.transform = wT; _uiCache.windTrans = wT; }
+                            }
 
                             // Vector Decomposition (Kinematic force isolation)
                             const rad = relAngle * (Math.PI / 180);
                             const headForce = Math.cos(rad) * st.windSpeed;
                             const crossForce = Math.sin(rad) * st.windSpeed;
                             
-                            if (elHead) elHead.innerHTML = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HEAD' : 'TAIL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
-                            if (elCross) elCross.innerHTML = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'right' : 'left'}"></i>`;
+                            if (elHead) {
+                                const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
+                                if (_uiCache.head !== hStr) { elHead.innerHTML = hStr; _uiCache.head = hStr; }
+                            }
+                            
+                            if (elCross) {
+                                // AUDIT FIX: A positive crossForce (e.g. from East/Right) pushes the vehicle to the LEFT.
+                                const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
+                                if (_uiCache.cross !== cStr) { elCross.innerHTML = cStr; _uiCache.cross = cStr; }
+                            }
 
-                            // Temporal Shift Trail Logic (Snapshots every 10s)
+                            // Temporal Shift Trail Logic
                             if (now - lastHistoryTime > 10000) {
                                 windHistory[historyIdx] = relAngle;
                                 historyIdx = (historyIdx + 1) % 3;
@@ -3248,18 +3298,17 @@
                             
                             // Render Ghosts
                             for (let i = 0; i < 3; i++) {
-                                // Maps [0, 1, 2] chronologically to ghost elements [1, 2, 3] based on current ring buffer offset
                                 const age = (historyIdx - 1 - i + 3) % 3; 
                                 const histAngle = windHistory[age];
                                 if (histAngle !== -1) {
                                     const ghostEl = document.getElementById(`ui-radar-wind-ghost-${i+1}`);
-                                    if (ghostEl) ghostEl.style.transform = `rotate(${histAngle}deg)`;
+                                    if (ghostEl) ghostEl.style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
                                 }
                             }
                         }
                     }
                     requestAnimationFrame(renderAero);
-                }, 1000); // Buffer delay to ensure primary app finishes DOM generation
+                }, 1000); 
             }
 
             if (document.readyState === 'loading') {
