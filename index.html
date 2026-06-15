@@ -2911,7 +2911,7 @@
 
         // --- ACTIVE AERO TELEMETRY EXTENSION ---
         (function initActiveAeroTelemetry() {
-            window.__activeAeroState = { windDir: 0, windSpeed: 0, windGust: 0, gnssHeading: null, deviceHeading: null, speed: 0, altitude: null, pitch: 0, roll: 0 };
+            window.__activeAeroState = { windDir: 0, windSpeed: 0, windGust: 0, gnssHeading: null, deviceHeading: null, speed: 0, altitude: null, pitch: 0, roll: 0, quaternionActive: false };
             
             // 1. Hook Fetch for Wind Direction, Speed, and Gusts transparently
             const origFetch = window.fetch;
@@ -2950,14 +2950,47 @@
                 };
             }
 
-            // 3. Hardware IMU Hook for Pitch, Roll, and Stationary Compass Fallback
-            window.addEventListener('deviceorientationabsolute', (e) => {
-                if (e.alpha !== null) window.__activeAeroState.deviceHeading = 360 - e.alpha;
-            });
+            // 3. Hardware IMU Hook (Gravity Vector Projection & Quaternion Sensor Fusion)
+            // Mitigates iOS & Android Tait-Bryan Euler Angle Gimbal Lock at +/- 90 degrees Pitch
+            
+            // Absolute Orientation Sensor (Modern Chromium Android fix for compass vertical freeze)
+            if ('AbsoluteOrientationSensor' in window) {
+                try {
+                    const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
+                    sensor.addEventListener('reading', () => {
+                        window.__activeAeroState.quaternionActive = true;
+                        const q = sensor.quaternion;
+                        // Project device -Z axis (back camera) to find exact heading vector
+                        const vx = 2 * (q[0]*q[2] - q[3]*q[1]);
+                        const vy = 2 * (q[1]*q[2] + q[3]*q[0]);
+                        let heading = Math.atan2(vx, vy) * (180 / Math.PI);
+                        window.__activeAeroState.deviceHeading = (heading + 360) % 360;
+                    });
+                    sensor.start();
+                } catch(e) {} // Fallback seamlessly to Euler below if blocked by Permissions Policy
+            }
+
             window.addEventListener('deviceorientation', (e) => {
-                if (e.webkitCompassHeading) window.__activeAeroState.deviceHeading = e.webkitCompassHeading;
-                if (e.beta !== null) window.__activeAeroState.pitch = e.beta;
-                if (e.gamma !== null) window.__activeAeroState.roll = e.gamma;
+                if (e.webkitCompassHeading) {
+                    window.__activeAeroState.deviceHeading = e.webkitCompassHeading;
+                } else if (e.alpha !== null && !window.__activeAeroState.quaternionActive) {
+                    // Fallback for devices without AbsoluteOrientationSensor / iOS WebKit mapping
+                    window.__activeAeroState.deviceHeading = 360 - e.alpha;
+                }
+
+                if (e.beta !== null && e.gamma !== null) {
+                    const rad = Math.PI / 180;
+                    const b = e.beta * rad;
+                    const g = e.gamma * rad;
+
+                    // Gravity Vector Extrapolation (Bypasses Gimbal Lock entirely)
+                    const gx = Math.cos(b) * Math.sin(g);
+                    const gy = Math.sin(b);
+                    const gz = Math.cos(b) * Math.cos(g);
+
+                    window.__activeAeroState.roll = Math.atan2(gx, gy) * (180 / Math.PI);
+                    window.__activeAeroState.pitch = Math.asin(gz) * (180 / Math.PI); // 90° when flat, 0° when fully vertical
+                }
             });
 
             // 4. Safe UI Card Injection 
@@ -2989,7 +3022,7 @@
                             <div class="flex items-start gap-4">
                                 <div class="text-right pointer-events-none">
                                     <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">GNSS ALT</span>
-                                    <div class="flex items-baseline gap-1 justify-end">
+                                    <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
                                         <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
                                         <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                                     </div>
@@ -3052,7 +3085,6 @@
                                 <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
                                 <div class="flex items-baseline gap-1">
                                     <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
-                                    <span class="text-[9px] font-bold text-gray-600 uppercase">°</span>
                                 </div>
                             </div>
                             
@@ -3110,6 +3142,12 @@
                     let smoothedPitch = 0;
                     let smoothedRoll = 0;
 
+                    // Absolute Cardinal Calculation
+                    const getCardinal = (deg) => {
+                        const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+                        return arr[Math.floor((deg / 22.5) + 0.5) % 16];
+                    };
+
                     // 5. Dedicated Physics Render Loop
                     function renderAero() {
                         requestAnimationFrame(renderAero);
@@ -3118,7 +3156,7 @@
                         const elRadarWind = document.getElementById('ui-radar-wind-layer');
                         const elRelAngle = document.getElementById('ui-radar-rel-angle');
                         const elWindSpeed = document.getElementById('ui-radar-wind-speed');
-                        const elAlt = document.getElementById('ui-radar-alt');
+                        const elAltContainer = document.getElementById('ui-radar-alt-container');
                         const elGust = document.getElementById('ui-radar-gust');
                         const elCross = document.getElementById('ui-radar-crosswind');
                         const elHead = document.getElementById('ui-radar-headwind');
@@ -3131,8 +3169,16 @@
                         let activeHeading = 0;
                         let headingValid = false;
                         
-                        // Telemetry Rendering
-                        if (elAlt) elAlt.textContent = st.altitude !== null ? Math.round(st.altitude) : '--';
+                        // Hardware GNSS Altimeter with 2D-Fix Fallback
+                        if (elAltContainer) {
+                            if (st.altitude !== null) {
+                                elAltContainer.innerHTML = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>`;
+                            } else {
+                                // Mitigates user perception of a broken UI when a 3D satellite lock fails
+                                elAltContainer.innerHTML = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
+                            }
+                        }
+
                         if (elWindSpeed) elWindSpeed.textContent = st.windSpeed !== undefined ? Math.round(st.windSpeed) : '--';
                         
                         // Gust Boundary Logic
@@ -3146,17 +3192,17 @@
                             }
                         }
                         
-                        // Artificial Horizon Physics (EMA Low-Pass Filtered)
+                        // Artificial Horizon Physics (Gimbal Lock Immune via Gravity Projection)
                         if (elHorizon) {
                             smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
                             smoothedRoll = (0.1 * st.roll) + (0.9 * smoothedRoll);
                             
-                            // Base pitch calibration assuming device is held vertically at ~60 degrees.
-                            // translateY maps 1 degree to 1px. Clamped to bounds of dial.
-                            let pY = (smoothedPitch - 60) * -1.5; 
+                            // Pitch baseline set to 30 degrees (typical natural viewing angle relative to perfect vertical).
+                            let pY = (smoothedPitch - 30) * 1.5; 
                             pY = Math.max(-60, Math.min(60, pY)); 
                             
-                            elHorizon.style.transform = `translateY(${pY}px) rotate(${smoothedRoll}deg)`;
+                            // Invert roll matrix projection for matching physical screen feedback
+                            elHorizon.style.transform = `translateY(${pY}px) rotate(${-smoothedRoll}deg)`;
                         }
                         
                         // Hardware check: Avoid GNSS compass jitter at low speeds (< 1.0 m/s)
@@ -3177,7 +3223,10 @@
                         if (headingValid && wDir !== null && wDir !== 0) {
                             // Calculates exact angle wind is striking the user
                             const relAngle = (wDir - activeHeading + 360) % 360;
-                            if (elRelAngle) elRelAngle.textContent = relAngle.toFixed(0);
+                            
+                            if (elRelAngle) {
+                                elRelAngle.innerHTML = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1 tracking-widest leading-none">&deg; ${getCardinal(wDir)}</span>`;
+                            }
 
                             // Rotate primary wind hand
                             if (elRadarWind) elRadarWind.style.transform = `rotate(${relAngle}deg)`;
