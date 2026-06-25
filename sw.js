@@ -1,35 +1,14 @@
 const APP_CACHE = 'meteonexus-app-v5';
 const API_CACHE = 'meteonexus-api-cache';
 const MAP_CACHE = 'meteonexus-map-cache';
-const MAX_TILE_CACHE_ITEMS = 500; // Strict storage boundary (~15MB max footprint)
 
 const STATIC_ASSETS = [
     './',
     './index.html',
     './manifest.json',
     './worker.js',
-    './sw.js',
-    './UI_RadarCard.js',
-    './UI_WeatherChart.js',
-    './UI_FuelModal.js'
+    './sw.js'
 ];
-
-/**
- * Bounds the cache size to prevent OS-level storage exhaustion
- */
-async function trimCache(cacheName, maxItems) {
-    try {
-        const cache = await caches.open(cacheName);
-        const keys = await cache.keys();
-        if (keys.length > maxItems) {
-            for (let i = 0; i < keys.length - maxItems; i++) {
-                await cache.delete(keys[i]);
-            }
-        }
-    } catch (e) {
-        console.warn("SW Cache Trim Failed:", e);
-    }
-}
 
 self.addEventListener('install', (e) => {
     e.waitUntil(
@@ -58,24 +37,26 @@ self.addEventListener('fetch', (e) => {
 
     const url = new URL(e.request.url);
 
-    // MAP TILE CACHE: Cache First, Network Fallback with Strict FIFO Trimming
+    // MAP TILE CACHE: Cache First, Network Fallback
     if (url.hostname.includes('tile.openstreetmap.org')) {
         e.respondWith(
             caches.match(e.request).then(res => {
                 return res || fetch(e.request).then(netRes => {
-                    if (netRes.ok) {
-                        caches.open(MAP_CACHE).then(cache => {
-                            cache.put(e.request, netRes.clone());
-                            trimCache(MAP_CACHE, MAX_TILE_CACHE_ITEMS);
-                        });
-                    }
-                    return netRes;
+                    return caches.open(MAP_CACHE).then(cache => {
+                        if (netRes.ok) cache.put(e.request, netRes.clone());
+                        return netRes;
+                    });
                 });
-            })
+            }).catch(() => new Response(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#111"/><text x="128" y="128" fill="#333" font-family="monospace" font-size="14" text-anchor="middle">OFFLINE</text></svg>', 
+                { headers: { 'Content-Type': 'image/svg+xml' } }
+            ))
         );
-    } 
-    // API CACHE: Network First, Strict Cache Fallback
-    else if (url.hostname.includes('api.open-meteo.com') || url.hostname.includes('overpass-api.de')) {
+        return;
+    }
+
+    // API REQUESTS: Network First, Persistent Cache Fallback
+    if (url.hostname.includes('api.open-meteo.com') || url.hostname.includes('overpass-api.de') || url.hostname.includes('valhalla')) {
         e.respondWith(
             new Promise((resolve) => {
                 let isResolved = false;
@@ -91,10 +72,7 @@ self.addEventListener('fetch', (e) => {
                         isResolved = true;
                         clearTimeout(timeoutId);
                         if (netRes.ok) {
-                            caches.open(API_CACHE).then(cache => {
-                                cache.put(e.request, netRes.clone());
-                                trimCache(API_CACHE, 50); // Keep API payloads bounded
-                            });
+                            caches.open(API_CACHE).then(cache => cache.put(e.request, netRes.clone()));
                         }
                         resolve(netRes);
                     }

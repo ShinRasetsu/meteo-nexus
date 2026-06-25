@@ -152,7 +152,7 @@
         </h1>
         
         <div class="flex flex-wrap items-center gap-2 md:gap-3">
-            <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Press to Cache. Hold to Clear.">
+            <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
                 <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
             </button>
             <button id="pwa-install-btn" aria-label="Install App" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
@@ -395,6 +395,17 @@
         </div>
     </div>
 
+    <div id="map-cache-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-surface-900 border-4 border-brand-teal rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(20,184,166,0.3)]">
+            <h3 class="text-xl font-black text-brand-teal uppercase tracking-widest mb-2"><i class="fa-solid fa-cloud-arrow-down"></i> Cache Route Tiles?</h3>
+            <p class="text-gray-300 font-mono text-sm mb-6">This will download OpenStreetMap tiles along your active route for offline use. It may use significant mobile data and storage.</p>
+            <div class="flex gap-3 justify-end">
+                <button onclick="closeModal('map-cache-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
+                <button onclick="executeMapCache()" class="px-4 py-2 bg-brand-teal text-black font-black rounded-lg hover:bg-teal-400 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(20,184,166,0.5)]">Download</button>
+            </div>
+        </div>
+    </div>
+
     <div id="map-clear-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
             <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-2"><i class="fa-solid fa-map-location-dot"></i> Clear Map Storage?</h3>
@@ -406,19 +417,8 @@
         </div>
     </div>
 
-    <!-- MODULARIZED COMPONENT CONTAINERS -->
-    <div id="aero-hud-container" class="lg:col-span-12 w-full mt-2"></div>
-    <div id="radar-hud-container" class="lg:col-span-12 w-full mt-2"></div>
-    <div id="weather-chart-container" class="lg:col-span-12 w-full mt-2"></div>
-    <div id="fuel-settings-container"></div>
-
     <!-- CORE ENGINE MODULE -->
     <script type="module">
-        import { RadarCard } from './UI_RadarCard.js';
-        import { WeatherChart } from './UI_WeatherChart.js';
-        import { FuelModal } from './UI_FuelModal.js';
-        import { AeroVectorHUD } from './UI_AeroVectorHUD.js';
-
         "use strict";
 
         // --- DEFENSIVE FETCH WRAPPER WITH EXPONENTIAL BACKOFF & MEMORY LEAK FIX ---
@@ -526,6 +526,41 @@
             cacheDistThresholdKm: 1.5,
             routingIntervalNodeDist: 5000 // 5km routing node intervals
         };
+
+        // --- COMPUTE WORKER BRIDGE (Valhalla decode, route nodes, Overpass parsing) ---
+        let computeWorker = null;
+        let workerMessageId = 0;
+        const workerPending = new Map();
+
+        function initComputeWorker() {
+            if (computeWorker) return;
+            try {
+                computeWorker = new Worker('./worker.js');
+                computeWorker.onmessage = (e) => {
+                    const { messageId, result, error } = e.data;
+                    const pending = workerPending.get(messageId);
+                    if (!pending) return;
+                    workerPending.delete(messageId);
+                    if (error) pending.reject(new Error(error));
+                    else pending.resolve(result);
+                };
+                computeWorker.onerror = (e) => {
+                    console.warn('Compute worker error:', e.message);
+                };
+            } catch (e) {
+                console.warn('Compute worker unavailable:', e);
+            }
+        }
+
+        function workerTask(type, payload) {
+            initComputeWorker();
+            if (!computeWorker) return Promise.reject(new Error('Compute worker unavailable'));
+            const messageId = ++workerMessageId;
+            return new Promise((resolve, reject) => {
+                workerPending.set(messageId, { resolve, reject });
+                computeWorker.postMessage({ type, messageId, payload });
+            });
+        }
 
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
@@ -664,7 +699,7 @@
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
-            modals: { custom: document.getElementById('custom-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
+            modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn')
@@ -673,20 +708,6 @@
         if (DOM.accUi) {
             DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
         }
-
-        // ==========================================
-        // MODULARIZED COMPONENT INSTANTIATION
-        // ==========================================
-        const aeroVectorHUD = new AeroVectorHUD();
-        const radar = new RadarCard('radar-hud-container');
-        const weatherChart = new WeatherChart('weather-chart-container');
-        const fuelManagerInstance = new FuelModal('fuel-settings-container');
-        
-        // Global exports for legacy code compatibility
-        window.aeroVectorHUD = aeroVectorHUD;
-        window.radar = radar;
-        window.weatherChart = weatherChart;
-        window.fuelManagerInstance = fuelManagerInstance;
 
         const updateText = (el, val) => { if (el && el.textContent !== String(val)) el.textContent = val; };
         const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
@@ -698,32 +719,6 @@
             updateText(DOM.statusEl, "ROUTE EXCLUSIONS FAILED. FALLING BACK...");
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap");
         };
-
-        // --- VALHALLA DECODER (ZERO-ALLOCATION POLYLINE DECOMPRESSION) ---
-        function decodeValhallaPolyline(str) {
-            let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
-            const factor = 1e6; // Valhalla strictly uses 6 digits of precision
-            while (index < str.length) {
-                byte = null; shift = 0; result = 0;
-                do {
-                    byte = str.charCodeAt(index++) - 63;
-                    result |= (byte & 0x1f) << shift;
-                    shift += 5;
-                } while (byte >= 0x20);
-                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
-                
-                shift = 0; result = 0;
-                do {
-                    byte = str.charCodeAt(index++) - 63;
-                    result |= (byte & 0x1f) << shift;
-                    shift += 5;
-                } while (byte >= 0x20);
-                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
-                
-                coordinates.push(L.latLng(lat / factor, lng / factor));
-            }
-            return coordinates;
-        }
 
         // --- SMART ROUTER (MULTI-ENGINE RESOLVER) ---
         const SmartRouter = L.Class.extend({
@@ -765,20 +760,33 @@
                     const req = getValhallaPayload();
                     const res = await fetchWithRetry(endpoint, {
                         method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify(req),
                         timeout: 12000
                     }, 2, 500); // 2 retries for routing
-                    
+
+                    if (!res.ok) {
+                        throw new Error(`Valhalla HTTP ${res.status}`);
+                    }
+
                     const data = await res.json();
+                    if (!data.trip || !Array.isArray(data.trip.legs) || data.trip.legs.length === 0) {
+                        throw new Error('Valhalla response missing trip.legs');
+                    }
+
                     let totalDist = 0;
                     let totalTime = 0;
                     let coords = [];
-                    
-                    data.trip.legs.forEach(leg => {
+
+                    for (const leg of data.trip.legs) {
+                        if (!leg.summary || !leg.shape) {
+                            throw new Error('Valhalla leg missing summary or shape');
+                        }
                         totalDist += leg.summary.length * 1000;
                         totalTime += leg.summary.time;
-                        coords = coords.concat(decodeValhallaPolyline(leg.shape));
-                    });
+                        const rawCoords = await workerTask('DECODE_VALHALLA', { shape: leg.shape });
+                        coords = coords.concat(rawCoords.map(c => L.latLng(c.lat, c.lng)));
+                    }
 
                     return {
                         name: `Valhalla Tactical Route (auto)`,
@@ -987,7 +995,15 @@
         // --- MAP CACHE BUTTON LOGIC ---
         let mapHoldTimer = null;
 
-        const triggerMapDownload = () => { if (!state.isCachingMap) window.downloadMapCache(); };
+        const promptMapDownload = () => {
+            if (state.isCachingMap) return;
+            if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) {
+                updateText(DOM.statusEl, "NO ROUTE TO CACHE");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-warning/30 whitespace-nowrap");
+                return;
+            }
+            DOM.modals.mapCache.classList.remove('hidden');
+        };
 
         DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
             if (e.button !== 0 && e.type !== 'touchstart' && e.type !== 'pointerdown') return;
@@ -1002,7 +1018,7 @@
             if (mapHoldTimer) {
                 clearTimeout(mapHoldTimer);
                 mapHoldTimer = null;
-                triggerMapDownload();
+                promptMapDownload();
             }
         });
 
@@ -1019,6 +1035,11 @@
         // --- OFFLINE MAP PRE-FETCHER ---
         function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
         function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
+
+        window.executeMapCache = function() {
+            closeModal('map-cache-modal');
+            window.downloadMapCache();
+        };
 
         window.downloadMapCache = async function() {
             if (state.isCachingMap) return;
@@ -1791,10 +1812,6 @@
                 state.currentRouteCoords = route.coordinates.map(c => c.lat ? c : L.latLng(c[0], c[1]));
             }
 
-            if (!state.isCachingMap) {
-                window.downloadMapCache();
-            }
-
             const now = Date.now();
             if (!state.lastIntelFetch || now - state.lastIntelFetch > 300000) {
                 state.lastIntelFetch = now;
@@ -1829,47 +1846,6 @@
             }
         }
 
-        function calculateRouteNodes(route) {
-            const totalDistance = route.summary.totalDistance;
-            const coords = state.currentRouteCoords; 
-            if (!coords || coords.length === 0) return [];
-
-            const intervalDist = CONFIG.routingIntervalNodeDist; 
-            const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
-            const nodes = new Array(totalFutureNodesCount);
-            
-            let cumulativeDistances = new Float32Array(coords.length);
-            cumulativeDistances[0] = 0;
-            for (let j = 1; j < coords.length; j++) {
-                cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(coords[j-1].lat, coords[j-1].lng, coords[j].lat, coords[j].lng);
-            }
-
-            let searchIdx = 1;
-            for (let i = 1; i <= totalFutureNodesCount; i++) {
-                const targetDist = i * intervalDist;
-                
-                while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) {
-                    searchIdx++;
-                }
-
-                if (searchIdx < coords.length) {
-                    const p1 = coords[searchIdx - 1];
-                    const p2 = coords[searchIdx];
-                    const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
-                    const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
-                    const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
-
-                    nodes[i-1] = {
-                        lat: p1.lat + (p2.lat - p1.lat) * ratio,
-                        lon: p1.lng + (p2.lng - p1.lng) * ratio,
-                        id: i,
-                        passed: false
-                    };
-                }
-            }
-            return nodes.filter(n => n !== undefined);
-        }
-
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
             
@@ -1887,8 +1863,26 @@
             }
 
             if (!state.routeNodes || state.routeNodes.length === 0) {
-                state.routeNodes = calculateRouteNodes(route);
-                
+                const coords = state.currentRouteCoords;
+                if (coords && coords.length > 0) {
+                    const coordsPlain = coords.map(c => ({
+                        lat: c.lat,
+                        lng: c.lng !== undefined ? c.lng : c.lon
+                    }));
+                    try {
+                        state.routeNodes = await workerTask('CALCULATE_NODES', {
+                            totalDistance: route.summary.totalDistance,
+                            coords: coordsPlain,
+                            intervalDist: CONFIG.routingIntervalNodeDist
+                        });
+                    } catch (e) {
+                        console.warn('Route node calculation failed:', e);
+                        state.routeNodes = [];
+                    }
+                } else {
+                    state.routeNodes = [];
+                }
+
                 if (!state.fuelMarkers || state.fuelMarkers.length === 0) {
                     state.originalRouteNodes = state.routeNodes.map(node => ({ ...node }));
                 }
@@ -2575,53 +2569,6 @@
                 }
             },
             
-            // Dual-Tier Variant Filtering Logic
-            _processOverpassPayload: function(data, lat, lon, targetBrand, targetVariant) {
-                if (!data.elements || data.elements.length === 0) return [];
-                
-                let results = new Map();
-                let exactMatchesCount = 0;
-                const reqOsmTag = VARIANT_OSM_MAP[targetVariant];
-
-                data.elements.forEach(el => {
-                    const tLat = el.lat || el.center.lat; 
-                    const tLon = el.lon || el.center.lon;
-                    const id = `${tLat.toFixed(4)},${tLon.toFixed(4)}`;
-                    
-                    if (!results.has(id)) {
-                        const d = fastDistance(lat, lon, tLat, tLon);
-                        let isExact = false;
-                        
-                        if (reqOsmTag && el.tags && el.tags[reqOsmTag] === 'yes') {
-                            isExact = true;
-                            exactMatchesCount++;
-                        }
-                        
-                        results.set(id, { 
-                            lat: tLat, lon: tLon, 
-                            name: el.tags.name || targetBrand, 
-                            dist: (d/1000).toFixed(1),
-                            isExact: isExact
-                        });
-                    }
-                });
-                
-                let finalArray = Array.from(results.values());
-                let isStrictFiltered = false;
-                
-                // Tier 1 Enforcer: If OSM contains exact tag matches, filter strictly
-                if (exactMatchesCount > 0 && reqOsmTag) {
-                    finalArray = finalArray.filter(s => s.isExact);
-                    isStrictFiltered = true;
-                }
-                // Tier 2 Fallback: If 0 exact tags (due to sparse OSM data), bypass filter and return all Brand matches
-                
-                finalArray.sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
-                finalArray.forEach(s => { s.strictFilterActive = isStrictFiltered; });
-                
-                return { stations: finalArray, isStrict: isStrictFiltered };
-            },
-
             findAllAlongRoute: async function(lat, lon, routeNodes) {
                 const conf = this.getConfig();
                 let upcoming = [];
@@ -2656,8 +2603,13 @@
                 try {
                     const res = await fetchWithRetry(url, { timeout: 25000 }, 2, 500);
                     const data = await res.json();
-                    
-                    const processedData = this._processOverpassPayload(data, lat, lon, conf.brand, conf.variant);
+
+                    const processedData = await workerTask('PROCESS_OVERPASS', {
+                        data, lat, lon,
+                        targetBrand: conf.brand,
+                        targetVariant: conf.variant,
+                        variantMap: VARIANT_OSM_MAP
+                    });
                     await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() });
                     return processedData;
                 } catch(e) { return { stations: [], isStrict: false }; }
@@ -2677,8 +2629,13 @@
                 try {
                     const res = await fetchWithRetry(url, { timeout: 15000 }, 2, 500);
                     const data = await res.json();
-                    
-                    const processedData = this._processOverpassPayload(data, lat, lon, conf.brand, conf.variant);
+
+                    const processedData = await workerTask('PROCESS_OVERPASS', {
+                        data, lat, lon,
+                        targetBrand: conf.brand,
+                        targetVariant: conf.variant,
+                        variantMap: VARIANT_OSM_MAP
+                    });
                     await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() });
                     return processedData;
                 } catch(e) { return { stations: [], isStrict: false }; }
@@ -2884,6 +2841,7 @@
         };
 
         async function runApp() {
+            initComputeWorker();
             requestWakeLock();
             startBackgroundTracking();
             await FuelManager.init(); // Blocking resolution configures the application state before proceeding
@@ -2967,26 +2925,392 @@
                     deferredPrompt = null;
                 }
             });
-            // })(); // DEPRECATED - Using modular UI_AeroVectorHUD.js instead
+        })();
+
+        // --- ACTIVE AERO TELEMETRY EXTENSION ---
+        (function initActiveAeroTelemetry() {
+            if (window.__aeroMounted) return; // Idempotency Lock: Prevents overlapping rAF cascades
+            window.__aeroMounted = true;
+
+            const st = window.__METEO_CORE_STATE;
+            st.quaternionActive = false;
+            st.deviceHeading = null;
+            st.pitch = 0;
+            st.roll = 0;
+            
+            // MATH KERNEL: W3C Euler to Horizon-Projected Heading 
+            // Completely circumvents Gimbal Lock at Pitch=90 by blending Top-Edge and Back-Camera matrices.
+            function computeRobustHeading(alpha, beta, gamma) {
+                const rad = Math.PI / 180;
+                const a = alpha * rad, b = beta * rad, g = gamma * rad;
+
+                const cA = Math.cos(a), sA = Math.sin(a);
+                const cB = Math.cos(b), sB = Math.sin(b);
+                const cG = Math.cos(g), sG = Math.sin(g);
+
+                // Phone Top-Edge horizontal projection (used when Flat)
+                const yX = -sA * cB;
+                const yY = cA * cB;
+
+                // Phone Back-Camera horizontal projection (used when Vertical)
+                const zX = -cA * sG - sA * sB * cG;
+                const zY = -sA * sG + cA * sB * cG;
+
+                // Dynamically blend reference axes based on device pitch (beta)
+                const weightY = Math.cos(b);
+                const weightZ = Math.sin(b); 
+                
+                const dirX = yX * Math.abs(weightY) + zX * Math.abs(weightZ);
+                const dirY = yY * Math.abs(weightY) + zY * Math.abs(weightZ);
+
+                let heading = Math.atan2(dirX, dirY) * (180 / Math.PI);
+                if (heading < 0) heading += 360;
+                return heading;
+            }
+
+            // 1. Hardware IMU Hook (Gravity Vector Projection & Quaternion Sensor Fusion)
+            if ('AbsoluteOrientationSensor' in window) {
+                try {
+                    const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
+                    sensor.addEventListener('reading', () => {
+                        st.quaternionActive = true;
+                        const q = sensor.quaternion;
+                        // Map the -Z axis (back camera) through the quaternion explicitly
+                        const vx = 2 * (q[0]*q[2] - q[3]*q[1]);
+                        const vy = 2 * (q[1]*q[2] + q[3]*q[0]);
+                        let heading = Math.atan2(vx, vy) * (180 / Math.PI);
+                        st.deviceHeading = (heading + 360) % 360;
+                    });
+                    sensor.start();
+                } catch(e) {} 
+            }
+
+            window.addEventListener('deviceorientation', (e) => {
+                if (e.webkitCompassHeading !== undefined) {
+                    st.deviceHeading = e.webkitCompassHeading;
+                } else if (e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
+                    st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
+                }
+
+                if (e.beta !== null && e.gamma !== null) {
+                    const rad = Math.PI / 180;
+                    const b = e.beta * rad;
+                    const g = e.gamma * rad;
+
+                    // Gravity Vector Extrapolation (Immune to roll flips near vertical)
+                    const gx = Math.cos(b) * Math.sin(g);
+                    const gy = Math.sin(b);
+                    const gz = Math.cos(b) * Math.cos(g);
+
+                    st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
+                    st.pitch = Math.asin(gz) * (180 / Math.PI); 
+                }
+            });
+
+            // 2. Safe UI Card Injection 
+            function mountActiveAeroUI() {
+                setTimeout(() => {
+                    const grids = document.querySelectorAll('.grid');
+                    let targetGrid = null;
+                    
+                    grids.forEach(g => {
+                        if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g;
+                    });
+                    if (!targetGrid && grids.length > 0) targetGrid = grids[0];
+                    if (!targetGrid) return; 
+
+                    const aeroContainer = document.createElement('div');
+                    aeroContainer.className = "lg:col-span-12 w-full mt-2";
+
+                    const radarCard = document.createElement('div');
+                    radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
+                    radarCard.innerHTML = `
+                        <!-- HUD HEADER ROW -->
+                        <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
+                            <div class="flex flex-col">
+                                <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
+                                <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
+                            </div>
+                            
+                            <div class="flex items-start gap-4">
+                                <div class="text-right pointer-events-none">
+                                    <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
+                                    <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
+                                        <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
+                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
+                                    </div>
+                                </div>
+                                <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm"><i class="fa-solid fa-expand text-base"></i></button>
+                            </div>
+                        </div>
+                        
+                        <!-- SCALABLE DIAL WRAPPER (Focus Mode Target) -->
+                        <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
+                            
+                            <!-- Horizon Layer (Pitch & Roll) -->
+                            <div id="ui-radar-horizon-layer" class="absolute inset-0 transition-transform duration-75 flex items-center justify-center z-0 pointer-events-none opacity-60">
+                                <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
+                                    <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
+                                    <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
+                                    <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
+                                    <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
+                                </div>
+                            </div>
+
+                            <!-- Compass Ring (Rotates inversely to keep User facing UP) -->
+                            <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 transition-transform duration-300 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
+                                <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
+                                <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
+                                <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
+                                <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
+                            </div>
+
+                            <!-- User Heading Vector (Fixed UP) -->
+                            <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
+                                <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
+                                <div class="w-3 h-3 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,1)] border-2 border-surface-900"></div>
+                            </div>
+
+                            <!-- Temporal Wind Shift Trails (Ghost Vectors) -->
+                            <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10">
+                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                            </div>
+                            <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20">
+                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                            </div>
+                            <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40">
+                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                            </div>
+
+                            <!-- Primary Wind Direction Vector (Rotates relative to user) -->
+                            <div id="ui-radar-wind-layer" class="absolute inset-0 transition-transform duration-300 flex items-start justify-center z-30 pointer-events-none">
+                                <div class="flex flex-col items-center">
+                                    <i class="fa-solid fa-wind text-brand-blue text-sm -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
+                                    <div class="w-[2px] h-6 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
+                                    <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- HUD FOOTER ROW (Telemetry Overlay) -->
+                        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
+                            <div>
+                                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
+                                <div class="flex items-baseline gap-1">
+                                    <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
+                                </div>
+                            </div>
+                            
+                            <div class="text-right flex flex-col items-end">
+                                <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
+                                <div class="flex items-baseline gap-1 justify-end mb-1">
+                                    <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
+                                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+                                </div>
+                                <!-- Vector Decomposition Output -->
+                                <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
+                                    <span id="ui-radar-crosswind">CRS: 0</span> <span class="text-surface-600">|</span> <span id="ui-radar-headwind">HWD: 0</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    aeroContainer.appendChild(radarCard);
+                    targetGrid.appendChild(aeroContainer);
+
+                    // Focus Mode Logic
+                    const expandBtn = radarCard.querySelector('#radar-expand-btn');
+                    let isRadarFullscreen = false;
+                    expandBtn.addEventListener('click', () => {
+                        isRadarFullscreen = !isRadarFullscreen;
+                        const scaler = radarCard.querySelector('#radar-dial-scaler');
+                        if (isRadarFullscreen) {
+                            radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                            radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                            
+                            // Scale vector rendering to fit physical viewport bounds dynamically
+                            const minDimension = Math.min(window.innerWidth, window.innerHeight);
+                            const scaleFactor = (minDimension * 0.6) / 160; 
+                            scaler.style.transform = `scale(${scaleFactor})`;
+                            
+                            expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
+                            document.body.classList.add('overflow-hidden');
+                        } else {
+                            radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                            radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                            
+                            scaler.style.transform = 'scale(1)';
+                            
+                            expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
+                            document.body.classList.remove('overflow-hidden');
+                        }
+                    });
+
+                    // Pre-allocated Ring Buffer for Temporal Wind Shifts to prevent GC stalls
+                    const windHistory = new Float32Array([-1, -1, -1]); 
+                    let historyIdx = 0;
+                    let lastHistoryTime = 0;
+                    
+                    // Hardware Dampener (LPF) for IMU Horizon 
+                    let smoothedPitch = 0;
+                    let smoothedRoll = 0;
+
+                    // Dedicated UI state cache to prevent extreme battery/thermal drain from DOM innerHTML thrashing at 60fps
+                    const _uiCache = { alt: '', windSpeed: '', gust: '', ringTrans: '', horizonTrans: '', relAngle: '', windTrans: '', head: '', cross: '' };
+
+                    const getCardinalStr = (deg) => {
+                        const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+                        return arr[Math.floor((deg / 22.5) + 0.5) % 16];
+                    };
+
+                    // 3. Dedicated Physics Render Loop
+                    function renderAero() {
+                        requestAnimationFrame(renderAero);
+                        
+                        const elRadarRing = document.getElementById('ui-radar-ring');
+                        const elRadarWind = document.getElementById('ui-radar-wind-layer');
+                        const elRelAngle = document.getElementById('ui-radar-rel-angle');
+                        const elWindSpeed = document.getElementById('ui-radar-wind-speed');
+                        const elAltContainer = document.getElementById('ui-radar-alt-container');
+                        const elGust = document.getElementById('ui-radar-gust');
+                        const elCross = document.getElementById('ui-radar-crosswind');
+                        const elHead = document.getElementById('ui-radar-headwind');
+                        const elHorizon = document.getElementById('ui-radar-horizon-layer');
+                        
+                        if (!elRadarRing) return;
+
+                        const now = Date.now();
+                        let activeHeading = 0;
+                        let headingValid = false;
+                        
+                        // ALTIMETER LOGIC: Prioritize GNSS -> Fallback to topological elevation map
+                        if (elAltContainer) {
+                            let altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
+                            if (st.altitude !== null) {
+                                altStr = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                            } else if (st.topoAltitude !== null) {
+                                altStr = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                            }
+                            if (_uiCache.alt !== altStr) { elAltContainer.innerHTML = altStr; _uiCache.alt = altStr; }
+                        }
+
+                        if (elWindSpeed) {
+                            const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
+                            if (_uiCache.windSpeed !== wsStr) { elWindSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
+                        }
+                        
+                        // Gust Boundary Logic
+                        if (elGust && st.windGust > 0) {
+                            const gustDiff = st.windGust - st.windSpeed;
+                            if (gustDiff >= 5) {
+                                const gStr = `GUST +${Math.round(gustDiff)}`;
+                                if (_uiCache.gust !== gStr) {
+                                    elGust.classList.remove('opacity-0');
+                                    elGust.textContent = gStr;
+                                    _uiCache.gust = gStr;
+                                }
+                            } else if (_uiCache.gust !== 'hidden') {
+                                elGust.classList.add('opacity-0');
+                                _uiCache.gust = 'hidden';
+                            }
+                        }
+                        
+                        // Artificial Horizon Physics (Immune to Beta=90 Gimbal Lock)
+                        if (elHorizon) {
+                            smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
+                            smoothedRoll = (0.1 * st.roll) + (0.9 * smoothedRoll);
+                            
+                            let pY = (smoothedPitch - 30) * 1.5; 
+                            pY = Math.max(-60, Math.min(60, pY)); 
+                            
+                            const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${-smoothedRoll.toFixed(1)}deg)`;
+                            if (_uiCache.horizonTrans !== hTrans) { elHorizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
+                        }
+                        
+                        // TTL Hardware Enforcement: Drop GNSS compass priority if GPS fix is older than 3000ms
+                        if (st.speed > 1.5 && st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
+                            activeHeading = st.gnssHeading;
+                            headingValid = true;
+                        } else if (st.deviceHeading !== null) {
+                            activeHeading = st.deviceHeading;
+                            headingValid = true;
+                        }
+
+                        if (headingValid) {
+                            // Visual Radar: Rotate the compass ring inversely (Heading-Up display)
+                            const ringT = `rotate(${-activeHeading.toFixed(1)}deg)`;
+                            if (_uiCache.ringTrans !== ringT) { elRadarRing.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                        }
+
+                        const wDir = st.windDir; 
+                        if (headingValid && wDir !== null) {
+                            const relAngle = (wDir - activeHeading + 360) % 360;
+                            
+                            // UI Update: Relative Angle with Absolute Cardinal Direction mapped
+                            if (elRelAngle) {
+                                const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                                if (_uiCache.relAngle !== relStr) { elRelAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
+                            }
+
+                            // Rotate primary wind hand
+                            if (elRadarWind) {
+                                const wT = `rotate(${relAngle.toFixed(1)}deg)`;
+                                if (_uiCache.windTrans !== wT) { elRadarWind.style.transform = wT; _uiCache.windTrans = wT; }
+                            }
+
+                            // Vector Decomposition (Kinematic force isolation)
+                            const rad = relAngle * (Math.PI / 180);
+                            const headForce = Math.cos(rad) * st.windSpeed;
+                            const crossForce = Math.sin(rad) * st.windSpeed;
+                            
+                            if (elHead) {
+                                const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
+                                if (_uiCache.head !== hStr) { elHead.innerHTML = hStr; _uiCache.head = hStr; }
+                            }
+                            
+                            if (elCross) {
+                                // AUDIT FIX: A positive crossForce (e.g. from East/Right) pushes the vehicle to the LEFT.
+                                const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
+                                if (_uiCache.cross !== cStr) { elCross.innerHTML = cStr; _uiCache.cross = cStr; }
+                            }
+
+                            // Temporal Shift Trail Logic
+                            // FIX: Prevent timing drift by enforcing absolute interval steps rather than frame-time assignment.
+                            if (now - lastHistoryTime > 10000) {
+                                if (typeof relAngle !== 'undefined' && !isNaN(relAngle)) {
+                                    windHistory[historyIdx] = relAngle;
+                                }
+                                historyIdx = (historyIdx + 1) % 3;
+                                
+                                // Phase-locked interval to prevent requestAnimationFrame drift
+                                if (lastHistoryTime === 0) {
+                                    lastHistoryTime = now;
+                                } else {
+                                    lastHistoryTime += 10000;
+                                }
+                            }
+                            
+                            // Render Ghosts
+                            for (let i = 0; i < 3; i++) {
+                                const age = (historyIdx - 1 - i + 3) % 3; 
+                                const histAngle = windHistory[age];
+                                
+                                // FIX: Strict NaN check before CSSOM injection
+                                if (histAngle !== -1 && !isNaN(histAngle)) {
+                                    const ghostEl = document.getElementById(`ui-radar-wind-ghost-${i+1}`);
+                                    if (ghostEl) ghostEl.style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
+                                }
+                            }
+                        }
+                    }
+                    requestAnimationFrame(renderAero);
+                }, 1000); 
+            }
 
             if (document.readyState === 'loading') {
-               window.addEventListener('DOMContentLoaded', async () => {
-                   aeroVectorHUD.mount('aero-hud-container');
-                   radar.mount();
-                   weatherChart.mount();
-                   fuelManagerInstance.mount();
-                   await fuelManagerInstance.loadConfig();
-                   await aeroVectorHUD.loadConfig();
-               });
+                window.addEventListener('DOMContentLoaded', mountActiveAeroUI);
             } else {
-               (async () => {
-                   aeroVectorHUD.mount('aero-hud-container');
-                   radar.mount();
-                   weatherChart.mount();
-                   fuelManagerInstance.mount();
-                   await fuelManagerInstance.loadConfig();
-                   await aeroVectorHUD.loadConfig();
-               })();
+                mountActiveAeroUI();
             }
         })();
 
