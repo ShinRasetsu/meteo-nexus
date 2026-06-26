@@ -1233,13 +1233,13 @@ if (state.rawSensorHeading !== null) {
             }
         });
 
-        window.addEventListener('deviceorientation', (e) => {
-            if (e.webkitCompassHeading) {
-                handleOrientationUpdate(e.webkitCompassHeading);
-            } else if (!hasAbsoluteOrientation && e.absolute && e.alpha !== null) {
-                handleOrientationUpdate(360 - e.alpha);
-            }
-        });
+window.addEventListener('deviceorientation', (e) => {
+    if (e.webkitCompassHeading != null) {   // handles 0° North, null, and undefined
+        handleOrientationUpdate(e.webkitCompassHeading);
+    } else if (!hasAbsoluteOrientation && e.absolute && e.alpha !== null) {
+        handleOrientationUpdate(360 - e.alpha);
+    }
+});
 
         // --- BACKGROUND TRACKING ENGINE ---
         function startBackgroundTracking() {
