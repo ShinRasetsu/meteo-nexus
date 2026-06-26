@@ -66,7 +66,8 @@
             windDir: null,
             windSpeed: 0,
             windGust: 0,
-            lastGnssUpdate: 0
+            lastGnssUpdate: 0,
+            fusedHeading: null
         };
     </script>
 
@@ -850,21 +851,24 @@
             state.renderPending = false;
             
             // Sensor Fusion processing decoupled to rAF
-            if (state.rawSensorHeading !== null) {
-                if (state.sensorHeading === null) {
-                    state.sensorHeading = state.rawSensorHeading;
-                } else {
-                    let diff = state.rawSensorHeading - state.sensorHeading;
-                    if (diff > 180) diff -= 360;
-                    if (diff < -180) diff += 360;
-                    state.sensorHeading = (state.sensorHeading + diff * 0.75 + 360) % 360; 
-                }
-                
-                if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) {
-                    state.renderHeading = state.sensorHeading;
-                }
-                state.rawSensorHeading = null;
-            }
+if (state.rawSensorHeading !== null) {
+    if (state.sensorHeading === null) {
+        state.sensorHeading = state.rawSensorHeading;
+    } else {
+        let diff = state.rawSensorHeading - state.sensorHeading;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        state.sensorHeading = (state.sensorHeading + diff * 0.75 + 360) % 360; 
+    }
+    
+    if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) {
+        state.renderHeading = state.sensorHeading;
+    }
+
+    // BRIDGE: Push EMA-smoothed heading to Active Aero module
+    window.__METEO_CORE_STATE.fusedHeading = state.sensorHeading;
+    state.rawSensorHeading = null;
+}
 
             if (state.renderSpeed !== null) {
                 updateText(DOM.liveSpeed, state.renderSpeed);
@@ -1373,14 +1377,15 @@
                         
                         // AUDIT FIX: Hardware Compass Kinematic Guard. 
                         // Guarantees IMU fallback if moving but GNSS heading is invalid (e.g. Tunnels).
-                        if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
-                            state.renderHeading = gpsHeading;
-                            state.sensorHeading = gpsHeading; // Sync sensor to prevent jarring snap when stopping
-                            triggerRenderPipeline();
-                        } else if (state.sensorHeading !== null) {
-                            state.renderHeading = state.sensorHeading;
-                            triggerRenderPipeline();
-                        }
+if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
+    state.renderHeading = gpsHeading;
+    state.sensorHeading = gpsHeading;
+    window.__METEO_CORE_STATE.fusedHeading = gpsHeading; // BRIDGE: GPS kinematic snap
+    triggerRenderPipeline();
+} else if (state.sensorHeading !== null) {
+    state.renderHeading = state.sensorHeading;
+    triggerRenderPipeline();
+}
 
                         if (isMoving) {
                             DOM.hudMap.classList.add('hud-moving');
@@ -2985,27 +2990,44 @@
                 } catch(e) {} 
             }
 
-            window.addEventListener('deviceorientation', (e) => {
-                if (e.webkitCompassHeading !== undefined) {
-                    st.deviceHeading = e.webkitCompassHeading;
-                } else if (e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
-                    st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
-                }
+window.addEventListener('deviceorientation', (e) => {
+    if (e.webkitCompassHeading !== undefined) {
+        // iOS: direct calibrated compass heading
+        st.deviceHeading = e.webkitCompassHeading;
+    } else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
+        // Android: deviceorientation with e.absolute=true (rare, but valid)
+        st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
+    }
+    // Non-absolute events (e.absolute=false or undefined): ignore for heading — arbitrary reference
 
-                if (e.beta !== null && e.gamma !== null) {
-                    const rad = Math.PI / 180;
-                    const b = e.beta * rad;
-                    const g = e.gamma * rad;
+    if (e.beta !== null && e.gamma !== null) {
+        const rad = Math.PI / 180;
+        const b = e.beta * rad;
+        const g = e.gamma * rad;
+        const gx = Math.cos(b) * Math.sin(g);
+        const gy = Math.sin(b);
+        const gz = Math.cos(b) * Math.cos(g);
+        st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
+        st.pitch = Math.asin(gz) * (180 / Math.PI);
+    }
+});
 
-                    // Gravity Vector Extrapolation (Immune to roll flips near vertical)
-                    const gx = Math.cos(b) * Math.sin(g);
-                    const gy = Math.sin(b);
-                    const gz = Math.cos(b) * Math.cos(g);
-
-                    st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
-                    st.pitch = Math.asin(gz) * (180 / Math.PI); 
-                }
-            });
+// ADD: dedicated absolute event listener (primary Android path — fires separately from deviceorientation)
+window.addEventListener('deviceorientationabsolute', (e) => {
+    if (e.alpha !== null && !st.quaternionActive) {
+        st.deviceHeading = computeRobustHeading(e.alpha, e.beta ?? 0, e.gamma ?? 0);
+    }
+    if (e.beta !== null && e.gamma !== null) {
+        const rad = Math.PI / 180;
+        const b = e.beta * rad;
+        const g = e.gamma * rad;
+        const gx = Math.cos(b) * Math.sin(g);
+        const gy = Math.sin(b);
+        const gz = Math.cos(b) * Math.cos(g);
+        st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
+        st.pitch = Math.asin(gz) * (180 / Math.PI);
+    }
+});
 
             // 2. Safe UI Card Injection 
             function mountActiveAeroUI() {
@@ -3227,14 +3249,19 @@
                             if (_uiCache.horizonTrans !== hTrans) { elHorizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
                         }
                         
-                        // TTL Hardware Enforcement: Drop GNSS compass priority if GPS fix is older than 3000ms
-                        if (st.speed > 1.5 && st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
-                            activeHeading = st.gnssHeading;
-                            headingValid = true;
-                        } else if (st.deviceHeading !== null) {
-                            activeHeading = st.deviceHeading;
-                            headingValid = true;
-                        }
+// Priority 1: Main engine's EMA-smoothed, kinematically-guarded fused heading (most accurate)
+if (st.fusedHeading !== null) {
+    activeHeading = st.fusedHeading;
+    headingValid = true;
+} else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
+    // Priority 2: Raw GNSS heading (valid fix, no sensor fusion yet)
+    activeHeading = st.gnssHeading;
+    headingValid = true;
+} else if (st.deviceHeading !== null) {
+    // Priority 3: Local IMU heading (absolute events only, post Fix 4)
+    activeHeading = st.deviceHeading;
+    headingValid = true;
+}
 
                         if (headingValid) {
                             // Visual Radar: Rotate the compass ring inversely (Heading-Up display)
