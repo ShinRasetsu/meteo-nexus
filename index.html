@@ -2932,415 +2932,433 @@ if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
             });
         })();
 
-        // --- ACTIVE AERO TELEMETRY EXTENSION ---
-        (function initActiveAeroTelemetry() {
-            if (window.__aeroMounted) return; // Idempotency Lock: Prevents overlapping rAF cascades
-            window.__aeroMounted = true;
+// --- ACTIVE AERO TELEMETRY EXTENSION ---
+(function initActiveAeroTelemetry() {
+    if (window.__aeroMounted) return; // Idempotency Lock
+    window.__aeroMounted = true;
 
-            const st = window.__METEO_CORE_STATE;
-            st.quaternionActive = false;
-            st.deviceHeading = null;
-            st.pitch = 0;
-            st.roll = 0;
-            
-            // MATH KERNEL: W3C Euler to Horizon-Projected Heading 
-            // Completely circumvents Gimbal Lock at Pitch=90 by blending Top-Edge and Back-Camera matrices.
-            function computeRobustHeading(alpha, beta, gamma) {
-                const rad = Math.PI / 180;
-                const a = alpha * rad, b = beta * rad, g = gamma * rad;
+    const st = window.__METEO_CORE_STATE;
+    st.quaternionActive = false;
+    st.deviceHeading    = null;
+    st.pitch            = 0;
+    st.roll             = 0;
 
-                const cA = Math.cos(a), sA = Math.sin(a);
-                const cB = Math.cos(b), sB = Math.sin(b);
-                const cG = Math.cos(g), sG = Math.sin(g);
-
-                // Phone Top-Edge horizontal projection (used when Flat)
-                const yX = -sA * cB;
-                const yY = cA * cB;
-
-                // Phone Back-Camera horizontal projection (used when Vertical)
-                const zX = -cA * sG - sA * sB * cG;
-                const zY = -sA * sG + cA * sB * cG;
-
-                // Dynamically blend reference axes based on device pitch (beta)
-                const weightY = Math.cos(b);
-                const weightZ = Math.sin(b); 
-                
-                const dirX = yX * Math.abs(weightY) + zX * Math.abs(weightZ);
-                const dirY = yY * Math.abs(weightY) + zY * Math.abs(weightZ);
-
-                let heading = Math.atan2(dirX, dirY) * (180 / Math.PI);
-                if (heading < 0) heading += 360;
-                return heading;
-            }
-
-            // 1. Hardware IMU Hook (Gravity Vector Projection & Quaternion Sensor Fusion)
-            if ('AbsoluteOrientationSensor' in window) {
-                try {
-                    const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
-                    sensor.addEventListener('reading', () => {
-                        st.quaternionActive = true;
-                        const q = sensor.quaternion;
-                        // Map the -Z axis (back camera) through the quaternion explicitly
-                        const vx = 2 * (q[0]*q[2] - q[3]*q[1]);
-                        const vy = 2 * (q[1]*q[2] + q[3]*q[0]);
-                        let heading = Math.atan2(vx, vy) * (180 / Math.PI);
-                        st.deviceHeading = (heading + 360) % 360;
-                    });
-                    sensor.start();
-                } catch(e) {} 
-            }
-
-window.addEventListener('deviceorientation', (e) => {
-    if (e.webkitCompassHeading !== undefined) {
-        // iOS: direct calibrated compass heading
-        st.deviceHeading = e.webkitCompassHeading;
-    } else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
-        // Android: deviceorientation with e.absolute=true (rare, but valid)
-        st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
-    }
-    // Non-absolute events (e.absolute=false or undefined): ignore for heading — arbitrary reference
-
-    if (e.beta !== null && e.gamma !== null) {
+    // MATH KERNEL: W3C Euler → Horizon-Projected Heading (Gimbal-Lock resistant blend)
+    function computeRobustHeading(alpha, beta, gamma) {
         const rad = Math.PI / 180;
-        const b = e.beta * rad;
-        const g = e.gamma * rad;
-        const gx = Math.cos(b) * Math.sin(g);
-        const gy = Math.sin(b);
-        const gz = Math.cos(b) * Math.cos(g);
-        st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
-        st.pitch = Math.asin(gz) * (180 / Math.PI);
+        const a = alpha * rad, b = beta * rad, g = gamma * rad;
+        const cA = Math.cos(a), sA = Math.sin(a);
+        const cB = Math.cos(b);
+        const cG = Math.cos(g), sG = Math.sin(g);
+
+        const yX = -sA * cB;
+        const yY =  cA * cB;
+
+        const zX = -cA * sG - sA * (Math.sin(b)) * cG;
+        const zY = -sA * sG + cA * (Math.sin(b)) * cG;
+
+        const wY = Math.abs(Math.cos(b));
+        const wZ = Math.abs(Math.sin(b));
+
+        const dirX = yX * wY + zX * wZ;
+        const dirY = yY * wY + zY * wZ;
+
+        let heading = Math.atan2(dirX, dirY) * (180 / Math.PI);
+        if (heading < 0) heading += 360;
+        return heading;
     }
-});
 
-// ADD: dedicated absolute event listener (primary Android path — fires separately from deviceorientation)
-window.addEventListener('deviceorientationabsolute', (e) => {
-    if (e.alpha !== null && !st.quaternionActive) {
-        st.deviceHeading = computeRobustHeading(e.alpha, e.beta ?? 0, e.gamma ?? 0);
-    }
-    if (e.beta !== null && e.gamma !== null) {
-        const rad = Math.PI / 180;
-        const b = e.beta * rad;
-        const g = e.gamma * rad;
-        const gx = Math.cos(b) * Math.sin(g);
-        const gy = Math.sin(b);
-        const gz = Math.cos(b) * Math.cos(g);
-        st.roll = Math.atan2(gx, gy) * (180 / Math.PI);
-        st.pitch = Math.asin(gz) * (180 / Math.PI);
-    }
-});
+    // 1. Hardware IMU: AbsoluteOrientationSensor (Quaternion path, highest fidelity)
+    // FIX #4: Gate behind permissions check — Chrome Android silently rejects without this.
+    // FIX #1: Correct quaternion formula. Derives v_world from rotating device -Z axis (back camera)
+    //         through R(q). Standard rotation matrix column [0][2],[1][2] for v=(0,0,-1):
+    //         v'x = -2*(qx*qz + qw*qy)  →  -2*(q[0]*q[2] + q[3]*q[1])
+    //         v'y = -2*(qy*qz - qw*qx)  →   2*(q[3]*q[0] - q[1]*q[2])
+    //         Previous code had sign errors on both cross terms, confirmed 90° error in test.
+    (async function() {
+        if (!('AbsoluteOrientationSensor' in window)) return;
+        try {
+            const perms = await Promise.all([
+                navigator.permissions.query({ name: 'accelerometer' }),
+                navigator.permissions.query({ name: 'magnetometer' }),
+                navigator.permissions.query({ name: 'gyroscope' })
+            ]);
+            if (perms.every(p => p.state !== 'denied')) {
+                const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
+                sensor.addEventListener('reading', () => {
+                    st.quaternionActive = true;
+                    const q = sensor.quaternion; // W3C order: [qx, qy, qz, qw]
+                    // FIX #1: Corrected rotation formula (previous had +2*(q[0]*q[2] - ...) — wrong signs)
+                    const vx = -2 * (q[0] * q[2] + q[3] * q[1]);
+                    const vy =  2 * (q[3] * q[0] - q[1] * q[2]);
+                    let heading = Math.atan2(vx, vy) * (180 / Math.PI);
+                    st.deviceHeading = (heading + 360) % 360;
+                });
+                sensor.start();
+            }
+        } catch (e) {
+            console.warn('AeroHUD: AbsoluteOrientationSensor unavailable:', e);
+        }
+    })();
 
-            // 2. Safe UI Card Injection 
-            function mountActiveAeroUI() {
-                setTimeout(() => {
-                    const grids = document.querySelectorAll('.grid');
-                    let targetGrid = null;
-                    
-                    grids.forEach(g => {
-                        if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g;
-                    });
-                    if (!targetGrid && grids.length > 0) targetGrid = grids[0];
-                    if (!targetGrid) return; 
+    // FIX #2: != null (loose equality) handles both null (compass unavailable) and undefined (non-iOS).
+    // Previous !== undefined would propagate null into st.deviceHeading, breaking Priority 3 fallback.
+    window.addEventListener('deviceorientation', (e) => {
+        if (e.webkitCompassHeading != null) {
+            // iOS: direct calibrated compass. != null correctly passes 0° Due North AND rejects null.
+            st.deviceHeading = e.webkitCompassHeading;
+        } else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
+            // Android: deviceorientation with absolute=true flag (rare, valid fallback)
+            st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
+        }
 
-                    const aeroContainer = document.createElement('div');
-                    aeroContainer.className = "lg:col-span-12 w-full mt-2";
+        if (e.beta !== null && e.gamma !== null) {
+            const rad = Math.PI / 180;
+            const b = e.beta  * rad;
+            const g = e.gamma * rad;
+            const gx = Math.cos(b) * Math.sin(g);
+            const gy = Math.sin(b);
+            const gz = Math.cos(b) * Math.cos(g);
+            st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
+            st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
+        }
+    });
 
-                    const radarCard = document.createElement('div');
-                    radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
-                    radarCard.innerHTML = `
-                        <!-- HUD HEADER ROW -->
-                        <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
-                            <div class="flex flex-col">
-                                <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
-                                <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
-                            </div>
-                            
-                            <div class="flex items-start gap-4">
-                                <div class="text-right pointer-events-none">
-                                    <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
-                                    <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
-                                        <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
-                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
-                                    </div>
-                                </div>
-                                <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm"><i class="fa-solid fa-expand text-base"></i></button>
+    // Primary Android absolute path (fires separately from deviceorientation)
+    window.addEventListener('deviceorientationabsolute', (e) => {
+        if (e.alpha !== null && !st.quaternionActive) {
+            st.deviceHeading = computeRobustHeading(e.alpha, e.beta ?? 0, e.gamma ?? 0);
+        }
+        if (e.beta !== null && e.gamma !== null) {
+            const rad = Math.PI / 180;
+            const b = e.beta  * rad;
+            const g = e.gamma * rad;
+            const gx = Math.cos(b) * Math.sin(g);
+            const gy = Math.sin(b);
+            const gz = Math.cos(b) * Math.cos(g);
+            st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
+            st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
+        }
+    });
+
+    // 2. UI Card Injection
+    function mountActiveAeroUI() {
+        setTimeout(() => {
+            const grids = document.querySelectorAll('.grid');
+            let targetGrid = null;
+            grids.forEach(g => {
+                if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g;
+            });
+            if (!targetGrid && grids.length > 0) targetGrid = grids[0];
+            if (!targetGrid) return;
+
+            const aeroContainer = document.createElement('div');
+            aeroContainer.className = "lg:col-span-12 w-full mt-2";
+
+            const radarCard = document.createElement('div');
+            radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
+            radarCard.innerHTML = `
+                <!-- HUD HEADER ROW -->
+                <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
+                    <div class="flex flex-col">
+                        <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
+                        <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
+                    </div>
+                    <div class="flex items-start gap-4">
+                        <div class="text-right pointer-events-none">
+                            <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
+                            <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
+                                <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
+                                <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                             </div>
                         </div>
-                        
-                        <!-- SCALABLE DIAL WRAPPER (Focus Mode Target) -->
-                        <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
-                            
-                            <!-- Horizon Layer (Pitch & Roll) -->
-                            <div id="ui-radar-horizon-layer" class="absolute inset-0 transition-transform duration-75 flex items-center justify-center z-0 pointer-events-none opacity-60">
-                                <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
-                                </div>
-                            </div>
+                        <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm"><i class="fa-solid fa-expand text-base"></i></button>
+                    </div>
+                </div>
 
-                            <!-- Compass Ring (Rotates inversely to keep User facing UP) -->
-                            <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 transition-transform duration-300 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
-                                <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
-                                <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
-                                <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
-                                <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
-                            </div>
+                <!-- SCALABLE DIAL WRAPPER -->
+                <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
 
-                            <!-- User Heading Vector (Fixed UP) -->
-                            <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
-                                <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
-                                <div class="w-3 h-3 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,1)] border-2 border-surface-900"></div>
-                            </div>
-
-                            <!-- Temporal Wind Shift Trails (Ghost Vectors) -->
-                            <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10">
-                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
-                            </div>
-                            <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20">
-                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
-                            </div>
-                            <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40">
-                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
-                            </div>
-
-                            <!-- Primary Wind Direction Vector (Rotates relative to user) -->
-                            <div id="ui-radar-wind-layer" class="absolute inset-0 transition-transform duration-300 flex items-start justify-center z-30 pointer-events-none">
-                                <div class="flex flex-col items-center">
-                                    <i class="fa-solid fa-wind text-brand-blue text-sm -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
-                                    <div class="w-[2px] h-6 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
-                                    <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
-                                </div>
-                            </div>
+                    <!-- Horizon Layer -->
+                    <div id="ui-radar-horizon-layer" class="absolute inset-0 transition-transform duration-75 flex items-center justify-center z-0 pointer-events-none opacity-60">
+                        <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
                         </div>
+                    </div>
 
-                        <!-- HUD FOOTER ROW (Telemetry Overlay) -->
-                        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
-                            <div>
-                                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
-                                <div class="flex items-baseline gap-1">
-                                    <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
-                                </div>
-                            </div>
-                            
-                            <div class="text-right flex flex-col items-end">
-                                <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
-                                <div class="flex items-baseline gap-1 justify-end mb-1">
-                                    <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
-                                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
-                                </div>
-                                <!-- Vector Decomposition Output -->
-                                <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
-                                    <span id="ui-radar-crosswind">CRS: 0</span> <span class="text-surface-600">|</span> <span id="ui-radar-headwind">HWD: 0</span>
-                                </div>
-                            </div>
+                    <!-- Compass Ring (rotates inversely = heading-up display) -->
+                    <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 transition-transform duration-300 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
+                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
+                        <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
+                        <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
+                        <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
+                    </div>
+
+                    <!-- User Heading Vector (fixed UP) -->
+                    <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
+                        <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
+                        <div class="w-3 h-3 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,1)] border-2 border-surface-900"></div>
+                    </div>
+
+                    <!-- Temporal Wind Shift Trails -->
+                    <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10">
+                        <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                    </div>
+                    <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20">
+                        <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                    </div>
+                    <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40">
+                        <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                    </div>
+
+                    <!-- Primary Wind Vector -->
+                    <div id="ui-radar-wind-layer" class="absolute inset-0 transition-transform duration-300 flex items-start justify-center z-30 pointer-events-none">
+                        <div class="flex flex-col items-center">
+                            <i class="fa-solid fa-wind text-brand-blue text-sm -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
+                            <div class="w-[2px] h-6 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
+                            <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
                         </div>
-                    `;
+                    </div>
+                </div>
 
-                    aeroContainer.appendChild(radarCard);
-                    targetGrid.appendChild(aeroContainer);
+                <!-- HUD FOOTER ROW -->
+                <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
+                    <div>
+                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
+                        <div class="flex items-baseline gap-1">
+                            <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
+                        </div>
+                    </div>
+                    <div class="text-right flex flex-col items-end">
+                        <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
+                        <div class="flex items-baseline gap-1 justify-end mb-1">
+                            <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+                        </div>
+                        <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
+                            <span id="ui-radar-crosswind">CRS: 0</span> <span class="text-surface-600">|</span> <span id="ui-radar-headwind">HWD: 0</span>
+                        </div>
+                    </div>
+                </div>
+            `;
 
-                    // Focus Mode Logic
-                    const expandBtn = radarCard.querySelector('#radar-expand-btn');
-                    let isRadarFullscreen = false;
-                    expandBtn.addEventListener('click', () => {
-                        isRadarFullscreen = !isRadarFullscreen;
-                        const scaler = radarCard.querySelector('#radar-dial-scaler');
-                        if (isRadarFullscreen) {
-                            radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                            radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                            
-                            // Scale vector rendering to fit physical viewport bounds dynamically
-                            const minDimension = Math.min(window.innerWidth, window.innerHeight);
-                            const scaleFactor = (minDimension * 0.6) / 160; 
-                            scaler.style.transform = `scale(${scaleFactor})`;
-                            
-                            expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
-                            document.body.classList.add('overflow-hidden');
-                        } else {
-                            radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                            radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                            
-                            scaler.style.transform = 'scale(1)';
-                            
-                            expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
-                            document.body.classList.remove('overflow-hidden');
+            aeroContainer.appendChild(radarCard);
+            targetGrid.appendChild(aeroContainer);
+
+            // FIX #3 + #5: Cache all DOM refs immediately after mount.
+            // Eliminates 9+ getElementById calls/frame at 60fps (~540 DOM queries/sec on mobile).
+            const _el = {
+                ring:         document.getElementById('ui-radar-ring'),
+                wind:         document.getElementById('ui-radar-wind-layer'),
+                relAngle:     document.getElementById('ui-radar-rel-angle'),
+                windSpeed:    document.getElementById('ui-radar-wind-speed'),
+                altContainer: document.getElementById('ui-radar-alt-container'),
+                gust:         document.getElementById('ui-radar-gust'),
+                cross:        document.getElementById('ui-radar-crosswind'),
+                head:         document.getElementById('ui-radar-headwind'),
+                horizon:      document.getElementById('ui-radar-horizon-layer'),
+                ghost: [
+                    document.getElementById('ui-radar-wind-ghost-1'),
+                    document.getElementById('ui-radar-wind-ghost-2'),
+                    document.getElementById('ui-radar-wind-ghost-3')
+                ]
+            };
+
+            // Focus Mode
+            const expandBtn  = radarCard.querySelector('#radar-expand-btn');
+            const dialScaler = radarCard.querySelector('#radar-dial-scaler');
+            let isRadarFullscreen = false;
+
+            expandBtn.addEventListener('click', () => {
+                isRadarFullscreen = !isRadarFullscreen;
+                if (isRadarFullscreen) {
+                    radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    const minDim   = Math.min(window.innerWidth, window.innerHeight);
+                    const scale    = (minDim * 0.6) / 160;
+                    dialScaler.style.transform = `scale(${scale})`;
+                    expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
+                    document.body.classList.add('overflow-hidden');
+                } else {
+                    radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    dialScaler.style.transform = 'scale(1)';
+                    expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
+                    document.body.classList.remove('overflow-hidden');
+                }
+            });
+
+            // Pre-allocated ring buffer for temporal wind shift trail (no GC on update)
+            const windHistory = new Float32Array([-1, -1, -1]);
+            let historyIdx     = 0;
+            let lastHistoryTime = 0;
+
+            // Horizon LPF state (alpha=0.1 → ~160ms TC at 60fps, appropriate for instrument smoothing)
+            let smoothedPitch = 0;
+            let smoothedRoll  = 0;
+
+            // UI state cache: prevents DOM innerHTML/style thrashing at 60fps
+            const _uiCache = {
+                alt: '', windSpeed: '', gust: 'hidden',
+                ringTrans: '', horizonTrans: '', relAngle: '',
+                windTrans: '', head: '', cross: ''
+            };
+
+            const getCardinalStr = (deg) => {
+                const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+                return arr[Math.floor((deg / 22.5) + 0.5) % 16];
+            };
+
+            // 3. Dedicated Physics Render Loop
+            function renderAero() {
+                requestAnimationFrame(renderAero);
+
+                // FIX #3: All DOM access via _el cache — zero getElementById calls in hot path
+                if (!_el.ring) return;
+
+                const now = Date.now();
+                let activeHeading = 0;
+                let headingValid  = false;
+
+                // ALTIMETER: GNSS altitude → topo fallback → 2D fix badge
+                if (_el.altContainer) {
+                    let altStr;
+                    if (st.altitude !== null) {
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                    } else if (st.topoAltitude !== null) {
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                    } else {
+                        altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
+                    }
+                    if (_uiCache.alt !== altStr) { _el.altContainer.innerHTML = altStr; _uiCache.alt = altStr; }
+                }
+
+                // WIND SPEED display
+                if (_el.windSpeed) {
+                    const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
+                    if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
+                }
+
+                // GUST BOUNDARY indicator
+                if (_el.gust) {
+                    if (st.windGust > 0) {
+                        const gustDiff = st.windGust - st.windSpeed;
+                        if (gustDiff >= 5) {
+                            const gStr = `GUST +${Math.round(gustDiff)}`;
+                            if (_uiCache.gust !== gStr) {
+                                _el.gust.classList.remove('opacity-0');
+                                _el.gust.textContent = gStr;
+                                _uiCache.gust = gStr;
+                            }
+                        } else if (_uiCache.gust !== 'hidden') {
+                            _el.gust.classList.add('opacity-0');
+                            _uiCache.gust = 'hidden';
                         }
-                    });
+                    } else if (_uiCache.gust !== 'hidden') {
+                        // Guard: clears gust badge when windGust drops to 0
+                        _el.gust.classList.add('opacity-0');
+                        _uiCache.gust = 'hidden';
+                    }
+                }
 
-                    // Pre-allocated Ring Buffer for Temporal Wind Shifts to prevent GC stalls
-                    const windHistory = new Float32Array([-1, -1, -1]); 
-                    let historyIdx = 0;
-                    let lastHistoryTime = 0;
-                    
-                    // Hardware Dampener (LPF) for IMU Horizon 
-                    let smoothedPitch = 0;
-                    let smoothedRoll = 0;
+                // ARTIFICIAL HORIZON (LPF, gimbal-lock immune via gravity vector projection)
+                if (_el.horizon) {
+                    smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
+                    smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
+                    let pY = (smoothedPitch - 30) * 1.5;
+                    pY = Math.max(-60, Math.min(60, pY));
+                    const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
+                    if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
+                }
 
-                    // Dedicated UI state cache to prevent extreme battery/thermal drain from DOM innerHTML thrashing at 60fps
-                    const _uiCache = { alt: '', windSpeed: '', gust: '', ringTrans: '', horizonTrans: '', relAngle: '', windTrans: '', head: '', cross: '' };
+                // HEADING PRIORITY CHAIN
+                // P1: main engine EMA-smoothed fused heading (most accurate, kinematically guarded)
+                // P2: raw GNSS heading (valid within 3s TTL)
+                // P3: local IMU heading (absolute events only, post Fix #2 and #4)
+                if (st.fusedHeading !== null) {
+                    activeHeading = st.fusedHeading;
+                    headingValid  = true;
+                } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
+                    activeHeading = st.gnssHeading;
+                    headingValid  = true;
+                } else if (st.deviceHeading !== null) {
+                    activeHeading = st.deviceHeading;
+                    headingValid  = true;
+                }
 
-                    const getCardinalStr = (deg) => {
-                        const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-                        return arr[Math.floor((deg / 22.5) + 0.5) % 16];
-                    };
+                // COMPASS RING: rotate inversely for heading-up display
+                if (headingValid) {
+                    const ringT = `rotate(${(-activeHeading).toFixed(1)}deg)`;
+                    if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                }
 
-                    // 3. Dedicated Physics Render Loop
-                    function renderAero() {
-                        requestAnimationFrame(renderAero);
-                        
-                        const elRadarRing = document.getElementById('ui-radar-ring');
-                        const elRadarWind = document.getElementById('ui-radar-wind-layer');
-                        const elRelAngle = document.getElementById('ui-radar-rel-angle');
-                        const elWindSpeed = document.getElementById('ui-radar-wind-speed');
-                        const elAltContainer = document.getElementById('ui-radar-alt-container');
-                        const elGust = document.getElementById('ui-radar-gust');
-                        const elCross = document.getElementById('ui-radar-crosswind');
-                        const elHead = document.getElementById('ui-radar-headwind');
-                        const elHorizon = document.getElementById('ui-radar-horizon-layer');
-                        
-                        if (!elRadarRing) return;
+                // WIND VECTOR MATH
+                const wDir = st.windDir;
+                if (headingValid && wDir !== null) {
+                    // relAngle=0  → headwind (wind from ahead)
+                    // relAngle=90 → wind from right
+                    // relAngle=180 → tailwind
+                    const relAngle = (wDir - activeHeading + 360) % 360;
 
-                        const now = Date.now();
-                        let activeHeading = 0;
-                        let headingValid = false;
-                        
-                        // ALTIMETER LOGIC: Prioritize GNSS -> Fallback to topological elevation map
-                        if (elAltContainer) {
-                            let altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
-                            if (st.altitude !== null) {
-                                altStr = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
-                            } else if (st.topoAltitude !== null) {
-                                altStr = `<span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
-                            }
-                            if (_uiCache.alt !== altStr) { elAltContainer.innerHTML = altStr; _uiCache.alt = altStr; }
-                        }
+                    if (_el.relAngle) {
+                        const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                        if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
+                    }
 
-                        if (elWindSpeed) {
-                            const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
-                            if (_uiCache.windSpeed !== wsStr) { elWindSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
-                        }
-                        
-                        // Gust Boundary Logic
-                        if (elGust && st.windGust > 0) {
-                            const gustDiff = st.windGust - st.windSpeed;
-                            if (gustDiff >= 5) {
-                                const gStr = `GUST +${Math.round(gustDiff)}`;
-                                if (_uiCache.gust !== gStr) {
-                                    elGust.classList.remove('opacity-0');
-                                    elGust.textContent = gStr;
-                                    _uiCache.gust = gStr;
-                                }
-                            } else if (_uiCache.gust !== 'hidden') {
-                                elGust.classList.add('opacity-0');
-                                _uiCache.gust = 'hidden';
-                            }
-                        }
-                        
-                        // Artificial Horizon Physics (Immune to Beta=90 Gimbal Lock)
-                        if (elHorizon) {
-                            smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
-                            smoothedRoll = (0.1 * st.roll) + (0.9 * smoothedRoll);
-                            
-                            let pY = (smoothedPitch - 30) * 1.5; 
-                            pY = Math.max(-60, Math.min(60, pY)); 
-                            
-                            const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${-smoothedRoll.toFixed(1)}deg)`;
-                            if (_uiCache.horizonTrans !== hTrans) { elHorizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
-                        }
-                        
-// Priority 1: Main engine's EMA-smoothed, kinematically-guarded fused heading (most accurate)
-if (st.fusedHeading !== null) {
-    activeHeading = st.fusedHeading;
-    headingValid = true;
-} else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
-    // Priority 2: Raw GNSS heading (valid fix, no sensor fusion yet)
-    activeHeading = st.gnssHeading;
-    headingValid = true;
-} else if (st.deviceHeading !== null) {
-    // Priority 3: Local IMU heading (absolute events only, post Fix 4)
-    activeHeading = st.deviceHeading;
-    headingValid = true;
-}
+                    if (_el.wind) {
+                        const wT = `rotate(${relAngle.toFixed(1)}deg)`;
+                        if (_uiCache.windTrans !== wT) { _el.wind.style.transform = wT; _uiCache.windTrans = wT; }
+                    }
 
-                        if (headingValid) {
-                            // Visual Radar: Rotate the compass ring inversely (Heading-Up display)
-                            const ringT = `rotate(${-activeHeading.toFixed(1)}deg)`;
-                            if (_uiCache.ringTrans !== ringT) { elRadarRing.style.transform = ringT; _uiCache.ringTrans = ringT; }
-                        }
+                    // VECTOR DECOMPOSITION (kinematic force isolation)
+                    const rad       = relAngle * (Math.PI / 180);
+                    const headForce = Math.cos(rad) * st.windSpeed;
+                    const crossForce = Math.sin(rad) * st.windSpeed;
+                    // headForce > 0 → headwind (orange), < 0 → tailwind (green)
+                    // crossForce > 0 → wind from right → pushes vehicle LEFT
 
-                        const wDir = st.windDir; 
-                        if (headingValid && wDir !== null) {
-                            const relAngle = (wDir - activeHeading + 360) % 360;
-                            
-                            // UI Update: Relative Angle with Absolute Cardinal Direction mapped
-                            if (elRelAngle) {
-                                const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
-                                if (_uiCache.relAngle !== relStr) { elRelAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
-                            }
+                    if (_el.head) {
+                        const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
+                        if (_uiCache.head !== hStr) { _el.head.innerHTML = hStr; _uiCache.head = hStr; }
+                    }
 
-                            // Rotate primary wind hand
-                            if (elRadarWind) {
-                                const wT = `rotate(${relAngle.toFixed(1)}deg)`;
-                                if (_uiCache.windTrans !== wT) { elRadarWind.style.transform = wT; _uiCache.windTrans = wT; }
-                            }
+                    if (_el.cross) {
+                        const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
+                        if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
+                    }
 
-                            // Vector Decomposition (Kinematic force isolation)
-                            const rad = relAngle * (Math.PI / 180);
-                            const headForce = Math.cos(rad) * st.windSpeed;
-                            const crossForce = Math.sin(rad) * st.windSpeed;
-                            
-                            if (elHead) {
-                                const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
-                                if (_uiCache.head !== hStr) { elHead.innerHTML = hStr; _uiCache.head = hStr; }
-                            }
-                            
-                            if (elCross) {
-                                // AUDIT FIX: A positive crossForce (e.g. from East/Right) pushes the vehicle to the LEFT.
-                                const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
-                                if (_uiCache.cross !== cStr) { elCross.innerHTML = cStr; _uiCache.cross = cStr; }
-                            }
+                    // TEMPORAL SHIFT TRAIL: ring buffer sampled at 10s intervals
+                    if (now - lastHistoryTime > 10000) {
+                        if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
+                        historyIdx = (historyIdx + 1) % 3;
+                        // Phase-lock to absolute interval to prevent rAF drift accumulation
+                        lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
+                    }
 
-                            // Temporal Shift Trail Logic
-                            // FIX: Prevent timing drift by enforcing absolute interval steps rather than frame-time assignment.
-                            if (now - lastHistoryTime > 10000) {
-                                if (typeof relAngle !== 'undefined' && !isNaN(relAngle)) {
-                                    windHistory[historyIdx] = relAngle;
-                                }
-                                historyIdx = (historyIdx + 1) % 3;
-                                
-                                // Phase-locked interval to prevent requestAnimationFrame drift
-                                if (lastHistoryTime === 0) {
-                                    lastHistoryTime = now;
-                                } else {
-                                    lastHistoryTime += 10000;
-                                }
-                            }
-                            
-                            // Render Ghosts
-                            for (let i = 0; i < 3; i++) {
-                                const age = (historyIdx - 1 - i + 3) % 3; 
-                                const histAngle = windHistory[age];
-                                
-                                // FIX: Strict NaN check before CSSOM injection
-                                if (histAngle !== -1 && !isNaN(histAngle)) {
-                                    const ghostEl = document.getElementById(`ui-radar-wind-ghost-${i+1}`);
-                                    if (ghostEl) ghostEl.style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
-                                }
-                            }
+                    // FIX #5: Use _el.ghost[] cache. Removed redundant typeof check (relAngle always defined here).
+                    for (let i = 0; i < 3; i++) {
+                        const age = (historyIdx - 1 - i + 3) % 3;
+                        const histAngle = windHistory[age];
+                        if (histAngle !== -1 && !isNaN(histAngle) && _el.ghost[i]) {
+                            _el.ghost[i].style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
                         }
                     }
-                    requestAnimationFrame(renderAero);
-                }, 1000); 
+                }
             }
 
-            if (document.readyState === 'loading') {
-                window.addEventListener('DOMContentLoaded', mountActiveAeroUI);
-            } else {
-                mountActiveAeroUI();
-            }
-        })();
+            requestAnimationFrame(renderAero);
+        }, 1000);
+    }
 
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', mountActiveAeroUI);
+    } else {
+        mountActiveAeroUI();
+    }
+})();
         checkDependenciesAndRun();
     </script>
 </body>
