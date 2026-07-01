@@ -19,7 +19,6 @@
     <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" />
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-    <!-- CHART ZOOM PLUGIN (improvement #4) -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet" />
@@ -136,9 +135,7 @@
         .custom-popup-dark .leaflet-popup-close-button {
             color: #9ca3af !important;
         }
-        /* ─── end existing styles ─── */
 
-        /* improvement #5 : Aero HUD collapsible toggle */
         .aero-collapsed #radar-dial-scaler,
         .aero-collapsed .aero-footer,
         .aero-collapsed .aero-horizon,
@@ -155,7 +152,7 @@
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <!-- ─── HEADER (unchanged) ─── -->
+    <!-- ─── HEADER ─── -->
     <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
         <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
             <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i>
@@ -178,7 +175,7 @@
         </div>
     </header>
 
-    <!-- ─── TELEMETRY SECTION (unchanged except contrast boost for temp spread) ─── -->
+    <!-- ─── TELEMETRY SECTION ─── -->
     <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
@@ -213,7 +210,6 @@
                             <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white leading-none">--</div>
                             <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
                         </div>
-                        <!-- improvement #5: contrast boost for spread -->
                         <div id="metric-temp-spread" class="text-[10px] font-mono font-black text-gray-300 uppercase tracking-widest mt-1"></div>
                     </div>
                     <div class="text-right">
@@ -254,7 +250,7 @@
         </div>
     </div>
 
-    <!-- ─── MAP SECTION (added TBT container) ─── -->
+    <!-- ─── MAP SECTION ─── -->
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
@@ -287,7 +283,6 @@
             <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] origin-center"></div>
 
             <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%]">
-                <!-- speed & heading boxes (unchanged) -->
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
                     <i class="fa-solid fa-gauge-high text-brand-teal text-sm"></i>
                     <div class="flex items-baseline gap-1">
@@ -308,7 +303,6 @@
                     </div>
                 </div>
 
-                <!-- improvement #2: Turn-by-Turn container -->
                 <div id="tbt-container" class="bg-surface-900/90 border border-brand-teal px-3 py-1.5 rounded-lg shadow-lg backdrop-blur-md pointer-events-auto hidden">
                     <span id="tbt-text" class="text-xs font-mono font-bold text-white tracking-wide"></span>
                 </div>
@@ -322,7 +316,7 @@
         </div>
     </div>
 
-    <!-- ─── INTEL & PLOT (unchanged) ─── -->
+    <!-- ─── INTEL & PLOT ─── -->
     <div id="sec-intel" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300 overflow-hidden">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
@@ -436,6 +430,11 @@
     <!-- ========== CORE ENGINE ========== -->
     <script type="module">
         "use strict";
+
+        // ─── FIX: register zoom plugin ───
+        if (typeof Chart !== 'undefined' && typeof ChartZoom !== 'undefined') {
+            Chart.register(ChartZoom);
+        }
 
         // ─── FETCH WRAPPER (unchanged) ───
         const fetchWithRetry = async (url, options = {}, retries = 3, backoff = 500) => {
@@ -637,7 +636,6 @@
             cacheTTL: 300000,
             cacheDistThresholdKm: 1.5,
             routingIntervalNodeDist: 5000,
-            // improvement #4: extended forecast days
             forecastDays: 5
         };
 
@@ -646,7 +644,6 @@
         let workerMessageId = 0;
         const workerPending = new Map();
 
-        // --- FALLBACK IMPLEMENTATIONS (improvement #6) ---
         function decodeValhallaPolylineFallback(str) {
             let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
             const factor = 1e6;
@@ -709,7 +706,6 @@
         }
 
         function processOverpassFallback(data, lat, lon, targetBrand, targetVariant, variantMap) {
-            // simplified fallback – just returns nearest brand matches without variant filtering
             const results = [];
             for (const el of (data.elements || [])) {
                 const tLat = el.lat || (el.center && el.center.lat) || 0;
@@ -750,7 +746,6 @@
         function workerTask(type, payload) {
             initComputeWorker();
             if (!computeWorker) {
-                // fallback directly on main thread
                 return new Promise((resolve, reject) => {
                     try {
                         let result;
@@ -781,7 +776,7 @@
             });
         }
 
-        // ─── WMO LOOKUP (unchanged) ───
+        // ─── WMO LOOKUP ───
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
             45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
@@ -805,7 +800,7 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
-        // ─── FUEL CATALOG (unchanged) ───
+        // ─── FUEL CATALOG ───
         const FUEL_CATALOG = {
             "Shell": ["V-Power Racing", "V-Power Gasoline", "V-Power Diesel", "FuelSave Gasoline", "FuelSave Diesel"],
             "Petron": ["Blaze 100", "XCS", "Xtra Advance", "Turbo Diesel", "Diesel Max"],
@@ -844,7 +839,7 @@
             "Premium 98": "fuel:octane_98", "Super Unleaded": "fuel:octane_91"
         };
 
-        // ─── STATE (extended for improvements) ───
+        // ─── STATE ───
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {},
             visual: { lat: null, lon: null, heading: null },
@@ -859,11 +854,8 @@
             isFuelOnlyRoute: false, customRouteWaypoints: null, timelineIdleTimer: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
             renderAccText: null, renderAccClass: null,
-            // improvement #1
             offRouteStart: null,
-            // improvement #3
             idleStart: null,
-            // improvement #5: aero collapsed state
             aeroCollapsed: false
         };
 
@@ -919,7 +911,7 @@
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap");
         };
 
-        // ─── SMART ROUTER (unchanged) ───
+        // ─── SMART ROUTER ───
         const SmartRouter = L.Class.extend({
             initialize: function(options) {
                 this.osrm = L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' });
@@ -965,7 +957,6 @@
                         const rawCoords = await workerTask('DECODE_VALHALLA', { shape: leg.shape });
                         coords = coords.concat(rawCoords.map(c => L.latLng(c.lat, c.lng)));
                     }
-                    // extract instructions from maneuvers for TBT
                     const instructions = [];
                     if (data.trip.legs.length > 0 && data.trip.legs[0].maneuvers) {
                         for (const m of data.trip.legs[0].maneuvers) {
@@ -1007,7 +998,7 @@
             }
         });
 
-        // ─── RENDER PIPELINE (unchanged) ───
+        // ─── RENDER PIPELINE ───
         function triggerRenderPipeline() {
             if (!state.renderPending) { state.renderPending = true; requestAnimationFrame(executeRenderPipeline); }
         }
@@ -1053,16 +1044,14 @@
             }
         }
 
-        // ─── 60FPS VISUAL LOOP (with throttling, improvement #3) ───
+        // ─── 60FPS VISUAL LOOP ───
         let lastVisualFrameTime = performance.now();
 
         function smoothVisualsLoop(time) {
-            // improvement #3: throttle if document hidden
             if (document.hidden) {
                 requestAnimationFrame(smoothVisualsLoop);
                 return;
             }
-            // speed-based throttling to 10fps when idle for 10s
             if (state.currentSpeed < 5 && state.idleStart === null) {
                 state.idleStart = Date.now();
             } else if (state.currentSpeed >= 5) {
@@ -1133,7 +1122,7 @@
             }
         }
 
-        // ─── MAP CACHE (unchanged) ───
+        // ─── MAP CACHE ───
         let mapHoldTimer = null;
         const promptMapDownload = () => {
             if (state.isCachingMap) return;
@@ -1217,14 +1206,14 @@
             } catch(e) { console.error("Map cache clear failed:", e); }
         };
 
-        // ─── AUDIO (unchanged) ───
+        // ─── AUDIO ───
         let globalAudioCtx = null;
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
             return globalAudioCtx;
         }
 
-        // ─── WAKE LOCK (unchanged) ───
+        // ─── WAKE LOCK ───
         let wakeLock = null;
         async function requestWakeLock() {
             try {
@@ -1246,7 +1235,7 @@
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
-        // ─── FOCUS ENGINE (unchanged) ───
+        // ─── FOCUS ENGINE ───
         window.toggleFocus = function(secId) {
             const sections = [
                 {id: 'sec-telemetry', el: DOM.secTelemetry},
@@ -1281,7 +1270,7 @@
             if (state.focusedSection === null && !state.targetCoords) DOM.secIntel.classList.add('hidden');
         };
 
-        // ─── MAGNETOMETER HOOKS (unchanged) ───
+        // ─── MAGNETOMETER HOOKS ───
         let hasAbsoluteOrientation = false;
         function handleOrientationUpdate(alphaOrHeading) { state.rawSensorHeading = alphaOrHeading; }
         window.addEventListener('deviceorientationabsolute', (e) => {
@@ -1295,7 +1284,7 @@
             }
         });
 
-        // ─── GPS TRACKING ENGINE (with off‑route detection, improvement #1) ───
+        // ─── GPS TRACKING ENGINE ───
         function startBackgroundTracking() {
             if (state.gpsWatchId) return;
             const EMA_ALPHA_SPEED = 0.85;
@@ -1367,18 +1356,16 @@
                             state.smoothedSpeed = state.currentSpeed;
                         }
 
-                        // ── improvement #1: Off‑route auto‑recovery ──
                         if (state.routeCtrl && state.currentRouteCoords && state.currentRouteCoords.length > 1 && state.targetCoords) {
                             const currentLL = L.latLng(lat, lon);
                             let minDist = Infinity;
-                            // simple segment distance (fast enough for <500 points)
                             for (let i = 0; i < state.currentRouteCoords.length - 1; i++) {
                                 const a = state.currentRouteCoords[i];
                                 const b = state.currentRouteCoords[i+1];
                                 const d = L.LineUtil.pointToSegmentDistance(currentLL, a, b);
                                 if (d < minDist) minDist = d;
                             }
-                            if (minDist > 100) { // meters
+                            if (minDist > 100) {
                                 if (!state.offRouteStart) state.offRouteStart = Date.now();
                                 if (Date.now() - state.offRouteStart > 15000) {
                                     state.offRouteStart = null;
@@ -1459,7 +1446,7 @@
             );
         }
 
-        // ─── TACTICAL MODE (unchanged) ───
+        // ─── TACTICAL MODE ───
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
             if (!state.isMapLocked) { if (state.tacticalMode === 0) state.tacticalMode = 1; window.applyTacticalMode(); return; }
@@ -1570,7 +1557,7 @@
             }
         }
 
-        // ─── PASTE & LINK PARSING (unchanged) ───
+        // ─── PASTE & LINK PARSING ───
         window.handlePasteAndLoad = async function() {
             try {
                 let clipText = "";
@@ -1698,7 +1685,7 @@
             }
         };
 
-        // ─── UPDATE ROUTE STATUS (with TBT, improvement #2) ───
+        // ─── UPDATE ROUTE STATUS ───
         function updateRouteStatus(e) {
             const route = e.routes[0];
             const summary = route.summary;
@@ -1724,7 +1711,6 @@
                 state.currentRouteCoords = route.coordinates.map(c => c.lat ? c : L.latLng(c[0], c[1]));
             }
 
-            // ── TURN-BY-TURN INSTRUCTIONS ──
             const instructions = route.instructions || [];
             if (instructions.length > 0) {
                 const next = instructions[0];
@@ -1768,7 +1754,7 @@
             }
         }
 
-        // ========== ROUTE INTELLIGENCE (unchanged except cache key) ==========
+        // ========== ROUTE INTELLIGENCE ==========
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
             if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
@@ -1866,7 +1852,7 @@
             }
         }
 
-        // ─── ROUTE INTEL TIMELINE (unchanged) ───
+        // ─── ROUTE INTEL TIMELINE ───
         function renderRouteIntelTimeline(waypoints, baseData, modelData, isOffline, scrollPos) {
             const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
             const modelPoints   = Array.isArray(modelData) ? modelData : [modelData];
@@ -1984,7 +1970,7 @@
             }
         }
 
-        // ─── CLOCK, WINDDIR, PURGE (unchanged) ───
+        // ─── CLOCK, WINDDIR, PURGE ───
         function syncClock() {
             const now = new Date();
             if (state.targetTimezone) {
@@ -2020,7 +2006,7 @@
         }
         enforcePersistentStorage();
 
-        // ─── AUDIO TOGGLE & SONAR (unchanged) ───
+        // ─── AUDIO TOGGLE ───
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const ctx = getAudioContext();
@@ -2053,7 +2039,7 @@
             state.lastPing = Date.now();
         }
 
-        // ─── CHART (with zoom plugin, improvement #4) ───
+        // ─── CHART ───
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement, tempBand) {
             const tc = THEME_COLORS;
             const tempMin = tempBand.map(b => b ? b.min : null);
@@ -2125,7 +2111,6 @@
                             footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' },
                             footerColor: tc.teal
                         },
-                        // improvement #4: zoom/pan plugin
                         zoom: {
                             pan: { enabled: true, mode: 'x' },
                             zoom: { wheel: { enabled: true, speed: 0.05 }, mode: 'x' }
@@ -2141,9 +2126,15 @@
                 }
             });
             state.chart.hourlyAgreementRef = hourlyAgreement;
+
+            // ─── FIX: set default 6h view ───
+            const maxInit = Math.min(5, labels.length - 1);
+            state.chart.options.scales.x.min = 0;
+            state.chart.options.scales.x.max = maxInit;
+            state.chart.update();
         }
 
-        // ─── NORMALIZE TELEMETRY (extended forecast horizon, improvement #4) ───
+        // ─── NORMALIZE TELEMETRY ───
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             let curr = dCurr.current;
@@ -2197,7 +2188,6 @@
             const rDE = clean(precipModels.icon_seamless);
             const rJP = clean(precipModels.jma_seamless);
 
-            // improvement #4: extend forecast to 5 days (120 hours)
             const maxSlice = Math.min(nowIndex + 120, h.time.length);
             const rainData = { eu: rEU.slice(nowIndex, maxSlice), us: rUS.slice(nowIndex, maxSlice), de: rDE.slice(nowIndex, maxSlice), jp: rJP.slice(nowIndex, maxSlice) };
 
@@ -2244,7 +2234,7 @@
                      nodeHealth, codeAgreement, windEnsemble };
         }
 
-        // ─── RENDER TELEMETRY UI (contrast boost already applied) ───
+        // ─── RENDER TELEMETRY UI ───
         function renderTelemetryUI(data, isOffline) {
             const { curr, currentAgreement, currentStatus, incomingRain, uvData, times, nodeHealth, codeAgreement, tempBand } = data;
 
@@ -2334,7 +2324,7 @@
             }
         }
 
-        // ─── PROCESS TELEMETRY PAYLOAD (unchanged) ───
+        // ─── PROCESS TELEMETRY PAYLOAD ───
         async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
             if (dCurr && dCurr.elevation !== undefined) {
                 window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation;
@@ -2353,7 +2343,7 @@
             renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
         }
 
-        // ─── FETCH DATA (forecast_days=5, improvement #4) ───
+        // ─── FETCH DATA ───
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             state.telemetryCache.timestamp = Date.now();
@@ -2389,7 +2379,7 @@
             }
         }
 
-        // ─── RESET (unchanged) ───
+        // ─── RESET ───
         window.resetToAuto = function() {
             if (state.intelFetchAbortController) { state.intelFetchAbortController.abort(); state.intelFetchAbortController = null; }
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
@@ -2408,7 +2398,7 @@
             window.applyTacticalMode();
         };
 
-        // ─── FUEL MANAGER (unchanged) ───
+        // ─── FUEL MANAGER ───
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false },
@@ -2628,7 +2618,7 @@
             runApp();
         }
 
-        // ─── PWA (unchanged) ───
+        // ─── PWA ───
         (function initPWA() {
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
@@ -2654,7 +2644,7 @@
             });
         })();
 
-        // ========== ACTIVE AERO TELEMETRY (with collapsible toggle, improvement #5) ==========
+        // ========== ACTIVE AERO TELEMETRY ==========
         (function initActiveAeroTelemetry() {
             if (window.__aeroMounted) return;
             window.__aeroMounted = true;
@@ -2763,7 +2753,6 @@
                                         <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                                     </div>
                                 </div>
-                                <!-- improvement #5: collapse toggle -->
                                 <button id="aero-collapse-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm aero-toggle-btn">
                                     <i class="fa-solid fa-chevron-up text-base"></i>
                                 </button>
@@ -2835,7 +2824,6 @@
                     aeroContainer.appendChild(radarCard);
                     targetGrid.appendChild(aeroContainer);
 
-                    // ── DOM refs ──
                     const _el = {
                         ring:         document.getElementById('ui-radar-ring'),
                         wind:         document.getElementById('ui-radar-wind-layer'),
@@ -2856,7 +2844,6 @@
                         radarCard:    radarCard
                     };
 
-                    // ── Collapse toggle ──
                     _el.collapseBtn.addEventListener('click', () => {
                         state.aeroCollapsed = !state.aeroCollapsed;
                         if (state.aeroCollapsed) {
@@ -2870,7 +2857,6 @@
                         }
                     });
 
-                    // ── Fullscreen toggle ──
                     const expandBtn = radarCard.querySelector('#radar-expand-btn');
                     let isRadarFullscreen = false;
                     expandBtn.addEventListener('click', () => {
@@ -2892,7 +2878,6 @@
                         }
                     });
 
-                    // ─── Aero render loop (with throttling, improvement #3) ───
                     const windHistory   = new Float32Array([-1, -1, -1]);
                     let historyIdx      = 0;
                     let lastHistoryTime = 0;
@@ -2917,7 +2902,6 @@
                         const dt = Math.min(frameNow - lastRenderTime, 100);
                         lastRenderTime = frameNow;
 
-                        // throttle if hidden
                         if (document.hidden) {
                             requestAnimationFrame(renderAero);
                             return;
@@ -2934,7 +2918,6 @@
                         let activeHeading = 0;
                         let headingValid  = false;
 
-                        // ALTIMETER
                         if (_el.altContainer) {
                             let altStr;
                             if (st.altitude !== null) {
