@@ -136,20 +136,7 @@
             color: #9ca3af !important;
         }
 
-        .aero-collapsed #radar-dial-scaler,
-        .aero-collapsed .aero-footer,
-        .aero-collapsed .aero-horizon,
-        .aero-collapsed .aero-ghosts {
-            display: none !important;
-        }
-        .aero-collapsed .aero-header .aero-toggle-icon {
-            transform: rotate(180deg);
-        }
-        .aero-toggle-btn {
-            transition: transform 0.3s ease;
-        }
-
-        /* Reset view button */
+        /* ─── Reset view button ─── */
         .reset-view-btn {
             background: #1a1a1a;
             border: 2px solid #2a2a2a;
@@ -167,6 +154,10 @@
             border-color: #14b8a6;
             color: #fff;
             background: #14b8a610;
+        }
+        .reset-view-btn.active {
+            border-color: #ef4444;
+            color: #ef4444;
         }
     </style>
 </head>
@@ -345,11 +336,15 @@
         <div id="timeline-container" class="pb-2 no-select w-full"></div>
     </div>
 
-    <!-- ─── PLOT SECTION WITH RESET BUTTON ─── -->
+    <!-- ─── PLOT SECTION WITH RESET & ZOOM TOGGLE ─── -->
     <div id="sec-plot" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8 transition-all duration-300">
         <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
             <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
             <div class="flex items-center gap-2">
+                <!-- ZOOM TOGGLE BUTTON -->
+                <button id="zoom-toggle-btn" class="reset-view-btn" title="Toggle zoom & tooltips">
+                    <i class="fa-solid fa-lock-open mr-1"></i> Zoom
+                </button>
                 <!-- RESET VIEW BUTTON -->
                 <button id="reset-zoom-btn" class="reset-view-btn" title="Reset view to show current 6-hour window">
                     <i class="fa-solid fa-rotate-left mr-1"></i> Reset View
@@ -883,7 +878,8 @@
             renderAccText: null, renderAccClass: null,
             offRouteStart: null,
             idleStart: null,
-            aeroCollapsed: false
+            // zoom toggle state
+            zoomEnabled: true
         };
 
         function fastDistance(lat1, lon1, lat2, lon2) {
@@ -925,7 +921,8 @@
             cacheMapBtn: document.getElementById('cache-map-btn'),
             tbtContainer: document.getElementById('tbt-container'),
             tbtText: document.getElementById('tbt-text'),
-            resetZoomBtn: document.getElementById('reset-zoom-btn')
+            resetZoomBtn: document.getElementById('reset-zoom-btn'),
+            zoomToggleBtn: document.getElementById('zoom-toggle-btn')
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
 
@@ -2143,7 +2140,7 @@
                             pan: {
                                 enabled: true,
                                 mode: 'x',
-                                modifierKey: null,  // pan without holding any key
+                                modifierKey: null,
                                 threshold: 10
                             },
                             zoom: {
@@ -2194,6 +2191,25 @@
                     state.chart.options.scales.x.max = maxInit;
                     state.chart.update();
                 };
+            }
+
+            // ─── Zoom toggle button handler ───
+            if (DOM.zoomToggleBtn) {
+                DOM.zoomToggleBtn.addEventListener('click', function() {
+                    state.zoomEnabled = !state.zoomEnabled;
+                    if (!state.chart) return;
+                    // Toggle zoom plugin
+                    state.chart.options.plugins.zoom.pan.enabled = state.zoomEnabled;
+                    state.chart.options.plugins.zoom.zoom.wheel.enabled = state.zoomEnabled;
+                    // Toggle tooltips
+                    state.chart.options.plugins.tooltip.enabled = state.zoomEnabled;
+                    // Visual feedback
+                    this.innerHTML = state.zoomEnabled
+                        ? '<i class="fa-solid fa-lock-open mr-1"></i> Zoom'
+                        : '<i class="fa-solid fa-lock mr-1"></i> Zoom';
+                    this.classList.toggle('active', !state.zoomEnabled);
+                    state.chart.update();
+                });
             }
         }
 
@@ -2707,7 +2723,7 @@
             });
         })();
 
-        // ========== ACTIVE AERO TELEMETRY (with freeze protection) ==========
+        // ─── ACTIVE AERO TELEMETRY EXTENSION (stable version from index_Claude.html) ───
         (function initActiveAeroTelemetry() {
             if (window.__aeroMounted) return;
             window.__aeroMounted = true;
@@ -2803,7 +2819,7 @@
                     const radarCard = document.createElement('div');
                     radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
                     radarCard.innerHTML = `
-                        <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none aero-header">
+                        <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
                             <div class="flex flex-col">
                                 <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
                                 <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
@@ -2816,9 +2832,6 @@
                                         <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                                     </div>
                                 </div>
-                                <button id="aero-collapse-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm aero-toggle-btn">
-                                    <i class="fa-solid fa-chevron-up text-base"></i>
-                                </button>
                                 <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm">
                                     <i class="fa-solid fa-expand text-base"></i>
                                 </button>
@@ -2826,7 +2839,7 @@
                         </div>
 
                         <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
-                            <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60 aero-horizon">
+                            <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60">
                                 <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
                                     <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
                                     <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
@@ -2844,13 +2857,13 @@
                                 <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
                                 <div class="w-3 h-3 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,1)] border-2 border-surface-900"></div>
                             </div>
-                            <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10 aero-ghosts">
+                            <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10">
                                 <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
                             </div>
-                            <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20 aero-ghosts">
+                            <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20">
                                 <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
                             </div>
-                            <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40 aero-ghosts">
+                            <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40">
                                 <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
                             </div>
                             <div id="ui-radar-wind-layer" class="absolute inset-0 flex items-start justify-center z-30 pointer-events-none">
@@ -2862,7 +2875,7 @@
                             </div>
                         </div>
 
-                        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none aero-footer">
+                        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
                             <div>
                                 <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
                                 <div class="flex items-baseline gap-1">
@@ -2901,56 +2914,50 @@
                             document.getElementById('ui-radar-wind-ghost-1'),
                             document.getElementById('ui-radar-wind-ghost-2'),
                             document.getElementById('ui-radar-wind-ghost-3')
-                        ],
-                        dialScaler:   document.getElementById('radar-dial-scaler'),
-                        collapseBtn:  document.getElementById('aero-collapse-btn'),
-                        radarCard:    radarCard
+                        ]
                     };
 
-                    _el.collapseBtn.addEventListener('click', () => {
-                        state.aeroCollapsed = !state.aeroCollapsed;
-                        if (state.aeroCollapsed) {
-                            _el.radarCard.classList.add('aero-collapsed');
-                            _el.collapseBtn.querySelector('i').className = 'fa-solid fa-chevron-down text-base';
-                            _el.radarCard.style.minHeight = '80px';
-                        } else {
-                            _el.radarCard.classList.remove('aero-collapsed');
-                            _el.collapseBtn.querySelector('i').className = 'fa-solid fa-chevron-up text-base';
-                            _el.radarCard.style.minHeight = '';
-                        }
-                    });
-
-                    const expandBtn = radarCard.querySelector('#radar-expand-btn');
+                    const expandBtn  = radarCard.querySelector('#radar-expand-btn');
+                    const dialScaler = radarCard.querySelector('#radar-dial-scaler');
                     let isRadarFullscreen = false;
                     expandBtn.addEventListener('click', () => {
                         isRadarFullscreen = !isRadarFullscreen;
                         if (isRadarFullscreen) {
-                            _el.radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                            _el.radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                            radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                            radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
                             const minDim = Math.min(window.innerWidth, window.innerHeight);
                             const scale  = (minDim * 0.6) / 160;
-                            _el.dialScaler.style.transform = `scale(${scale})`;
+                            dialScaler.style.transform = `scale(${scale})`;
                             expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
                             document.body.classList.add('overflow-hidden');
                         } else {
-                            _el.radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                            _el.radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                            _el.dialScaler.style.transform = 'scale(1)';
+                            radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                            radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                            dialScaler.style.transform = 'scale(1)';
                             expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
                             document.body.classList.remove('overflow-hidden');
                         }
                     });
 
+                    // Pre-allocated ring buffer for wind trail — no GC on update
                     const windHistory   = new Float32Array([-1, -1, -1]);
                     let historyIdx      = 0;
                     let lastHistoryTime = 0;
+
+                    // Horizon LPF state (alpha=0.1 → ~160ms TC)
                     let smoothedPitch = 0;
                     let smoothedRoll  = 0;
+
+                    // UI write-cache — prevents DOM thrash at 60fps
                     const _uiCache = {
                         alt: '', windSpeed: '', gust: 'hidden',
                         ringTrans: '', horizonTrans: '', relAngle: '',
                         windTrans: '', head: '', cross: ''
                     };
+
+                    // Visual EMA state — ONLY values written to DOM transforms.
+                    // visualHeading   → compass ring  (TC=120ms)
+                    // visualWindAngle → wind vector   (TC=300ms)
                     let visualHeading   = null;
                     let visualWindAngle = null;
                     let lastRenderTime  = performance.now();
@@ -2960,143 +2967,143 @@
                         return arr[Math.floor((deg / 22.5) + 0.5) % 16];
                     };
 
+                    // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
                     function renderAero() {
-                        try {
-                            const frameNow = performance.now();
-                            const dt = Math.min(frameNow - lastRenderTime, 100);
-                            lastRenderTime = frameNow;
+                        const frameNow = performance.now();
+                        const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
+                        lastRenderTime = frameNow;
 
-                            if (document.hidden) {
-                                requestAnimationFrame(renderAero);
-                                return;
+                        requestAnimationFrame(renderAero);
+                        if (!_el.ring) return;
+
+                        const now = Date.now();
+                        let activeHeading = 0;
+                        let headingValid  = false;
+
+                        // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
+                        if (_el.altContainer) {
+                            let altStr;
+                            if (st.altitude !== null) {
+                                altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                            } else if (st.topoAltitude !== null) {
+                                altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                            } else {
+                                altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
                             }
-                            // Throttle when idle – but never stop the loop
-                            if (state.idleStart && (Date.now() - state.idleStart > 10000)) {
-                                setTimeout(() => requestAnimationFrame(renderAero), 100);
-                                return;
-                            }
+                            if (_uiCache.alt !== altStr) { _el.altContainer.innerHTML = altStr; _uiCache.alt = altStr; }
+                        }
 
-                            requestAnimationFrame(renderAero);
-                            if (!_el.ring) return;
+                        // WIND SPEED
+                        if (_el.windSpeed) {
+                            const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
+                            if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
+                        }
 
-                            const now = Date.now();
-                            let activeHeading = 0;
-                            let headingValid  = false;
-
-                            if (_el.altContainer) {
-                                let altStr;
-                                if (st.altitude !== null) {
-                                    altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
-                                } else if (st.topoAltitude !== null) {
-                                    altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
-                                } else {
-                                    altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
-                                }
-                                if (_uiCache.alt !== altStr) { _el.altContainer.innerHTML = altStr; _uiCache.alt = altStr; }
-                            }
-
-                            if (_el.windSpeed) {
-                                const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
-                                if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
-                            }
-
-                            if (_el.gust) {
-                                if (st.windGust > 0) {
-                                    const gustDiff = st.windGust - st.windSpeed;
-                                    if (gustDiff >= 5) {
-                                        const gStr = `GUST +${Math.round(gustDiff)}`;
-                                        if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
-                                    } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                        // GUST BOUNDARY
+                        if (_el.gust) {
+                            if (st.windGust > 0) {
+                                const gustDiff = st.windGust - st.windSpeed;
+                                if (gustDiff >= 5) {
+                                    const gStr = `GUST +${Math.round(gustDiff)}`;
+                                    if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
                                 } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                            } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                        }
+
+                        // ARTIFICIAL HORIZON — gravity-vector LPF, gimbal-lock immune
+                        if (_el.horizon) {
+                            smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
+                            smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
+                            let pY = (smoothedPitch - 30) * 1.5;
+                            pY = Math.max(-60, Math.min(60, pY));
+                            const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
+                            if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
+                        }
+
+                        // HEADING PRIORITY CHAIN
+                        // P1: main engine EMA-smoothed fused heading (kinematically guarded)
+                        // P2: raw GNSS heading (valid within 3s TTL)
+                        // P3: local IMU (deviceorientation absolute path)
+                        if (st.fusedHeading !== null) {
+                            activeHeading = st.fusedHeading; headingValid = true;
+                        } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
+                            activeHeading = st.gnssHeading; headingValid = true;
+                        } else if (st.deviceHeading !== null) {
+                            activeHeading = st.deviceHeading; headingValid = true;
+                        }
+
+                        // COMPASS RING — EMA in JS, no CSS transition (stops the stop-dance)
+                        // TC=120ms at 60fps → lerpA≈0.127/frame → 99% of target in ~550ms
+                        if (headingValid) {
+                            if (visualHeading === null) {
+                                visualHeading = activeHeading;
+                            } else {
+                                let hdiff = activeHeading - visualHeading;
+                                if (hdiff >  180) hdiff -= 360;
+                                if (hdiff < -180) hdiff += 360;
+                                const lerpA = 1 - Math.exp(-dt / 120);
+                                visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
+                            }
+                            const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
+                            if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                        }
+
+                        // WIND VECTOR MATH + SMOOTHING
+                        const wDir = st.windDir;
+                        if (headingValid && wDir !== null) {
+                            // relAngle: 0=headwind, 90=from right, 180=tailwind
+                            const relAngle = (wDir - activeHeading + 360) % 360;
+
+                            if (_el.relAngle) {
+                                const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                                if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
                             }
 
-                            if (_el.horizon) {
-                                smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
-                                smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
-                                let pY = (smoothedPitch - 30) * 1.5;
-                                pY = Math.max(-60, Math.min(60, pY));
-                                const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
-                                if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
+                            // Wind vector EMA — TC=300ms (meteorological, slower than compass)
+                            if (visualWindAngle === null) {
+                                visualWindAngle = relAngle;
+                            } else {
+                                let wdiff = relAngle - visualWindAngle;
+                                if (wdiff >  180) wdiff -= 360;
+                                if (wdiff < -180) wdiff += 360;
+                                const lerpW = 1 - Math.exp(-dt / 300);
+                                visualWindAngle = (visualWindAngle + wdiff * lerpW + 360) % 360;
                             }
 
-                            if (st.fusedHeading !== null) {
-                                activeHeading = st.fusedHeading; headingValid = true;
-                            } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
-                                activeHeading = st.gnssHeading; headingValid = true;
-                            } else if (st.deviceHeading !== null) {
-                                activeHeading = st.deviceHeading; headingValid = true;
+                            if (_el.wind) {
+                                const wT = `rotate(${visualWindAngle.toFixed(1)}deg)`;
+                                if (_uiCache.windTrans !== wT) { _el.wind.style.transform = wT; _uiCache.windTrans = wT; }
                             }
 
-                            if (headingValid) {
-                                if (visualHeading === null) {
-                                    visualHeading = activeHeading;
-                                } else {
-                                    let hdiff = activeHeading - visualHeading;
-                                    if (hdiff >  180) hdiff -= 360;
-                                    if (hdiff < -180) hdiff += 360;
-                                    const lerpA = 1 - Math.exp(-dt / 120);
-                                    visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
-                                }
-                                const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
-                                if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                            // VECTOR DECOMPOSITION — kinematic force isolation
+                            const rad        = relAngle * (Math.PI / 180);
+                            const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
+                            const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
+
+                            if (_el.head) {
+                                const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
+                                if (_uiCache.head !== hStr) { _el.head.innerHTML = hStr; _uiCache.head = hStr; }
                             }
 
-                            const wDir = st.windDir;
-                            if (headingValid && wDir !== null) {
-                                const relAngle = (wDir - activeHeading + 360) % 360;
+                            if (_el.cross) {
+                                const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
+                                if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
+                            }
 
-                                if (_el.relAngle) {
-                                    const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
-                                    if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
-                                }
+                            // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
+                            if (now - lastHistoryTime > 10000) {
+                                if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
+                                historyIdx = (historyIdx + 1) % 3;
+                                lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
+                            }
 
-                                if (visualWindAngle === null) {
-                                    visualWindAngle = relAngle;
-                                } else {
-                                    let wdiff = relAngle - visualWindAngle;
-                                    if (wdiff >  180) wdiff -= 360;
-                                    if (wdiff < -180) wdiff += 360;
-                                    const lerpW = 1 - Math.exp(-dt / 300);
-                                    visualWindAngle = (visualWindAngle + wdiff * lerpW + 360) % 360;
-                                }
-
-                                if (_el.wind) {
-                                    const wT = `rotate(${visualWindAngle.toFixed(1)}deg)`;
-                                    if (_uiCache.windTrans !== wT) { _el.wind.style.transform = wT; _uiCache.windTrans = wT; }
-                                }
-
-                                const rad        = relAngle * (Math.PI / 180);
-                                const headForce  = Math.cos(rad) * st.windSpeed;
-                                const crossForce = Math.sin(rad) * st.windSpeed;
-
-                                if (_el.head) {
-                                    const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
-                                    if (_uiCache.head !== hStr) { _el.head.innerHTML = hStr; _uiCache.head = hStr; }
-                                }
-
-                                if (_el.cross) {
-                                    const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
-                                    if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
-                                }
-
-                                if (now - lastHistoryTime > 10000) {
-                                    if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
-                                    historyIdx = (historyIdx + 1) % 3;
-                                    lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
-                                }
-
-                                for (let i = 0; i < 3; i++) {
-                                    const age = (historyIdx - 1 - i + 3) % 3;
-                                    const histAngle = windHistory[age];
-                                    if (histAngle !== -1 && !isNaN(histAngle) && _el.ghost[i]) {
-                                        _el.ghost[i].style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
-                                    }
+                            for (let i = 0; i < 3; i++) {
+                                const age = (historyIdx - 1 - i + 3) % 3;
+                                const histAngle = windHistory[age];
+                                if (histAngle !== -1 && !isNaN(histAngle) && _el.ghost[i]) {
+                                    _el.ghost[i].style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
                                 }
                             }
-                        } catch (err) {
-                            // Prevent freeze – log and continue the loop
-                            console.warn('Aero render error:', err.message);
-                            requestAnimationFrame(renderAero);
                         }
                     }
 
