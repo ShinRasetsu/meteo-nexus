@@ -1,28 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MeteoNexus | Active Telemetry HUD</title>
-
-    <link rel="manifest" href="./manifest.json" />
-    <meta name="theme-color" content="#000000" />
-
-    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin />
-    <link rel="dns-prefetch" href="https://api.open-meteo.com" />
-    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
-    <link rel="preconnect" href="https://unpkg.com" crossorigin />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-
-    <link rel="preload" as="script" href="https://cdn.tailwindcss.com" />
-    <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" />
-
+    
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#000000">
+    
+    <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+    <link rel="dns-prefetch" href="https://api.open-meteo.com">
+    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <link rel="preload" as="script" href="https://cdn.tailwindcss.com">
+    <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+    
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet" />
-
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
@@ -30,11 +29,11 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
-
+    
     <script>
-        const THEME_COLORS = {
-            teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7',
-            orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308'
+        const THEME_COLORS = { 
+            teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', 
+            orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' 
         };
 
         tailwind.config = {
@@ -67,12 +66,11 @@
     </script>
 
     <style>
-        /* ─── existing styles ─── */
         html { scrollbar-width: thin; scrollbar-color: #333 #111; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #111; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-
+        
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -80,31 +78,31 @@
         .vertical-scroll::-webkit-scrollbar { width: 8px; }
         .vertical-scroll::-webkit-scrollbar-track { background: #1a1a1a; border-radius: 4px; }
         .vertical-scroll::-webkit-scrollbar-thumb { background: #14b8a6; border-radius: 4px; }
-
+        
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
         input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
-        .leaflet-routing-container { display: none !important; }
-        .leaflet-control-scale-line {
-            background: rgba(17, 17, 17, 0.9) !important;
-            color: #14b8a6 !important;
-            border: 1px solid #2a2a2a !important;
-            border-top: none !important;
-            text-shadow: none !important;
-            box-shadow: none !important;
-            border-bottom: 2px solid #14b8a6 !important;
-            border-left: 2px solid #14b8a6 !important;
-            border-right: 2px solid #14b8a6 !important;
-            border-radius: 0 0 4px 4px;
-            font-weight: bold;
-            font-family: 'JetBrains Mono', monospace;
+        .leaflet-routing-container { display: none !important; } 
+        .leaflet-control-scale-line { 
+            background: rgba(17, 17, 17, 0.9) !important; 
+            color: #14b8a6 !important; 
+            border: 1px solid #2a2a2a !important; 
+            border-top: none !important; 
+            text-shadow: none !important; 
+            box-shadow: none !important; 
+            border-bottom: 2px solid #14b8a6 !important; 
+            border-left: 2px solid #14b8a6 !important; 
+            border-right: 2px solid #14b8a6 !important; 
+            border-radius: 0 0 4px 4px; 
+            font-weight: bold; 
+            font-family: 'JetBrains Mono', monospace; 
         }
-
-        #hud-map, #live-compass-icon, .leaflet-map-pane, .leaflet-layer {
-            will-change: transform; transform: translateZ(0); backface-visibility: hidden;
+        
+        #hud-map, #live-compass-icon, .leaflet-map-pane, .leaflet-layer { 
+            will-change: transform; transform: translateZ(0); backface-visibility: hidden; 
         }
-
+        
         #hud-map { --user-heading: 0deg; }
         .hud-moving .user-dot { opacity: 0 !important; transform: scale(0.5) !important; }
         .hud-moving .user-arrow { opacity: 1 !important; transform: scale(1) !important; }
@@ -116,14 +114,14 @@
         .smooth-glide { will-change: transform; transform: translateZ(0); }
 
         .section-hidden { display: none !important; }
-        .section-fullscreen {
-            position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
-            z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important;
-            height: 100vh !important; overflow-y: auto !important; background-color: #00 !important;
+        .section-fullscreen { 
+            position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
+            z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important; 
+            height: 100vh !important; overflow-y: auto !important; background-color: #00 !important; 
         }
         .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
         .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
-
+        
         .custom-popup-dark .leaflet-popup-content-wrapper,
         .custom-popup-dark .leaflet-popup-tip {
             background-color: #1a1a1a;
@@ -135,40 +133,16 @@
         .custom-popup-dark .leaflet-popup-close-button {
             color: #9ca3af !important;
         }
-
-        /* ─── Reset view button ─── */
-        .reset-view-btn {
-            background: #1a1a1a;
-            border: 2px solid #2a2a2a;
-            color: #9ca3af;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .reset-view-btn:hover {
-            border-color: #14b8a6;
-            color: #fff;
-            background: #14b8a610;
-        }
-        .reset-view-btn.active {
-            border-color: #ef4444;
-            color: #ef4444;
-        }
     </style>
 </head>
 <body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <!-- ─── HEADER ─── -->
     <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
         <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-            <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i>
+            <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i> 
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
         </h1>
+        
         <div class="flex flex-wrap items-center gap-2 md:gap-3">
             <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
                 <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
@@ -180,13 +154,12 @@
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
             <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
-                <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i>
+                <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
                 <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
             </button>
         </div>
     </header>
 
-    <!-- ─── TELEMETRY SECTION ─── -->
     <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
@@ -194,6 +167,7 @@
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
+            <!-- CHANGED: added code-agreement-badge div after weather-desc -->
             <div id="main-status-card" class="hud-card lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-surface-800 bg-surface-900 min-h-[200px] md:min-h-[250px] relative overflow-hidden">
                 <div class="absolute top-4 left-4">
                     <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-60">Local Telemetry</span>
@@ -203,16 +177,19 @@
                         <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
                     </div>
                     <div class="text-[10px] font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
-                        <i class="fa-regular fa-clock text-brand-blue opacity-80"></i>
+                        <i class="fa-regular fa-clock text-brand-blue opacity-80"></i> 
                         <span id="local-time-text">--:--:--</span>
                     </div>
                 </div>
+
                 <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
                 <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
                 <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
+                <!-- NEW: model weather-code agreement badge -->
                 <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest"></div>
             </div>
 
+            <!-- CHANGED: added metric-temp-spread, changed "Model Sync" to "Rain Consensus" -->
             <div class="lg:col-span-7 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col justify-around gap-4">
                 <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
                     <div>
@@ -221,9 +198,11 @@
                             <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white leading-none">--</div>
                             <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
                         </div>
-                        <div id="metric-temp-spread" class="text-[10px] font-mono font-black text-gray-300 uppercase tracking-widest mt-1"></div>
+                        <!-- NEW: model spread band -->
+                        <div id="metric-temp-spread" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-1"></div>
                     </div>
                     <div class="text-right">
+                        <!-- CHANGED: "Model Sync" → "Rain Consensus" -->
                         <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Rain Consensus</span>
                         <div id="metric-agree" class="font-mono text-4xl md:text-5xl font-black text-brand-teal leading-none">--</div>
                     </div>
@@ -258,10 +237,10 @@
                     </div>
                 </div>
             </div>
+
         </div>
     </div>
 
-    <!-- ─── MAP SECTION ─── -->
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
@@ -289,10 +268,10 @@
                 </button>
             </div>
         </div>
-
+        
         <div class="map-wrapper w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
             <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] origin-center"></div>
-
+            
             <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%]">
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
                     <i class="fa-solid fa-gauge-high text-brand-teal text-sm"></i>
@@ -313,10 +292,6 @@
                         <span id="live-heading-deg" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">000°</span>
                     </div>
                 </div>
-
-                <div id="tbt-container" class="bg-surface-900/90 border border-brand-teal px-3 py-1.5 rounded-lg shadow-lg backdrop-blur-md pointer-events-auto hidden">
-                    <span id="tbt-text" class="text-xs font-mono font-bold text-white tracking-wide"></span>
-                </div>
             </div>
 
             <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
@@ -327,7 +302,6 @@
         </div>
     </div>
 
-    <!-- ─── INTEL & PLOT ─── -->
     <div id="sec-intel" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300 overflow-hidden">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
@@ -336,28 +310,16 @@
         <div id="timeline-container" class="pb-2 no-select w-full"></div>
     </div>
 
-    <!-- ─── PLOT SECTION WITH RESET & ZOOM TOGGLE ─── -->
     <div id="sec-plot" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8 transition-all duration-300">
-        <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
+        <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
-            <div class="flex items-center gap-2">
-                <!-- ZOOM TOGGLE BUTTON -->
-                <button id="zoom-toggle-btn" class="reset-view-btn" title="Toggle zoom & tooltips">
-                    <i class="fa-solid fa-lock-open mr-1"></i> Zoom
-                </button>
-                <!-- RESET VIEW BUTTON -->
-                <button id="reset-zoom-btn" class="reset-view-btn" title="Reset view to show current 6-hour window">
-                    <i class="fa-solid fa-rotate-left mr-1"></i> Reset View
-                </button>
-                <button onclick="toggleFocus('sec-plot')" aria-label="Focus Plot" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-plot"></i></button>
-            </div>
+            <button onclick="toggleFocus('sec-plot')" aria-label="Focus Plot" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-plot"></i></button>
         </div>
         <div class="chart-wrapper flex-grow w-full relative h-[350px]">
             <canvas id="mainChart"></canvas>
         </div>
     </div>
 
-    <!-- ─── MODALS ─── -->
     <div id="fuel-settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
             <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Fuel Parameters</h3>
@@ -449,16 +411,11 @@
         </div>
     </div>
 
-    <!-- ========== CORE ENGINE ========== -->
+    <!-- CORE ENGINE MODULE -->
     <script type="module">
         "use strict";
 
-        // ─── FIX: register zoom plugin ───
-        if (typeof Chart !== 'undefined' && typeof ChartZoom !== 'undefined') {
-            Chart.register(ChartZoom);
-        }
-
-        // ─── FETCH WRAPPER ───
+        // --- FETCH WRAPPER ---
         const fetchWithRetry = async (url, options = {}, retries = 3, backoff = 500) => {
             const timeout = options.timeout || 15000;
             for (let i = 0; i < retries; i++) {
@@ -490,7 +447,7 @@
             throw new Error(`Fetch failed after ${retries} retries: ${url}`);
         };
 
-        // ─── REGEXP INSTANCES ───
+        // --- REGEXP INSTANCES ---
         const RX_NUM = "([+-]?\\d+(?:\\.\\d+)?)";
         const RX_DEST = new RegExp(`destination=${RX_NUM},${RX_NUM}`, 'i');
         const RX_MARKERS = /markers=([^"&>]+)/i;
@@ -504,7 +461,7 @@
             new RegExp(`@${RX_NUM},${RX_NUM}`, 'i')
         ];
 
-        // ─── CLOUD INIT ───
+        // --- CLOUD INIT ---
         let app, auth, db;
         let isCloudActive = false;
         let appId = 'default-app-id';
@@ -535,31 +492,38 @@
             } catch (e) { console.warn("MeteoNexus: Cloud Connection Blocked or Failed.", e); }
         }
 
-        // ─── WEATHER ENSEMBLE ENGINE ───
-        const ENSEMBLE_WEIGHTS = Object.freeze({
-            ecmwf_ifs025: 0.35,
-            gfs_seamless: 0.35,
-            icon_seamless: 0.15,
-            jma_seamless: 0.15
-        });
-        const ENSEMBLE_LABELS = Object.freeze({ ecmwf_ifs025: 'EU', gfs_seamless: 'US', icon_seamless: 'DE', jma_seamless: 'JP' });
+        // --- WEATHER ENSEMBLE ENGINE ---
+        // Single source of truth: model list, weights, thresholds, all blend math.
+        // Every wet/dry decision in the app goes through classifyWetness() — dashboard,
+        // chart, and route timeline all use the same number with the same meaning.
+        const ENSEMBLE_WEIGHTS = {
+            ecmwf_ifs025: 0.35,  // strongest global-skill member
+            gfs_seamless:  0.35,  // strongest global-skill member
+            icon_seamless: 0.15,  // high-res in Europe, lower regional skill elsewhere
+            jma_seamless:  0.15   // high-res in Japan, lower regional skill elsewhere
+        };
+        const ENSEMBLE_LABELS = { ecmwf_ifs025: 'EU', gfs_seamless: 'US', icon_seamless: 'DE', jma_seamless: 'JP' };
 
         const WeatherEnsemble = {
             models: Object.keys(ENSEMBLE_WEIGHTS),
             weights: ENSEMBLE_WEIGHTS,
             labels: ENSEMBLE_LABELS,
-            WET_THRESHOLD_MM: 0.1,
-            WET_POSSIBLE_PCT: 40,
-            WET_LIKELY_PCT: 75,
-            HEALTH_DEGRADED_PCT: 80,
-            HEALTH_DOWN_PCT: 20,
+            WET_THRESHOLD_MM: 0.1,    // per-model precipitation floor
+            WET_POSSIBLE_PCT: 40,     // weighted % → RAIN_POSSIBLE
+            WET_LIKELY_PCT:   75,     // weighted % → RAIN_LIKELY + sonar trigger
+            HEALTH_DEGRADED_PCT: 80,  // below this coverage → "degraded" (yellow badge)
+            HEALTH_DOWN_PCT:     20,  // below this coverage → "down" (red badge)
 
+            // Open-Meteo suffixes every hourly field when >1 model is requested.
+            // e.g. temperature_2m → temperature_2m_ecmwf_ifs025, temperature_2m_gfs_seamless, ...
+            // This is the single place that assumption is encoded.
             extractModelArrays(hourly, varName) {
                 const out = {};
                 for (const m of this.models) out[m] = hourly[`${varName}_${m}`] || null;
                 return out;
             },
 
+            // Coverage-aware health: partial degradation reads as degraded, not healthy.
             checkHealth(arr) {
                 if (!arr || !Array.isArray(arr) || arr.length === 0) return { healthy: false, coveragePct: 0 };
                 let valid = 0;
@@ -568,6 +532,8 @@
                 return { healthy: coveragePct >= this.HEALTH_DEGRADED_PCT, coveragePct };
             },
 
+            // Weighted average at one time index. Null models are excluded — weight
+            // renormalizes over whoever reported. A null is never a zero vote.
             weightedValueAt(modelArrays, idx) {
                 let sum = 0, weightSum = 0, count = 0;
                 for (const m of this.models) {
@@ -580,6 +546,7 @@
                 return { value: sum / weightSum, modelsReporting: count };
             },
 
+            // Weighted circular mean for direction variables (degrees). Same null exclusion.
             weightedCircularMeanAt(modelArrays, idx) {
                 let sx = 0, sy = 0, weightSum = 0, count = 0;
                 for (const m of this.models) {
@@ -596,6 +563,7 @@
                 return deg;
             },
 
+            // Min/max spread across reporting models at one index. Feeds temp confidence band.
             bandAt(modelArrays, idx) {
                 let min = Infinity, max = -Infinity, count = 0;
                 for (const m of this.models) {
@@ -609,6 +577,8 @@
                 return { min, max, spread: max - min };
             },
 
+            // Weighted wetness consensus 0-100 at one index.
+            // Replaces binary vote-counting — continuous, null-aware.
             weightedWetnessAt(modelArrays, idx) {
                 let wetWeight = 0, totalWeight = 0, modelsReporting = 0;
                 for (const m of this.models) {
@@ -622,6 +592,7 @@
                 return { pct: (wetWeight / totalWeight) * 100, modelsReporting, valid: true };
             },
 
+            // Weighted majority vote for categorical fields (WMO weather_code).
             weightedMajorityAt(modelArrays, idx) {
                 const tally = new Map();
                 let totalWeight = 0, modelsReporting = 0;
@@ -642,14 +613,16 @@
                 return { code: bestCode, agreementPct: (bestWeight / totalWeight) * 100, agreeingCount: bestCount, modelsReporting };
             },
 
+            // THE single wet/dry classifier used by dashboard, chart, and route timeline.
             classifyWetness(pct) {
-                if (pct >= this.WET_LIKELY_PCT) return 'RAIN_LIKELY';
+                if (pct >= this.WET_LIKELY_PCT)   return 'RAIN_LIKELY';
                 if (pct >= this.WET_POSSIBLE_PCT) return 'RAIN_POSSIBLE';
                 return 'STABLE';
             }
         };
 
-        // ─── CONFIG ───
+        // --- CONFIG ---
+        // sonarThreshold references WeatherEnsemble so they stay in sync if WET_LIKELY_PCT is tuned.
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
@@ -657,94 +630,13 @@
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
             cacheTTL: 300000,
             cacheDistThresholdKm: 1.5,
-            routingIntervalNodeDist: 5000,
-            forecastDays: 5
+            routingIntervalNodeDist: 5000
         };
 
-        // ─── COMPUTE WORKER BRIDGE (with fallback) ───
+        // --- COMPUTE WORKER BRIDGE ---
         let computeWorker = null;
         let workerMessageId = 0;
         const workerPending = new Map();
-
-        function decodeValhallaPolylineFallback(str) {
-            let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
-            const factor = 1e6;
-            while (index < str.length) {
-                byte = null; shift = 0; result = 0;
-                do {
-                    byte = str.charCodeAt(index++) - 63;
-                    result |= (byte & 0x1f) << shift;
-                    shift += 5;
-                } while (byte >= 0x20);
-                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
-
-                shift = 0; result = 0;
-                do {
-                    byte = str.charCodeAt(index++) - 63;
-                    result |= (byte & 0x1f) << shift;
-                    shift += 5;
-                } while (byte >= 0x20);
-                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
-
-                coordinates.push({ lat: lat / factor, lng: lng / factor });
-            }
-            return coordinates;
-        }
-
-        function calculateNodesFallback(totalDistance, coords, intervalDist) {
-            if (!coords || coords.length === 0) return [];
-            const totalFutureNodesCount = Math.floor(totalDistance / intervalDist);
-            const nodes = new Array(totalFutureNodesCount);
-            const cumulativeDistances = new Float32Array(coords.length);
-            cumulativeDistances[0] = 0;
-            for (let j = 1; j < coords.length; j++) {
-                const lonPrev = coords[j-1].lng !== undefined ? coords[j-1].lng : coords[j-1].lon;
-                const lonCurr = coords[j].lng !== undefined ? coords[j].lng : coords[j].lon;
-                cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(coords[j-1].lat, lonPrev, coords[j].lat, lonCurr);
-            }
-            let searchIdx = 1;
-            let validNodeCount = 0;
-            for (let i = 1; i <= totalFutureNodesCount; i++) {
-                const targetDist = i * intervalDist;
-                while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) searchIdx++;
-                if (searchIdx < coords.length) {
-                    const p1 = coords[searchIdx - 1];
-                    const p2 = coords[searchIdx];
-                    const lon1 = p1.lng !== undefined ? p1.lng : p1.lon;
-                    const lon2 = p2.lng !== undefined ? p2.lng : p2.lon;
-                    const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
-                    const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
-                    const ratio = segmentDist === 0 ? 0 : excessDist / segmentDist;
-                    nodes[validNodeCount++] = {
-                        lat: p1.lat + (p2.lat - p1.lat) * ratio,
-                        lon: lon1 + (lon2 - lon1) * ratio,
-                        id: i,
-                        passed: false
-                    };
-                }
-            }
-            nodes.length = validNodeCount;
-            return nodes;
-        }
-
-        function processOverpassFallback(data, lat, lon, targetBrand, targetVariant, variantMap) {
-            const results = [];
-            for (const el of (data.elements || [])) {
-                const tLat = el.lat || (el.center && el.center.lat) || 0;
-                const tLon = el.lon || (el.center && el.center.lon) || 0;
-                if (!tLat || !tLon) continue;
-                const d = fastDistance(lat, lon, tLat, tLon);
-                results.push({
-                    lat: tLat, lon: tLon,
-                    name: (el.tags && el.tags.name) || targetBrand,
-                    dist: (d/1000).toFixed(1),
-                    isExact: false,
-                    strictFilterActive: false
-                });
-            }
-            results.sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
-            return { stations: results, isStrict: false };
-        }
 
         function initComputeWorker() {
             if (computeWorker) return;
@@ -759,38 +651,12 @@
                     else pending.resolve(result);
                 };
                 computeWorker.onerror = (e) => { console.warn('Compute worker error:', e.message); };
-            } catch (e) {
-                console.warn('Compute worker unavailable, using fallbacks.', e);
-                computeWorker = null;
-            }
+            } catch (e) { console.warn('Compute worker unavailable:', e); }
         }
 
         function workerTask(type, payload) {
             initComputeWorker();
-            if (!computeWorker) {
-                return new Promise((resolve, reject) => {
-                    try {
-                        let result;
-                        switch(type) {
-                            case 'DECODE_VALHALLA':
-                                result = decodeValhallaPolylineFallback(payload.shape);
-                                break;
-                            case 'CALCULATE_NODES':
-                                result = calculateNodesFallback(payload.totalDistance, payload.coords, payload.intervalDist);
-                                break;
-                            case 'PROCESS_OVERPASS':
-                                result = processOverpassFallback(payload.data, payload.lat, payload.lon,
-                                    payload.targetBrand, payload.targetVariant, payload.variantMap);
-                                break;
-                            default:
-                                throw new Error("Unknown worker task: " + type);
-                        }
-                        resolve(result);
-                    } catch (err) {
-                        reject(err);
-                    }
-                });
-            }
+            if (!computeWorker) return Promise.reject(new Error('Compute worker unavailable'));
             const messageId = ++workerMessageId;
             return new Promise((resolve, reject) => {
                 workerPending.set(messageId, { resolve, reject });
@@ -798,7 +664,7 @@
             });
         }
 
-        // ─── WMO LOOKUP ───
+        // --- WMO LOOKUP TABLES ---
         const WMO_CODES = {
             0: 'Clear Sky', 1: 'Mainly Clear', 2: 'Partly Cloudy', 3: 'Overcast',
             45: 'Fog', 48: 'Depositing Rime Fog', 51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
@@ -810,6 +676,7 @@
             85: 'Slight Snow Showers', 86: 'Heavy Snow Showers',
             95: 'Thunderstorm', 96: 'Thunderstorm + Hail', 99: 'Heavy Thunderstorm + Hail'
         };
+
         const WMO_ICONS = {
             0: 'fa-sun', 1: 'fa-sun', 2: 'fa-cloud-sun', 3: 'fa-cloud',
             45: 'fa-smog', 48: 'fa-smog', 51: 'fa-cloud-rain', 53: 'fa-cloud-rain', 55: 'fa-cloud-showers-heavy',
@@ -822,7 +689,7 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
-        // ─── FUEL CATALOG ───
+        // --- FUEL CATALOG ---
         const FUEL_CATALOG = {
             "Shell": ["V-Power Racing", "V-Power Gasoline", "V-Power Diesel", "FuelSave Gasoline", "FuelSave Diesel"],
             "Petron": ["Blaze 100", "XCS", "Xtra Advance", "Turbo Diesel", "Diesel Max"],
@@ -834,6 +701,7 @@
             "PTT": ["Blue Innovation 97", "Blue Innovation 95", "Blue Innovation 91", "Blue Diesel"],
             "Phoenix": ["Premium 98", "Premium 95", "Super Unleaded", "Diesel"]
         };
+
         const BRAND_LINKS = {
             "Shell": "https://find.shell.com/ph/fuel/locations/en_PH",
             "Petron": "https://www.petron.com/station-finder/",
@@ -845,6 +713,7 @@
             "PTT": "https://www.pttphilippines.com/station-locator/",
             "Phoenix": "https://www.phoenixfuels.ph/station-locator/"
         };
+
         const VARIANT_OSM_MAP = {
             "Blaze 100": "fuel:octane_100", "XCS": "fuel:octane_95", "Xtra Advance": "fuel:octane_91",
             "Turbo Diesel": "fuel:diesel", "Diesel Max": "fuel:diesel",
@@ -861,7 +730,7 @@
             "Premium 98": "fuel:octane_98", "Super Unleaded": "fuel:octane_91"
         };
 
-        // ─── STATE ───
+        // --- STATE STORE ---
         let state = {
             mode: 'auto', autoCoords: null, targetCoords: null, coords: {},
             visual: { lat: null, lon: null, heading: null },
@@ -875,11 +744,7 @@
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null, timelineIdleTimer: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
-            renderAccText: null, renderAccClass: null,
-            offRouteStart: null,
-            idleStart: null,
-            // zoom toggle state
-            zoomEnabled: true
+            renderAccText: null, renderAccClass: null
         };
 
         function fastDistance(lat1, lon1, lat2, lon2) {
@@ -896,7 +761,8 @@
             return temp.innerHTML;
         };
 
-        // ─── DOM REFS ───
+        // --- DOM REFS ---
+        // CHANGED: added metricTempSpread and codeAgreementBadge
         const DOM = {
             maxSpeed: document.getElementById('max-speed'), liveSpeed: document.getElementById('live-speed'),
             liveHeadingDeg: document.getElementById('live-heading-deg'), liveHeadingTxt: document.getElementById('live-heading-txt'),
@@ -918,17 +784,14 @@
             modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
-            cacheMapBtn: document.getElementById('cache-map-btn'),
-            tbtContainer: document.getElementById('tbt-container'),
-            tbtText: document.getElementById('tbt-text'),
-            resetZoomBtn: document.getElementById('reset-zoom-btn'),
-            zoomToggleBtn: document.getElementById('zoom-toggle-btn')
+            cacheMapBtn: document.getElementById('cache-map-btn')
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
 
         const updateText = (el, val) => { if (el && el.textContent !== String(val)) el.textContent = val; };
         const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
+
         updateText(DOM.maxSpeed, state.maxSpeed);
 
         window.reportRoutingFallback = function() {
@@ -936,7 +799,7 @@
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap");
         };
 
-        // ─── SMART ROUTER ───
+        // --- SMART ROUTER ---
         const SmartRouter = L.Class.extend({
             initialize: function(options) {
                 this.osrm = L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1' });
@@ -982,18 +845,7 @@
                         const rawCoords = await workerTask('DECODE_VALHALLA', { shape: leg.shape });
                         coords = coords.concat(rawCoords.map(c => L.latLng(c.lat, c.lng)));
                     }
-                    const instructions = [];
-                    if (data.trip.legs.length > 0 && data.trip.legs[0].maneuvers) {
-                        for (const m of data.trip.legs[0].maneuvers) {
-                            if (m.instruction) {
-                                instructions.push({ text: m.instruction, distance: m.length || 0 });
-                            }
-                        }
-                    }
-                    return { name: `Valhalla Tactical Route (auto)`, engine: 'VALHALLA', mode: 'FAST',
-                             coordinates: coords, instructions: instructions,
-                             summary: { totalDistance: totalDist, totalTime: totalTime },
-                             inputWaypoints: waypoints, waypoints: waypoints };
+                    return { name: `Valhalla Tactical Route (auto)`, engine: 'VALHALLA', mode: 'FAST', coordinates: coords, instructions: [], summary: { totalDistance: totalDist, totalTime: totalTime }, inputWaypoints: waypoints, waypoints: waypoints };
                 };
 
                 if (!hasExclusions) {
@@ -1023,7 +875,7 @@
             }
         });
 
-        // ─── RENDER PIPELINE ───
+        // --- RENDER PIPELINE ---
         function triggerRenderPipeline() {
             if (!state.renderPending) { state.renderPending = true; requestAnimationFrame(executeRenderPipeline); }
         }
@@ -1069,24 +921,10 @@
             }
         }
 
-        // ─── 60FPS VISUAL LOOP ───
+        // --- 60FPS VISUAL LOOP ---
         let lastVisualFrameTime = performance.now();
 
         function smoothVisualsLoop(time) {
-            if (document.hidden) {
-                requestAnimationFrame(smoothVisualsLoop);
-                return;
-            }
-            if (state.currentSpeed < 5 && state.idleStart === null) {
-                state.idleStart = Date.now();
-            } else if (state.currentSpeed >= 5) {
-                state.idleStart = null;
-            }
-            if (state.idleStart && (Date.now() - state.idleStart > 10000)) {
-                setTimeout(() => requestAnimationFrame(smoothVisualsLoop), 100);
-                return;
-            }
-
             requestAnimationFrame(smoothVisualsLoop);
             const dt = Math.min(time - lastVisualFrameTime, 100);
             lastVisualFrameTime = time;
@@ -1147,7 +985,7 @@
             }
         }
 
-        // ─── MAP CACHE ───
+        // --- MAP CACHE BUTTON ---
         let mapHoldTimer = null;
         const promptMapDownload = () => {
             if (state.isCachingMap) return;
@@ -1168,10 +1006,12 @@
         DOM.cacheMapBtn.addEventListener('pointercancel', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
         DOM.cacheMapBtn.addEventListener('contextmenu', e => e.preventDefault());
 
+        // --- MAP TILE PREFETCHER ---
         function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
         function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
 
         window.executeMapCache = function() { closeModal('map-cache-modal'); window.downloadMapCache(); };
+
         window.downloadMapCache = async function() {
             if (state.isCachingMap) return;
             if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) return;
@@ -1231,14 +1071,14 @@
             } catch(e) { console.error("Map cache clear failed:", e); }
         };
 
-        // ─── AUDIO ───
+        // --- AUDIO ---
         let globalAudioCtx = null;
         function getAudioContext() {
             if (!globalAudioCtx) globalAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
             return globalAudioCtx;
         }
 
-        // ─── WAKE LOCK ───
+        // --- WAKE LOCK ---
         let wakeLock = null;
         async function requestWakeLock() {
             try {
@@ -1249,6 +1089,7 @@
                 }
             } catch (err) { console.warn('Wake Lock request failed:', err); }
         }
+
         document.addEventListener('visibilitychange', async () => { if (wakeLock === null && document.visibilityState === 'visible') requestWakeLock(); });
 
         document.body.addEventListener('click', function initSensors() {
@@ -1260,7 +1101,7 @@
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
-        // ─── FOCUS ENGINE ───
+        // --- FOCUS ENGINE ---
         window.toggleFocus = function(secId) {
             const sections = [
                 {id: 'sec-telemetry', el: DOM.secTelemetry},
@@ -1295,12 +1136,14 @@
             if (state.focusedSection === null && !state.targetCoords) DOM.secIntel.classList.add('hidden');
         };
 
-        // ─── MAGNETOMETER HOOKS ───
+        // --- MAGNETOMETER HOOKS ---
         let hasAbsoluteOrientation = false;
         function handleOrientationUpdate(alphaOrHeading) { state.rawSensorHeading = alphaOrHeading; }
+
         window.addEventListener('deviceorientationabsolute', (e) => {
             if (e.alpha !== null) { hasAbsoluteOrientation = true; handleOrientationUpdate(360 - e.alpha); }
         });
+
         window.addEventListener('deviceorientation', (e) => {
             if (e.webkitCompassHeading != null) {
                 handleOrientationUpdate(e.webkitCompassHeading);
@@ -1309,7 +1152,7 @@
             }
         });
 
-        // ─── GPS TRACKING ENGINE ───
+        // --- GPS TRACKING ENGINE ---
         function startBackgroundTracking() {
             if (state.gpsWatchId) return;
             const EMA_ALPHA_SPEED = 0.85;
@@ -1381,35 +1224,6 @@
                             state.smoothedSpeed = state.currentSpeed;
                         }
 
-                        if (state.routeCtrl && state.currentRouteCoords && state.currentRouteCoords.length > 1 && state.targetCoords) {
-                            const currentLL = L.latLng(lat, lon);
-                            let minDist = Infinity;
-                            for (let i = 0; i < state.currentRouteCoords.length - 1; i++) {
-                                const a = state.currentRouteCoords[i];
-                                const b = state.currentRouteCoords[i+1];
-                                const d = L.LineUtil.pointToSegmentDistance(currentLL, a, b);
-                                if (d < minDist) minDist = d;
-                            }
-                            if (minDist > 100) {
-                                if (!state.offRouteStart) state.offRouteStart = Date.now();
-                                if (Date.now() - state.offRouteStart > 15000) {
-                                    state.offRouteStart = null;
-                                    const dest = state.targetCoords;
-                                    if (dest) {
-                                        state.mapObj.removeControl(state.routeCtrl);
-                                        state.routeCtrl = null;
-                                        state.routeNodes = null;
-                                        state.currentRouteCoords = null;
-                                        window.activateLiveNavigation(dest.lat, dest.lon, state.isFuelOnlyRoute);
-                                    }
-                                }
-                            } else {
-                                state.offRouteStart = null;
-                            }
-                        } else {
-                            state.offRouteStart = null;
-                        }
-
                         const processNodes = (nodesToProcess) => {
                             if (!nodesToProcess) return;
                             let activeNodeIndex = -1;
@@ -1471,7 +1285,6 @@
             );
         }
 
-        // ─── TACTICAL MODE ───
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
             if (!state.isMapLocked) { if (state.tacticalMode === 0) state.tacticalMode = 1; window.applyTacticalMode(); return; }
@@ -1582,7 +1395,6 @@
             }
         }
 
-        // ─── PASTE & LINK PARSING ───
         window.handlePasteAndLoad = async function() {
             try {
                 let clipText = "";
@@ -1710,7 +1522,6 @@
             }
         };
 
-        // ─── UPDATE ROUTE STATUS ───
         function updateRouteStatus(e) {
             const route = e.routes[0];
             const summary = route.summary;
@@ -1734,18 +1545,6 @@
 
             if (route.coordinates && Array.isArray(route.coordinates)) {
                 state.currentRouteCoords = route.coordinates.map(c => c.lat ? c : L.latLng(c[0], c[1]));
-            }
-
-            const instructions = route.instructions || [];
-            if (instructions.length > 0) {
-                const next = instructions[0];
-                if (DOM.tbtContainer && DOM.tbtText) {
-                    DOM.tbtContainer.classList.remove('hidden');
-                    const distStr = next.distance ? Math.round(next.distance) + 'm ' : '';
-                    DOM.tbtText.textContent = distStr + (next.text || '');
-                }
-            } else {
-                if (DOM.tbtContainer) DOM.tbtContainer.classList.add('hidden');
             }
 
             const now = Date.now();
@@ -1778,13 +1577,20 @@
                 };
             }
         }
+        // ======================== END OF PART 1 ========================
 
-        // ========== ROUTE INTELLIGENCE ==========
+        // ======================== START OF PART 2 ========================
+
+        // --- ROUTE INTELLIGENCE FETCH ---
+        // Caches by destination key (stable for the whole nav session).
+        // Delegates all rendering to renderRouteIntelTimeline so the try/catch is clean.
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
+
             if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
                 DOM.secIntel.classList.remove('hidden');
             }
+
             let scrollPos = 0;
             const scrollTrack = document.getElementById('timeline-scroll-track');
             if (scrollTrack) scrollPos = scrollTrack.scrollTop;
@@ -1837,6 +1643,8 @@
                 return;
             }
 
+            // Keyed on destination — stable for the whole nav session.
+            // Waypoint list drifts as nodes get marked passed, so a waypoint-exact key would never hit.
             const routeIntelCacheKey = state.targetCoords
                 ? `route_intel_${state.targetCoords.lat.toFixed(3)}_${state.targetCoords.lon.toFixed(3)}`
                 : null;
@@ -1854,6 +1662,7 @@
                 const modelData = await modelRes.json();
                 if (signal && signal.aborted) return;
 
+                // Write to cache before rendering — if offline fallback fires later, this is what it reads.
                 if (routeIntelCacheKey) {
                     localforage.setItem(routeIntelCacheKey, { waypoints, baseData, modelData, timestamp: Date.now() })
                         .catch(e => console.warn('Route intel cache write failed:', e));
@@ -1864,6 +1673,8 @@
             } catch (err) {
                 if (signal && signal.aborted) return;
                 console.warn(err);
+
+                // Attempt offline fallback
                 if (routeIntelCacheKey) {
                     try {
                         const cached = await localforage.getItem(routeIntelCacheKey);
@@ -1873,11 +1684,16 @@
                         }
                     } catch (cacheErr) { console.warn('Route intel cache read failed:', cacheErr); }
                 }
+
                 updateHTML(DOM.timelineContainer, `<div class="w-full text-center text-brand-red font-bold uppercase tracking-widest py-4">Intelligence Data Fetch Failed</div>`);
             }
         }
 
-        // ─── ROUTE INTEL TIMELINE ───
+        // --- ROUTE INTEL TIMELINE RENDERER ---
+        // Extracted from fetchRouteIntelligence so the try/catch above stays clean and
+        // the offline fallback can call the same render path without duplicating logic.
+        // Uses WeatherEnsemble.weightedWetnessAt + classifyWetness for a 3-way wet/damp/dry
+        // classification with the same thresholds the dashboard uses.
         function renderRouteIntelTimeline(waypoints, baseData, modelData, isOffline, scrollPos) {
             const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
             const modelPoints   = Array.isArray(modelData) ? modelData : [modelData];
@@ -1915,6 +1731,7 @@
 
                 const icon = WMO_ICONS[code] || 'fa-cloud';
 
+                // CHANGED: weighted ensemble wetness instead of binary vote count
                 const mH = m.hourly || {};
                 const precipModels = WeatherEnsemble.extractModelArrays(mH, 'precipitation');
                 const wetness = WeatherEnsemble.weightedWetnessAt(precipModels, safeIdx);
@@ -1995,7 +1812,7 @@
             }
         }
 
-        // ─── CLOCK, WINDDIR, PURGE ───
+        // --- CLOCK ---
         function syncClock() {
             const now = new Date();
             if (state.targetTimezone) {
@@ -2031,7 +1848,6 @@
         }
         enforcePersistentStorage();
 
-        // ─── AUDIO TOGGLE ───
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const ctx = getAudioContext();
@@ -2064,7 +1880,9 @@
             state.lastPing = Date.now();
         }
 
-        // ─── CHART ───
+        // --- CHART ---
+        // CHANGED: gains tempBand param, adds Temp Min/Max datasets (indices 6+7) as a
+        // shaded confidence band without adding a legend entry or tooltip line.
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement, tempBand) {
             const tc = THEME_COLORS;
             const tempMin = tempBand.map(b => b ? b.min : null);
@@ -2096,7 +1914,9 @@
                         { type: 'line', label: 'GFS',   data: rainData.us, borderColor: tc.teal,    backgroundColor: tc.teal    + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'ICON',  data: rainData.de, borderColor: tc.warning,  borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'JMA',   data: rainData.jp, borderColor: '#ec4899',   borderWidth: 2, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        // Temp band: floor line (hidden from legend + tooltip)
                         { type: 'line', label: 'Temp Min', data: tempMin, borderWidth: 0, pointRadius: 0, fill: false, tension: 0.3, order: 4, yAxisID: 'y_temp' },
+                        // Temp band: ceiling fills back to floor with teal tint
                         { type: 'line', label: 'Temp Range', data: tempMax, borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: tc.teal + '22', tension: 0.3, order: 4, yAxisID: 'y_temp' }
                     ]
                 },
@@ -2107,12 +1927,14 @@
                         legend: {
                             display: true, position: 'bottom',
                             labels: { color: '#9ca3af', font: {family: 'Inter', weight: 'bold', size: 12}, boxWidth: 16, usePointStyle: true,
+                                // Hide the two temp band entries from the legend
                                 filter: (item) => !['Temp Min', 'Temp Range'].includes(item.text)
                             }
                         },
                         tooltip: {
                             backgroundColor: '#000', titleColor: '#fff', bodyColor: '#d1d5db',
                             borderColor: '#333', borderWidth: 2, padding: 16,
+                            // Hide temp band from tooltip body lines
                             filter: (item) => !['Temp Min', 'Temp Range'].includes(item.dataset.label),
                             callbacks: {
                                 label: function(c) {
@@ -2135,85 +1957,25 @@
                             bodyFont:  { family: 'JetBrains Mono', size: 12 },
                             footerFont: { family: 'JetBrains Mono', size: 12, weight: 'bold' },
                             footerColor: tc.teal
-                        },
-                        zoom: {
-                            pan: {
-                                enabled: true,
-                                mode: 'x',
-                                modifierKey: null,
-                                threshold: 10
-                            },
-                            zoom: {
-                                wheel: { enabled: true, speed: 0.05 },
-                                mode: 'x'
-                            }
                         }
                     },
                     scales: {
-                        x: {
-                            grid: { display: false },
-                            ticks: { color: '#6b7280', maxTicksLimit: 12, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'} }
-                        },
-                        y_rain: {
-                            type: 'linear', display: true, position: 'left',
-                            title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} },
-                            grid: { color: '#2a2a2a' },
-                            ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}},
-                            suggestedMax: 2
-                        },
-                        y_solar: {
-                            type: 'linear', display: true, position: 'right',
-                            title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} },
-                            grid: { drawOnChartArea: false },
-                            ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}},
-                            suggestedMax: 1000
-                        },
-                        y_uv: { type: 'linear', display: false, min: 0, max: 15 },
-                        y_temp: { type: 'linear', display: false, position: 'right' }
+                        x:       { grid: { display: false }, ticks: { color: '#6b7280', maxTicksLimit: 12, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'} } },
+                        y_rain:  { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 2 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
+                        y_uv:    { type: 'linear', display: false, min: 0, max: 15 },
+                        y_temp:  { type: 'linear', display: false, position: 'right' }
                     }
                 }
             });
             state.chart.hourlyAgreementRef = hourlyAgreement;
-
-            // ─── Set default 6h view ───
-            const maxInit = Math.min(5, labels.length - 1);
-            state.chart.options.scales.x.min = 0;
-            state.chart.options.scales.x.max = maxInit;
-            state.chart.update();
-
-            // ─── Reset view button handler ───
-            if (DOM.resetZoomBtn) {
-                DOM.resetZoomBtn.onclick = function() {
-                    if (!state.chart) return;
-                    const labels = state.chart.data.labels;
-                    const maxInit = Math.min(5, labels.length - 1);
-                    state.chart.options.scales.x.min = 0;
-                    state.chart.options.scales.x.max = maxInit;
-                    state.chart.update();
-                };
-            }
-
-            // ─── Zoom toggle button handler ───
-            if (DOM.zoomToggleBtn) {
-                DOM.zoomToggleBtn.addEventListener('click', function() {
-                    state.zoomEnabled = !state.zoomEnabled;
-                    if (!state.chart) return;
-                    // Toggle zoom plugin
-                    state.chart.options.plugins.zoom.pan.enabled = state.zoomEnabled;
-                    state.chart.options.plugins.zoom.zoom.wheel.enabled = state.zoomEnabled;
-                    // Toggle tooltips
-                    state.chart.options.plugins.tooltip.enabled = state.zoomEnabled;
-                    // Visual feedback
-                    this.innerHTML = state.zoomEnabled
-                        ? '<i class="fa-solid fa-lock-open mr-1"></i> Zoom'
-                        : '<i class="fa-solid fa-lock mr-1"></i> Zoom';
-                    this.classList.toggle('active', !state.zoomEnabled);
-                    state.chart.update();
-                });
-            }
         }
 
-        // ─── NORMALIZE TELEMETRY ───
+        // --- NORMALIZE TELEMETRY ---
+        // CHANGED: full ensemble extraction for all variables.
+        // - Offline fallback now blends 4 models instead of reading unsuffixed keys that don't exist.
+        // - Adds tempBand, codeAgreement, windEnsemble outputs.
+        // - nodeHealth now returns coverage % (3-tier) instead of a boolean.
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             let curr = dCurr.current;
@@ -2226,6 +1988,8 @@
                 h.time.forEach((t, i) => { const diff = Math.abs((t * 1000) - currentUnixMs); if (diff < minDiff) { minDiff = diff; nowIndex = i; } });
             }
 
+            // Extract every model's view of every variable in one pass.
+            // Raw nulls preserved here — nothing gets zeroed until chart-line cosmetics below.
             const tempModels     = WeatherEnsemble.extractModelArrays(h, 'temperature_2m');
             const feelsModels    = WeatherEnsemble.extractModelArrays(h, 'apparent_temperature');
             const humidModels    = WeatherEnsemble.extractModelArrays(h, 'relative_humidity_2m');
@@ -2236,6 +2000,9 @@
             const precipModels   = WeatherEnsemble.extractModelArrays(h, 'precipitation');
 
             if (isOffline || !curr) {
+                // FIX: previously read h.temperature_2m etc. directly — those unsuffixed keys
+                // don't exist once &models= carries >1 entry. Every field comes back suffixed.
+                // Upgraded: offline fallback now blends all 4 models instead of crashing to 0.
                 const tBlend   = WeatherEnsemble.weightedValueAt(tempModels, nowIndex);
                 const fBlend   = WeatherEnsemble.weightedValueAt(feelsModels, nowIndex);
                 const hBlend   = WeatherEnsemble.weightedValueAt(humidModels, nowIndex);
@@ -2253,8 +2020,10 @@
                 };
             }
 
+            // Coverage-% health per model — partial degradation now shows as yellow, not green.
             const nodeHealth = WeatherEnsemble.models.map(m => WeatherEnsemble.checkHealth(precipModels[m]));
 
+            // Cosmetic zeroing for chart raw lines only — never feeds a wet/dry decision.
             const clean = (arr) => {
                 const limit = h.time.length;
                 const src   = arr || new Array(limit).fill(0);
@@ -2267,7 +2036,7 @@
             const rDE = clean(precipModels.icon_seamless);
             const rJP = clean(precipModels.jma_seamless);
 
-            const maxSlice = Math.min(nowIndex + 120, h.time.length);
+            const maxSlice = Math.min(nowIndex + 24, h.time.length);
             const rainData = { eu: rEU.slice(nowIndex, maxSlice), us: rUS.slice(nowIndex, maxSlice), de: rDE.slice(nowIndex, maxSlice), jp: rJP.slice(nowIndex, maxSlice) };
 
             const uvArr = hSol.uv_index || new Array(h.time.length).fill(0);
@@ -2282,18 +2051,22 @@
                 times[i] = (s === "00:00" || s === "24:00") ? "00:00 (+1d)" : s;
             }
 
+            // Weighted wetness per hour — replaces binary vote counting.
             const hourlyAgreement = new Array(maxSlice - nowIndex);
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
                 hourlyAgreement[i] = WeatherEnsemble.weightedWetnessAt(precipModels, j).pct;
             }
 
+            // Temperature confidence band — min/max across reporting models per hour.
             const tempBand = new Array(maxSlice - nowIndex);
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
                 tempBand[i] = WeatherEnsemble.bandAt(tempModels, j);
             }
 
+            // WMO code majority vote at "now" — feeds code-agreement badge.
             const codeAgreement = WeatherEnsemble.weightedMajorityAt(codeModels, nowIndex);
 
+            // Wind ensemble at "now" — replaces single best_match reading in processTelemetryPayload.
             const wsNow = WeatherEnsemble.weightedValueAt(windSpdModels, nowIndex);
             const wdNow = WeatherEnsemble.weightedCircularMeanAt(windDirModels, nowIndex);
             const wgNow = WeatherEnsemble.weightedValueAt(windGustModels, nowIndex);
@@ -2313,10 +2086,13 @@
                      nodeHealth, codeAgreement, windEnsemble };
         }
 
-        // ─── RENDER TELEMETRY UI ───
+        // --- RENDER TELEMETRY UI ---
+        // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
+        // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
             const { curr, currentAgreement, currentStatus, incomingRain, uvData, times, nodeHealth, codeAgreement, tempBand } = data;
 
+            // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
                 const id = WeatherEnsemble.labels[m].toLowerCase();
                 const el = document.getElementById(`stat-${id}`);
@@ -2340,6 +2116,7 @@
             updateText(DOM.metricHum,     curr.relative_humidity_2m + '%');
             updateText(DOM.metricAgree,   `${currentAgreement.toFixed(0)}%`);
 
+            // Color reflects actual meaning: red = high wet consensus, teal = dry consensus
             if (DOM.metricAgree) {
                 const agreeColorClass = currentStatus === 'RAIN_LIKELY'   ? 'text-brand-red'
                                       : currentStatus === 'RAIN_POSSIBLE' ? 'text-brand-warning'
@@ -2347,10 +2124,12 @@
                 updateClass(DOM.metricAgree, `font-mono text-4xl md:text-5xl font-black leading-none ${agreeColorClass}`);
             }
 
+            // Temp spread: ±half-spread of the 4-model band at current hour
             if (DOM.metricTempSpread) {
                 updateText(DOM.metricTempSpread, (tempBand && tempBand[0]) ? `±${(tempBand[0].spread / 2).toFixed(1)}° MODEL SPREAD` : '');
             }
 
+            // Code agreement: "N/M MODELS AGREE" on the weather icon category
             if (DOM.codeAgreementBadge) {
                 updateText(DOM.codeAgreementBadge, (codeAgreement && codeAgreement.modelsReporting > 0)
                     ? `${codeAgreement.agreeingCount}/${codeAgreement.modelsReporting} MODELS AGREE` : '');
@@ -2369,6 +2148,7 @@
 
             updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[200px] md:min-h-[250px] relative overflow-hidden ");
 
+            // FIX: branches on classifyWetness() string — same threshold the route timeline uses
             if (currentStatus === 'RAIN_LIKELY') {
                 DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-showers-heavy text-brand-red`);
@@ -2403,12 +2183,19 @@
             }
         }
 
-        // ─── PROCESS TELEMETRY PAYLOAD ───
+        // --- PROCESS TELEMETRY PAYLOAD ---
+        // CHANGED: wind/gust bridge to Aero HUD now uses the 4-model ensemble blend.
+        // Falls back to dCurr.current only if every model returned null this hour.
         async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
             if (dCurr && dCurr.elevation !== undefined) {
                 window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation;
             }
+
             const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline);
+
+            // FIX: Aero-Vector HUD wind/gust previously sourced from single best_match (dCurr.current).
+            // Now uses the weighted 4-model ensemble. Nothing in initActiveAeroTelemetry changes —
+            // it only reads __METEO_CORE_STATE, so the upgrade is transparent to the HUD.
             if (data.windEnsemble) {
                 if (data.windEnsemble.dir   !== null) window.__METEO_CORE_STATE.windDir   = data.windEnsemble.dir;
                 if (data.windEnsemble.speed !== null) window.__METEO_CORE_STATE.windSpeed  = data.windEnsemble.speed;
@@ -2418,11 +2205,14 @@
                 if (dCurr.current.wind_speed_10m     !== undefined) window.__METEO_CORE_STATE.windSpeed  = dCurr.current.wind_speed_10m;
                 if (dCurr.current.wind_gusts_10m     !== undefined) window.__METEO_CORE_STATE.windGust   = dCurr.current.wind_gusts_10m;
             }
+
             renderTelemetryUI(data, isOffline);
             renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
         }
 
-        // ─── FETCH DATA ───
+        // --- FETCH DATA ---
+        // CHANGED: rFore adds wind_gusts_10m, uses WeatherEnsemble.models.join(',') so
+        // the model list is defined in exactly one place.
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             state.telemetryCache.timestamp = Date.now();
@@ -2440,9 +2230,12 @@
                 const modelList = WeatherEnsemble.models.join(',');
 
                 const [rCurr, rFore, rSolar] = await Promise.all([
+                    // rCurr: single best_match, fields needed for real-time display
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=${CONFIG.forecastDays}&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=${CONFIG.forecastDays}&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
+                    // rFore: all 4 models, all variables including gusts for ensemble bridge
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
+                    // rSolar: single model, UV and shortwave only
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
                 ]);
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
@@ -2458,7 +2251,7 @@
             }
         }
 
-        // ─── RESET ───
+        // --- RESET ---
         window.resetToAuto = function() {
             if (state.intelFetchAbortController) { state.intelFetchAbortController.abort(); state.intelFetchAbortController = null; }
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
@@ -2470,14 +2263,13 @@
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
             DOM.navBtn.classList.add('hidden');
-            if (DOM.tbtContainer) DOM.tbtContainer.classList.add('hidden');
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
             DOM.secIntel.classList.add('hidden');
             state.mode = 'auto'; state.tacticalMode = 1;
             window.applyTacticalMode();
         };
 
-        // ─── FUEL MANAGER ───
+        // --- FUEL MANAGER ---
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false },
@@ -2660,7 +2452,7 @@
             }
         };
 
-        // ─── APP INIT ───
+        // --- APP INIT ---
         async function runApp() {
             initComputeWorker();
             requestWakeLock();
@@ -2697,7 +2489,7 @@
             runApp();
         }
 
-        // ─── PWA ───
+        // --- PWA ---
         (function initPWA() {
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
@@ -2723,402 +2515,402 @@
             });
         })();
 
-        // ─── ACTIVE AERO TELEMETRY EXTENSION (stable version from index_Claude.html) ───
-        (function initActiveAeroTelemetry() {
-            if (window.__aeroMounted) return;
-            window.__aeroMounted = true;
+// --- ACTIVE AERO TELEMETRY EXTENSION ---
+// UNCHANGED — reads __METEO_CORE_STATE only, picks up ensemble wind automatically.
+(function initActiveAeroTelemetry() {
+    if (window.__aeroMounted) return;
+    window.__aeroMounted = true;
 
-            const st = window.__METEO_CORE_STATE;
-            st.quaternionActive = false;
-            st.deviceHeading    = null;
-            st.pitch            = 0;
-            st.roll             = 0;
+    const st = window.__METEO_CORE_STATE;
+    st.quaternionActive = false;
+    st.deviceHeading    = null;
+    st.pitch            = 0;
+    st.roll             = 0;
 
-            function computeRobustHeading(alpha, beta, gamma) {
-                const rad = Math.PI / 180;
-                const a = alpha * rad, b = beta * rad, g = gamma * rad;
-                const cA = Math.cos(a), sA = Math.sin(a);
-                const cB = Math.cos(b);
-                const cG = Math.cos(g), sG = Math.sin(g);
-                const yX = -sA * cB, yY = cA * cB;
-                const zX = -cA * sG - sA * Math.sin(b) * cG;
-                const zY = -sA * sG + cA * Math.sin(b) * cG;
-                const wY = Math.abs(Math.cos(b)), wZ = Math.abs(Math.sin(b));
-                const dirX = yX * wY + zX * wZ, dirY = yY * wY + zY * wZ;
-                let heading = Math.atan2(dirX, dirY) * (180 / Math.PI);
-                if (heading < 0) heading += 360;
-                return heading;
+    function computeRobustHeading(alpha, beta, gamma) {
+        const rad = Math.PI / 180;
+        const a = alpha * rad, b = beta * rad, g = gamma * rad;
+        const cA = Math.cos(a), sA = Math.sin(a);
+        const cB = Math.cos(b);
+        const cG = Math.cos(g), sG = Math.sin(g);
+        const yX = -sA * cB, yY = cA * cB;
+        const zX = -cA * sG - sA * Math.sin(b) * cG;
+        const zY = -sA * sG + cA * Math.sin(b) * cG;
+        const wY = Math.abs(Math.cos(b)), wZ = Math.abs(Math.sin(b));
+        const dirX = yX * wY + zX * wZ, dirY = yY * wY + zY * wZ;
+        let heading = Math.atan2(dirX, dirY) * (180 / Math.PI);
+        if (heading < 0) heading += 360;
+        return heading;
+    }
+
+    (async function () {
+        if (!('AbsoluteOrientationSensor' in window)) return;
+        try {
+            const perms = await Promise.all([
+                navigator.permissions.query({ name: 'accelerometer' }),
+                navigator.permissions.query({ name: 'magnetometer' }),
+                navigator.permissions.query({ name: 'gyroscope' })
+            ]);
+            if (perms.every(p => p.state !== 'denied')) {
+                const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
+                sensor.addEventListener('reading', () => {
+                    st.quaternionActive = true;
+                    const q = sensor.quaternion;
+                    const vx = -2 * (q[0] * q[2] + q[3] * q[1]);
+                    const vy =  2 * (q[3] * q[0] - q[1] * q[2]);
+                    let heading = Math.atan2(vx, vy) * (180 / Math.PI);
+                    st.deviceHeading = (heading + 360) % 360;
+                });
+                sensor.start();
             }
+        } catch (e) { console.warn('AeroHUD: AbsoluteOrientationSensor unavailable:', e); }
+    })();
 
-            (async function () {
-                if (!('AbsoluteOrientationSensor' in window)) return;
-                try {
-                    const perms = await Promise.all([
-                        navigator.permissions.query({ name: 'accelerometer' }),
-                        navigator.permissions.query({ name: 'magnetometer' }),
-                        navigator.permissions.query({ name: 'gyroscope' })
-                    ]);
-                    if (perms.every(p => p.state !== 'denied')) {
-                        const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
-                        sensor.addEventListener('reading', () => {
-                            st.quaternionActive = true;
-                            const q = sensor.quaternion;
-                            const vx = -2 * (q[0] * q[2] + q[3] * q[1]);
-                            const vy =  2 * (q[3] * q[0] - q[1] * q[2]);
-                            let heading = Math.atan2(vx, vy) * (180 / Math.PI);
-                            st.deviceHeading = (heading + 360) % 360;
-                        });
-                        sensor.start();
-                    }
-                } catch (e) { console.warn('AeroHUD: AbsoluteOrientationSensor unavailable:', e); }
-            })();
+    window.addEventListener('deviceorientation', (e) => {
+        if (e.webkitCompassHeading != null) {
+            st.deviceHeading = e.webkitCompassHeading;
+        } else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
+            st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
+        }
+        if (e.beta !== null && e.gamma !== null) {
+            const rad = Math.PI / 180;
+            const b = e.beta * rad, g = e.gamma * rad;
+            const gx = Math.cos(b) * Math.sin(g);
+            const gy = Math.sin(b);
+            const gz = Math.cos(b) * Math.cos(g);
+            st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
+            st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
+        }
+    });
 
-            window.addEventListener('deviceorientation', (e) => {
-                if (e.webkitCompassHeading != null) {
-                    st.deviceHeading = e.webkitCompassHeading;
-                } else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
-                    st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
-                }
-                if (e.beta !== null && e.gamma !== null) {
-                    const rad = Math.PI / 180;
-                    const b = e.beta * rad, g = e.gamma * rad;
-                    const gx = Math.cos(b) * Math.sin(g);
-                    const gy = Math.sin(b);
-                    const gz = Math.cos(b) * Math.cos(g);
-                    st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
-                    st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
+    window.addEventListener('deviceorientationabsolute', (e) => {
+        if (e.alpha !== null && !st.quaternionActive) {
+            st.deviceHeading = computeRobustHeading(e.alpha, e.beta ?? 0, e.gamma ?? 0);
+        }
+        if (e.beta !== null && e.gamma !== null) {
+            const rad = Math.PI / 180;
+            const b = e.beta * rad, g = e.gamma * rad;
+            const gx = Math.cos(b) * Math.sin(g);
+            const gy = Math.sin(b);
+            const gz = Math.cos(b) * Math.cos(g);
+            st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
+            st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
+        }
+    });
+
+    function mountActiveAeroUI() {
+        setTimeout(() => {
+            const grids = document.querySelectorAll('.grid');
+            let targetGrid = null;
+            grids.forEach(g => { if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g; });
+            if (!targetGrid && grids.length > 0) targetGrid = grids[0];
+            if (!targetGrid) return;
+
+            const aeroContainer = document.createElement('div');
+            aeroContainer.className = "lg:col-span-12 w-full mt-2";
+
+            const radarCard = document.createElement('div');
+            radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
+            radarCard.innerHTML = `
+                <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
+                    <div class="flex flex-col">
+                        <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
+                        <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
+                    </div>
+                    <div class="flex items-start gap-4">
+                        <div class="text-right pointer-events-none">
+                            <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
+                            <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
+                                <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
+                                <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
+                            </div>
+                        </div>
+                        <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm">
+                            <i class="fa-solid fa-expand text-base"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
+                    <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60">
+                        <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
+                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
+                        </div>
+                    </div>
+                    <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
+                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
+                        <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
+                        <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
+                        <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
+                    </div>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
+                        <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
+                        <div class="w-3 h-3 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,1)] border-2 border-surface-900"></div>
+                    </div>
+                    <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10">
+                        <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                    </div>
+                    <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20">
+                        <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                    </div>
+                    <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40">
+                        <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
+                    </div>
+                    <div id="ui-radar-wind-layer" class="absolute inset-0 flex items-start justify-center z-30 pointer-events-none">
+                        <div class="flex flex-col items-center">
+                            <i class="fa-solid fa-wind text-brand-blue text-sm -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
+                            <div class="w-[2px] h-6 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
+                            <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
+                    <div>
+                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
+                        <div class="flex items-baseline gap-1">
+                            <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
+                        </div>
+                    </div>
+                    <div class="text-right flex flex-col items-end">
+                        <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
+                        <div class="flex items-baseline gap-1 justify-end mb-1">
+                            <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+                        </div>
+                        <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
+                            <span id="ui-radar-crosswind">CRS: 0</span>
+                            <span class="text-surface-600">|</span>
+                            <span id="ui-radar-headwind">HWD: 0</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            aeroContainer.appendChild(radarCard);
+            targetGrid.appendChild(aeroContainer);
+
+            const _el = {
+                ring:         document.getElementById('ui-radar-ring'),
+                wind:         document.getElementById('ui-radar-wind-layer'),
+                relAngle:     document.getElementById('ui-radar-rel-angle'),
+                windSpeed:    document.getElementById('ui-radar-wind-speed'),
+                altContainer: document.getElementById('ui-radar-alt-container'),
+                gust:         document.getElementById('ui-radar-gust'),
+                cross:        document.getElementById('ui-radar-crosswind'),
+                head:         document.getElementById('ui-radar-headwind'),
+                horizon:      document.getElementById('ui-radar-horizon-layer'),
+                ghost: [
+                    document.getElementById('ui-radar-wind-ghost-1'),
+                    document.getElementById('ui-radar-wind-ghost-2'),
+                    document.getElementById('ui-radar-wind-ghost-3')
+                ]
+            };
+
+            const expandBtn  = radarCard.querySelector('#radar-expand-btn');
+            const dialScaler = radarCard.querySelector('#radar-dial-scaler');
+            let isRadarFullscreen = false;
+            expandBtn.addEventListener('click', () => {
+                isRadarFullscreen = !isRadarFullscreen;
+                if (isRadarFullscreen) {
+                    radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    const minDim = Math.min(window.innerWidth, window.innerHeight);
+                    const scale  = (minDim * 0.6) / 160;
+                    dialScaler.style.transform = `scale(${scale})`;
+                    expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
+                    document.body.classList.add('overflow-hidden');
+                } else {
+                    radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    dialScaler.style.transform = 'scale(1)';
+                    expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
+                    document.body.classList.remove('overflow-hidden');
                 }
             });
 
-            window.addEventListener('deviceorientationabsolute', (e) => {
-                if (e.alpha !== null && !st.quaternionActive) {
-                    st.deviceHeading = computeRobustHeading(e.alpha, e.beta ?? 0, e.gamma ?? 0);
+            // Pre-allocated ring buffer for wind trail — no GC on update
+            const windHistory   = new Float32Array([-1, -1, -1]);
+            let historyIdx      = 0;
+            let lastHistoryTime = 0;
+
+            // Horizon LPF state (alpha=0.1 → ~160ms TC)
+            let smoothedPitch = 0;
+            let smoothedRoll  = 0;
+
+            // UI write-cache — prevents DOM thrash at 60fps
+            const _uiCache = {
+                alt: '', windSpeed: '', gust: 'hidden',
+                ringTrans: '', horizonTrans: '', relAngle: '',
+                windTrans: '', head: '', cross: ''
+            };
+
+            // Visual EMA state — ONLY values written to DOM transforms.
+            // visualHeading   → compass ring  (TC=120ms)
+            // visualWindAngle → wind vector   (TC=300ms)
+            let visualHeading   = null;
+            let visualWindAngle = null;
+            let lastRenderTime  = performance.now();
+
+            const getCardinalStr = (deg) => {
+                const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+                return arr[Math.floor((deg / 22.5) + 0.5) % 16];
+            };
+
+            // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
+            function renderAero() {
+                const frameNow = performance.now();
+                const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
+                lastRenderTime = frameNow;
+
+                requestAnimationFrame(renderAero);
+                if (!_el.ring) return;
+
+                const now = Date.now();
+                let activeHeading = 0;
+                let headingValid  = false;
+
+                // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
+                if (_el.altContainer) {
+                    let altStr;
+                    if (st.altitude !== null) {
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                    } else if (st.topoAltitude !== null) {
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                    } else {
+                        altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
+                    }
+                    if (_uiCache.alt !== altStr) { _el.altContainer.innerHTML = altStr; _uiCache.alt = altStr; }
                 }
-                if (e.beta !== null && e.gamma !== null) {
-                    const rad = Math.PI / 180;
-                    const b = e.beta * rad, g = e.gamma * rad;
-                    const gx = Math.cos(b) * Math.sin(g);
-                    const gy = Math.sin(b);
-                    const gz = Math.cos(b) * Math.cos(g);
-                    st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
-                    st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
+
+                // WIND SPEED
+                if (_el.windSpeed) {
+                    const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
+                    if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
                 }
-            });
 
-            function mountActiveAeroUI() {
-                setTimeout(() => {
-                    const grids = document.querySelectorAll('.grid');
-                    let targetGrid = null;
-                    grids.forEach(g => { if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g; });
-                    if (!targetGrid && grids.length > 0) targetGrid = grids[0];
-                    if (!targetGrid) return;
+                // GUST BOUNDARY
+                if (_el.gust) {
+                    if (st.windGust > 0) {
+                        const gustDiff = st.windGust - st.windSpeed;
+                        if (gustDiff >= 5) {
+                            const gStr = `GUST +${Math.round(gustDiff)}`;
+                            if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
+                        } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                    } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                }
 
-                    const aeroContainer = document.createElement('div');
-                    aeroContainer.className = "lg:col-span-12 w-full mt-2";
+                // ARTIFICIAL HORIZON — gravity-vector LPF, gimbal-lock immune
+                if (_el.horizon) {
+                    smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
+                    smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
+                    let pY = (smoothedPitch - 30) * 1.5;
+                    pY = Math.max(-60, Math.min(60, pY));
+                    const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
+                    if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
+                }
 
-                    const radarCard = document.createElement('div');
-                    radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
-                    radarCard.innerHTML = `
-                        <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
-                            <div class="flex flex-col">
-                                <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
-                                <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
-                            </div>
-                            <div class="flex items-start gap-4">
-                                <div class="text-right pointer-events-none">
-                                    <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
-                                    <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
-                                        <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
-                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
-                                    </div>
-                                </div>
-                                <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm">
-                                    <i class="fa-solid fa-expand text-base"></i>
-                                </button>
-                            </div>
-                        </div>
+                // HEADING PRIORITY CHAIN
+                // P1: main engine EMA-smoothed fused heading (kinematically guarded)
+                // P2: raw GNSS heading (valid within 3s TTL)
+                // P3: local IMU (deviceorientation absolute path)
+                if (st.fusedHeading !== null) {
+                    activeHeading = st.fusedHeading; headingValid = true;
+                } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
+                    activeHeading = st.gnssHeading; headingValid = true;
+                } else if (st.deviceHeading !== null) {
+                    activeHeading = st.deviceHeading; headingValid = true;
+                }
 
-                        <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
-                            <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60">
-                                <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
-                                    <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
-                                </div>
-                            </div>
-                            <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
-                                <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
-                                <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
-                                <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
-                                <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
-                            </div>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
-                                <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
-                                <div class="w-3 h-3 bg-cyan-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,1)] border-2 border-surface-900"></div>
-                            </div>
-                            <div id="ui-radar-wind-ghost-3" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-10">
-                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
-                            </div>
-                            <div id="ui-radar-wind-ghost-2" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-20">
-                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
-                            </div>
-                            <div id="ui-radar-wind-ghost-1" class="absolute inset-0 transition-transform duration-1000 flex items-start justify-center z-10 pointer-events-none opacity-40">
-                                <div class="flex flex-col items-center"><div class="w-[2px] h-6 bg-brand-blue -mt-[18px]"></div><div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div></div>
-                            </div>
-                            <div id="ui-radar-wind-layer" class="absolute inset-0 flex items-start justify-center z-30 pointer-events-none">
-                                <div class="flex flex-col items-center">
-                                    <i class="fa-solid fa-wind text-brand-blue text-sm -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
-                                    <div class="w-[2px] h-6 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
-                                    <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
-                                </div>
-                            </div>
-                        </div>
+                // COMPASS RING — EMA in JS, no CSS transition (stops the stop-dance)
+                // TC=120ms at 60fps → lerpA≈0.127/frame → 99% of target in ~550ms
+                if (headingValid) {
+                    if (visualHeading === null) {
+                        visualHeading = activeHeading;
+                    } else {
+                        let hdiff = activeHeading - visualHeading;
+                        if (hdiff >  180) hdiff -= 360;
+                        if (hdiff < -180) hdiff += 360;
+                        const lerpA = 1 - Math.exp(-dt / 120);
+                        visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
+                    }
+                    const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
+                    if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                }
 
-                        <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
-                            <div>
-                                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
-                                <div class="flex items-baseline gap-1">
-                                    <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
-                                </div>
-                            </div>
-                            <div class="text-right flex flex-col items-end">
-                                <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
-                                <div class="flex items-baseline gap-1 justify-end mb-1">
-                                    <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
-                                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
-                                </div>
-                                <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
-                                    <span id="ui-radar-crosswind">CRS: 0</span>
-                                    <span class="text-surface-600">|</span>
-                                    <span id="ui-radar-headwind">HWD: 0</span>
-                                </div>
-                            </div>
-                        </div>
-                    `;
+                // WIND VECTOR MATH + SMOOTHING
+                const wDir = st.windDir;
+                if (headingValid && wDir !== null) {
+                    // relAngle: 0=headwind, 90=from right, 180=tailwind
+                    const relAngle = (wDir - activeHeading + 360) % 360;
 
-                    aeroContainer.appendChild(radarCard);
-                    targetGrid.appendChild(aeroContainer);
-
-                    const _el = {
-                        ring:         document.getElementById('ui-radar-ring'),
-                        wind:         document.getElementById('ui-radar-wind-layer'),
-                        relAngle:     document.getElementById('ui-radar-rel-angle'),
-                        windSpeed:    document.getElementById('ui-radar-wind-speed'),
-                        altContainer: document.getElementById('ui-radar-alt-container'),
-                        gust:         document.getElementById('ui-radar-gust'),
-                        cross:        document.getElementById('ui-radar-crosswind'),
-                        head:         document.getElementById('ui-radar-headwind'),
-                        horizon:      document.getElementById('ui-radar-horizon-layer'),
-                        ghost: [
-                            document.getElementById('ui-radar-wind-ghost-1'),
-                            document.getElementById('ui-radar-wind-ghost-2'),
-                            document.getElementById('ui-radar-wind-ghost-3')
-                        ]
-                    };
-
-                    const expandBtn  = radarCard.querySelector('#radar-expand-btn');
-                    const dialScaler = radarCard.querySelector('#radar-dial-scaler');
-                    let isRadarFullscreen = false;
-                    expandBtn.addEventListener('click', () => {
-                        isRadarFullscreen = !isRadarFullscreen;
-                        if (isRadarFullscreen) {
-                            radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                            radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                            const minDim = Math.min(window.innerWidth, window.innerHeight);
-                            const scale  = (minDim * 0.6) / 160;
-                            dialScaler.style.transform = `scale(${scale})`;
-                            expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
-                            document.body.classList.add('overflow-hidden');
-                        } else {
-                            radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                            radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                            dialScaler.style.transform = 'scale(1)';
-                            expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
-                            document.body.classList.remove('overflow-hidden');
-                        }
-                    });
-
-                    // Pre-allocated ring buffer for wind trail — no GC on update
-                    const windHistory   = new Float32Array([-1, -1, -1]);
-                    let historyIdx      = 0;
-                    let lastHistoryTime = 0;
-
-                    // Horizon LPF state (alpha=0.1 → ~160ms TC)
-                    let smoothedPitch = 0;
-                    let smoothedRoll  = 0;
-
-                    // UI write-cache — prevents DOM thrash at 60fps
-                    const _uiCache = {
-                        alt: '', windSpeed: '', gust: 'hidden',
-                        ringTrans: '', horizonTrans: '', relAngle: '',
-                        windTrans: '', head: '', cross: ''
-                    };
-
-                    // Visual EMA state — ONLY values written to DOM transforms.
-                    // visualHeading   → compass ring  (TC=120ms)
-                    // visualWindAngle → wind vector   (TC=300ms)
-                    let visualHeading   = null;
-                    let visualWindAngle = null;
-                    let lastRenderTime  = performance.now();
-
-                    const getCardinalStr = (deg) => {
-                        const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-                        return arr[Math.floor((deg / 22.5) + 0.5) % 16];
-                    };
-
-                    // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
-                    function renderAero() {
-                        const frameNow = performance.now();
-                        const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
-                        lastRenderTime = frameNow;
-
-                        requestAnimationFrame(renderAero);
-                        if (!_el.ring) return;
-
-                        const now = Date.now();
-                        let activeHeading = 0;
-                        let headingValid  = false;
-
-                        // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
-                        if (_el.altContainer) {
-                            let altStr;
-                            if (st.altitude !== null) {
-                                altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
-                            } else if (st.topoAltitude !== null) {
-                                altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
-                            } else {
-                                altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
-                            }
-                            if (_uiCache.alt !== altStr) { _el.altContainer.innerHTML = altStr; _uiCache.alt = altStr; }
-                        }
-
-                        // WIND SPEED
-                        if (_el.windSpeed) {
-                            const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
-                            if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
-                        }
-
-                        // GUST BOUNDARY
-                        if (_el.gust) {
-                            if (st.windGust > 0) {
-                                const gustDiff = st.windGust - st.windSpeed;
-                                if (gustDiff >= 5) {
-                                    const gStr = `GUST +${Math.round(gustDiff)}`;
-                                    if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
-                                } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
-                            } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
-                        }
-
-                        // ARTIFICIAL HORIZON — gravity-vector LPF, gimbal-lock immune
-                        if (_el.horizon) {
-                            smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
-                            smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
-                            let pY = (smoothedPitch - 30) * 1.5;
-                            pY = Math.max(-60, Math.min(60, pY));
-                            const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
-                            if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
-                        }
-
-                        // HEADING PRIORITY CHAIN
-                        // P1: main engine EMA-smoothed fused heading (kinematically guarded)
-                        // P2: raw GNSS heading (valid within 3s TTL)
-                        // P3: local IMU (deviceorientation absolute path)
-                        if (st.fusedHeading !== null) {
-                            activeHeading = st.fusedHeading; headingValid = true;
-                        } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
-                            activeHeading = st.gnssHeading; headingValid = true;
-                        } else if (st.deviceHeading !== null) {
-                            activeHeading = st.deviceHeading; headingValid = true;
-                        }
-
-                        // COMPASS RING — EMA in JS, no CSS transition (stops the stop-dance)
-                        // TC=120ms at 60fps → lerpA≈0.127/frame → 99% of target in ~550ms
-                        if (headingValid) {
-                            if (visualHeading === null) {
-                                visualHeading = activeHeading;
-                            } else {
-                                let hdiff = activeHeading - visualHeading;
-                                if (hdiff >  180) hdiff -= 360;
-                                if (hdiff < -180) hdiff += 360;
-                                const lerpA = 1 - Math.exp(-dt / 120);
-                                visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
-                            }
-                            const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
-                            if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
-                        }
-
-                        // WIND VECTOR MATH + SMOOTHING
-                        const wDir = st.windDir;
-                        if (headingValid && wDir !== null) {
-                            // relAngle: 0=headwind, 90=from right, 180=tailwind
-                            const relAngle = (wDir - activeHeading + 360) % 360;
-
-                            if (_el.relAngle) {
-                                const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
-                                if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
-                            }
-
-                            // Wind vector EMA — TC=300ms (meteorological, slower than compass)
-                            if (visualWindAngle === null) {
-                                visualWindAngle = relAngle;
-                            } else {
-                                let wdiff = relAngle - visualWindAngle;
-                                if (wdiff >  180) wdiff -= 360;
-                                if (wdiff < -180) wdiff += 360;
-                                const lerpW = 1 - Math.exp(-dt / 300);
-                                visualWindAngle = (visualWindAngle + wdiff * lerpW + 360) % 360;
-                            }
-
-                            if (_el.wind) {
-                                const wT = `rotate(${visualWindAngle.toFixed(1)}deg)`;
-                                if (_uiCache.windTrans !== wT) { _el.wind.style.transform = wT; _uiCache.windTrans = wT; }
-                            }
-
-                            // VECTOR DECOMPOSITION — kinematic force isolation
-                            const rad        = relAngle * (Math.PI / 180);
-                            const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
-                            const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
-
-                            if (_el.head) {
-                                const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
-                                if (_uiCache.head !== hStr) { _el.head.innerHTML = hStr; _uiCache.head = hStr; }
-                            }
-
-                            if (_el.cross) {
-                                const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
-                                if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
-                            }
-
-                            // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
-                            if (now - lastHistoryTime > 10000) {
-                                if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
-                                historyIdx = (historyIdx + 1) % 3;
-                                lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
-                            }
-
-                            for (let i = 0; i < 3; i++) {
-                                const age = (historyIdx - 1 - i + 3) % 3;
-                                const histAngle = windHistory[age];
-                                if (histAngle !== -1 && !isNaN(histAngle) && _el.ghost[i]) {
-                                    _el.ghost[i].style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
-                                }
-                            }
-                        }
+                    if (_el.relAngle) {
+                        const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                        if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
                     }
 
-                    requestAnimationFrame(renderAero);
-                }, 1000);
+                    // Wind vector EMA — TC=300ms (meteorological, slower than compass)
+                    if (visualWindAngle === null) {
+                        visualWindAngle = relAngle;
+                    } else {
+                        let wdiff = relAngle - visualWindAngle;
+                        if (wdiff >  180) wdiff -= 360;
+                        if (wdiff < -180) wdiff += 360;
+                        const lerpW = 1 - Math.exp(-dt / 300);
+                        visualWindAngle = (visualWindAngle + wdiff * lerpW + 360) % 360;
+                    }
+
+                    if (_el.wind) {
+                        const wT = `rotate(${visualWindAngle.toFixed(1)}deg)`;
+                        if (_uiCache.windTrans !== wT) { _el.wind.style.transform = wT; _uiCache.windTrans = wT; }
+                    }
+
+                    // VECTOR DECOMPOSITION — kinematic force isolation
+                    const rad        = relAngle * (Math.PI / 180);
+                    const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
+                    const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
+
+                    if (_el.head) {
+                        const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
+                        if (_uiCache.head !== hStr) { _el.head.innerHTML = hStr; _uiCache.head = hStr; }
+                    }
+
+                    if (_el.cross) {
+                        const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
+                        if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
+                    }
+
+                    // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
+                    if (now - lastHistoryTime > 10000) {
+                        if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
+                        historyIdx = (historyIdx + 1) % 3;
+                        lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
+                    }
+
+                    for (let i = 0; i < 3; i++) {
+                        const age = (historyIdx - 1 - i + 3) % 3;
+                        const histAngle = windHistory[age];
+                        if (histAngle !== -1 && !isNaN(histAngle) && _el.ghost[i]) {
+                            _el.ghost[i].style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
+                        }
+                    }
+                }
             }
 
-            if (document.readyState === 'loading') {
-                window.addEventListener('DOMContentLoaded', mountActiveAeroUI);
-            } else {
-                mountActiveAeroUI();
-            }
-        })();
+            requestAnimationFrame(renderAero);
+        }, 1000);
+    }
 
-        // ─── START ───
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', mountActiveAeroUI);
+    } else {
+        mountActiveAeroUI();
+    }
+})();
+
         checkDependenciesAndRun();
     </script>
 </body>
