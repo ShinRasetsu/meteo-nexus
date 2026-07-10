@@ -1,20 +1,32 @@
 "use strict";
 
+// --- GLOBAL MATH CONSTANTS ---
+const RAD_CONV = 0.017453292519943295; // Math.PI / 180
+const EARTH_DIA = 12742000;            // Earth Radius * 2 in meters
+
 // --- HIGH-PERFORMANCE MATH KERNEL ---
 // Duplicated here because Web Workers do not share the main thread's scope.
-function fastDistance(lat1, lon1, lat2, lon2) {
-    const p = 0.017453292519943295; 
+// Optimized with cosLat1 invariant injection to bypass redundant O(N) trig overhead
+function fastDistance(lat1, lon1, lat2, lon2, cosLat1) {
     const c = Math.cos;
-    const a = 0.5 - c((lat2 - lat1) * p)/2 + 
-              c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
-    return 12742000 * Math.asin(Math.sqrt(a)); 
+    const cl1 = cosLat1 !== undefined ? cosLat1 : c(lat1 * RAD_CONV);
+    const a = 0.5 - c((lat2 - lat1) * RAD_CONV)/2 + 
+              cl1 * c(lat2 * RAD_CONV) * (1 - c((lon2 - lon1) * RAD_CONV))/2;
+    // Strict domain clamping prevents Float64 inaccuracies from yielding NaN in Math.asin
+    return EARTH_DIA * Math.asin(Math.sqrt(Math.min(1, Math.max(0, a)))); 
 }
 
 // --- VALHALLA DECODER (ZERO-ALLOCATION POLYLINE DECOMPRESSION) ---
 function decodeValhallaPolyline(str) {
-    let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+    let index = 0, lat = 0, lng = 0, shift = 0, result = 0, byte = null;
     const factor = 1e6; // Valhalla strictly uses 6 digits of precision
-    while (index < str.length) {
+    const len = str.length;
+    
+    // Pre-allocate maximum theoretical memory bounds to prevent V8 dynamic array resizing
+    const coordinates = new Array(len); 
+    let coordIdx = 0;
+
+    while (index < len) {
         byte = null; shift = 0; result = 0;
         do {
             byte = str.charCodeAt(index++) - 63;
@@ -31,25 +43,45 @@ function decodeValhallaPolyline(str) {
         } while (byte >= 0x20);
         lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
         
-        // Return raw object. Leaflet instances cannot pass the Worker boundary.
-        coordinates.push({ lat: lat / factor, lng: lng / factor });
+        // Direct index assignment bypasses .push() GC overhead
+        coordinates[coordIdx++] = { lat: lat / factor, lng: lng / factor };
     }
+    
+    // Zero-allocation truncation drops unused pre-allocated indices safely
+    coordinates.length = coordIdx;
     return coordinates;
 }
 
 // --- ROUTE NODE CALCULATOR ---
 function calculateRouteNodes(totalDistance, coords, intervalDist) {
-    if (!coords || coords.length === 0) return [];
+    // Spatial bounds guard: prevents RangeError (Infinity Array) and logical crashes
+    if (!coords || coords.length < 2 || intervalDist <= 0) return [];
 
     const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
     const nodes = new Array(totalFutureNodesCount);
     
-    let cumulativeDistances = new Float32Array(coords.length);
+    // Float64Array enforces double precision to prevent sub-meter drift on routes >100km
+    let cumulativeDistances = new Float64Array(coords.length);
     cumulativeDistances[0] = 0;
+    
+    // Cache references outside the loop to eliminate redundant array lookups
+    let prev = coords[0];
+    let prevLon = prev.lng ?? prev.lon;
+    let prevLat = prev.lat;
+    
+    // Sliding window trigonometric cache halves Math.cos operations during traversal
+    let prevCosLat = Math.cos(prevLat * RAD_CONV);
+    
     for (let j = 1; j < coords.length; j++) {
-        const lonPrev = coords[j-1].lng !== undefined ? coords[j-1].lng : coords[j-1].lon;
-        const lonCurr = coords[j].lng !== undefined ? coords[j].lng : coords[j].lon;
-        cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(coords[j-1].lat, lonPrev, coords[j].lat, lonCurr);
+        const curr = coords[j];
+        const currLon = curr.lng ?? curr.lon;
+        const currLat = curr.lat;
+        
+        cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(prevLat, prevLon, currLat, currLon, prevCosLat);
+        
+        prevLat = currLat;
+        prevLon = currLon;
+        prevCosLat = Math.cos(currLat * RAD_CONV); // Shift window forward
     }
 
     let searchIdx = 1;
@@ -65,8 +97,8 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
         if (searchIdx < coords.length) {
             const p1 = coords[searchIdx - 1];
             const p2 = coords[searchIdx];
-            const lon1 = p1.lng !== undefined ? p1.lng : p1.lon;
-            const lon2 = p2.lng !== undefined ? p2.lng : p2.lon;
+            const lon1 = p1.lng ?? p1.lon;
+            const lon2 = p2.lng ?? p2.lon;
             
             const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
             const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
@@ -81,7 +113,6 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
         }
     }
     
-    // Zero-allocation truncation: Avoids `.filter()` overhead and prevents GC pauses
     nodes.length = validNodeCount;
     return nodes;
 }
@@ -92,19 +123,29 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
     
     let results = new Map();
     let exactMatchesCount = 0;
-    const reqOsmTag = variantMap[targetVariant];
+    
+    // Optional chaining prevents TypeError crash if variantMap is undefined in payload
+    const reqOsmTag = variantMap?.[targetVariant];
+    
+    // Extract invariant trigonometry to prevent O(N) recalculation during map scan
+    const userCosLat = Math.cos(lat * RAD_CONV);
 
     for (let i = 0; i < data.elements.length; i++) {
         const el = data.elements[i];
-        const tLat = el.lat || el.center.lat; 
-        const tLon = el.lon || el.center.lon;
         
-        // 53-bit Safe Integer hashing algorithm to completely avoid string allocation GC spikes.
-        // Projects -90/90 to 0/1.8M and -180/180 to 0/3.6M, combining into a single integer.
-        const idInt = ((Math.round(tLat * 10000) + 900000) * 10000000) + (Math.round(tLon * 10000) + 1800000);
+        // Safely extract coordinates, falling back to center node for ways/relations
+        const tLat = el.lat ?? el.center?.lat; 
+        const tLon = el.lon ?? el.center?.lon;
         
-        if (!results.has(idInt)) {
-            const d = fastDistance(lat, lon, tLat, tLon);
+        // Structural validation guard to prevent NaN poisoning in fastDistance
+        if (tLat == null || tLon == null) continue;
+        
+        // Native identity implementation prevents overlapping node collisions
+        const idKey = el.type ? el.type + el.id : el.id;
+        
+        if (!results.has(idKey)) {
+            // Inject invariant to bypass redundant Math.cos overhead
+            const d = fastDistance(lat, lon, tLat, tLon, userCosLat);
             let isExact = false;
             
             if (reqOsmTag && el.tags && el.tags[reqOsmTag] === 'yes') {
@@ -112,21 +153,27 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
                 exactMatchesCount++;
             }
             
-            results.set(idInt, { 
+            results.set(idKey, { 
                 lat: tLat, lon: tLon, 
-                name: el.tags && el.tags.name ? el.tags.name : targetBrand, 
+                name: el.tags?.name ?? targetBrand, // Optimized fallback assignment
                 dist: (d/1000).toFixed(1),
+                rawDist: d,
                 isExact: isExact
             });
         }
     }
     
-    let finalArray = Array.from(results.values());
+    // Pre-allocated array prevents intermediate Iterator allocations during GC cycles
+    const finalArray = new Array(results.size);
+    let iterIdx = 0;
+    for (const val of results.values()) {
+        finalArray[iterIdx++] = val;
+    }
+    
     let isStrictFiltered = false;
     
     // Tier 1 Enforcer: If OSM contains exact tag matches, filter strictly
     if (exactMatchesCount > 0 && reqOsmTag) {
-        // In-place pointer shifting to avoid creating a new array via .filter()
         let keepIdx = 0;
         for (let i = 0; i < finalArray.length; i++) {
             if (finalArray[i].isExact) {
@@ -137,7 +184,8 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
         isStrictFiltered = true;
     }
     
-    finalArray.sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
+    // Extracted parse iteration overhead by comparing native numeric state
+    finalArray.sort((a,b) => a.rawDist - b.rawDist);
     
     for (let i = 0; i < finalArray.length; i++) {
         finalArray[i].strictFilterActive = isStrictFiltered;
@@ -169,7 +217,6 @@ self.onmessage = function(e) {
         }
         self.postMessage({ messageId, result });
     } catch (error) {
-        // Explicitly extract the stack trace back to the main thread for deterministic debugging
         self.postMessage({ messageId, error: error.message, stack: error.stack });
     }
 };

@@ -1,4 +1,5 @@
 {
+    "id": "/",
     "name": "MeteoNexus Tactical HUD",
     "short_name": "MeteoNexus",
     "description": "Active Telemetry HUD with real-time weather and routing intelligence.",
@@ -7,6 +8,7 @@
     "orientation": "portrait-primary",
     "background_color": "#000000",
     "theme_color": "#000000",
+    "categories": ["navigation", "weather", "travel"],
     "icons": [
         {
             "src": "https://cdn-icons-png.flaticon.com/512/1146/1146869.png",

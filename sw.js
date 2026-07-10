@@ -42,10 +42,12 @@ self.addEventListener('fetch', (e) => {
         e.respondWith(
             caches.match(e.request).then(res => {
                 return res || fetch(e.request).then(netRes => {
-                    return caches.open(MAP_CACHE).then(cache => {
-                        if (netRes.ok) cache.put(e.request, netRes.clone());
-                        return netRes;
-                    });
+                    if (netRes.ok) {
+                        const cloned = netRes.clone();
+                        // Non-blocking caching preserves render thread performance 
+                        caches.open(MAP_CACHE).then(cache => cache.put(e.request, cloned));
+                    }
+                    return netRes;
                 });
             }).catch(() => new Response(
                 '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#111"/><text x="128" y="128" fill="#333" font-family="monospace" font-size="14" text-anchor="middle">OFFLINE</text></svg>', 
@@ -71,10 +73,14 @@ self.addEventListener('fetch', (e) => {
                     if (!isResolved) {
                         isResolved = true;
                         clearTimeout(timeoutId);
+                        // Hard failure redirection to cache for 4xx/5xx responses
                         if (netRes.ok) {
-                            caches.open(API_CACHE).then(cache => cache.put(e.request, netRes.clone()));
+                            const cloned = netRes.clone();
+                            caches.open(API_CACHE).then(cache => cache.put(e.request, cloned));
+                            resolve(netRes);
+                        } else {
+                            caches.match(e.request).then(res => resolve(res || netRes));
                         }
-                        resolve(netRes);
                     }
                 }).catch(() => {
                     if (!isResolved) {
@@ -91,7 +97,10 @@ self.addEventListener('fetch', (e) => {
         e.respondWith(
             fetch(e.request)
                 .then(response => {
-                    if (!response || (response.status !== 200 && response.status !== 0)) return response;
+                    // Serve cached asset if network throws error
+                    if (!response || (response.status !== 200 && response.status !== 0)) {
+                        return caches.match(e.request).then(cached => cached || response);
+                    }
                     if (!e.request.url.startsWith('http')) return response;
 
                     const responseToCache = response.clone();
