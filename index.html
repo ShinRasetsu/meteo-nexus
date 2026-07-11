@@ -876,6 +876,9 @@
         });
 
         // --- RENDER PIPELINE ---
+        // UI write-cache for main thread pipeline — prevents DOM thrash
+        const _mainUiCache = { speed: '', headingDeg: '', headingTxt: '', compassRot: '' };
+
         function triggerRenderPipeline() {
             if (!state.renderPending) { state.renderPending = true; requestAnimationFrame(executeRenderPipeline); }
         }
@@ -896,7 +899,8 @@
                 state.rawSensorHeading = null;
             }
             if (state.renderSpeed !== null) {
-                updateText(DOM.liveSpeed, state.renderSpeed);
+                const spdStr = state.renderSpeed.toString();
+                if (_mainUiCache.speed !== spdStr) { updateText(DOM.liveSpeed, spdStr); _mainUiCache.speed = spdStr; }
                 if (state.renderSpeed > state.maxSpeed && state.renderSpeed < 350 && state.renderAccuracy <= 25) {
                     state.maxSpeed = state.renderSpeed; updateText(DOM.maxSpeed, state.maxSpeed);
                 }
@@ -914,9 +918,16 @@
                 if (delta < -180) delta += 360;
                 state.cumulativeHeading += delta;
                 state.lastHeading = heading;
-                updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
-                updateText(DOM.liveHeadingTxt, getWindDirection(heading));
-                DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
+
+                const hDegStr = Math.round(heading).toString().padStart(3, '0') + '°';
+                if (_mainUiCache.headingDeg !== hDegStr) { updateText(DOM.liveHeadingDeg, hDegStr); _mainUiCache.headingDeg = hDegStr; }
+
+                const hTxtStr = getWindDirection(heading);
+                if (_mainUiCache.headingTxt !== hTxtStr) { updateText(DOM.liveHeadingTxt, hTxtStr); _mainUiCache.headingTxt = hTxtStr; }
+
+                const compRot = `rotate(${heading}deg)`;
+                if (_mainUiCache.compassRot !== compRot) { DOM.liveCompassIcon.style.transform = compRot; _mainUiCache.compassRot = compRot; }
+
                 state.renderHeading = null;
             }
         }
@@ -1826,9 +1837,11 @@
         syncClock();
 
         function getWindDirection(deg) {
-            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-            return arr[Math.floor((deg / 22.5) + 0.5) % 16];
+            return CARDINAL_LUT[Math.floor((deg / 22.5) + 0.5) & 15];
         }
+
+        // Cardinal direction LUT for main thread (shared with Aero HUD via closure)
+        const CARDINAL_LUT = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 
         window.purgeSystem = function() { DOM.modals.custom.classList.remove('hidden'); };
         window.closeModal = function(modalId) { document.getElementById(modalId).classList.add('hidden'); };
@@ -2632,14 +2645,6 @@
                 </div>
 
                 <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
-                    <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60">
-                        <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
-                        </div>
-                    </div>
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
                         <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
                         <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
@@ -2702,7 +2707,6 @@
                 gust:         document.getElementById('ui-radar-gust'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
-                horizon:      document.getElementById('ui-radar-horizon-layer'),
                 ghost: [
                     document.getElementById('ui-radar-wind-ghost-1'),
                     document.getElementById('ui-radar-wind-ghost-2'),
@@ -2737,14 +2741,10 @@
             let historyIdx      = 0;
             let lastHistoryTime = 0;
 
-            // Horizon LPF state (alpha=0.1 → ~160ms TC)
-            let smoothedPitch = 0;
-            let smoothedRoll  = 0;
-
             // UI write-cache — prevents DOM thrash at 60fps
             const _uiCache = {
                 alt: '', windSpeed: '', gust: 'hidden',
-                ringTrans: '', horizonTrans: '', relAngle: '',
+                ringTrans: '', relAngle: '',
                 windTrans: '', head: '', cross: ''
             };
 
@@ -2755,15 +2755,14 @@
             let visualWindAngle = null;
             let lastRenderTime  = performance.now();
 
-            const getCardinalStr = (deg) => {
-                const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-                return arr[Math.floor((deg / 22.5) + 0.5) % 16];
-            };
+            // Cardinal direction LUT — zero allocation at runtime
+            const CARDINAL_LUT = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+            const getCardinalStr = (deg) => CARDINAL_LUT[Math.floor((deg / 22.5) + 0.5) & 15];
 
             // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
             function renderAero() {
                 const frameNow = performance.now();
-                const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
+                const dt = Math.min(frameNow - lastRenderTime, 100);
                 lastRenderTime = frameNow;
 
                 requestAnimationFrame(renderAero);
@@ -2773,13 +2772,20 @@
                 let activeHeading = 0;
                 let headingValid  = false;
 
+                // Cache state reads — single property access per frame
+                const ws = st.windSpeed;
+                const wg = st.windGust;
+                const wd = st.windDir;
+                const alt = st.altitude;
+                const topoAlt = st.topoAltitude;
+
                 // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
                 if (_el.altContainer) {
                     let altStr;
-                    if (st.altitude !== null) {
-                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
-                    } else if (st.topoAltitude !== null) {
-                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                    if (alt !== null) {
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(alt)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                    } else if (topoAlt !== null) {
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(topoAlt)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
                     } else {
                         altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
                     }
@@ -2788,45 +2794,45 @@
 
                 // WIND SPEED
                 if (_el.windSpeed) {
-                    const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
+                    const wsStr = ws !== null ? Math.round(ws).toString() : '--';
                     if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
                 }
 
-                // GUST BOUNDARY
+                // GUST BOUNDARY — simplified logic, single diff computation
                 if (_el.gust) {
-                    if (st.windGust > 0) {
-                        const gustDiff = st.windGust - st.windSpeed;
-                        if (gustDiff >= 5) {
-                            const gStr = `GUST +${Math.round(gustDiff)}`;
-                            if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
-                        } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
-                    } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                    let gStr = 'hidden';
+                    if (wg > 0 && ws !== null) {
+                        const gustDiff = wg - ws;
+                        if (gustDiff >= 5) gStr = `GUST +${Math.round(gustDiff)}`;
+                    }
+                    if (_uiCache.gust !== gStr) {
+                        if (gStr === 'hidden') { _el.gust.classList.add('opacity-0'); }
+                        else { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; }
+                        _uiCache.gust = gStr;
+                    }
                 }
 
-                // ARTIFICIAL HORIZON — gravity-vector LPF, gimbal-lock immune
-                if (_el.horizon) {
-                    smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
-                    smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
-                    let pY = (smoothedPitch - 30) * 1.5;
-                    pY = Math.max(-60, Math.min(60, pY));
-                    const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
-                    if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
-                }
+                // HEADING PRIORITY CHAIN with quality weighting
+                // P1: fusedHeading (EMA-smoothed, kinematically guarded) — highest trust
+                // P2: gnssHeading (raw GNSS, valid within 3s TTL) — medium trust
+                // P3: deviceHeading (local IMU) — lowest trust
+                const fusedHdg = st.fusedHeading;
+                const gnssHdg = st.gnssHeading;
+                const gnssAge = now - st.lastGnssUpdate;
+                const deviceHdg = st.deviceHeading;
+                let headingQuality = 0;
 
-                // HEADING PRIORITY CHAIN
-                // P1: main engine EMA-smoothed fused heading (kinematically guarded)
-                // P2: raw GNSS heading (valid within 3s TTL)
-                // P3: local IMU (deviceorientation absolute path)
-                if (st.fusedHeading !== null) {
-                    activeHeading = st.fusedHeading; headingValid = true;
-                } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
-                    activeHeading = st.gnssHeading; headingValid = true;
-                } else if (st.deviceHeading !== null) {
-                    activeHeading = st.deviceHeading; headingValid = true;
+                if (fusedHdg !== null) {
+                    activeHeading = fusedHdg; headingValid = true; headingQuality = 1.0;
+                } else if (gnssHdg !== null && gnssAge < 3000) {
+                    activeHeading = gnssHdg; headingValid = true; headingQuality = 0.7;
+                } else if (deviceHdg !== null) {
+                    activeHeading = deviceHdg; headingValid = true; headingQuality = 0.4;
                 }
 
                 // COMPASS RING — EMA in JS, no CSS transition (stops the stop-dance)
                 // TC=120ms at 60fps → lerpA≈0.127/frame → 99% of target in ~550ms
+                // Adaptive lerp: faster convergence when quality is high
                 if (headingValid) {
                     if (visualHeading === null) {
                         visualHeading = activeHeading;
@@ -2834,7 +2840,7 @@
                         let hdiff = activeHeading - visualHeading;
                         if (hdiff >  180) hdiff -= 360;
                         if (hdiff < -180) hdiff += 360;
-                        const lerpA = 1 - Math.exp(-dt / 120);
+                        const lerpA = 1 - Math.exp(-dt / (headingQuality > 0.8 ? 80 : 120));
                         visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
                     }
                     const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
@@ -2842,13 +2848,12 @@
                 }
 
                 // WIND VECTOR MATH + SMOOTHING
-                const wDir = st.windDir;
-                if (headingValid && wDir !== null) {
+                if (headingValid && wd !== null && ws !== null) {
                     // relAngle: 0=headwind, 90=from right, 180=tailwind
-                    const relAngle = (wDir - activeHeading + 360) % 360;
+                    const relAngle = (wd - activeHeading + 360) % 360;
 
                     if (_el.relAngle) {
-                        const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                        const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wd)}</span>`;
                         if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
                     }
 
@@ -2870,8 +2875,8 @@
 
                     // VECTOR DECOMPOSITION — kinematic force isolation
                     const rad        = relAngle * (Math.PI / 180);
-                    const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
-                    const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
+                    const headForce  = Math.cos(rad) * ws;
+                    const crossForce = Math.sin(rad) * ws;
 
                     if (_el.head) {
                         const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
@@ -2887,7 +2892,7 @@
                     if (now - lastHistoryTime > 10000) {
                         if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
                         historyIdx = (historyIdx + 1) % 3;
-                        lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
+                        lastHistoryTime = now;
                     }
 
                     for (let i = 0; i < 3; i++) {
