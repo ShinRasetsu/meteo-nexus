@@ -63,6 +63,173 @@
             lastGnssUpdate: 0,
             fusedHeading: null
         };
+
+        // Critical window functions - defined early so they work even if module script fails
+        window.purgeSystem = function() { 
+            const modal = document.getElementById('custom-modal');
+            if (modal) modal.classList.remove('hidden'); 
+        };
+        window.closeModal = function(modalId) { 
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.add('hidden'); 
+        };
+        window.showManualLocationInput = function() {
+            const lat = prompt("Enter latitude (e.g., 14.5995):", "14.5995");
+            const lon = prompt("Enter longitude (e.g., 120.9842):", "120.9842");
+            if (lat && lon && !isNaN(lat) && !isNaN(lon)) {
+                const latNum = parseFloat(lat);
+                const lonNum = parseFloat(lon);
+                if (latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+                    if (window.state) window.state.autoCoords = { lat: latNum, lon: lonNum };
+                    if (typeof initMap === 'function') initMap(latNum, lonNum);
+                    if (typeof fetchData === 'function') fetchData(latNum, lonNum, false);
+                    const badge = document.getElementById('location-badge');
+                    if (badge) badge.innerHTML = `<i class="fa-solid fa-map-pin text-brand-teal"></i> MANUAL: ${latNum.toFixed(4)}, ${lonNum.toFixed(4)}`;
+                }
+            }
+        };
+        window.retryGPS = function() {
+            if (window.state && window.state.gpsWatchId) {
+                navigator.geolocation.clearWatch(window.state.gpsWatchId);
+                window.state.gpsWatchId = null;
+            }
+            if (window.state && window.state.gpsTimeoutHandle) clearTimeout(window.state.gpsTimeoutHandle);
+            // Reset UI to acquiring state
+            const mainCard = document.getElementById('main-status-card');
+            const statusIcon = document.getElementById('status-icon');
+            const statusText = document.getElementById('status-text');
+            const weatherDesc = document.getElementById('weather-desc');
+            const locationBadge = document.getElementById('location-badge');
+            if (mainCard) mainCard.className = "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-blue/50 bg-brand-blue/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden";
+            const statusIconEl = document.getElementById('status-icon');
+            if (statusIconEl) statusIconEl.className = 'text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue';
+            const statusTextEl = document.getElementById('status-text');
+            if (statusTextEl) { statusTextEl.textContent = "ACQUIRING GPS"; statusTextEl.className = 'text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase'; }
+            const weatherDescEl = document.getElementById('weather-desc');
+            if (weatherDescEl) weatherDescEl.textContent = "Awaiting satellite lock...";
+            const locationBadgeEl = document.getElementById('location-badge');
+            if (locationBadgeEl) locationBadgeEl.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-brand-blue"></i> LOCATING`;
+            if (typeof startBackgroundTracking === 'function') startBackgroundTracking();
+        };
+        window.showManualLocationInput = function() {
+            const lat = prompt("Enter latitude (e.g., 14.5995):", "14.5995");
+            const lon = prompt("Enter longitude (e.g., 120.9842):", "120.9842");
+            if (lat && lon && !isNaN(lat) && !isNaN(lon)) {
+                const latNum = parseFloat(lat);
+                const lonNum = parseFloat(lon);
+                if (latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+                    if (window.state) window.state.autoCoords = { lat: latNum, lon: lonNum };
+                    if (typeof initMap === 'function') initMap(latNum, lonNum);
+                    if (typeof fetchData === 'function') fetchData(latNum, lonNum, false);
+                    const badge = document.getElementById('location-badge');
+                    if (badge) badge.innerHTML = `<i class="fa-solid fa-map-pin text-brand-teal"></i> MANUAL: ${latNum.toFixed(4)}, ${lonNum.toFixed(4)}`;
+                }
+            }
+        };
+        window.retryGPS = function() {
+            if (window.state && window.state.gpsWatchId) {
+                navigator.geolocation.clearWatch(window.state.gpsWatchId);
+                window.state.gpsWatchId = null;
+            }
+            if (window.state && window.state.gpsTimeoutHandle) clearTimeout(window.state.gpsTimeoutHandle);
+            const mainCard = document.getElementById('main-status-card');
+            const statusIcon = document.getElementById('status-icon');
+            const statusText = document.getElementById('status-text');
+            const weatherDesc = document.getElementById('weather-desc');
+            const locationBadge = document.getElementById('location-badge');
+            if (mainCard) mainCard.className = "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-blue/50 bg-brand-blue/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden";
+            const statusIconEl = document.getElementById('status-icon');
+            if (statusIconEl) statusIconEl.className = 'text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue';
+            const statusTextEl = document.getElementById('status-text');
+            if (statusTextEl) { statusTextEl.textContent = "ACQUIRING GPS"; statusTextEl.className = 'text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase'; }
+            const weatherDescEl = document.getElementById('weather-desc');
+            if (weatherDescEl) weatherDescEl.textContent = "Awaiting satellite lock...";
+            const locationBadgeEl = document.getElementById('location-badge');
+            if (locationBadgeEl) locationBadgeEl.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-brand-blue"></i> LOCATING`;
+            if (typeof startBackgroundTracking === 'function') startBackgroundTracking();
+        };
+        window.purgeSystem = function() { 
+            const modal = document.getElementById('custom-modal');
+            if (modal) modal.classList.remove('hidden'); 
+        };
+        window.closeModal = function(modalId) { 
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.add('hidden'); 
+        };
+        window.showManualLocationInput = function() {
+            const lat = prompt("Enter latitude (e.g., 14.5995):", "14.5995");
+            const lon = prompt("Enter longitude (e.g., 120.9842):", "120.9842");
+            if (lat && lon && !isNaN(lat) && !isNaN(lon)) {
+                const latNum = parseFloat(lat);
+                const lonNum = parseFloat(lon);
+                if (latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+                    if (window.state) window.state.autoCoords = { lat: latNum, lon: lonNum };
+                    if (typeof initMap === 'function') initMap(latNum, lonNum);
+                    if (typeof fetchData === 'function') fetchData(latNum, lonNum, false);
+                    const badge = document.getElementById('location-badge');
+                    if (badge) badge.innerHTML = `<i class="fa-solid fa-map-pin text-brand-teal"></i> MANUAL: ${latNum.toFixed(4)}, ${lonNum.toFixed(4)}`;
+                }
+            }
+        };
+        window.retryGPS = function() {
+            if (window.state && window.state.gpsWatchId) {
+                navigator.geolocation.clearWatch(window.state.gpsWatchId);
+                window.state.gpsWatchId = null;
+            }
+            if (window.state && window.state.gpsTimeoutHandle) clearTimeout(window.state.gpsTimeoutHandle);
+            const mainCard = document.getElementById('main-status-card');
+            const statusIcon = document.getElementById('status-icon');
+            const statusText = document.getElementById('status-text');
+            const weatherDesc = document.getElementById('weather-desc');
+            const locationBadge = document.getElementById('location-badge');
+            if (mainCard) mainCard.className = "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-blue/50 bg-brand-blue/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden";
+            const statusIconEl = document.getElementById('status-icon');
+            if (statusIconEl) statusIconEl.className = 'text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue';
+            const statusTextEl = document.getElementById('status-text');
+            if (statusTextEl) { statusTextEl.textContent = "ACQUIRING GPS"; statusTextEl.className = 'text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase'; }
+            const weatherDescEl = document.getElementById('weather-desc');
+            if (weatherDescEl) weatherDescEl.textContent = "Awaiting satellite lock...";
+            const locationBadgeEl = document.getElementById('location-badge');
+            if (locationBadgeEl) locationBadgeEl.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-brand-blue"></i> LOCATING`;
+            if (typeof startBackgroundTracking === 'function') startBackgroundTracking();
+        };
+        window.showManualLocationInput = function() {
+            const lat = prompt("Enter latitude (e.g., 14.5995):", "14.5995");
+            const lon = prompt("Enter longitude (e.g., 120.9842):", "120.9842");
+            if (lat && lon && !isNaN(lat) && !isNaN(lon)) {
+                const latNum = parseFloat(lat);
+                const lonNum = parseFloat(lon);
+                if (latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+                    if (window.state) window.state.autoCoords = { lat: latNum, lon: lonNum };
+                    if (typeof initMap === 'function') initMap(latNum, lonNum);
+                    if (typeof fetchData === 'function') fetchData(latNum, lonNum, false);
+                    const badge = document.getElementById('location-badge');
+                    if (badge) badge.innerHTML = `<i class="fa-solid fa-map-pin text-brand-teal"></i> MANUAL: ${latNum.toFixed(4)}, ${lonNum.toFixed(4)}`;
+                }
+            }
+        };
+        window.retryGPS = function() {
+            if (window.state && window.state.gpsWatchId) {
+                navigator.geolocation.clearWatch(window.state.gpsWatchId);
+                window.state.gpsWatchId = null;
+            }
+            if (window.state && window.state.gpsTimeoutHandle) clearTimeout(window.state.gpsTimeoutHandle);
+            const mainCard = document.getElementById('main-status-card');
+            const statusIcon = document.getElementById('status-icon');
+            const statusText = document.getElementById('status-text');
+            const weatherDesc = document.getElementById('weather-desc');
+            const locationBadge = document.getElementById('location-badge');
+            if (mainCard) mainCard.className = "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-blue/50 bg-brand-blue/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden";
+            const statusIconEl = document.getElementById('status-icon');
+            if (statusIconEl) statusIconEl.className = 'text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue';
+            const statusTextEl = document.getElementById('status-text');
+            if (statusTextEl) { statusTextEl.textContent = "ACQUIRING GPS"; statusTextEl.className = 'text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase'; }
+            const weatherDescEl = document.getElementById('weather-desc');
+            if (weatherDescEl) weatherDescEl.textContent = "Awaiting satellite lock...";
+            const locationBadgeEl = document.getElementById('location-badge');
+            if (locationBadgeEl) locationBadgeEl.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-brand-blue"></i> LOCATING`;
+            if (typeof startBackgroundTracking === 'function') startBackgroundTracking();
+        };
     </script>
 
     <style>
