@@ -150,6 +150,9 @@
             <button id="pwa-install-btn" aria-label="Install App" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
+            <button onclick="showManualLocationInput()" aria-label="Manual Location" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-purple/40 bg-brand-purple/10 text-brand-purple text-xs md:text-sm font-bold tracking-widest hover:bg-brand-purple hover:text-white transition-all shadow-sm" title="Enter manual coordinates">
+                <i class="fa-solid fa-map-pin"></i><span class="hidden md:block">MANUAL</span>
+            </button>
             <button onclick="purgeSystem()" aria-label="Purge System Storage" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
@@ -1209,22 +1212,236 @@
             if (state.gpsWatchId) return;
             const EMA_ALPHA_SPEED = 0.85;
 
-            // GPS timeout: if no fix within 15s, show error
-            state.gpsTimeoutHandle = setTimeout(() => {
-                if (!state.autoCoords) {
-                    updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
-                    updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
-                    updateText(DOM.statusText, "SEARCH LOCATION");
-                    updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase");
-                    updateText(DOM.weatherDesc, "GPS BLOCKED OR TIMEOUT.");
-                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS TIMEOUT`);
-                }
-            }, 15000);
+            // Check geolocation permission first
+            if (navigator.permissions) {
+                navigator.permissions.query({ name: 'geolocation' }).then(perm => {
+                    if (perm.state === 'denied') {
+                        handleGPSError(new Error('Geolocation permission denied'));
+                        return;
+                    }
+                    startGPSWatch();
+                }).catch(() => startGPSWatch());
+            } else {
+                startGPSWatch();
+            }
 
-            state.gpsWatchId = navigator.geolocation.watchPosition(
-                (pos) => {
-                    clearTimeout(state.gpsTimeoutHandle); // Clear timeout on first fix
-                    const lat = pos.coords.latitude;
+            function startGPSWatch() {
+                const EMA_ALPHA_SPEED = 0.85;
+
+                // GPS timeout: if no fix within 15s, show error with fallback options
+                state.gpsTimeoutHandle = setTimeout(() => {
+                    if (!state.autoCoords) {
+                        handleGPSError(new Error('GPS timeout - no fix within 15s'));
+                    }
+                }, 15000);
+
+                state.gpsWatchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        clearTimeout(state.gpsTimeoutHandle); // Clear timeout on first fix
+                        const lat = pos.coords.latitude;
+                        const lon = pos.coords.longitude;
+                        const gpsHeading = pos.coords.heading;
+                        const speed = pos.coords.speed;
+                        const accuracy = pos.coords.accuracy;
+                        const now = Date.now();
+
+                        window.__METEO_CORE_STATE.altitude = pos.coords.altitude;
+                        if (speed !== null) window.__METEO_CORE_STATE.speed = speed;
+                        window.__METEO_CORE_STATE.lastGnssUpdate = now;
+                        if (gpsHeading !== null && !isNaN(gpsHeading)) window.__METEO_CORE_STATE.gnssHeading = gpsHeading;
+
+                        let timeDeltaSec = (now - state.lastLocationTimestamp) / 1000;
+                        if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1;
+
+                        if (state.lastHudLat !== 0) {
+                            const distMovedM = fastDistance(state.lastHudLat, state.lastHudLon, lat, lon);
+                            const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
+                            if (impliedSpeedKmh > 350 && accuracy > 10) return;
+                        }
+                        state.lastLocationTimestamp = now;
+
+                        state.renderAccuracy = accuracy;
+                        if (accuracy <= 15) {
+                            state.renderAccText = `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`;
+                            state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
+                        } else if (accuracy <= 60) {
+                            state.renderAccText = `Tracking | GNSS: MED (${Math.round(accuracy)}m)`;
+                            state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
+                        } else {
+                            state.renderAccText = `Tracking | LTE/A-GPS (${Math.round(accuracy)}m)`;
+                            state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
+                        }
+                        triggerRenderPipeline();
+
+                        if (accuracy > 3000 && state.lastHudLat !== 0) return;
+                        state.autoCoords = { lat, lon };
+
+                        if (!state.mapObj) {
+                            initMap(lat, lon);
+                        } else {
+                            const distMovedKm = (state.lastHudLat === 0) ? 999 : (fastDistance(lat, lon, state.lastHudLat, state.lastHudLon) / 1000);
+                            if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
+                                state.lastFetchAttempt = now; fetchData(lat, lon, false);
+                            }
+
+                            let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
+                            let isGlitch = false;
+                            if (accuracy > 120) {
+                                isGlitch = true;
+                            } else {
+                                const maxAccelKmhPerSec = 54;
+                                const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
+                                const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
+                                if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) isGlitch = true;
+                            }
+                            if (!isGlitch) {
+                                if (state.smoothedSpeed === null) state.smoothedSpeed = rawSpeedKmh;
+                                else state.smoothedSpeed = (EMA_ALPHA_SPEED * rawSpeedKmh) + ((1 - EMA_ALPHA_SPEED) * state.smoothedSpeed);
+                                const displaySpeedKmH = Math.round(state.smoothedSpeed);
+                                state.currentSpeed = displaySpeedKmH; state.renderSpeed = displaySpeedKmH;
+                                state.lastSpeedTimestamp = now; triggerRenderPipeline();
+                            } else {
+                                state.smoothedSpeed = state.currentSpeed;
+                            }
+
+                            const processNodes = (nodesToProcess) => {
+                                if (!nodesToProcess) return;
+                                let activeNodeIndex = -1;
+                                for (let i = 0; i < nodesToProcess.length; i++) { if (!nodesToProcess[i].passed) { activeNodeIndex = i; break; } }
+                                if (activeNodeIndex !== -1) {
+                                    let activeNode = nodesToProcess[activeNodeIndex];
+                                    let d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
+                                    let bypassed = false;
+                                    for(let j = activeNodeIndex + 1; j < Math.min(activeNodeIndex + 3, nodesToProcess.length); j++) {
+                                        let futureDist = fastDistance(lat, lon, nodesToProcess[j].lat, nodesToProcess[j].lon);
+                                        if (futureDist < d - 1500) { bypassed = true; break; }
+                                    }
+                                    if (d < 1500 || bypassed) {
+                                        nodesToProcess[activeNodeIndex].passed = true; state.lastIntelFetch = 0;
+                                    } else if (nodesToProcess === state.routeNodes) {
+                                        let count = 0;
+                                        for (let v = activeNodeIndex; v < nodesToProcess.length && count < 15; v++) {
+                                            let vn = nodesToProcess[v];
+                                            if (vn.passed) continue;
+                                            let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
+                                            if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
+                                            else {
+                                                const distEl = document.getElementById(`node-dist-${vn.id}`);
+                                                if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+                                            }
+                                            count++;
+                                        }
+                                    }
+                                }
+                            };
+                            processNodes(state.routeNodes);
+                            processNodes(state.originalRouteNodes);
+
+                            const isMoving = state.currentSpeed >= 2;
+                            if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
+                                state.renderHeading = gpsHeading; state.sensorHeading = gpsHeading;
+                                window.__METEO_CORE_STATE.fusedHeading = gpsHeading;
+                                triggerRenderPipeline();
+                            } else if (state.sensorHeading !== null) {
+                                state.renderHeading = state.sensorHeading; triggerRenderPipeline();
+                            }
+
+                            if (isMoving) { DOM.hudMap.classList.add('hud-moving'); DOM.hudMap.classList.remove('hud-idle'); }
+                            else { DOM.hudMap.classList.add('hud-idle'); DOM.hudMap.classList.remove('hud-moving'); }
+
+                            if (state.targetCoords && !state.routeCtrl) initRoute();
+
+                            if (state.isMapLocked && !state.targetCoords) {
+                                updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
+                                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
+                            }
+                        }
+                    },
+                    (err) => {
+                        handleGPSError(err);
+                    },
+                    { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
+                );
+            }
+        }
+
+        function handleGPSError(err) {
+            clearTimeout(state.gpsTimeoutHandle);
+            state.gpsWatchId = null;
+            
+            const isDenied = err.name === 'GeolocationPositionError' && err.code === 1;
+            const isTimeout = err.name === 'GeolocationPositionError' && err.code === 3;
+            
+            let msg, desc, showFallback = true;
+            if (isDenied) {
+                msg = "GPS PERMISSION DENIED";
+                desc = "Enable location permission in browser settings to use GPS.";
+            } else if (isTimeout) {
+                msg = "GPS TIMEOUT";
+                desc = "No GPS fix within 15s. Check sky view or try manual location.";
+            } else {
+                msg = "GPS ERROR";
+                desc = err.message || "Unknown GPS error";
+            }
+
+            // Update main card with error
+            updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-red/50 bg-brand-red/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+            updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-triangle-exclamation text-brand-red');
+            updateText(DOM.statusText, msg);
+            updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-red uppercase");
+            updateText(DOM.weatherDesc, desc);
+            updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> ${msg}`);
+            
+            // Update status bar
+            updateText(DOM.statusEl, `GPS ERROR: ${msg}`);
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap");
+
+            // Show fallback buttons in location badge
+            updateHTML(DOM.locationBadge, `
+                <div class="flex flex-col items-end gap-1">
+                    <span class="text-sm font-bold text-brand-red">${msg}</span>
+                    <div class="flex gap-1">
+                        <button onclick="showManualLocationInput()" class="text-xs px-2 py-1 bg-brand-teal/20 text-brand-teal rounded border border-brand-teal/50 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest">
+                            <i class="fa-solid fa-map-pin mr-1"></i> Manual
+                        </button>
+                        <button onclick="retryGPS()" class="text-xs px-2 py-1 bg-brand-blue/20 text-brand-blue rounded border border-brand-blue/50 hover:bg-brand-blue hover:text-black transition-colors uppercase tracking-widest">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> Retry GPS
+                        </button>
+                    </div>
+                </div>
+            `);
+        }
+
+        function showManualLocationInput() {
+            const lat = prompt("Enter latitude (e.g., 14.5995):", "14.5995");
+            const lon = prompt("Enter longitude (e.g., 120.9842):", "120.9842");
+            if (lat && lon && !isNaN(lat) && !isNaN(lon)) {
+                const latNum = parseFloat(lat);
+                const lonNum = parseFloat(lon);
+                if (latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+                    state.autoCoords = { lat: latNum, lon: lonNum };
+                    initMap(latNum, lonNum);
+                    fetchData(latNum, lonNum, false);
+                    // Clear the manual button
+                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-map-pin text-brand-teal"></i> MANUAL: ${latNum.toFixed(4)}, ${lonNum.toFixed(4)}`);
+                }
+            }
+        }
+
+        function retryGPS() {
+            if (state.gpsWatchId) {
+                navigator.geolocation.clearWatch(state.gpsWatchId);
+                state.gpsWatchId = null;
+            }
+            clearTimeout(state.gpsTimeoutHandle);
+            updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-blue/50 bg-brand-blue/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+            updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue');
+            updateText(DOM.statusText, "ACQUIRING GPS");
+            updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase");
+            updateText(DOM.weatherDesc, "Awaiting satellite lock...");
+            updateHTML(DOM.locationBadge, `<i class="fa-solid fa-circle-notch fa-spin text-brand-blue"></i> LOCATING`);
+            startBackgroundTracking();
+        }
                     const lon = pos.coords.longitude;
                     const gpsHeading = pos.coords.heading;
                     const speed = pos.coords.speed;
@@ -1902,6 +2119,21 @@
 
         window.purgeSystem = function() { DOM.modals.custom.classList.remove('hidden'); };
         window.closeModal = function(modalId) { document.getElementById(modalId).classList.add('hidden'); };
+
+        window.showManualLocationInput = function() {
+            const lat = prompt("Enter latitude (e.g., 14.5995):", "14.5995");
+            const lon = prompt("Enter longitude (e.g., 120.9842):", "120.9842");
+            if (lat && lon && !isNaN(lat) && !isNaN(lon)) {
+                const latNum = parseFloat(lat);
+                const lonNum = parseFloat(lon);
+                if (latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+                    state.autoCoords = { lat: latNum, lon: lonNum };
+                    initMap(latNum, lonNum);
+                    fetchData(latNum, lonNum, false);
+                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-map-pin text-brand-teal"></i> MANUAL: ${latNum.toFixed(4)}, ${lonNum.toFixed(4)}`);
+                }
+            }
+        };
 
         window.executePurge = async function() {
             try {
