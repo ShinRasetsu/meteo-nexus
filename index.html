@@ -1714,12 +1714,7 @@
                     p.hourly.time.forEach((t, i) => { const diff = Math.abs((t * 1000) - currentUnixMs); if (diff < minDiff) { minDiff = diff; baseNowIndex = i; } });
                 }
 
-                let offsetIdx = 0;
-                if (wp.type === 'upcoming') {
-                    const currentSpeedFallback = (state.smoothedSpeed && state.smoothedSpeed > 10) ? state.smoothedSpeed : 60;
-                    offsetIdx = Math.round(parseFloat(wp.distKm) / currentSpeedFallback);
-                }
-                const safeIdx = p.hourly ? Math.min(baseNowIndex + offsetIdx, p.hourly.time.length - 1) : 0;
+                const safeIdx = p.hourly ? Math.min(baseNowIndex, p.hourly.time.length - 1) : 0;
 
                 let code, temp, prec, uv;
                 if (wp.type === 'current' && p.current) {
@@ -1755,10 +1750,10 @@
                     displayPrimary = `N-${wp.id}`;
                     displayLabel   = `<span id="node-dist-${wp.id}">${wp.distKm} KM</span>`;
                     if (idx === 1 || (idx === 0 && !state.autoCoords)) {
-                        titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Active | ETA +${offsetIdx}H</span>`;
+                        titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Active | NOW</span>`;
                         glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)] scale-[1.01]";
                     } else {
-                        titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Route | ETA +${offsetIdx}H</span>`;
+                        titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Route | NOW</span>`;
                     }
                     if (status === 'RAIN_LIKELY') {
                         bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red";
@@ -2016,7 +2011,16 @@
                     weather_code:        codeBlend.code !== null ? codeBlend.code : 0,
                     wind_speed_10m:      wsBlend.value !== null ? wsBlend.value : 0,
                     wind_direction_10m:  wdBlend !== null ? wdBlend : 0,
-                    is_day: (new Date().getHours() > 6 && new Date().getHours() < 18) ? 1 : 0
+                    is_day: (() => {
+                        let hrs;
+                        if (state.targetTimezone) {
+                            try {
+                                hrs = Number(new Intl.DateTimeFormat('en-US', { timeZone: state.targetTimezone, hour: '2-digit', hour12: false }).format(new Date()));
+                                if (hrs === 24) hrs = 0;
+                            } catch(e) { hrs = new Date().getHours(); }
+                        } else { hrs = new Date().getHours(); }
+                        return (hrs > 6 && hrs < 18) ? 1 : 0;
+                    })()
                 };
             }
 
@@ -2136,7 +2140,7 @@
             }
 
             updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
-            updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m + 180}deg);"></i>`);
+            updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" title="Wind FROM this direction" style="transform: rotate(${curr.wind_direction_10m}deg);"></i>`);
 
             const maxUV = uvData.length > 0 ? Math.max(...uvData) : 0;
             updateText(DOM.metricUvVal, maxUV.toFixed(1));
@@ -2147,6 +2151,8 @@
             if (curr.is_day === 0) bIcon = bIcon.replace('sun', 'moon');
 
             updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[200px] md:min-h-[250px] relative overflow-hidden ");
+            // Strip any prior status tint before re-applying — prevents accumulation across refreshes
+            DOM.mainCard.classList.remove('bg-brand-red/20', 'border-brand-red', 'bg-brand-warning/20', 'border-brand-warning', 'bg-brand-warning/10', 'border-brand-warning/50', 'bg-brand-success/10', 'border-brand-success/50');
 
             // FIX: branches on classifyWetness() string — same threshold the route timeline uses
             if (currentStatus === 'RAIN_LIKELY') {
@@ -2871,7 +2877,7 @@
                     // VECTOR DECOMPOSITION — kinematic force isolation
                     const rad        = relAngle * (Math.PI / 180);
                     const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
-                    const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
+                    const crossForce = -Math.sin(rad) * st.windSpeed; // >0 wind from right (meteorological: wind_dir is origin, not destination)
 
                     if (_el.head) {
                         const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
