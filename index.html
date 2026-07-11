@@ -370,6 +370,15 @@
                         </button>
                     </div>
                 </div>
+                <div class="mt-4 pt-4 border-t border-surface-700">
+                    <span class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Aero HUD Mount Angle</span>
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm font-bold text-gray-300 w-10" id="pitch-offset-value">-30°</span>
+                        <input type="range" id="pref-pitch-offset" min="-45" max="15" value="-30" step="1" class="flex-1 h-2 bg-surface-700 rounded-lg appearance-none accent-brand-teal cursor-pointer" aria-label="Phone mount pitch offset">
+                        <span class="text-sm font-bold text-gray-300 w-10 text-right">+15°</span>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-1">Adjust for your phone mount angle. Negative = nose down.</p>
+                </div>
             </div>
             <div class="flex gap-3 justify-end mt-6">
                 <button onclick="closeModal('fuel-settings-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
@@ -407,6 +416,44 @@
             <div class="flex gap-3 justify-end">
                 <button onclick="closeModal('map-clear-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
                 <button onclick="executeMapClear()" class="px-4 py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Delete Maps</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="compass-calibrate-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-surface-900 border-4 border-brand-teal rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(20,184,166,0.3)]">
+            <h3 class="text-xl font-black text-brand-teal uppercase tracking-widest mb-4"><i class="fa-solid fa-compass-drafting mr-2"></i> Compass Calibration</h3>
+            <div class="space-y-4 text-gray-300 font-mono text-sm">
+                <div class="bg-surface-800 border border-surface-700 rounded-lg p-4">
+                    <p class="mb-3">Mount phone in vehicle, drive straight on level road at <b class="text-brand-teal">&ge;30 km/h</b> for 10+ seconds.</p>
+                    <div class="flex items-center gap-3 mb-3">
+                        <div id="cal-progress" class="flex-1 h-3 bg-surface-700 rounded-full overflow-hidden">
+                            <div class="h-full bg-brand-teal transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <span id="cal-speed" class="font-mono text-lg font-black text-brand-teal w-16 text-right">-- km/h</span>
+                    </div>
+                    <p id="cal-status" class="text-[11px] text-gray-400">Waiting for GPS lock...</p>
+                </div>
+                <div class="flex gap-2">
+                    <button id="cal-auto-btn" onclick="restartAutoCalibration()" class="flex-1 py-2 bg-brand-teal/20 text-brand-teal font-black rounded-lg border-2 border-brand-teal/50 hover:bg-brand-teal hover:text-black transition-colors uppercase tracking-widest text-sm">
+                        <i class="fa-solid fa-magic mr-1"></i> Auto-Capture
+                    </button>
+                    <button id="cal-manual-btn" onclick="startFigure8Calibration()" class="flex-1 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg border-2 border-surface-600 hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">
+                        <i class="fa-solid fa-figure-eight mr-1"></i> Figure-8
+                    </button>
+                </div>
+                <div class="pt-2 border-t border-surface-700">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="cal-save-offset" class="peer sr-only" checked>
+                        <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors peer-checked:bg-brand-teal peer-checked:border-brand-teal"></div>
+                        <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Save offset to storage</span>
+                    </label>
+                </div>
+            </div>
+            <div class="flex gap-3 justify-end mt-6">
+                <button onclick="closeModal('compass-calibrate-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
+                <button id="cal-apply-btn" onclick="applyCompassOffset()" class="px-4 py-2 bg-brand-teal text-black font-black rounded-lg hover:bg-teal-400 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(20,184,166,0.5)]" disabled>Apply Offset</button>
             </div>
         </div>
     </div>
@@ -983,6 +1030,8 @@
                 DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
                 state.lastArrowHeading = state.visual.heading;
             }
+            // Unified Aero HUD update (single rAF loop)
+            if (typeof updateAeroHUD === 'function') updateAeroHUD(dt, Date.now());
         }
 
         // --- MAP CACHE BUTTON ---
@@ -1843,6 +1892,191 @@
         }
         enforcePersistentStorage();
 
+        // Compass calibration system
+        let calState = { active: false, samples: [], startTime: 0, targetSpeed: 30 };
+        let calAbortController = null;
+
+        window.openCompassCalibration = function() {
+            const modal = document.getElementById('compass-calibrate-modal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+            resetCalibrationUI();
+            startAutoCalibration();
+        };
+
+        function resetCalibrationUI() {
+            calState = { active: false, samples: [], startTime: 0, targetSpeed: 30 };
+            document.getElementById('cal-progress').querySelector('div').style.width = '0%';
+            document.getElementById('cal-speed').textContent = '-- km/h';
+            document.getElementById('cal-status').textContent = 'Waiting for GPS lock...';
+            document.getElementById('cal-apply-btn').disabled = true;
+            document.getElementById('cal-apply-btn').classList.add('opacity-50', 'cursor-not-allowed');
+        }
+
+        function startAutoCalibration() {
+            if (!state.autoCoords) {
+                document.getElementById('cal-status').textContent = 'No GPS fix — drive to acquire';
+                return;
+            }
+            calState.active = true;
+            calState.samples = [];
+            calState.startTime = Date.now();
+            document.getElementById('cal-status').textContent = `Drive straight at ≥${calState.targetSpeed} km/h...`;
+
+            // Listen for GPS updates
+            calAbortController = new AbortController();
+            const handleGps = (pos) => {
+                if (!calState.active) return;
+                const speed = pos.coords.speed ? pos.coords.speed * 3.6 : 0;
+                const heading = pos.coords.heading;
+                if (speed >= calState.targetSpeed && heading !== null && !isNaN(heading)) {
+                    calState.samples.push({ heading, speed, time: Date.now() });
+                    updateCalibrationProgress(speed);
+                }
+            };
+            const watchId = navigator.geolocation.watchPosition(handleGps, null, { enableHighAccuracy: true, maximumAge: 500 });
+            
+            // Auto-complete after 10s or manual stop
+            setTimeout(() => {
+                if (calState.active) completeAutoCalibration(watchId);
+            }, 10000);
+        }
+
+        function updateCalibrationProgress(speed) {
+            const elapsed = (Date.now() - calState.startTime) / 1000;
+            const progress = Math.min(100, (elapsed / 10) * 100);
+            document.getElementById('cal-progress').querySelector('div').style.width = `${progress}%`;
+            document.getElementById('cal-speed').textContent = `${Math.round(speed)} km/h`;
+            if (progress >= 100) document.getElementById('cal-status').textContent = 'Capture complete — computing offset...';
+        }
+
+        function completeAutoCalibration(watchId) {
+            navigator.geolocation.clearWatch(watchId);
+            calState.active = false;
+            
+            if (calState.samples.length < 5) {
+                document.getElementById('cal-status').textContent = 'Insufficient samples — try again';
+                return;
+            }
+
+            // Compute median heading from straight driving
+            const headings = calState.samples.map(s => s.heading).sort((a,b) => a-b);
+            const medianHeading = headings[Math.floor(headings.length / 2)];
+            
+            // Compare with fusedHeading to get offset
+            if (window.__METEO_CORE_STATE.fusedHeading !== null) {
+                let offset = medianHeading - window.__METEO_CORE_STATE.fusedHeading;
+                if (offset > 180) offset -= 360;
+                if (offset < -180) offset += 360;
+                
+                document.getElementById('cal-status').textContent = `Offset: ${offset.toFixed(1)}° — tap Apply to save`;
+                document.getElementById('cal-apply-btn').disabled = false;
+                document.getElementById('cal-apply-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                
+                // Store for apply
+                calState.computedOffset = offset;
+                calState.medianHeading = medianHeading;
+            } else {
+                document.getElementById('cal-status').textContent = 'No fused heading available — drive to establish';
+            }
+        }
+
+        window.applyCompassOffset = function() {
+            if (calState.computedOffset === undefined) return;
+            const save = document.getElementById('cal-save-offset').checked;
+            const offset = calState.computedOffset;
+            
+            // Apply to deviceHeading (IMU path) as correction
+            if (window.__METEO_CORE_STATE.deviceHeading !== null) {
+                window.__METEO_CORE_STATE.deviceHeading = (window.__METEO_CORE_STATE.deviceHeading + offset + 360) % 360;
+            }
+            
+            if (save && window.localforage) {
+                localforage.setItem('compass_offset', offset).catch(console.warn);
+            }
+            
+            document.getElementById('cal-status').textContent = save ? `Offset ${offset.toFixed(1)}° saved` : `Offset ${offset.toFixed(1)}° applied (not saved)`;
+            document.getElementById('cal-apply-btn').disabled = true;
+            document.getElementById('cal-apply-btn').classList.add('opacity-50', 'cursor-not-allowed');
+            
+            setTimeout(() => window.closeModal('compass-calibrate-modal'), 1500);
+        };
+
+        window.restartAutoCalibration = function() {
+            resetCalibrationUI();
+            startAutoCalibration();
+        };
+
+        window.startFigure8Calibration = function() {
+            // Figure-8 mode: user does figure-8 pattern, we sample heading variance
+            calState.active = true;
+            calState.samples = [];
+            calState.startTime = Date.now();
+            document.getElementById('cal-status').textContent = 'Move phone in figure-8 pattern...';
+            document.getElementById('cal-auto-btn').disabled = true;
+            document.getElementById('cal-manual-btn').disabled = true;
+            
+            // Just reuse the same GPS watch but with different criteria
+            const watchId = navigator.geolocation.watchPosition((pos) => {
+                if (!calState.active) return;
+                const heading = pos.coords.heading;
+                if (heading !== null && !isNaN(heading)) {
+                    calState.samples.push(heading);
+                    document.getElementById('cal-progress').querySelector('div').style.width = 
+                        `${Math.min(100, (calState.samples.length / 50) * 100)}%`;
+                    document.getElementById('cal-status').textContent = 
+                        `Figure-8: ${calState.samples.length}/50 samples...`;
+                }
+            }, null, { enableHighAccuracy: true, maximumAge: 200 });
+
+            // Auto-complete after 50 samples or 30s
+            setTimeout(() => {
+                if (calState.active) {
+                    navigator.geolocation.clearWatch(watchId);
+                    completeFigure8Calibration();
+                }
+            }, 30000);
+        };
+
+        function completeFigure8Calibration() {
+            calState.active = false;
+            document.getElementById('cal-auto-btn').disabled = false;
+            document.getElementById('cal-manual-btn').disabled = false;
+            
+            if (calState.samples.length < 20) {
+                document.getElementById('cal-status').textContent = 'Not enough samples — try again';
+                return;
+            }
+            
+            // Compute variance as quality metric
+            const variance = calState.samples.reduce((sum, h) => {
+                const mean = calState.samples.reduce((a,b) => a+b, 0) / calState.samples.length;
+                return sum + Math.pow(h - mean, 2);
+            }, 0) / calState.samples.length;
+            
+            if (variance > 5000) { // Good figure-8 covers ~360° range
+                document.getElementById('cal-status').textContent = 'Figure-8 complete — high variance (good)';
+            } else {
+                document.getElementById('cal-status').textContent = 'Low variance — try wider figure-8';
+            }
+            // For figure-8, we don't compute offset directly, just validate sensor
+        }
+
+        // Load saved offset on init
+        if (window.localforage) {
+            localforage.getItem('compass_offset').then(offset => {
+                if (typeof offset === 'number') {
+                    // Apply to deviceHeading when it becomes available
+                    const checkAndApply = setInterval(() => {
+                        if (window.__METEO_CORE_STATE.deviceHeading !== null) {
+                            window.__METEO_CORE_STATE.deviceHeading = (window.__METEO_CORE_STATE.deviceHeading + offset + 360) % 360;
+                            clearInterval(checkAndApply);
+                        }
+                    }, 500);
+                }
+            });
+        }
+
         window.toggleAudio = function() {
             state.audioEnabled = !state.audioEnabled;
             const ctx = getAudioContext();
@@ -2206,6 +2440,7 @@
                 if (data.windEnsemble.dir   !== null) window.__METEO_CORE_STATE.windDir   = data.windEnsemble.dir;
                 if (data.windEnsemble.speed !== null) window.__METEO_CORE_STATE.windSpeed  = data.windEnsemble.speed;
                 if (data.windEnsemble.gust  !== null) window.__METEO_CORE_STATE.windGust   = data.windEnsemble.gust;
+                window.__METEO_CORE_STATE.lastWindFetch = Date.now();
             } else if (dCurr && dCurr.current) {
                 if (dCurr.current.wind_direction_10m !== undefined) window.__METEO_CORE_STATE.windDir   = dCurr.current.wind_direction_10m;
                 if (dCurr.current.wind_speed_10m     !== undefined) window.__METEO_CORE_STATE.windSpeed  = dCurr.current.wind_speed_10m;
@@ -2278,7 +2513,7 @@
         // --- FUEL MANAGER ---
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
-            memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false },
+            memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false, pitchOffset: -30 },
             _isInitialized: false,
             getConfig: function() { return this.memoryConfig; },
             loadConfig: async function() {
@@ -2448,8 +2683,16 @@
                 const officialBtn = document.getElementById('btn-official-locator');
                 if (officialBtn) officialBtn.addEventListener('click', () => { const currentBrand = DOM.fuel.brand.value; window.open(BRAND_LINKS[currentBrand] || "https://www.google.com/search?q=" + encodeURIComponent(currentBrand + " gas station locator Philippines"), '_blank'); });
                 DOM.fuel.toll.checked = conf.avoidTolls; DOM.fuel.highway.checked = conf.avoidHighways; DOM.fuel.ferry.checked = conf.avoidFerries;
+                // Pitch offset slider
+                const pitchSlider = document.getElementById('pref-pitch-offset');
+                const pitchValue = document.getElementById('pitch-offset-value');
+                if (pitchSlider && pitchValue) {
+                    pitchSlider.value = conf.pitchOffset ?? -30;
+                    pitchValue.textContent = `${pitchSlider.value}°`;
+                    pitchSlider.addEventListener('input', () => { pitchValue.textContent = `${pitchSlider.value}°`; });
+                }
                 DOM.fuel.save.addEventListener('click', () => {
-                    FuelManager.saveConfig({ brand: DOM.fuel.brand.value, variant: DOM.fuel.variant.value, avoidTolls: DOM.fuel.toll.checked, avoidHighways: DOM.fuel.highway.checked, avoidFerries: DOM.fuel.ferry.checked });
+                    FuelManager.saveConfig({ brand: DOM.fuel.brand.value, variant: DOM.fuel.variant.value, avoidTolls: DOM.fuel.toll.checked, avoidHighways: DOM.fuel.highway.checked, avoidFerries: DOM.fuel.ferry.checked, pitchOffset: parseInt(pitchSlider?.value ?? -30) });
                     closeModal('fuel-settings-modal');
                     if (state.routeCtrl) { const wps = state.routeCtrl.getWaypoints(); state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; initRoute(false, wps); }
                     else if (state.targetCoords && state.autoCoords) window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon, state.isFuelOnlyRoute);
@@ -2631,6 +2874,9 @@
                                 <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                             </div>
                         </div>
+                        <button id="radar-calibrate-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" title="Calibrate Compass">
+                            <i class="fa-solid fa-compass-drafting text-base"></i>
+                        </button>
                         <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm">
                             <i class="fa-solid fa-expand text-base"></i>
                         </button>
@@ -2638,14 +2884,6 @@
                 </div>
 
                 <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
-                    <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60">
-                        <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
-                        </div>
-                    </div>
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
                         <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
                         <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
@@ -2691,6 +2929,8 @@
                             <span id="ui-radar-crosswind">CRS: 0</span>
                             <span class="text-surface-600">|</span>
                             <span id="ui-radar-headwind">HWD: 0</span>
+                            <span class="text-surface-600">|</span>
+                            <span id="ui-radar-wind-age">AGE: --</span>
                         </div>
                     </div>
                 </div>
@@ -2699,7 +2939,7 @@
             aeroContainer.appendChild(radarCard);
             targetGrid.appendChild(aeroContainer);
 
-            const _el = {
+const _el = {
                 ring:         document.getElementById('ui-radar-ring'),
                 wind:         document.getElementById('ui-radar-wind-layer'),
                 relAngle:     document.getElementById('ui-radar-rel-angle'),
@@ -2708,7 +2948,7 @@
                 gust:         document.getElementById('ui-radar-gust'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
-                horizon:      document.getElementById('ui-radar-horizon-layer'),
+                windAge:      document.getElementById('ui-radar-wind-age'),
                 ghost: [
                     document.getElementById('ui-radar-wind-ghost-1'),
                     document.getElementById('ui-radar-wind-ghost-2'),
@@ -2738,20 +2978,20 @@
                 }
             });
 
+            // Compass calibration modal handler
+            const calibrateBtn = radarCard.querySelector('#radar-calibrate-btn');
+            calibrateBtn.addEventListener('click', () => openCompassCalibration());
+
             // Pre-allocated ring buffer for wind trail — no GC on update
             const windHistory   = new Float32Array([-1, -1, -1]);
             let historyIdx      = 0;
             let lastHistoryTime = 0;
 
-            // Horizon LPF state (alpha=0.1 → ~160ms TC)
-            let smoothedPitch = 0;
-            let smoothedRoll  = 0;
-
             // UI write-cache — prevents DOM thrash at 60fps
             const _uiCache = {
                 alt: '', windSpeed: '', gust: 'hidden',
-                ringTrans: '', horizonTrans: '', relAngle: '',
-                windTrans: '', head: '', cross: ''
+                ringTrans: '', relAngle: '',
+                windTrans: '', head: '', cross: '', windAge: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -2766,16 +3006,16 @@
                 return arr[Math.floor((deg / 22.5) + 0.5) % 16];
             };
 
-            // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
-            function renderAero() {
-                const frameNow = performance.now();
-                const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
-                lastRenderTime = frameNow;
+            // Pitch offset from settings (default -30° for typical dash mount)
+            let pitchOffsetDeg = -30;
+            if (typeof FuelManager !== 'undefined' && FuelManager.getConfig) {
+                pitchOffsetDeg = FuelManager.getConfig().pitchOffset ?? -30;
+            }
 
-                requestAnimationFrame(renderAero);
+            // Unified per-frame Aero HUD update — called from smoothVisualsLoop
+            window.updateAeroHUD = function(dt, now) {
                 if (!_el.ring) return;
 
-                const now = Date.now();
                 let activeHeading = 0;
                 let headingValid  = false;
 
@@ -2807,16 +3047,6 @@
                             if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
                         } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
                     } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
-                }
-
-                // ARTIFICIAL HORIZON — gravity-vector LPF, gimbal-lock immune
-                if (_el.horizon) {
-                    smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
-                    smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
-                    let pY = (smoothedPitch - 30) * 1.5;
-                    pY = Math.max(-60, Math.min(60, pY));
-                    const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
-                    if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
                 }
 
                 // HEADING PRIORITY CHAIN
@@ -2889,11 +3119,29 @@
                         if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
                     }
 
+                    // WIND FRESHNESS — track data age, guard against stale
+                    if (_el.windAge) {
+                        const windAgeSec = st.lastWindFetch ? Math.floor((now - st.lastWindFetch) / 1000) : null;
+                        const ageStr = windAgeSec !== null ? `AGE: ${windAgeSec}s` : 'AGE: --';
+                        const isStale = windAgeSec !== null && windAgeSec > 300; // 5 min
+                        if (_uiCache.windAge !== ageStr) { _el.windAge.textContent = ageStr; _uiCache.windAge = ageStr; }
+                        if (isStale) {
+                            _el.windAge.classList.add('text-brand-warning');
+                            _el.windAge.classList.remove('text-gray-400');
+                            // Dim wind vector when stale
+                            _el.wind.style.opacity = '0.4';
+                        } else {
+                            _el.windAge.classList.remove('text-brand-warning');
+                            _el.windAge.classList.add('text-gray-400');
+                            _el.wind.style.opacity = '1';
+                        }
+                    }
+
                     // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
                     if (now - lastHistoryTime > 10000) {
                         if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
                         historyIdx = (historyIdx + 1) % 3;
-                        lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
+                        lastHistoryTime = now;
                     }
 
                     for (let i = 0; i < 3; i++) {
@@ -2904,11 +3152,7 @@
                         }
                     }
                 }
-            }
-
-            requestAnimationFrame(renderAero);
-        }, 1000);
-    }
+            };
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', mountActiveAeroUI);
