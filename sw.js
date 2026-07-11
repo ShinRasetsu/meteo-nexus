@@ -76,7 +76,13 @@ self.addEventListener('fetch', (e) => {
                         // Hard failure redirection to cache for 4xx/5xx responses
                         if (netRes.ok) {
                             const cloned = netRes.clone();
-                            caches.open(API_CACHE).then(cache => cache.put(e.request, cloned));
+                            caches.open(API_CACHE).then(cache => {
+                                cache.put(e.request, cloned);
+                                // LRU eviction: keep max 200 entries
+                                cache.keys().then(keys => {
+                                    if (keys.length > 200) cache.delete(keys[0]);
+                                });
+                            });
                             resolve(netRes);
                         } else {
                             caches.match(e.request).then(res => resolve(res || netRes));

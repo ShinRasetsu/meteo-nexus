@@ -791,7 +791,8 @@
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null, timelineIdleTimer: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
-            renderAccText: null, renderAccClass: null
+            renderAccText: null, renderAccClass: null,
+            chartBuffers: { rEU: null, rUS: null, rDE: null, rJP: null, uv: null, solar: null, agree: null, tempMin: null, tempMax: null }
         };
 
         function fastDistance(lat1, lon1, lat2, lon2) {
@@ -1747,11 +1748,19 @@
             const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
             const modelPoints   = Array.isArray(modelData) ? modelData : [modelData];
 
-            let htmlBuffer = '';
+            const fragment = document.createDocumentFragment();
+
             if (isOffline) {
-                htmlBuffer += `<div class="w-full text-center py-2 mb-2 text-brand-orange font-mono font-bold uppercase tracking-widest text-xs bg-brand-orange/10 border-2 border-brand-orange/30 rounded-lg"><i class="fa-solid fa-triangle-exclamation mr-2"></i> OFFLINE — LAST KNOWN ROUTE WEATHER</div>`;
+                const offlineDiv = document.createElement('div');
+                offlineDiv.className = "w-full text-center py-2 mb-2 text-brand-orange font-mono font-bold uppercase tracking-widest text-xs bg-brand-orange/10 border-2 border-brand-orange/30 rounded-lg";
+                offlineDiv.innerHTML = '<i class="fa-solid fa-triangle-exclamation mr-2"></i> OFFLINE — LAST KNOWN ROUTE WEATHER';
+                fragment.appendChild(offlineDiv);
             }
-            htmlBuffer += `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto gap-3 pb-4 pt-2 vertical-scroll scroll-smooth w-full relative max-h-[50vh] pr-2">`;
+
+            const scrollTrack = document.createElement('div');
+            scrollTrack.id = 'timeline-scroll-track';
+            scrollTrack.className = "flex flex-col overflow-y-auto gap-3 pb-4 pt-2 vertical-scroll scroll-smooth w-full relative max-h-[50vh] pr-2";
+            fragment.appendChild(scrollTrack);
 
             weatherPoints.forEach((p, idx) => {
                 const wp = waypoints[idx];
@@ -1775,7 +1784,6 @@
 
                 const icon = WMO_ICONS[code] || 'fa-cloud';
 
-                // CHANGED: weighted ensemble wetness instead of binary vote count
                 const mH = m.hourly || {};
                 const precipModels = WeatherEnsemble.extractModelArrays(mH, 'precipitation');
                 const wetness = WeatherEnsemble.weightedWetnessAt(precipModels, safeIdx);
@@ -1817,39 +1825,41 @@
                     displayPrimary = "LIVE"; displayLabel = "POS";
                 }
 
-                htmlBuffer += `
-                    <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl rounded-l-md shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 relative mb-1 shrink-0">
-                        <div class="flex items-start justify-between w-full gap-3">
-                            <div class="flex items-center gap-3 shrink-0">
-                                <div class="w-16 h-16 md:w-[72px] md:h-[72px] rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
-                                    <i class="fa-solid ${icon} ${iconClass} text-3xl"></i>
-                                </div>
-                                <div class="flex flex-col text-left">
-                                    ${titleBadge}
-                                    <div class="flex items-baseline gap-2 mt-1">
-                                        <span class="text-4xl font-black text-white font-mono leading-none">${temp}°</span>
-                                        <span class="text-lg font-black ${textClass} uppercase tracking-tighter">
-                                            ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'CLEAR'}
-                                        </span>
-                                    </div>
-                                </div>
+                // Build DOM nodes instead of HTML string
+                const card = document.createElement('div');
+                card.className = `w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl rounded-l-md shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 relative mb-1 shrink-0`;
+                card.innerHTML = `
+                    <div class="flex items-start justify-between w-full gap-3">
+                        <div class="flex items-center gap-3 shrink-0">
+                            <div class="w-16 h-16 md:w-[72px] md:h-[72px] rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
+                                <i class="fa-solid ${icon} ${iconClass} text-3xl"></i>
                             </div>
-                            <div class="text-right flex flex-col items-end justify-start shrink-0 pt-1">
-                                <span class="text-xl md:text-2xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
-                                <span class="text-xs font-black uppercase tracking-widest text-gray-400 mt-1">${displayLabel}</span>
+                            <div class="flex flex-col text-left">
+                                ${titleBadge}
+                                <div class="flex items-baseline gap-2 mt-1">
+                                    <span class="text-4xl font-black text-white font-mono leading-none">${temp}°</span>
+                                    <span class="text-lg font-black ${textClass} uppercase tracking-tighter">
+                                        ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'CLEAR'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                        <div class="w-full flex items-center justify-between text-sm md:text-base font-mono font-black uppercase tracking-widest pt-3 border-t border-surface-700/50">
-                            <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-lg opacity-90"></i> <span>${status === 'RAIN_LIKELY' ? 'WET' : (status === 'RAIN_POSSIBLE' ? 'DAMP' : 'DRY')}</span></span>
-                            <span class="${isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-white drop-shadow-md'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-lg opacity-90"></i> ${Math.round(rainProb)}%</span>
-                            <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-lg opacity-90"></i> UV ${uv}</span>
+                        <div class="text-right flex flex-col items-end justify-start shrink-0 pt-1">
+                            <span class="text-xl md:text-2xl font-black uppercase tracking-widest text-white whitespace-nowrap">${displayPrimary}</span>
+                            <span class="text-xs font-black uppercase tracking-widest text-gray-400 mt-1">${displayLabel}</span>
                         </div>
                     </div>
+                    <div class="w-full flex items-center justify-between text-sm md:text-base font-mono font-black uppercase tracking-widest pt-3 border-t border-surface-700/50">
+                        <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-lg opacity-90"></i> <span>${status === 'RAIN_LIKELY' ? 'WET' : (status === 'RAIN_POSSIBLE' ? 'DAMP' : 'DRY')}</span></span>
+                        <span class="${isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-white drop-shadow-md'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-lg opacity-90"></i> ${Math.round(rainProb)}%</span>
+                        <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-lg opacity-90"></i> UV ${uv}</span>
+                    </div>
                 `;
+                scrollTrack.appendChild(card);
             });
 
-            htmlBuffer += '</div>';
-            updateHTML(DOM.timelineContainer, htmlBuffer);
+            updateHTML(DOM.timelineContainer, '');
+            DOM.timelineContainer.appendChild(fragment);
             if (scrollPos > 0) {
                 const newScrollTrack = document.getElementById('timeline-scroll-track');
                 if (newScrollTrack) newScrollTrack.scrollTop = scrollPos;
@@ -2114,8 +2124,9 @@
         // shaded confidence band without adding a legend entry or tooltip line.
         function renderChart(labels, rainData, solarData, uvData, hourlyAgreement, tempBand) {
             const tc = THEME_COLORS;
-            const tempMin = tempBand.map(b => b ? b.min : null);
-            const tempMax = tempBand.map(b => b ? b.max : null);
+            // tempBand is now { min: Float32Array, max: Float32Array }
+            const tempMin = Array.from(tempBand.min);
+            const tempMax = Array.from(tempBand.max);
 
             if (state.chart) {
                 state.chart.data.labels.splice(0, state.chart.data.labels.length, ...labels);
@@ -2275,14 +2286,40 @@
             const rJP = clean(precipModels.jma_seamless);
 
             const maxSlice = Math.min(nowIndex + 24, h.time.length);
-            const rainData = { eu: rEU.slice(nowIndex, maxSlice), us: rUS.slice(nowIndex, maxSlice), de: rDE.slice(nowIndex, maxSlice), jp: rJP.slice(nowIndex, maxSlice) };
+            const sliceLen = maxSlice - nowIndex;
+
+            // Ensure chart buffers are sized correctly (max 48 entries for 2-day forecast)
+            const buf = state.chartBuffers;
+            if (!buf.rEU || buf.rEU.length !== sliceLen) {
+                buf.rEU = new Float32Array(sliceLen);
+                buf.rUS = new Float32Array(sliceLen);
+                buf.rDE = new Float32Array(sliceLen);
+                buf.rJP = new Float32Array(sliceLen);
+                buf.uv = new Float32Array(sliceLen);
+                buf.solar = new Float32Array(sliceLen);
+                buf.agree = new Float32Array(sliceLen);
+                buf.tempMin = new Float32Array(sliceLen);
+                buf.tempMax = new Float32Array(sliceLen);
+            }
+
+            // Fill buffers directly — no new array allocations
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
+                buf.rEU[i] = rEU[j];
+                buf.rUS[i] = rUS[j];
+                buf.rDE[i] = rDE[j];
+                buf.rJP[i] = rJP[j];
+            }
+            const rainData = { eu: buf.rEU, us: buf.rUS, de: buf.rDE, jp: buf.rJP };
 
             const uvArr = hSol.uv_index || new Array(h.time.length).fill(0);
-            const uvData = new Array(maxSlice - nowIndex);
-            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) uvData[i] = uvArr[j] === null ? 0 : uvArr[j];
-            const solarData = clean(hSol.shortwave_radiation).slice(nowIndex, maxSlice);
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) buf.uv[i] = uvArr[j] === null ? 0 : uvArr[j];
+            const uvData = buf.uv;
 
-            const times = new Array(maxSlice - nowIndex);
+            const solarClean = clean(hSol.shortwave_radiation);
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) buf.solar[i] = solarClean[j];
+            const solarData = buf.solar;
+
+            const times = new Array(sliceLen);
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
                 const date = new Date(h.time[j] * 1000);
                 const s = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -2290,16 +2327,16 @@
             }
 
             // Weighted wetness per hour — replaces binary vote counting.
-            const hourlyAgreement = new Array(maxSlice - nowIndex);
-            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
-                hourlyAgreement[i] = WeatherEnsemble.weightedWetnessAt(precipModels, j).pct;
-            }
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) buf.agree[i] = WeatherEnsemble.weightedWetnessAt(precipModels, j).pct;
+            const hourlyAgreement = buf.agree;
 
             // Temperature confidence band — min/max across reporting models per hour.
-            const tempBand = new Array(maxSlice - nowIndex);
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
-                tempBand[i] = WeatherEnsemble.bandAt(tempModels, j);
+                const band = WeatherEnsemble.bandAt(tempModels, j);
+                buf.tempMin[i] = band ? band.min : NaN;
+                buf.tempMax[i] = band ? band.max : NaN;
             }
+            const tempBand = { min: buf.tempMin, max: buf.tempMax }; // compact object for renderChart
 
             // WMO code majority vote at "now" — feeds code-agreement badge.
             const codeAgreement = WeatherEnsemble.weightedMajorityAt(codeModels, nowIndex);
@@ -2336,14 +2373,25 @@
                 const el = document.getElementById(`stat-${id}`);
                 if (!el) return;
                 const health = nodeHealth ? nodeHealth[idx] : { healthy: true, coveragePct: 100 };
+                
+                // Use classList for efficient updates instead of full className replacement
+                el.classList.toggle('bg-brand-red', health.coveragePct < WeatherEnsemble.HEALTH_DOWN_PCT);
+                el.classList.toggle('border-brand-red', health.coveragePct < WeatherEnsemble.HEALTH_DOWN_PCT);
+                el.classList.toggle('text-black', health.coveragePct < WeatherEnsemble.HEALTH_DOWN_PCT);
+                
+                el.classList.toggle('bg-brand-warning/20', health.coveragePct >= WeatherEnsemble.HEALTH_DOWN_PCT && health.coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT);
+                el.classList.toggle('border-brand-warning/50', health.coveragePct >= WeatherEnsemble.HEALTH_DOWN_PCT && health.coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT);
+                el.classList.toggle('text-brand-warning', health.coveragePct >= WeatherEnsemble.HEALTH_DOWN_PCT && health.coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT);
+                
+                el.classList.toggle('bg-brand-success/20', health.coveragePct >= WeatherEnsemble.HEALTH_DEGRADED_PCT);
+                el.classList.toggle('border-brand-success/50', health.coveragePct >= WeatherEnsemble.HEALTH_DEGRADED_PCT);
+                el.classList.toggle('text-brand-success', health.coveragePct >= WeatherEnsemble.HEALTH_DEGRADED_PCT);
+                
                 if (health.coveragePct < WeatherEnsemble.HEALTH_DOWN_PCT) {
-                    updateClass(el, "font-bold px-2 py-0.5 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest");
                     updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`);
                 } else if (health.coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT) {
-                    updateClass(el, "font-bold px-2 py-0.5 bg-brand-warning/20 border border-brand-warning/50 text-brand-warning rounded flex-1 md:flex-none text-center uppercase tracking-widest");
                     updateHTML(el, `<i class="fa-solid fa-circle-half-stroke mr-1"></i> ${id.toUpperCase()}`);
                 } else {
-                    updateClass(el, "font-bold px-2 py-0.5 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest");
                     updateHTML(el, id.toUpperCase());
                 }
                 el.title = `${Math.round(health.coveragePct)}% data coverage`;
@@ -2356,10 +2404,9 @@
 
             // Color reflects actual meaning: red = high wet consensus, teal = dry consensus
             if (DOM.metricAgree) {
-                const agreeColorClass = currentStatus === 'RAIN_LIKELY'   ? 'text-brand-red'
-                                      : currentStatus === 'RAIN_POSSIBLE' ? 'text-brand-warning'
-                                      :                                      'text-brand-teal';
-                updateClass(DOM.metricAgree, `font-mono text-4xl md:text-5xl font-black leading-none ${agreeColorClass}`);
+                DOM.metricAgree.classList.toggle('text-brand-red', currentStatus === 'RAIN_LIKELY');
+                DOM.metricAgree.classList.toggle('text-brand-warning', currentStatus === 'RAIN_POSSIBLE');
+                DOM.metricAgree.classList.toggle('text-brand-teal', currentStatus !== 'RAIN_LIKELY' && currentStatus !== 'RAIN_POSSIBLE');
             }
 
             // Temp spread: ±half-spread of the 4-model band at current hour
