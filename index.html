@@ -182,9 +182,9 @@
                     </div>
                 </div>
 
-                <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
-                <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
-                <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
+                <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue"></i>
+                <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase">ACQUIRING GPS</span>
+                <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">Awaiting satellite lock...</div>
                 <!-- NEW: model weather-code agreement badge -->
                 <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest"></div>
             </div>
@@ -482,7 +482,9 @@
                 try {
                     const res = await fetch(url, { ...options, signal: combinedSignal });
                     clearTimeout(id);
-                    if (res.ok || res.status < 500) return res;
+                    if (res.ok) return res;
+                    // Throw for non-ok responses (4xx, 5xx) to trigger retry/fallback
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 } catch (e) {
                     clearTimeout(id);
                     if (i === retries - 1) throw e;
@@ -1206,8 +1208,22 @@
         function startBackgroundTracking() {
             if (state.gpsWatchId) return;
             const EMA_ALPHA_SPEED = 0.85;
+
+            // GPS timeout: if no fix within 15s, show error
+            state.gpsTimeoutHandle = setTimeout(() => {
+                if (!state.autoCoords) {
+                    updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+                    updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
+                    updateText(DOM.statusText, "SEARCH LOCATION");
+                    updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase");
+                    updateText(DOM.weatherDesc, "GPS BLOCKED OR TIMEOUT.");
+                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS TIMEOUT`);
+                }
+            }, 15000);
+
             state.gpsWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
+                    clearTimeout(state.gpsTimeoutHandle); // Clear timeout on first fix
                     const lat = pos.coords.latitude;
                     const lon = pos.coords.longitude;
                     const gpsHeading = pos.coords.heading;
@@ -2517,6 +2533,8 @@
 
                 const modelList = WeatherEnsemble.models.join(',');
 
+                console.log('[MeteoNexus] Fetching weather data for:', lat, lon);
+
                 const [rCurr, rFore, rSolar] = await Promise.all([
                     // rCurr: single best_match, fields needed for real-time display
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
@@ -2526,7 +2544,34 @@
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
                 ]);
 
+                console.log('[MeteoNexus] API responses received:', { 
+                    current: rCurr.status, 
+                    forecast: rFore.status, 
+                    solar: rSolar.status 
+                });
+
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
+
+                console.log('[MeteoNexus] Parsed API data:', { 
+                    hasCurrent: !!dCurr.current, 
+                    hasForecast: !!dFore.hourly, 
+                    hasSolar: !!dSolar.hourly 
+                });
+
+                // Validate API responses have expected structure before processing
+                const validateWeatherResponse = (data, type) => {
+                    if (!data || data.error) return false;
+                    if (type === 'current') return data.current && typeof data.current.temperature_2m === 'number';
+                    if (type === 'forecast') return data.hourly && Array.isArray(data.hourly.time) && data.hourly.time.length > 0;
+                    if (type === 'solar') return data.hourly && Array.isArray(data.hourly.time) && data.hourly.time.length > 0;
+                    return false;
+                };
+
+                if (!validateWeatherResponse(dCurr, 'current') || !validateWeatherResponse(dFore, 'forecast') || !validateWeatherResponse(dSolar, 'solar')) {
+                    console.warn("API response validation failed:", { dCurr, dFore, dSolar });
+                    throw new Error("Invalid API response structure");
+                }
+
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
 
@@ -2752,28 +2797,39 @@
         async function runApp() {
             initComputeWorker();
             requestWakeLock();
-            startBackgroundTracking();
             await FuelManager.init();
             requestAnimationFrame(smoothVisualsLoop);
+
+            // Initialize GPS state
+            updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-blue/50 bg-brand-blue/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+            updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-satellite text-brand-blue');
+            updateText(DOM.statusText, "ACQUIRING GPS");
+            updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-blue uppercase");
+            updateText(DOM.weatherDesc, "Awaiting satellite lock...");
+
+            // Use watchPosition only (more reliable than getCurrentPosition for continuous updates)
+            // startBackgroundTracking sets up watchPosition and handles GPS internally
+            startBackgroundTracking();
+            
+            // Wait for initial GPS fix with timeout
+            const gpsTimeout = setTimeout(() => {
+                if (!state.autoCoords) {
+                    updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+                    updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
+                    updateText(DOM.statusText, "GPS TIMEOUT");
+                    updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase");
+                    updateText(DOM.weatherDesc, "GPS signal not acquired. Ensure location permissions are granted.");
+                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS TIMEOUT`);
+                }
+            }, 15000); // 15 second timeout for initial GPS fix
+
+            // Clear timeout once GPS is acquired
+            const originalGpsCallback = navigator.geolocation.watchPosition;
+            // We'll clear the timeout in startBackgroundTracking's success callback
+            state.gpsTimeoutHandle = gpsTimeout;
+
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false);
-            } else if (state.autoCoords) {
-                initMap(state.autoCoords.lat, state.autoCoords.lon);
-                if (state.isMapLocked) window.applyTacticalMode();
-                fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
-            } else if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    p => { state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude }; initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); },
-                    () => {
-                        updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
-                        updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
-                        updateText(DOM.statusText, "SEARCH LOCATION");
-                        updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase");
-                        updateText(DOM.weatherDesc, "GPS BLOCKED.");
-                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`);
-                    },
-                    { timeout: 10000, enableHighAccuracy: true }
-                );
             }
         }
 
