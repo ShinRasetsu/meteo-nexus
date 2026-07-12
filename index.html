@@ -885,6 +885,9 @@
 
         function executeRenderPipeline() {
             state.renderPending = false;
+            const now = Date.now();
+
+            // Process raw sensor heading if available
             if (state.rawSensorHeading !== null) {
                 if (state.sensorHeading === null) {
                     state.sensorHeading = state.rawSensorHeading;
@@ -899,6 +902,12 @@
                 window.__METEO_CORE_STATE.fusedHeading = state.sensorHeading;
                 state.rawSensorHeading = null;
             }
+
+            // Fallback: if no new renderHeading but we have sensorHeading, use it for initial display
+            if (state.renderHeading === null && state.sensorHeading !== null && state.lastHeading === 0) {
+                state.renderHeading = state.sensorHeading;
+            }
+
             if (state.renderSpeed !== null) {
                 const spdStr = state.renderSpeed.toString();
                 if (_mainUiCache.speed !== spdStr) { updateText(DOM.liveSpeed, spdStr); _mainUiCache.speed = spdStr; }
@@ -940,8 +949,12 @@
             requestAnimationFrame(smoothVisualsLoop);
             const dt = Math.min(time - lastVisualFrameTime, 100);
             lastVisualFrameTime = time;
-            if (!state.mapObj || !state.autoCoords) return;
+
+            // Always process render pipeline for compass updates
             if (state.rawSensorHeading !== null) triggerRenderPipeline();
+
+            // Skip map positioning if not ready
+            if (!state.mapObj || !state.autoCoords) return;
 
             let targetLat = state.autoCoords.lat;
             let targetLon = state.autoCoords.lon;
@@ -2961,6 +2974,13 @@
                     activeHeading = deviceHdg; headingValid = true; headingQuality = 0.4; headingSource = 'imu';
                 }
 
+                // No heading source at all - show indicator
+                if (!headingValid) {
+                    headingSource = 'none';
+                    if (visualHeading === null) visualHeading = 0;
+                    console.warn('[AeroHUD] No heading source: fused=null, gnss=null, device=null');
+                }
+
                 // Calibration figure-8: show when using IMU or GNSS older than 1s, AND magnetometer variance is high
                 const gnssStale = gnssHdg !== null && gnssAge > 1000;
                 const usingMagnetometer = (headingSource === 'imu') || (headingSource === 'fused' && st.quaternionActive !== true);
@@ -3010,8 +3030,21 @@
                             visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
                         }
                     }
-                    const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
-                    if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                } else {
+                    // No heading source - show static ring with "NO SENSOR" indicator
+                    if (visualHeading === null) visualHeading = 0;
+                    headingSource = 'none';
+                }
+                const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
+                if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+
+                // Update heading source indicator
+                if (_el.calibMsg && headingSource !== 'none' && _uiCache.calibSource !== headingSource) {
+                    _el.calibMsg.innerHTML = `<i class="fa-solid fa-magnet fa-spin"></i> SRC: ${headingSource.toUpperCase()}`;
+                    _uiCache.calibSource = headingSource;
+                } else if (_el.calibMsg && headingSource === 'none' && _uiCache.calibSource !== 'none') {
+                    _el.calibMsg.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> NO HEADING SOURCE`;
+                    _uiCache.calibSource = 'none';
                 }
 
                 // WIND VECTOR MATH + SMOOTHING
