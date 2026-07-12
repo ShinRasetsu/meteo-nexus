@@ -2888,10 +2888,9 @@
                     }
                 }
 
-                // CALIBRATION/HEADING STATUS INDICATOR
-                // Shows: GNSS accuracy, MAG calibration, magnetic declination
+                // CALIBRATION/HEADING STATUS INDICATOR — always visible
+                // Format: "GNSS : 12m | MAG : Declination" or "NO GNSS | MAG : 1.2°" or "NO GNSS | MAG-Uncal : 15°"
                 if (_el.calib) {
-                    let calibStr = 'hidden';
                     let msg = '';
                     let msgClass = 'text-brand-orange';
 
@@ -2899,21 +2898,46 @@
                     const hasGNSS = gnssHdg !== null && gnssAge < 3000;
                     const hasMAG = deviceHdg !== null;
 
-                    if (hasGNSS) {
-                        calibStr = 'show';
+                    if (headingSource === 'gnss') {
+                        // GNSS heading active
                         const accStr = gnssAcc !== undefined ? `${Math.round(gnssAcc)}m` : '---';
                         if (hasMAG) {
-                            // Both available - show GNSS accuracy + MAG declination
                             msg = `GNSS : ${accStr} | MAG : Declination`;
                             msgClass = 'text-brand-teal';
                         } else {
                             msg = `GNSS : ${accStr} | MAG : ---`;
                             msgClass = 'text-gray-400';
                         }
-                    } else if (hasMAG) {
-                        // Only MAG available (fused/IMU)
-                        calibStr = 'show';
-                        if (calibBufFull) {
+                    } else if (headingSource === 'fused') {
+                        // Fused heading - check if using quaternion (IMU) or GNSS
+                        const accStr = st.gpsAccuracy !== undefined ? `${Math.round(st.gpsAccuracy)}m` : '---';
+                        if (hasMAG && calibBufFull) {
+                            // MAG variance from internal buffer
+                            let sumSin = 0, sumCos = 0, n = calibHeadingBuf.length;
+                            for (let i = 0; i < n; i++) {
+                                const rad = calibHeadingBuf[i] * (Math.PI / 180);
+                                sumSin += Math.sin(rad);
+                                sumCos += Math.cos(rad);
+                            }
+                            const meanResultant = Math.sqrt(sumSin * sumSin + sumCos * sumCos) / n;
+                            const circularVariance = 1 - meanResultant;
+                            const varianceDeg2 = circularVariance * 360 * 360 / (4 * Math.PI);
+                            const magStd = Math.sqrt(varianceDeg2);
+
+                            if (varianceDeg2 > CALIB_VAR_THRESHOLD) {
+                                msg = `GNSS : ${accStr} | MAG-Uncal : ${magStd.toFixed(0)}°`;
+                                msgClass = 'text-brand-warning';
+                            } else {
+                                msg = `GNSS : ${accStr} | MAG : ${magStd.toFixed(1)}°`;
+                                msgClass = 'text-brand-success';
+                            }
+                        } else {
+                            msg = `GNSS : ${accStr} | MAG : ---`;
+                            msgClass = 'text-gray-400';
+                        }
+                    } else if (headingSource === 'imu') {
+                        // Pure IMU - no GNSS
+                        if (hasMAG && calibBufFull) {
                             let sumSin = 0, sumCos = 0, n = calibHeadingBuf.length;
                             for (let i = 0; i < n; i++) {
                                 const rad = calibHeadingBuf[i] * (Math.PI / 180);
@@ -2936,15 +2960,18 @@
                             msg = 'NO GNSS | MAG : ---';
                             msgClass = 'text-gray-400';
                         }
+                    } else if (headingSource === 'none') {
+                        msg = 'NO HEADING SOURCE';
+                        msgClass = 'text-brand-red';
                     } else {
-                        calibStr = 'hidden';
+                        msg = '---';
+                        msgClass = 'text-gray-400';
                     }
 
-                    // Update visibility
-                    if (_uiCache.calib !== calibStr) {
-                        if (calibStr === 'hidden') { _el.calib.classList.add('opacity-0'); }
-                        else { _el.calib.classList.remove('opacity-0'); }
-                        _uiCache.calib = calibStr;
+                    // ALWAYS show the indicator
+                    if (_uiCache.calib !== 'show') {
+                        _el.calib.classList.remove('opacity-0');
+                        _uiCache.calib = 'show';
                     }
 
                     // Update message
