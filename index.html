@@ -1195,6 +1195,7 @@
                     window.__METEO_CORE_STATE.altitude = pos.coords.altitude;
                     if (speed !== null) window.__METEO_CORE_STATE.speed = speed;
                     window.__METEO_CORE_STATE.lastGnssUpdate = now;
+                    window.__METEO_CORE_STATE.gpsAccuracy = accuracy;
                     if (gpsHeading !== null && !isNaN(gpsHeading)) window.__METEO_CORE_STATE.gnssHeading = gpsHeading;
 
                     let timeDeltaSec = (now - state.lastLocationTimestamp) / 1000;
@@ -2659,7 +2660,7 @@
                         <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
                         <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
                         <span id="ui-radar-calibrate" class="text-[10px] font-black text-brand-orange uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md flex items-center gap-1">
-                            <i class="fa-solid fa-magnet fa-spin"></i> CALIBRATE: FIGURE-8
+                            <i class="fa-solid fa-magnet fa-spin"></i> <span id="ui-radar-calib-msg">CALIBRATE: FIGURE-8</span>
                         </span>
                     </div>
                     <div class="flex items-start gap-4">
@@ -2738,6 +2739,7 @@
                 altContainer: document.getElementById('ui-radar-alt-container'),
                 gust:         document.getElementById('ui-radar-gust'),
                 calib:        document.getElementById('ui-radar-calibrate'),
+                calibMsg:     document.getElementById('ui-radar-calib-msg'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
                 ghost: [
@@ -2789,9 +2791,12 @@
             let visualWindAngle = null;
             let lastRenderTime  = performance.now();
 
-            // Calibration figure-8 state
+            // Calibration figure-8 state — detects magnetometer quality via heading variance
             let showCalibration = false;
             let calibAnimTime = 0;
+            const calibHeadingBuf = new Float32Array(30); // ~500ms at 60fps
+            let calibBufIdx = 0;
+            let calibBufFull = false;
 
             // Cardinal direction LUT — zero allocation at runtime
             const CARDINAL_LUT = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
@@ -2799,6 +2804,9 @@
 
             // Time constants per source quality (ms) — longer = more smoothing
             const HEADING_TC = { fused: 100, gnss: 200, imu: 500 };
+
+            // Heading variance threshold (deg²) — above this = likely uncalibrated magnetometer
+            const CALIB_VAR_THRESHOLD = 25; // ~5° std dev
 
             // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
             function renderAero() {
@@ -2853,13 +2861,70 @@
                     }
                 }
 
-                // CALIBRATION INDICATOR — figure-8 when heading source is IMU or stale GNSS
+                // CALIBRATION/HEADING STATUS INDICATOR
+                // Shows: GNSS accuracy, MAG calibration, magnetic declination
                 if (_el.calib) {
-                    const calibStr = showCalibration ? 'show' : 'hidden';
+                    let calibStr = 'hidden';
+                    let msg = '';
+                    let msgClass = 'text-brand-orange';
+
+                    const gnssAcc = st.gpsAccuracy; // meters, from GPS fix
+                    const hasGNSS = gnssHdg !== null && gnssAge < 3000;
+                    const hasMAG = deviceHdg !== null;
+
+                    if (hasGNSS) {
+                        calibStr = 'show';
+                        const accStr = gnssAcc !== undefined ? `${Math.round(gnssAcc)}m` : '---';
+                        if (hasMAG) {
+                            // Both available - show GNSS accuracy + MAG declination
+                            msg = `GNSS : ${accStr} | MAG : Declination`;
+                            msgClass = 'text-brand-teal';
+                        } else {
+                            msg = `GNSS : ${accStr} | MAG : ---`;
+                            msgClass = 'text-gray-400';
+                        }
+                    } else if (hasMAG) {
+                        // Only MAG available (fused/IMU)
+                        calibStr = 'show';
+                        if (calibBufFull) {
+                            let sumSin = 0, sumCos = 0, n = calibHeadingBuf.length;
+                            for (let i = 0; i < n; i++) {
+                                const rad = calibHeadingBuf[i] * (Math.PI / 180);
+                                sumSin += Math.sin(rad);
+                                sumCos += Math.cos(rad);
+                            }
+                            const meanResultant = Math.sqrt(sumSin * sumSin + sumCos * sumCos) / n;
+                            const circularVariance = 1 - meanResultant;
+                            const varianceDeg2 = circularVariance * 360 * 360 / (4 * Math.PI);
+                            const magStd = Math.sqrt(varianceDeg2);
+
+                            if (varianceDeg2 > CALIB_VAR_THRESHOLD) {
+                                msg = `NO GNSS | MAG-Uncal : ${magStd.toFixed(0)}°`;
+                                msgClass = 'text-brand-red';
+                            } else {
+                                msg = `NO GNSS | MAG : ${magStd.toFixed(1)}°`;
+                                msgClass = 'text-brand-orange';
+                            }
+                        } else {
+                            msg = 'NO GNSS | MAG : ---';
+                            msgClass = 'text-gray-400';
+                        }
+                    } else {
+                        calibStr = 'hidden';
+                    }
+
+                    // Update visibility
                     if (_uiCache.calib !== calibStr) {
                         if (calibStr === 'hidden') { _el.calib.classList.add('opacity-0'); }
                         else { _el.calib.classList.remove('opacity-0'); }
                         _uiCache.calib = calibStr;
+                    }
+
+                    // Update message
+                    if (_el.calibMsg && _el.calibMsg.textContent !== msg) {
+                        _el.calibMsg.textContent = msg;
+                        _el.calibMsg.className = `${msgClass} uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md flex items-center gap-1`;
+                        _el.calibMsg.innerHTML = `<i class="fa-solid fa-magnet fa-spin"></i> ${msg}`;
                     }
                 }
 
@@ -2882,9 +2947,36 @@
                     activeHeading = deviceHdg; headingValid = true; headingQuality = 0.4; headingSource = 'imu';
                 }
 
-                // Calibration figure-8: show when using IMU or GNSS older than 1s
+                // Calibration figure-8: show when using IMU or GNSS older than 1s, AND magnetometer variance is high
                 const gnssStale = gnssHdg !== null && gnssAge > 1000;
-                showCalibration = (headingSource === 'imu') || gnssStale;
+                const usingMagnetometer = (headingSource === 'imu') || (headingSource === 'fused' && st.quaternionActive !== true);
+
+                // Track magnetometer heading variance for calibration detection
+                if (deviceHdg !== null && usingMagnetometer) {
+                    calibHeadingBuf[calibBufIdx] = deviceHdg;
+                    calibBufIdx = (calibBufIdx + 1) % calibHeadingBuf.length;
+                    if (calibBufIdx === 0) calibBufFull = true;
+
+                    // Compute circular variance
+                    if (calibBufFull || calibBufIdx > 10) {
+                        let sumSin = 0, sumCos = 0, n = calibBufFull ? calibHeadingBuf.length : calibBufIdx;
+                        for (let i = 0; i < n; i++) {
+                            const rad = calibHeadingBuf[i] * (Math.PI / 180);
+                            sumSin += Math.sin(rad);
+                            sumCos += Math.cos(rad);
+                        }
+                        const meanResultant = Math.sqrt(sumSin * sumSin + sumCos * sumCos) / n;
+                        const circularVariance = 1 - meanResultant; // 0 = perfect, 1 = uniform
+                        const varianceDeg2 = circularVariance * 360 * 360 / (4 * Math.PI); // approximate deg²
+
+                        showCalibration = varianceDeg2 > CALIB_VAR_THRESHOLD;
+                    }
+                } else if (gnssStale) {
+                    showCalibration = true;
+                } else {
+                    showCalibration = false;
+                }
+
                 if (showCalibration) calibAnimTime = now;
 
                 // COMPASS RING — EMA in JS with per-source time constants
