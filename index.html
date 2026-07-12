@@ -2647,7 +2647,7 @@
             let targetGrid = null;
             grids.forEach(g => { if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g; });
             if (!targetGrid && grids.length > 0) targetGrid = grids[0];
-            if (!targetGrid) return;
+            if (!targetGrid) { console.warn('[AeroHUD] No grid found, retrying...'); setTimeout(mountActiveAeroUI, 1000); return; }
 
             const aeroContainer = document.createElement('div');
             aeroContainer.className = "lg:col-span-12 w-full mt-2";
@@ -2749,6 +2749,13 @@
                 ]
             };
 
+            // Verify critical elements exist
+            if (!_el.ring || !_el.wind) {
+                console.error('[AeroHUD] Critical elements missing, retrying...', _el);
+                setTimeout(mountActiveAeroUI, 1000);
+                return;
+            }
+
             const expandBtn  = radarCard.querySelector('#radar-expand-btn');
             const dialScaler = radarCard.querySelector('#radar-dial-scaler');
             let isRadarFullscreen = false;
@@ -2817,7 +2824,7 @@
                 requestAnimationFrame(renderAero);
                 if (!_el.ring) return;
 
-                const now = Date.now();
+                try {
                 let activeHeading = 0;
                 let headingValid  = false;
 
@@ -3057,6 +3064,9 @@
                             _el.ghost[i].style.transform = `rotate(${histAngle.toFixed(1)}deg)`;
                         }
                     }
+                }
+                } catch (e) {
+                    console.error('[AeroHUD] render error:', e);
                 }
             }
 
