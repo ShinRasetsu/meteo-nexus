@@ -1,6 +1,6 @@
 import re
 
-with open(r'G:\PROJECT D\meteo-dashboard\index.html', 'r', encoding='utf-8') as f:
+with open(r'G:\PROJECT D\meteo-dashboard\public\index.html', 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Find script content

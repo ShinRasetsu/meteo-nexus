@@ -31,8 +31,28 @@
   <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
+  <script>
+    const THEME_COLORS = { 
+      teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', 
+      orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' 
+    };
 
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: THEME_COLORS,
+            surface: { 900: '#111111', 800: '#1a1a1a', 700: '#2a2a2a' }
+          }
+        }
+      }
+    }
+  </script>
   <script type="module" src="./src/main.ts"></script>
 
   <style>
