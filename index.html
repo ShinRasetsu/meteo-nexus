@@ -2643,11 +2643,17 @@
 
     function mountActiveAeroUI() {
         setTimeout(() => {
+            console.log('[AeroHUD] Mounting...');
             const grids = document.querySelectorAll('.grid');
+            console.log('[AeroHUD] Found grids:', grids.length);
             let targetGrid = null;
-            grids.forEach(g => { if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g; });
+            grids.forEach((g, i) => {
+                console.log(`[AeroHUD] Grid ${i}: className="${g.className}"`);
+                if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g;
+            });
             if (!targetGrid && grids.length > 0) targetGrid = grids[0];
             if (!targetGrid) { console.warn('[AeroHUD] No grid found, retrying...'); setTimeout(mountActiveAeroUI, 1000); return; }
+            console.log('[AeroHUD] Target grid found:', targetGrid);
 
             const aeroContainer = document.createElement('div');
             aeroContainer.className = "lg:col-span-12 w-full mt-2";
@@ -2825,6 +2831,7 @@
                 if (!_el.ring) return;
 
                 try {
+                    console.log('[AeroHUD] render tick', { dt, hasRing: !!_el.ring, hasWind: !!_el.wind });
                 let activeHeading = 0;
                 let headingValid  = false;
 
