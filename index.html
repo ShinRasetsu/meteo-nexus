@@ -2930,18 +2930,20 @@
 
                 // HEADING PRIORITY CHAIN with quality weighting
                 // P1: fusedHeading (EMA-smoothed, kinematically guarded) — highest trust
-                // P2: gnssHeading (raw GNSS, valid within 3s TTL) — medium trust
+                // P2: gnssHeading (raw GNSS, valid within 3s TTL AND speed > 5 km/h) — medium trust
                 // P3: deviceHeading (local IMU) — lowest trust
                 const fusedHdg = st.fusedHeading;
                 const gnssHdg = st.gnssHeading;
                 const gnssAge = now - st.lastGnssUpdate;
                 const deviceHdg = st.deviceHeading;
+                const speedKmh = st.speed !== null ? st.speed * 3.6 : 0; // m/s -> km/h
                 let headingQuality = 0;
                 let headingSource = 'none';
 
                 if (fusedHdg !== null) {
                     activeHeading = fusedHdg; headingValid = true; headingQuality = 1.0; headingSource = 'fused';
-                } else if (gnssHdg !== null && gnssAge < 3000) {
+                } else if (gnssHdg !== null && gnssAge < 3000 && speedKmh > 5) {
+                    // Only trust GNSS heading when moving > 5 km/h
                     activeHeading = gnssHdg; headingValid = true; headingQuality = 0.7; headingSource = 'gnss';
                 } else if (deviceHdg !== null) {
                     activeHeading = deviceHdg; headingValid = true; headingQuality = 0.4; headingSource = 'imu';
