@@ -892,7 +892,8 @@
                     let diff = state.rawSensorHeading - state.sensorHeading;
                     if (diff > 180) diff -= 360;
                     if (diff < -180) diff += 360;
-                    state.sensorHeading = (state.sensorHeading + diff * 0.75 + 360) % 360;
+                    // More aggressive smoothing: 0.15 factor (85% old, 15% new) vs old 0.75
+                    state.sensorHeading = (state.sensorHeading + diff * 0.15 + 360) % 360;
                 }
                 if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) state.renderHeading = state.sensorHeading;
                 window.__METEO_CORE_STATE.fusedHeading = state.sensorHeading;
@@ -1149,7 +1150,22 @@
 
         // --- MAGNETOMETER HOOKS ---
         let hasAbsoluteOrientation = false;
-        function handleOrientationUpdate(alphaOrHeading) { state.rawSensorHeading = alphaOrHeading; }
+        const HEADING_DEADBAND = 2.0; // degrees - ignore changes smaller than this
+        let lastRawHeading = null;
+        function handleOrientationUpdate(alphaOrHeading) {
+            if (lastRawHeading === null) {
+                lastRawHeading = alphaOrHeading;
+                state.rawSensorHeading = alphaOrHeading;
+            } else {
+                let diff = alphaOrHeading - lastRawHeading;
+                if (diff > 180) diff -= 360;
+                if (diff < -180) diff += 360;
+                if (Math.abs(diff) >= HEADING_DEADBAND) {
+                    lastRawHeading = alphaOrHeading;
+                    state.rawSensorHeading = alphaOrHeading;
+                }
+            }
+        }
 
         window.addEventListener('deviceorientationabsolute', (e) => {
             if (e.alpha !== null) { hasAbsoluteOrientation = true; handleOrientationUpdate(360 - e.alpha); }
@@ -1663,10 +1679,11 @@
             try {
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
+                const modelList = WeatherEnsemble.models.join(',');
 
                 const [baseRes, modelRes] = await Promise.all([
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500),
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=${WeatherEnsemble.models.join(',')}&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500)
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation,weather_code&models=${modelList}&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500)
                 ]);
 
                 const baseData = await baseRes.json();
@@ -1740,10 +1757,15 @@
                 } else { code = 0; temp = 0; prec = 0; }
                 uv = p.hourly ? (p.hourly.uv_index[safeIdx] || 0).toFixed(1) : 0;
 
-                const icon = WMO_ICONS[code] || 'fa-cloud';
+                // Ensemble-agreed weather_code for this node (matches wetness consensus)
+                const mH = m.hourly || {};
+                const codeModels = WeatherEnsemble.extractModelArrays(mH, 'weather_code');
+                const codeAgreement = WeatherEnsemble.weightedMajorityAt(codeModels, safeIdx);
+                const agreedCode = (codeAgreement && codeAgreement.code !== null) ? codeAgreement.code : code;
+
+                const icon = WMO_ICONS[agreedCode] || 'fa-cloud';
 
                 // CHANGED: weighted ensemble wetness instead of binary vote count
-                const mH = m.hourly || {};
                 const precipModels = WeatherEnsemble.extractModelArrays(mH, 'precipitation');
                 const wetness = WeatherEnsemble.weightedWetnessAt(precipModels, safeIdx);
                 const status   = WeatherEnsemble.classifyWetness(wetness.pct);
@@ -2156,7 +2178,9 @@
             const uvIdx = uvData.indexOf(maxUV);
             updateText(DOM.metricUvTime, (uvIdx >= 0 && times[uvIdx]) ? "@ " + times[uvIdx].replace(" (+1d)", "") : "--");
 
-            let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
+            // Use ensemble-agreed WMO code so icon matches consensus
+            const agreedCode = (codeAgreement && codeAgreement.code !== null) ? codeAgreement.code : curr.weather_code;
+            let bIcon = WMO_ICONS[agreedCode] || 'fa-circle-notch fa-spin';
             if (curr.is_day === 0) bIcon = bIcon.replace('sun', 'moon');
 
             updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[200px] md:min-h-[250px] relative overflow-hidden ");
@@ -2180,7 +2204,9 @@
                 updateText(DOM.statusText, "RAIN POSSIBLE");
             } else {
                 DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50');
-                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIcon} text-brand-success`);
+                // Use stable icon (sun/cloud) matching ensemble consensus, not observed WMO code
+                const stableIcon = (curr.is_day === 0) ? 'fa-moon' : 'fa-sun';
+                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${stableIcon} text-brand-success`);
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-success uppercase');
                 updateText(DOM.statusText, "STABLE");
             }
@@ -2190,7 +2216,10 @@
                 DOM.weatherDesc.classList.remove("text-gray-300");
                 DOM.weatherDesc.classList.add("text-brand-orange");
             } else {
-                updateText(DOM.weatherDesc, WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`);
+                const obsDesc = WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`;
+                const statusMap = { RAIN_LIKELY: 'RAIN LIKELY', RAIN_POSSIBLE: 'RAIN POSSIBLE', STABLE: 'STABLE' };
+                const forecastStatus = statusMap[currentStatus] || 'STABLE';
+                updateText(DOM.weatherDesc, `Now: ${obsDesc}  |  Forecast: ${forecastStatus}`);
                 DOM.weatherDesc.classList.remove("text-brand-orange");
                 DOM.weatherDesc.classList.add("text-gray-300");
             }
@@ -2629,6 +2658,9 @@
                     <div class="flex flex-col">
                         <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
                         <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
+                        <span id="ui-radar-calibrate" class="text-[10px] font-black text-brand-orange uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md flex items-center gap-1">
+                            <i class="fa-solid fa-magnet fa-spin"></i> CALIBRATE: FIGURE-8
+                        </span>
                     </div>
                     <div class="flex items-start gap-4">
                         <div class="text-right pointer-events-none">
@@ -2705,6 +2737,7 @@
                 windSpeed:    document.getElementById('ui-radar-wind-speed'),
                 altContainer: document.getElementById('ui-radar-alt-container'),
                 gust:         document.getElementById('ui-radar-gust'),
+                calib:        document.getElementById('ui-radar-calibrate'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
                 ghost: [
@@ -2745,19 +2778,27 @@
             const _uiCache = {
                 alt: '', windSpeed: '', gust: 'hidden',
                 ringTrans: '', relAngle: '',
-                windTrans: '', head: '', cross: ''
+                windTrans: '', head: '', cross: '',
+                calib: 'hidden'
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
-            // visualHeading   → compass ring  (TC=120ms)
+            // visualHeading   → compass ring  (TC varies by source quality)
             // visualWindAngle → wind vector   (TC=300ms)
             let visualHeading   = null;
             let visualWindAngle = null;
             let lastRenderTime  = performance.now();
 
+            // Calibration figure-8 state
+            let showCalibration = false;
+            let calibAnimTime = 0;
+
             // Cardinal direction LUT — zero allocation at runtime
             const CARDINAL_LUT = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
             const getCardinalStr = (deg) => CARDINAL_LUT[Math.floor((deg / 22.5) + 0.5) & 15];
+
+            // Time constants per source quality (ms) — longer = more smoothing
+            const HEADING_TC = { fused: 100, gnss: 200, imu: 500 };
 
             // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
             function renderAero() {
@@ -2812,6 +2853,16 @@
                     }
                 }
 
+                // CALIBRATION INDICATOR — figure-8 when heading source is IMU or stale GNSS
+                if (_el.calib) {
+                    const calibStr = showCalibration ? 'show' : 'hidden';
+                    if (_uiCache.calib !== calibStr) {
+                        if (calibStr === 'hidden') { _el.calib.classList.add('opacity-0'); }
+                        else { _el.calib.classList.remove('opacity-0'); }
+                        _uiCache.calib = calibStr;
+                    }
+                }
+
                 // HEADING PRIORITY CHAIN with quality weighting
                 // P1: fusedHeading (EMA-smoothed, kinematically guarded) — highest trust
                 // P2: gnssHeading (raw GNSS, valid within 3s TTL) — medium trust
@@ -2821,18 +2872,24 @@
                 const gnssAge = now - st.lastGnssUpdate;
                 const deviceHdg = st.deviceHeading;
                 let headingQuality = 0;
+                let headingSource = 'none';
 
                 if (fusedHdg !== null) {
-                    activeHeading = fusedHdg; headingValid = true; headingQuality = 1.0;
+                    activeHeading = fusedHdg; headingValid = true; headingQuality = 1.0; headingSource = 'fused';
                 } else if (gnssHdg !== null && gnssAge < 3000) {
-                    activeHeading = gnssHdg; headingValid = true; headingQuality = 0.7;
+                    activeHeading = gnssHdg; headingValid = true; headingQuality = 0.7; headingSource = 'gnss';
                 } else if (deviceHdg !== null) {
-                    activeHeading = deviceHdg; headingValid = true; headingQuality = 0.4;
+                    activeHeading = deviceHdg; headingValid = true; headingQuality = 0.4; headingSource = 'imu';
                 }
 
-                // COMPASS RING — EMA in JS, no CSS transition (stops the stop-dance)
-                // TC=120ms at 60fps → lerpA≈0.127/frame → 99% of target in ~550ms
-                // Adaptive lerp: faster convergence when quality is high
+                // Calibration figure-8: show when using IMU or GNSS older than 1s
+                const gnssStale = gnssHdg !== null && gnssAge > 1000;
+                showCalibration = (headingSource === 'imu') || gnssStale;
+                if (showCalibration) calibAnimTime = now;
+
+                // COMPASS RING — EMA in JS with per-source time constants
+                // Deadband: ignore changes < 0.3° to eliminate micro-jitter
+                const DEADBAND_DEG = 0.3;
                 if (headingValid) {
                     if (visualHeading === null) {
                         visualHeading = activeHeading;
@@ -2840,8 +2897,12 @@
                         let hdiff = activeHeading - visualHeading;
                         if (hdiff >  180) hdiff -= 360;
                         if (hdiff < -180) hdiff += 360;
-                        const lerpA = 1 - Math.exp(-dt / (headingQuality > 0.8 ? 80 : 120));
-                        visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
+                        // Apply deadband
+                        if (Math.abs(hdiff) >= DEADBAND_DEG) {
+                            const tc = HEADING_TC[headingSource] || 200;
+                            const lerpA = 1 - Math.exp(-dt / tc);
+                            visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
+                        }
                     }
                     const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
                     if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
