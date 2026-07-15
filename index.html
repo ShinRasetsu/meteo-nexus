@@ -753,7 +753,9 @@
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
             renderAccText: null, renderAccClass: null,
             // Reverse-geocode throttle
-            lastRevGeoLat: null, lastRevGeoLon: null
+            lastRevGeoLat: null, lastRevGeoLon: null,
+            // Sync engine
+            dataStale: false, staleWarned: false, syncTimer: null
         };
 
         function fastDistance(lat1, lon1, lat2, lon2) {
@@ -1210,8 +1212,24 @@
                         initMap(lat, lon);
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (fastDistance(lat, lon, state.lastHudLat, state.lastHudLon) / 1000);
-                        if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
-                            state.lastFetchAttempt = now; fetchData(lat, lon, false);
+                        
+                        // --- ADAPTIVE SYNC ENGINE ---
+                        const cacheAge = now - state.telemetryCache.timestamp;
+                        const isMoving = distMovedKm > 0.1; // ~100m threshold
+                        const syncInterval = isMoving ? 120000 : 300000; // 2min moving, 5min stationary
+                        const forceSync = state.lastHudLat === 0 || cacheAge > syncInterval;
+                        
+                        if ((forceSync || distMovedKm > CONFIG.cacheDistThresholdKm || cacheAge > CONFIG.cacheTTL) && (now - state.lastFetchAttempt > 10000)) {
+                            state.lastFetchAttempt = now; 
+                            fetchData(lat, lon, false);
+                        }
+                        // Staleness watchdog for UI
+                        state.dataStale = cacheAge > (syncInterval * 2);
+                        if (state.dataStale && !state.staleWarned) {
+                            state.staleWarned = true;
+                            updateHTML(DOM.locationBadge, `<i class="fa-solid fa-triangle-exclamation text-brand-warning"></i> ${sanitizeHTML((state.lastRevGeoLat!==null?'LIVE':'GPS'))} | STALE`);
+                        } else if (!state.dataStale && state.staleWarned) {
+                            state.staleWarned = false;
                         }
 
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
@@ -2470,6 +2488,7 @@
             initComputeWorker();
             requestWakeLock();
             startBackgroundTracking();
+            initSyncTimer();
             await FuelManager.init();
             requestAnimationFrame(smoothVisualsLoop);
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
