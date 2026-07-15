@@ -751,12 +751,7 @@
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null, timelineIdleTimer: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
-            renderAccText: null, renderAccClass: null,
-            // Reverse-geocode throttle
-            lastRevGeoLat: null, lastRevGeoLon: null,
-            // Sync engine
-            dataStale: false, staleWarned: false, syncTimer: null
-        };
+            renderAccText: null, renderAccClass: null
 
         function fastDistance(lat1, lon1, lat2, lon2) {
             const p = 0.017453292519943295;
@@ -1212,24 +1207,8 @@
                         initMap(lat, lon);
                     } else {
                         const distMovedKm = (state.lastHudLat === 0) ? 999 : (fastDistance(lat, lon, state.lastHudLat, state.lastHudLon) / 1000);
-                        
-                        // --- ADAPTIVE SYNC ENGINE ---
-                        const cacheAge = now - state.telemetryCache.timestamp;
-                        const isMoving = distMovedKm > 0.1; // ~100m threshold
-                        const syncInterval = isMoving ? 120000 : 300000; // 2min moving, 5min stationary
-                        const forceSync = state.lastHudLat === 0 || cacheAge > syncInterval;
-                        
-                        if ((forceSync || distMovedKm > CONFIG.cacheDistThresholdKm || cacheAge > CONFIG.cacheTTL) && (now - state.lastFetchAttempt > 10000)) {
-                            state.lastFetchAttempt = now; 
-                            fetchData(lat, lon, false);
-                        }
-                        // Staleness watchdog for UI
-                        state.dataStale = cacheAge > (syncInterval * 2);
-                        if (state.dataStale && !state.staleWarned) {
-                            state.staleWarned = true;
-                            updateHTML(DOM.locationBadge, `<i class="fa-solid fa-triangle-exclamation text-brand-warning"></i> ${sanitizeHTML((state.lastRevGeoLat!==null?'LIVE':'GPS'))} | STALE`);
-                        } else if (!state.dataStale && state.staleWarned) {
-                            state.staleWarned = false;
+                        if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
+                            state.lastFetchAttempt = now; fetchData(lat, lon, false);
                         }
 
                         let rawSpeedKmh = (speed !== null && speed > 0 && !isNaN(speed)) ? (speed * 3.6) : 0;
@@ -2074,12 +2053,11 @@
             metricTemp: '', metricFeels: '', metricHum: '', metricAgree: '',
             metricTempSpread: '', metricWindSpeed: '', metricWindDir: '',
             metricUvVal: '', metricUvTime: '',
-            statusIconClass: '', statusTextClass: '', statusText: '',
-            weatherDesc: '', weatherDescClass: '',
+            statusIcon: '', statusText: '', statusTextContent: '',
+            weatherDesc: '',
             codeAgreementBadge: '',
-            mainCardClass: '',
-            statEuClass: '', statEuHtml: '', statUsClass: '', statUsHtml: '',
-            statDeClass: '', statDeHtml: '', statJpClass: '', statJpHtml: ''
+            mainCard: '',
+            // Dynamic stat keys will be added on first use: stat-class-*, stat-html-*
         };
 
         function updateCached(el, cacheKey, htmlOrText, isHtml = true) {
@@ -2284,7 +2262,6 @@
 
         // --- RESET ---
         window.resetToAuto = function() {
-            if (state.syncTimer) { clearInterval(state.syncTimer); state.syncTimer = null; }
             if (state.intelFetchAbortController) { state.intelFetchAbortController.abort(); state.intelFetchAbortController = null; }
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; state.customRouteWaypoints = null; state.routeNodes = null; state.originalRouteNodes = null;
@@ -2484,32 +2461,13 @@
             }
         };
 
-        function initSyncTimer() {
-            if (state.syncTimer) clearInterval(state.syncTimer);
-            state.syncTimer = setInterval(() => {
-                if (!state.autoCoords) return;
-                const cacheAge = Date.now() - state.telemetryCache.timestamp;
-                const isMoving = state.currentSpeed >= 2;
-                const syncInterval = isMoving ? 120000 : 300000; // 2min moving, 5min stationary
-                if (cacheAge > syncInterval) {
-                    fetchData(state.autoCoords.lat, state.autoCoords.lon, true);
-                }
-            }, 60000); // check every minute
-        }
-
         // --- APP INIT ---
         async function runApp() {
             initComputeWorker();
             requestWakeLock();
             startBackgroundTracking();
-            initSyncTimer();
             await FuelManager.init();
             requestAnimationFrame(smoothVisualsLoop);
-            
-            // Cleanup sync timer on page unload
-            window.addEventListener('beforeunload', () => {
-                if (state.syncTimer) clearInterval(state.syncTimer);
-            });
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false);
             } else if (state.autoCoords) {
