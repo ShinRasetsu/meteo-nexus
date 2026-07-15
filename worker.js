@@ -268,10 +268,14 @@ function normalizeTelemetryDataWorker(dCurr, dFore, dSolar, isOffline) {
     }
     let curr = dCurr?.current;
     const h    = dFore?.hourly;
-    const hSol = dSolar?.hourly;
+    // Fallback: if dSolar missing, use dFore.hourly (ensemble has UV/solar with model suffixes)
+    const hSol = dSolar?.hourly || { 
+        uv_index: h?.uv_index_ecmwf_ifs025 || [], 
+        shortwave_radiation: h?.shortwave_radiation_ecmwf_ifs025 || [] 
+    };
 
-    if (!h || !h.time || !hSol) {
-        return { error: 'Missing hourly data' };
+    if (!h || !h.time) {
+        return { error: 'Missing forecast hourly data' };
     }
 
     const currentUnixMs = Date.now();

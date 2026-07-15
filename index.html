@@ -143,12 +143,15 @@
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
         </h1>
         
-        <div class="flex flex-wrap items-center gap-2 md:gap-3">
+<div class="flex flex-wrap items-center gap-2 md:gap-3">
             <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
                 <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
             </button>
             <button id="pwa-install-btn" aria-label="Install App" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
+            </button>
+            <button onclick="window.forceWeatherRefresh()" aria-label="Refresh Weather" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-purple/40 bg-brand-purple/10 text-brand-purple text-xs md:text-sm font-bold tracking-widest hover:bg-brand-purple hover:text-white transition-all shadow-sm" title="Force refresh weather data">
+                <i class="fa-solid fa-satellite-dish"></i><span class="hidden md:block">REFRESH</span>
             </button>
             <button onclick="purgeSystem()" aria-label="Purge System Storage" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
@@ -1893,6 +1896,13 @@
             finally { window.location.reload(true); }
         };
 
+        window.forceWeatherRefresh = async function() {
+            if (!state.autoCoords) return;
+            updateText(DOM.weatherDesc, "REFRESHING...");
+            updateClass(DOM.weatherDesc, "mt-2 text-brand-blue font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase");
+            await fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
+        };
+
         async function enforcePersistentStorage() {
             if (navigator.storage && navigator.storage.persist) { const isPersisted = await navigator.storage.persisted(); if (!isPersisted) await navigator.storage.persist(); }
         }
@@ -1913,6 +1923,17 @@
                 updateText(DOM.audio.text, "SONAR OFF");
                 if (ctx.state === 'running') ctx.suspend();
             }
+        };
+
+        window.manualWeatherRefresh = async function() {
+            if (!state.autoCoords) {
+                updateText(DOM.statusEl, "NO GPS LOCK");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
+                return;
+            }
+            updateText(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-spin mr-2"></i> REFRESHING...`);
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-blue/50 animate-pulse whitespace-nowrap");
+            await fetchData(state.autoCoords.lat, state.autoCoords.lon, true);
         };
 
         function playSonarPing() {
@@ -2100,6 +2121,7 @@
             updateCached(DOM.metricWindDir, 'metricWindDir', `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m + 180}deg);"></i>`, true);
 
             const maxUV = uvData.length > 0 ? Math.max(...uvData) : 0;
+            const uvIdx = uvData.indexOf(maxUV);
             updateCached(DOM.metricUvVal, 'metricUvVal', maxUV.toFixed(1), false);
             updateCached(DOM.metricUvTime, 'metricUvTime', (uvIdx >= 0 && times[uvIdx]) ? "@ " + times[uvIdx].replace(" (+1d)", "") : "--", false);
 
@@ -2155,6 +2177,19 @@
 
             const data = await workerTask('NORMALIZE_TELEMETRY', { dCurr, dFore, dSolar, isOffline });
 
+            // Handle worker errors
+            if (data?.error) {
+                console.error('Worker telemetry error:', data.error);
+                // Fallback to cached or direct processing
+                if (!isOffline) {
+                    try {
+                        const cached = await localforage.getItem('telemetry_payload');
+                        if (cached) return processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true);
+                    } catch { }
+                }
+                return;
+            }
+
             // FIX: Aero-Vector HUD wind/gust previously sourced from single best_match (dCurr.current).
             // Now uses the weighted 4-model ensemble. Nothing in initActiveAeroTelemetry changes —
             // it only reads __METEO_CORE_STATE, so the upgrade is transparent to the HUD.
@@ -2191,22 +2226,16 @@
 
                 const modelList = WeatherEnsemble.models.join(',');
 
-                const [rCurr, rFore] = await Promise.all([
+                const [rCurr, rFore, rSolar] = await Promise.all([
                     // rCurr: single best_match, fields needed for real-time display + UV/solar for current
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,uv_index,shortwave_radiation&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
-                    // rFore: all 4 models, all variables including gusts for ensemble bridge
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
+                    // rFore: all 4 models, ensemble variables (no UV/solar)
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
+                    // rSolar: single model, UV and shortwave only (no ensemble)
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
                 ]);
 
-                const dCurr = await rCurr.json(); const dFore = await rFore.json();
-                
-                // Build dSolar from rCurr current + rFore hourly (single model, no ensemble needed for UV/solar)
-                const dSolar = {
-                    hourly: {
-                        uv_index: dFore.hourly.uv_index || dCurr.hourly?.uv_index || [],
-                        shortwave_radiation: dFore.hourly.shortwave_radiation || dCurr.hourly?.shortwave_radiation || []
-                    }
-                };
+                const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
@@ -2436,13 +2465,13 @@
             } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     p => { state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude }; initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); },
-                    () => {
+                    err => {
                         updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
                         updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
                         updateText(DOM.statusText, "SEARCH LOCATION");
                         updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase");
-                        updateText(DOM.weatherDesc, "GPS BLOCKED.");
-                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`);
+                        updateText(DOM.weatherDesc, err.code === 1 ? "GPS BLOCKED. Enable location permission." : "GPS UNAVAILABLE.");
+                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS ${err.code === 1 ? 'BLOCKED' : 'ERROR'}`);
                     },
                     { timeout: 10000, enableHighAccuracy: true }
                 );
