@@ -2632,14 +2632,7 @@
                 </div>
 
                 <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
-                    <div id="ui-radar-horizon-layer" class="absolute inset-0 flex items-center justify-center z-0 pointer-events-none opacity-60">
-                        <div class="w-full h-[2px] bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,1)] relative flex justify-between px-2">
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 -top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute left-2 top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 -top-4"></div>
-                            <div class="w-4 h-[2px] bg-yellow-500 absolute right-2 top-4"></div>
-                        </div>
-                    </div>
+                    
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
                         <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
                         <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
@@ -2702,7 +2695,6 @@
                 gust:         document.getElementById('ui-radar-gust'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
-                horizon:      document.getElementById('ui-radar-horizon-layer'),
                 ghost: [
                     document.getElementById('ui-radar-wind-ghost-1'),
                     document.getElementById('ui-radar-wind-ghost-2'),
@@ -2737,14 +2729,10 @@
             let historyIdx      = 0;
             let lastHistoryTime = 0;
 
-            // Horizon LPF state (alpha=0.1 → ~160ms TC)
-            let smoothedPitch = 0;
-            let smoothedRoll  = 0;
-
             // UI write-cache — prevents DOM thrash at 60fps
             const _uiCache = {
                 alt: '', windSpeed: '', gust: 'hidden',
-                ringTrans: '', horizonTrans: '', relAngle: '',
+                ringTrans: '', relAngle: '',
                 windTrans: '', head: '', cross: ''
             };
 
@@ -2803,15 +2791,7 @@
                     } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
                 }
 
-                // ARTIFICIAL HORIZON — gravity-vector LPF, gimbal-lock immune
-                if (_el.horizon) {
-                    smoothedPitch = (0.1 * st.pitch) + (0.9 * smoothedPitch);
-                    smoothedRoll  = (0.1 * st.roll)  + (0.9 * smoothedRoll);
-                    let pY = (smoothedPitch - 30) * 1.5;
-                    pY = Math.max(-60, Math.min(60, pY));
-                    const hTrans = `translateY(${pY.toFixed(1)}px) rotate(${(-smoothedRoll).toFixed(1)}deg)`;
-                    if (_uiCache.horizonTrans !== hTrans) { _el.horizon.style.transform = hTrans; _uiCache.horizonTrans = hTrans; }
-                }
+                
 
                 // HEADING PRIORITY CHAIN
                 // P1: main engine EMA-smoothed fused heading (kinematically guarded)
