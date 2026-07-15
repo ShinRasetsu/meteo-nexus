@@ -1308,10 +1308,10 @@
                 (err) => {
                     updateText(DOM.statusEl, "GPS SIGNAL LOST");
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap");
-                },
-                { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
-            );
-        }
+},
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
+        );
+    }
 
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
@@ -2284,6 +2284,7 @@
 
         // --- RESET ---
         window.resetToAuto = function() {
+            if (state.syncTimer) { clearInterval(state.syncTimer); state.syncTimer = null; }
             if (state.intelFetchAbortController) { state.intelFetchAbortController.abort(); state.intelFetchAbortController = null; }
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; state.customRouteWaypoints = null; state.routeNodes = null; state.originalRouteNodes = null;
@@ -2483,6 +2484,19 @@
             }
         };
 
+        function initSyncTimer() {
+            if (state.syncTimer) clearInterval(state.syncTimer);
+            state.syncTimer = setInterval(() => {
+                if (!state.autoCoords) return;
+                const cacheAge = Date.now() - state.telemetryCache.timestamp;
+                const isMoving = state.currentSpeed >= 2;
+                const syncInterval = isMoving ? 120000 : 300000; // 2min moving, 5min stationary
+                if (cacheAge > syncInterval) {
+                    fetchData(state.autoCoords.lat, state.autoCoords.lon, true);
+                }
+            }, 60000); // check every minute
+        }
+
         // --- APP INIT ---
         async function runApp() {
             initComputeWorker();
@@ -2491,6 +2505,11 @@
             initSyncTimer();
             await FuelManager.init();
             requestAnimationFrame(smoothVisualsLoop);
+            
+            // Cleanup sync timer on page unload
+            window.addEventListener('beforeunload', () => {
+                if (state.syncTimer) clearInterval(state.syncTimer);
+            });
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false);
             } else if (state.autoCoords) {

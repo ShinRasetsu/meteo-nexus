@@ -216,10 +216,6 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
             };
         }
     }
-                passed: false
-            };
-        }
-    }
     
     nodes.length = validNodeCount;
     return nodes;
