@@ -13,7 +13,6 @@ const STATIC_ASSETS = [
     './worker.js',
     './sw.js',
     // CDN dependencies — precached so first load works offline
-    'https://cdn.tailwindcss.com',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css',
