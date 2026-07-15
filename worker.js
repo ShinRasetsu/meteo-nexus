@@ -52,17 +52,17 @@ const WeatherEnsembleWorker = {
     },
 
     weightedCircularMeanAt(modelArrays, idx) {
-        let sx = 0, sy = 0, weightSum = 0, count = 0;
+        let sx = 0, sy = 0, count = 0;
         for (const m of this.models) {
             const v = modelArrays[m] ? modelArrays[m][idx] : null;
             if (v === null || v === undefined) continue;
             const w = this.weights[m];
             const rad = v * (Math.PI / 180);
             sx += Math.cos(rad) * w; sy += Math.sin(rad) * w;
-            weightSum += w; count++;
+            count++;
         }
         if (count === 0) return null;
-        let deg = Math.atan2(sy / weightSum, sx / weightSum) * (180 / Math.PI);
+        let deg = Math.atan2(sy, sx) * (180 / Math.PI);
         if (deg < 0) deg += 360;
         return deg;
     },
@@ -123,12 +123,17 @@ const WeatherEnsembleWorker = {
 };
 
 // --- HIGH-PERFORMANCE MATH KERNEL ---
-function fastDistance(lat1, lon1, lat2, lon2) {
-    const p = 0.017453292519943295; 
+// Clamped haversine: clamps `a` to [0,1] so near-identical or antipodal points never NaN.
+// Optional cosLat1/cosLat2 let callers (polyline chain) reuse cos(lat) for shared points.
+function fastDistance(lat1, lon1, lat2, lon2, cosLat1, cosLat2) {
+    const p = 0.017453292519943295;
     const c = Math.cos;
-    const a = 0.5 - c((lat2 - lat1) * p)/2 + 
-              c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
-    return 12742000 * Math.asin(Math.sqrt(a)); 
+    const cLat1 = cosLat1 !== undefined ? cosLat1 : c(lat1 * p);
+    const cLat2 = cosLat2 !== undefined ? cosLat2 : c(lat2 * p);
+    const a = 0.5 - c((lat2 - lat1) * p) / 2 +
+              cLat1 * cLat2 * (1 - c((lon2 - lon1) * p)) / 2;
+    const clamped = a < 0 ? 0 : (a > 1 ? 1 : a);
+    return 12742000 * Math.asin(Math.sqrt(clamped));
 }
 
 // --- VALHALLA DECODER (ZERO-ALLOCATION POLYLINE DECOMPRESSION) ---
@@ -158,18 +163,29 @@ function decodeValhallaPolyline(str) {
 }
 
 // --- ROUTE NODE CALCULATOR ---
+// Precomputes lon array and cos(lat) array so fastDistance reuses cos(lat)
+// for shared interior points. Zero-allocation truncation on nodes.
 function calculateRouteNodes(totalDistance, coords, intervalDist) {
     if (!coords || coords.length === 0) return [];
 
-    const totalFutureNodesCount = Math.floor(totalDistance / intervalDist); 
+    const totalFutureNodesCount = Math.floor(totalDistance / intervalDist);
     const nodes = new Array(totalFutureNodesCount);
-    
-    let cumulativeDistances = new Float32Array(coords.length);
+    const n = coords.length;
+    const p = 0.017453292519943295;
+
+    // Resolve .lng/.lon once, precompute cos(lat) once per point
+    const lons = new Float64Array(n);
+    const cosLats = new Float64Array(n);
+    for (let k = 0; k < n; k++) {
+        lons[k] = coords[k].lng !== undefined ? coords[k].lng : coords[k].lon;
+        cosLats[k] = Math.cos(coords[k].lat * p);
+    }
+
+    let cumulativeDistances = new Float32Array(n);
     cumulativeDistances[0] = 0;
-    for (let j = 1; j < coords.length; j++) {
-        const lonPrev = coords[j-1].lng !== undefined ? coords[j-1].lng : coords[j-1].lon;
-        const lonCurr = coords[j].lng !== undefined ? coords[j].lng : coords[j].lon;
-        cumulativeDistances[j] = cumulativeDistances[j-1] + fastDistance(coords[j-1].lat, lonPrev, coords[j].lat, lonCurr);
+    for (let j = 1; j < n; j++) {
+        cumulativeDistances[j] = cumulativeDistances[j - 1] +
+            fastDistance(coords[j - 1].lat, lons[j - 1], coords[j].lat, lons[j], cosLats[j - 1], cosLats[j]);
     }
 
     let searchIdx = 1;
@@ -178,15 +194,15 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
     for (let i = 1; i <= totalFutureNodesCount; i++) {
         const targetDist = i * intervalDist;
         
-        while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) {
+        while (searchIdx < n && cumulativeDistances[searchIdx] < targetDist) {
             searchIdx++;
         }
 
-        if (searchIdx < coords.length) {
+        if (searchIdx < n) {
             const p1 = coords[searchIdx - 1];
             const p2 = coords[searchIdx];
-            const lon1 = p1.lng !== undefined ? p1.lng : p1.lon;
-            const lon2 = p2.lng !== undefined ? p2.lng : p2.lon;
+            const lon1 = lons[searchIdx - 1];
+            const lon2 = lons[searchIdx];
             
             const segmentDist = cumulativeDistances[searchIdx] - cumulativeDistances[searchIdx - 1];
             const excessDist = targetDist - cumulativeDistances[searchIdx - 1];
@@ -196,6 +212,10 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
                 lat: p1.lat + (p2.lat - p1.lat) * ratio,
                 lon: lon1 + (lon2 - lon1) * ratio,
                 id: i,
+                passed: false
+            };
+        }
+    }
                 passed: false
             };
         }
@@ -215,8 +235,8 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
 
     for (let i = 0; i < data.elements.length; i++) {
         const el = data.elements[i];
-        const tLat = el.lat || el.center.lat; 
-        const tLon = el.lon || el.center.lon;
+        const tLat = el.lat !== undefined ? el.lat : el.center.lat;
+        const tLon = el.lon !== undefined ? el.lon : el.center.lon;
         
         const idInt = ((Math.round(tLat * 10000) + 900000) * 10000000) + (Math.round(tLon * 10000) + 1800000);
         
@@ -230,9 +250,10 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
             }
             
             results.set(idInt, { 
-                lat: tLat, lon: tLon, 
+                lat: tLat, lon: tLon,
                 name: el.tags && el.tags.name ? el.tags.name : targetBrand, 
-                dist: (d/1000).toFixed(1),
+                distKm: d / 1000,
+                dist: (d / 1000).toFixed(1),
                 isExact: isExact
             });
         }
@@ -241,22 +262,19 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
     let finalArray = Array.from(results.values());
     let isStrictFiltered = false;
     
-    if (exactMatchesCount > 0 && reqOsmTag) {
+    if (exactMatchesCount > 0) {
         let keepIdx = 0;
         for (let i = 0; i < finalArray.length; i++) {
-            if (finalArray[i].isExact) {
-                finalArray[keepIdx++] = finalArray[i];
-            }
+            if (finalArray[i].isExact) finalArray[keepIdx++] = finalArray[i];
         }
         finalArray.length = keepIdx;
         isStrictFiltered = true;
     }
     
-    finalArray.sort((a,b) => parseFloat(a.dist) - parseFloat(b.dist));
+    finalArray.sort((a, b) => a.distKm - b.distKm);
     
-    for (let i = 0; i < finalArray.length; i++) {
-        finalArray[i].strictFilterActive = isStrictFiltered;
-    }
+    return { stations: finalArray, isStrict: isStrictFiltered };
+}
     
     return { stations: finalArray, isStrict: isStrictFiltered };
 }
@@ -313,32 +331,38 @@ function normalizeTelemetryDataWorker(dCurr, dFore, dSolar, isOffline) {
     // Coverage-% health per model
     const nodeHealth = WeatherEnsembleWorker.models.map(m => WeatherEnsembleWorker.checkHealth(precipModels[m]));
 
-    // Cosmetic zeroing for chart raw lines only
-    const clean = (arr) => {
-        const limit = h.time.length;
-        const src   = arr || new Array(limit).fill(0);
-        const result = new Array(limit);
-        for (let i = 0; i < limit; i++) result[i] = src[i] === null ? 0 : src[i];
+    // Bounded directly to the display window — no full-length intermediate array,
+    // no unused top-level rEU/rUS/rDE/rJP (neither consumer ever read them).
+    const cleanSlice = (arr, start, end) => {
+        const result = new Array(end - start);
+        for (let i = 0, j = start; j < end; i++, j++) {
+            result[i] = (!arr || arr[j] === null || arr[j] === undefined) ? 0 : arr[j];
+        }
         return result;
     };
-    const rEU = clean(precipModels.ecmwf_ifs025);
-    const rUS = clean(precipModels.gfs_seamless);
-    const rDE = clean(precipModels.icon_seamless);
-    const rJP = clean(precipModels.jma_seamless);
 
     const maxSlice = Math.min(nowIndex + 24, h.time.length);
-    const rainData = { eu: rEU.slice(nowIndex, maxSlice), us: rUS.slice(nowIndex, maxSlice), de: rDE.slice(nowIndex, maxSlice), jp: rJP.slice(nowIndex, maxSlice) };
+    const rainData = {
+        eu: cleanSlice(precipModels.ecmwf_ifs025, nowIndex, maxSlice),
+        us: cleanSlice(precipModels.gfs_seamless, nowIndex, maxSlice),
+        de: cleanSlice(precipModels.icon_seamless, nowIndex, maxSlice),
+        jp: cleanSlice(precipModels.jma_seamless, nowIndex, maxSlice)
+    };
 
     const uvArr = hSol.uv_index || new Array(h.time.length).fill(0);
     const uvData = new Array(maxSlice - nowIndex);
     for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) uvData[i] = uvArr[j] === null ? 0 : uvArr[j];
-    const solarData = clean(hSol.shortwave_radiation).slice(nowIndex, maxSlice);
+    const solarData = cleanSlice(hSol.shortwave_radiation, nowIndex, maxSlice);
 
+    // Manual HH:MM instead of toLocaleTimeString — same fixed 24h format,
+    // no Intl formatting overhead on every telemetry refresh.
     const times = new Array(maxSlice - nowIndex);
     for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
         const date = new Date(h.time[j] * 1000);
-        const s = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        times[i] = (s === "00:00" || s === "24:00") ? "00:00 (+1d)" : s;
+        const hh = date.getHours(), mm = date.getMinutes();
+        times[i] = (hh === 0 && mm === 0)
+            ? "00:00 (+1d)"
+            : (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
     }
 
     // Weighted wetness per hour
@@ -371,7 +395,7 @@ function normalizeTelemetryDataWorker(dCurr, dFore, dSolar, isOffline) {
         if (WeatherEnsembleWorker.classifyWetness(hourlyAgreement[i]) === 'RAIN_LIKELY') { incomingRain = true; break; }
     }
 
-    return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement,
+    return { curr, rainData, uvData, solarData, times, hourlyAgreement,
              tempBand, currentAgreement, currentStatus, incomingRain,
              nodeHealth, codeAgreement, windEnsemble };
 }
