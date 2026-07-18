@@ -1732,11 +1732,50 @@
             }
         }
 
+        // Persisted navigation target — survives reload / browser restart.
+        // Stored alongside the cached route-intel payload (`route_intel_${lat}_${lon}`)
+        // so a refreshed session both knows where to point AND has its prior intel.
+        const NAV_STORAGE_KEY = 'meteo_active_nav_v1';
+        function persistNavTarget() {
+            try {
+                if (!window.localforage) return;
+                if (!state.targetCoords) { localforage.removeItem(NAV_STORAGE_KEY).catch(()=>{}); return; }
+                // Strip Leaflet LatLng wrappers — they don't survive structured clone.
+                const storedWaypoints = state.customRouteWaypoints
+                    ? state.customRouteWaypoints.map(wp => ({ lat: wp.lat, lng: wp.lng !== undefined ? wp.lng : wp.lon }))
+                    : null;
+                localforage.setItem(NAV_STORAGE_KEY, {
+                    targetCoords: state.targetCoords,
+                    customRouteWaypoints: storedWaypoints,
+                    isFuelOnlyRoute: !!state.isFuelOnlyRoute,
+                    timestamp: Date.now()
+                }).catch(e => console.warn('Nav target persist failed:', e));
+            } catch(e) { console.warn('Nav target persist blocked:', e); }
+        }
+        async function restoreNavTarget() {
+            try {
+                if (!window.localforage) return null;
+                const stored = await localforage.getItem(NAV_STORAGE_KEY);
+                if (!stored || !stored.targetCoords) return null;
+                // Sanity: stale check — older than 24h, drop it.
+                if (Date.now() - (stored.timestamp || 0) > 86400000) {
+                    localforage.removeItem(NAV_STORAGE_KEY).catch(()=>{});
+                    return null;
+                }
+                return stored;
+            } catch(e) { console.warn('Nav target restore failed:', e); return null; }
+        }
+        function clearPersistedNavTarget() {
+            try { if (window.localforage) localforage.removeItem(NAV_STORAGE_KEY).catch(()=>{}); } catch(e) {}
+        }
+
         window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false, customWaypoints = null) {
             state.targetCoords = { lat: destLat, lon: destLon };
             state.customRouteWaypoints = customWaypoints;
             state.routeNodes = null;
+            state.routeNodesCursor = 0;
             state.isFuelOnlyRoute = isFuelOnly;
+            persistNavTarget();
             DOM.navBtn.classList.remove('hidden');
             if (state.autoCoords) {
                 updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
@@ -1809,8 +1848,12 @@
         // ======================== START OF PART 2 ========================
 
         // --- ROUTE INTELLIGENCE FETCH ---
-        // Caches by destination key (stable for the whole nav session).
-        // Delegates all rendering to renderRouteIntelTimeline so the try/catch is clean.
+        // Per-waypoint CURRENT weather fetch — replaces the previous "ETA-shifted hourly"
+        // approach. Open-Meteo returns one `current` block per coordinate when
+        // `latitude`/`longitude` are comma-separat, so a single batched call gives us
+        // the live reading at every node's location (not an estimated future hour).
+        //
+        // Caches by destination key (stable for the whole nav session) — same as before.
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
 
@@ -1872,7 +1915,6 @@
             }
 
             // Keyed on destination — stable for the whole nav session.
-            // Waypoint list drifts as nodes get marked passed, so a waypoint-exact key would never hit.
             const routeIntelCacheKey = state.targetCoords
                 ? `route_intel_${state.targetCoords.lat.toFixed(3)}_${state.targetCoords.lon.toFixed(3)}`
                 : null;
@@ -1881,8 +1923,12 @@
                 const lats = waypoints.map(w => w.lat).join(',');
                 const lons = waypoints.map(w => w.lon).join(',');
 
+                // One batched call — `current` block per location handles live conditions
+                // for every node. `hourly=precipitation&models=...` gives ensemble member
+                // data; we read index 0 (the hour bracketing "now") so the bulk wetness
+                // API can be used per-waypoint without per-node iteration.
                 const [baseRes, modelRes] = await Promise.all([
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,apparent_temperature,weather_code,precipitation,is_day,wind_speed_10m,wind_direction_10m,relative_humidity_2m&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500),
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=${WeatherEnsemble.models.join(',')}&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500)
                 ]);
 
@@ -1918,13 +1964,24 @@
         }
 
         // --- ROUTE INTEL TIMELINE RENDERER ---
-        // Extracted from fetchRouteIntelligence so the try/catch above stays clean and
-        // the offline fallback can call the same render path without duplicating logic.
-        // Uses WeatherEnsemble.weightedWetnessAt + classifyWetness for a 3-way wet/damp/dry
-        // classification with the same thresholds the dashboard uses.
+        // CURRENT-CONDITIONS MODE:
+        //   Each node now shows the live weather at its own location, NOT an estimated
+        //   arrival-time forecast. Open-Meteo returns one `current` block per coordinate
+        //   in a comma-list query, so a single batched call gives every node's real-time
+        //   reading (temperature, weather_code, precip, wind, feels-like, humidity).
+        //
+        //   UV Index is not available in `current`, so we read it from `hourly[baseNowIndex]`
+        //   — the hour bracketing "now" at the node's location. That's the closest the API
+        //   offers to a current UV reading.
+        //
+        //   Ensemble wetness uses WeatherEnsemble.bulk weightedWetnessAll over a 1-hour
+        //   window anchored at each node's hour bracketing now. This keeps the chart and
+        //   timeline using identical math (same thresholds, same Brier contribution)
+        //   without 99 separate per-node function calls.
         function renderRouteIntelTimeline(waypoints, baseData, modelData, isOffline, scrollPos) {
             const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
             const modelPoints   = Array.isArray(modelData) ? modelData : [modelData];
+            const N = Math.min(waypoints.length, weatherPoints.length, modelPoints.length);
 
             let htmlBuffer = '';
             if (isOffline) {
@@ -1932,39 +1989,64 @@
             }
             htmlBuffer += `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto gap-3 pb-4 pt-2 vertical-scroll scroll-smooth w-full relative max-h-[50vh] pr-2">`;
 
-            weatherPoints.forEach((p, idx) => {
-                const wp = waypoints[idx];
-                const m  = modelPoints[idx];
-
-                const currentUnixMs = Date.now();
-                let baseNowIndex = 0, minDiff = Infinity;
+            // Pre-compute per-waypoint hour-boundary indices (for UV lookup) and per-node
+            // ensemble wetness in a single bulk pass. Done up-front so the render loop is
+            // pure DOM building with no WeatherEnsemble math in it.
+            const nodeStats = new Array(N);
+            const currentUnixMs = Date.now();
+            for (let k = 0; k < N; k++) {
+                const p = weatherPoints[k];
+                const m = modelPoints[k];
+                let baseNowIndex = 0;
                 if (p.hourly && p.hourly.time) {
-                    p.hourly.time.forEach((t, i) => { const diff = Math.abs((t * 1000) - currentUnixMs); if (diff < minDiff) { minDiff = diff; baseNowIndex = i; } });
+                    let minDiff = Infinity;
+                    const times = p.hourly.time;
+                    for (let i = 0; i < times.length; i++) {
+                        const diff = Math.abs((times[i] * 1000) - currentUnixMs);
+                        if (diff < minDiff) { minDiff = diff; baseNowIndex = i; }
+                    }
                 }
-
-                let offsetIdx = 0;
-                if (wp.type === 'upcoming') {
-                    const currentSpeedFallback = (state.smoothedSpeed && state.smoothedSpeed > 10) ? state.smoothedSpeed : 60;
-                    offsetIdx = Math.round(parseFloat(wp.distKm) / currentSpeedFallback);
-                }
-                const safeIdx = p.hourly ? Math.min(baseNowIndex + offsetIdx, p.hourly.time.length - 1) : 0;
-
-                let code, temp, prec, uv;
-                if (wp.type === 'current' && p.current) {
-                    code = p.current.weather_code; temp = Math.round(p.current.temperature_2m); prec = p.current.precipitation || 0;
-                } else if (p.hourly) {
-                    code = p.hourly.weather_code[safeIdx]; temp = Math.round(p.hourly.temperature_2m[safeIdx]); prec = p.hourly.precipitation[safeIdx] || 0;
-                } else { code = 0; temp = 0; prec = 0; }
-                uv = p.hourly ? (p.hourly.uv_index[safeIdx] || 0).toFixed(1) : 0;
-
-                const icon = WMO_ICONS[code] || 'fa-cloud';
-
-                // CHANGED: weighted ensemble wetness instead of binary vote count
                 const mH = m.hourly || {};
                 const precipModels = WeatherEnsemble.extractModelArrays(mH, 'precipitation');
-                const wetness = WeatherEnsemble.weightedWetnessAt(precipModels, safeIdx);
-                const status   = WeatherEnsemble.classifyWetness(wetness.pct);
-                const rainProb = wetness.pct;
+                // Bulk wetness over a 2-hour window (nowIdx-1 .. nowIdx+1) — current hour
+                // is always included; we read the middle of the bulk output. Window gives
+                // the ensemble a tiny temporal smoothing without losing current accuracy.
+                const winStart = Math.max(0, baseNowIndex - 1);
+                const winEnd = Math.min((mH.time || p.hourly?.time || []).length || 0, baseNowIndex + 2);
+                const wetArr = WeatherEnsemble.weightedWetnessAll(precipModels, winStart, winEnd);
+                const wet = wetArr.length >= 2 ? (wetArr[0] + wetArr[1] + (wetArr[2] || wetArr[1])) / Math.min(3, wetArr.length) : (wetArr[0] || 0);
+                nodeStats[k] = { baseNowIndex, wetPct: wet, precipModels, winStart, winEnd };
+            }
+
+            for (let idx = 0; idx < N; idx++) {
+                const wp = waypoints[idx];
+                const p  = weatherPoints[idx];
+                const stats = nodeStats[idx];
+                const safeIdx = stats.baseNowIndex;
+
+                // Per-waypoint CURRENT block — this is the live reading at the node's location.
+                let code = 0, temp = 0, prec = 0, feels = null, hum = null, wd = null, ws = null, isDay = 1;
+                if (p.current) {
+                    code = p.current.weather_code ?? 0;
+                    temp = Math.round(p.current.temperature_2m ?? 0);
+                    prec = p.current.precipitation || 0;
+                    feels = (p.current.apparent_temperature != null) ? Math.round(p.current.apparent_temperature) : null;
+                    hum = p.current.relative_humidity_2m ?? null;
+                    wd  = p.current.wind_direction_10m != null ? p.current.wind_direction_10m : null;
+                    ws  = p.current.wind_speed_10m != null ? Math.round(p.current.wind_speed_10m) : null;
+                    isDay = (p.current.is_day != null) ? p.current.is_day : 1;
+                } else if (p.hourly) {
+                    // Fallback (older API responses, or current block missing): use hour-0.
+                    code = p.hourly.weather_code[safeIdx]; temp = Math.round(p.hourly.temperature_2m[safeIdx]); prec = p.hourly.precipitation[safeIdx] || 0;
+                }
+                // UV not available in `current` — read the hour bracketing "now".
+                const uv = p.hourly ? ((p.hourly.uv_index && p.hourly.uv_index[safeIdx]) || 0).toFixed(1) : '0.0';
+
+                let icon = WMO_ICONS[code] || 'fa-cloud';
+                if (isDay === 0) icon = icon.replace('sun', 'moon');
+
+                const status   = WeatherEnsemble.classifyWetness(stats.wetPct);
+                const rainProb = stats.wetPct;
                 const isWet    = status !== 'STABLE';
 
                 const pathColor = status === 'RAIN_LIKELY'   ? 'text-brand-blue font-black drop-shadow-md'
@@ -1973,25 +2055,34 @@
                 const pathIcon  = status === 'RAIN_LIKELY'   ? 'fa-water'
                                 : status === 'RAIN_POSSIBLE' ? 'fa-cloud-rain'
                                 :                              'fa-road';
-                const uvColor = uv >= 8 ? 'text-brand-red font-black drop-shadow-md' : (uv >= 5 ? 'text-brand-orange drop-shadow-md' : 'text-brand-purple drop-shadow-md');
+                const uvColor = +uv >= 8 ? 'text-brand-red font-black drop-shadow-md' : (+uv >= 5 ? 'text-brand-orange drop-shadow-md' : 'text-brand-purple drop-shadow-md');
 
                 let bgClass = "bg-surface-800", textClass = "text-gray-400", iconClass = "text-gray-300", borderLeft = "border-surface-600";
                 let displayPrimary = "", displayLabel = "", titleBadge = "", glow = "";
+                let extraMeta = "";
 
                 if (wp.type === 'upcoming') {
                     borderLeft = "border-brand-teal";
                     displayPrimary = `N-${wp.id}`;
                     displayLabel   = `<span id="node-dist-${wp.id}">${wp.distKm} KM</span>`;
                     if (idx === 1 || (idx === 0 && !state.autoCoords)) {
-                        titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Active | ETA +${offsetIdx}H</span>`;
+                        titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-broadcast-tower mr-1"></i>LIVE • NOW</span>`;
                         glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)] scale-[1.01]";
                     } else {
-                        titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start">Route | ETA +${offsetIdx}H</span>`;
+                        titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-broadcast-tower mr-1"></i>LIVE • NOW</span>`;
                     }
                     if (status === 'RAIN_LIKELY') {
                         bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red";
                     } else if (status === 'RAIN_POSSIBLE') {
                         bgClass = "bg-brand-warning/10"; textClass = "text-brand-warning"; iconClass = "text-brand-warning"; borderLeft = "border-brand-warning";
+                    }
+                    // Extra meta strip for upcoming nodes — feels-like / humidity / wind.
+                    const feelsStr = (feels != null) ? `Feels ${feels}°` : '';
+                    const humStr   = (hum != null) ? `${hum}% RH` : '';
+                    const windStr  = (ws != null && wd != null) ? `${ws}km/h ${getWindDirection(wd)}` : '';
+                    const parts = [feelsStr, humStr, windStr].filter(Boolean);
+                    if (parts.length > 0) {
+                        extraMeta = `<div class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-1">${parts.join('  ·  ')}</div>`;
                     }
                 } else if (wp.type === 'current') {
                     bgClass = "bg-brand-blue/10"; borderLeft = "border-brand-blue";
@@ -1999,6 +2090,13 @@
                     glow = "ring-2 ring-brand-blue/50 shadow-[0_0_25px_rgba(59,130,246,0.25)] scale-[1.02]";
                     iconClass = "text-brand-blue"; textClass = "text-brand-blue";
                     displayPrimary = "LIVE"; displayLabel = "POS";
+                    const feelsStr = (feels != null) ? `Feels ${feels}°` : '';
+                    const humStr   = (hum != null) ? `${hum}% RH` : '';
+                    const windStr  = (ws != null && wd != null) ? `${ws}km/h ${getWindDirection(wd)}` : '';
+                    const parts = [feelsStr, humStr, windStr].filter(Boolean);
+                    if (parts.length > 0) {
+                        extraMeta = `<div class="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1">${parts.join('  ·  ')}</div>`;
+                    }
                 }
 
                 htmlBuffer += `
@@ -2016,6 +2114,7 @@
                                             ${prec > 0 ? `<i class="fa-solid fa-droplet"></i> ${prec}mm` : 'CLEAR'}
                                         </span>
                                     </div>
+                                    ${extraMeta}
                                 </div>
                             </div>
                             <div class="text-right flex flex-col items-end justify-start shrink-0 pt-1">
@@ -2030,7 +2129,7 @@
                         </div>
                     </div>
                 `;
-            });
+            }
 
             htmlBuffer += '</div>';
             updateHTML(DOM.timelineContainer, htmlBuffer);
@@ -2528,6 +2627,7 @@
             if (state.routeCtrl && state.mapObj) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
             state.targetCoords = null; state.customRouteWaypoints = null; state.routeNodes = null; state.originalRouteNodes = null;
             state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0;
+            clearPersistedNavTarget();
             if (state.fuelMarkers && state.fuelMarkers.length > 0) { state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); state.fuelMarkers = []; }
             for (let item of state.interceptMarkers) { if (item.marker) state.mapObj.removeLayer(item.marker); }
             state.interceptMarkers = [];
@@ -2730,6 +2830,22 @@
             requestWakeLock();
             startBackgroundTracking();
             await FuelManager.init();
+
+            // Restore persisted navigation target — fires activateLiveNavigation()
+            // which queues initRoute() the moment autoCoords arrives from the GPS
+            // branch below. If the user hit Clear before reload, NAV_STORAGE_KEY is
+            // gone, so the app boots straight into auto mode.
+            const restored = await restoreNavTarget();
+            if (restored && restored.targetCoords) {
+                const wps = restored.customRouteWaypoints && restored.customRouteWaypoints.length > 1
+                    ? restored.customRouteWaypoints.map(wp => L.latLng(wp.lat, wp.lng !== undefined ? wp.lng : wp.lon))
+                    : null;
+                // Mark routeNodes null so the route fetch recomputes fresh — the prior
+                // session's node IDs and passed-flags are stale after a reload.
+                window.activateLiveNavigation(restored.targetCoords.lat, restored.targetCoords.lon,
+                    !!restored.isFuelOnlyRoute, wps);
+            }
+
             requestAnimationFrame(smoothVisualsLoop);
             if (state.mode === 'manual' && state.coords && state.coords.lat) {
                 initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false);
@@ -2744,7 +2860,7 @@
                         updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
                         updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
                         updateText(DOM.statusText, "SEARCH LOCATION");
-                        updateClass(DOM.statusText, "text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase");
+                        updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase');
                         updateText(DOM.weatherDesc, "GPS BLOCKED.");
                         updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`);
                     },
