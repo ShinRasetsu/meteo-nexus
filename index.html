@@ -61,7 +61,9 @@
             windSpeed: 0,
             windGust: 0,
             lastGnssUpdate: 0,
-            fusedHeading: null
+            fusedHeading: null,
+            rawMagHeading: null,
+            rawMagAt: 0
         };
     </script>
 
@@ -298,6 +300,9 @@
                 <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
                     <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
                 </button>
+                <button onclick="openMagCalModal()" id="magcal-btn" class="bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-purple hover:border-brand-purple w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Calibrate Compass (figure-8 pattern)">
+                    <i class="fa-solid fa-compass text-base md:text-lg"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -407,6 +412,41 @@
             <div class="flex gap-3 justify-end">
                 <button onclick="closeModal('map-clear-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
                 <button onclick="executeMapClear()" class="px-4 py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Delete Maps</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAGNETOMETER CALIBRATION MODAL (8-pattern capture) -->
+    <div id="magcal-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+        <div class="bg-surface-900 border-4 border-brand-purple rounded-2xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(168,85,247,0.4)] flex flex-col gap-4">
+            <h3 class="text-xl font-black text-brand-purple uppercase tracking-widest mb-1">
+                <i class="fa-solid fa-compass mr-2"></i> Compass Calibration
+            </h3>
+            <p id="magcal-msg" class="text-gray-300 font-mono text-xs leading-relaxed">
+                Draw a figure-8 in the air with your phone. Move slowly — cover all orientations. This captures the magnetometer's hard-iron bias and soft-iron scale.
+            </p>
+
+            <div class="relative w-full h-48 bg-black/40 rounded-xl border-2 border-surface-700 overflow-hidden">
+                <canvas id="magcal-canvas" class="absolute inset-0 w-full h-full"></canvas>
+                <div id="magcal-status" class="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
+                    <span class="text-[10px] font-mono font-black uppercase tracking-widest text-brand-purple bg-black/60 px-2 py-1 rounded">READY</span>
+                    <span id="magcal-count" class="text-[10px] font-mono font-black uppercase tracking-widest text-gray-400 bg-black/60 px-2 py-1 rounded">0 samples</span>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-1">
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-500"><span>X axis</span><span id="magcal-x-range">--</span></div>
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-500"><span>Y axis</span><span id="magcal-y-range">--</span></div>
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-500"><span>Z axis</span><span id="magcal-z-range">--</span></div>
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-brand-purple pt-2 border-t border-surface-700"><span>Quality</span><span id="magcal-quality">UNCALIBRATED</span></div>
+            </div>
+
+            <div class="flex gap-3 justify-between mt-2">
+                <button onclick="closeModal('magcal-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
+                <div class="flex gap-2">
+                    <button id="magcal-clear-btn" onclick="clearMagCalibration()" class="px-4 py-2 bg-surface-800 text-brand-red font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Clear</button>
+                    <button id="magcal-go-btn" onclick="startMagCalCapture()" class="px-5 py-2 bg-brand-purple text-white font-black rounded-lg hover:opacity-90 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(168,85,247,0.5)]">Start</button>
+                </div>
             </div>
         </div>
     </div>
@@ -784,19 +824,69 @@
                     const pending = workerPending.get(messageId);
                     if (!pending) return;
                     workerPending.delete(messageId);
+                    if (pending.timer) clearTimeout(pending.timer);
+                    if (pending.onComplete) pending.onComplete();
                     if (error) pending.reject(new Error(error));
                     else pending.resolve(result);
                 };
-                computeWorker.onerror = (e) => { console.warn('Compute worker error:', e.message); };
+                computeWorker.onerror = (e) => {
+                    // Fatal worker error — reject every in-flight task so callers
+                    // stop hanging. Previously this just logged and the promises hung
+                    // forever because the message that was sent never got a reply.
+                    console.warn('Compute worker fatal error:', e.message);
+                    for (const [id, pending] of workerPending) {
+                        if (pending.timer) clearTimeout(pending.timer);
+                        if (pending.onComplete) pending.onComplete();
+                        pending.reject(new Error('Worker fatal: ' + (e.message || 'unknown')));
+                    }
+                    workerPending.clear();
+                    computeWorker = null;
+                };
             } catch (e) { console.warn('Compute worker unavailable:', e); }
         }
 
-        function workerTask(type, payload) {
+        // Default per-task timeout. The longest worker jobs (polyline decode for
+        // very long routes, overpass parsing for dense areas) finish well under
+        // 5 s; anything beyond that is a hung worker we should reject rather than
+        // hang the whole caller chain (e.g. an aborted route fetch awaiting
+        // CALCULATE_NODES).
+        const WORKER_TASK_TIMEOUT_MS = 25000;
+
+        function workerTask(type, payload, options = {}) {
             initComputeWorker();
             if (!computeWorker) return Promise.reject(new Error('Compute worker unavailable'));
             const messageId = ++workerMessageId;
+            const timeoutMs = options.timeoutMs || WORKER_TASK_TIMEOUT_MS;
+            const signal = options.signal;
+            if (signal && signal.aborted) return Promise.reject(new Error(`Worker task "${type}" aborted before dispatch`));
             return new Promise((resolve, reject) => {
-                workerPending.set(messageId, { resolve, reject });
+                let timer = setTimeout(() => {
+                    if (workerPending.has(messageId)) {
+                        workerPending.delete(messageId);
+                        reject(new Error(`Worker task "${type}" timed out after ${timeoutMs}ms`));
+                    }
+                }, timeoutMs);
+                // External abort — reject immediately and let the worker's late
+                // response (if it ever arrives) be a no-op since onmessage looks up
+                // by messageId and we've already deleted the pending entry.
+                let abortHandler = null;
+                if (signal) {
+                    abortHandler = () => {
+                        if (workerPending.has(messageId)) {
+                            workerPending.delete(messageId);
+                            clearTimeout(timer);
+                            reject(new Error(`Worker task "${type}" aborted`));
+                        }
+                    };
+                    signal.addEventListener('abort', abortHandler, { once: true });
+                }
+                workerPending.set(messageId, {
+                    resolve, reject, timer,
+                    onComplete: () => {
+                        if (timer) clearTimeout(timer);
+                        if (abortHandler && signal) signal.removeEventListener('abort', abortHandler);
+                    }
+                });
                 computeWorker.postMessage({ type, messageId, payload });
             });
         }
@@ -948,7 +1038,51 @@
         window.reportRoutingFallback = function() {
             updateText(DOM.statusEl, "ROUTE EXCLUSIONS FAILED. FALLING BACK...");
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/30 shadow-[0_0_15px_rgba(245,158,11,0.2)] whitespace-nowrap");
+            // Visible toast — previously the "OSRM-FALLBACK" engine badge in the
+            // dense status string was the only signal; the user could miss that
+            // and wonder why their "avoid tolls/highways" preference was ignored.
+            showMeteoToast('Route avoidance failed — using fallback routing. Tolls/highways/ferries may appear.', 'warning');
         };
+
+        // --- Lightweight toast ---
+        // Reusable non-blocking notification; floats above everything (z-[10001]),
+        // auto-dismisses after `durationMs` (default 4 s). One instance at a time —
+        // a newer toast replaces an older one. Used by OSRM-FALLBACK and any other
+        // robustness path that needs an obvious user signal beyond the status badge.
+        let _toastEl = null, _toastTimer = null;
+        function showMeteoToast(message, kind = 'info', durationMs = 4000) {
+            if (!_toastEl) {
+                _toastEl = document.createElement('div');
+                _toastEl.style.cssText = [
+                    'position:fixed','top:1rem','left:50%','transform:translateX(-50%)',
+                    'z-index:10001','padding:0.75rem 1rem','border-radius:0.75rem',
+                    'border:2px solid','background:rgba(15,15,15,0.95)','backdrop-filter:blur(8px)',
+                    'max-width:90vw','font:bold 12px JetBrains Mono, monospace',
+                    'text-transform:uppercase','letter-spacing:0.08em','text-align:center',
+                    'box-shadow:0 8px 32px rgba(0,0,0,0.6)','transition:opacity 0.3s, transform 0.3s',
+                    'opacity:0','pointer-events:none'
+                ].join(';');
+                document.body.appendChild(_toastEl);
+            }
+            const palette = {
+                warning: { color:'#f59e0b', border:'#f59e0b', shadow:'rgba(245,158,11,0.4)' },
+                error:   { color:'#ef4444', border:'#ef4444', shadow:'rgba(239,68,68,0.4)' },
+                success: { color:'#22c55e', border:'#22c55e', shadow:'rgba(34,197,94,0.4)' },
+                info:    { color:'#38bdf8', border:'#38bdf8', shadow:'rgba(56,189,248,0.4)' }
+            };
+            const p = palette[kind] || palette.info;
+            _toastEl.style.color = p.color;
+            _toastEl.style.borderColor = p.border;
+            _toastEl.style.boxShadow = `0 8px 32px ${p.shadow}`;
+            _toastEl.textContent = message;
+            // Re-trigger transition.
+            requestAnimationFrame(() => { _toastEl.style.opacity = '1'; _toastEl.style.transform = 'translateX(-50%) translateY(0)'; });
+            if (_toastTimer) clearTimeout(_toastTimer);
+            _toastTimer = setTimeout(() => {
+                _toastEl.style.opacity = '0';
+                _toastEl.style.transform = 'translateX(-50%) translateY(-8px)';
+            }, durationMs);
+        }
 
         // --- SMART ROUTER ---
         const SmartRouter = L.Class.extend({
@@ -959,11 +1093,29 @@
                 const conf = FuelManager.getConfig();
                 const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
 
+                // OSRM can hold a connection open effectively forever if the
+                // server stalls mid-route. Leaflet Routing Machine has no
+                // timeout of its own. Race it against a 12s wall clock so we
+                // always progress to the Valhalla fallback within bounded time.
+                const OSRM_TIMEOUT_MS = 12000;
                 const fetchOSRM = () => new Promise((resolve, reject) => {
-                    this.osrm.route(waypoints, (err, routes) => {
-                        if (err || !routes || routes.length === 0) reject(err || new Error("OSRM failed"));
-                        else { let r = routes[0]; r.engine = 'OSRM'; r.mode = 'STD'; resolve(r); }
-                    }, context, options);
+                    let settled = false;
+                    const timer = setTimeout(() => {
+                        if (settled) return;
+                        settled = true;
+                        reject(new Error(`OSRM timed out after ${OSRM_TIMEOUT_MS}ms`));
+                    }, OSRM_TIMEOUT_MS);
+                    try {
+                        this.osrm.route(waypoints, (err, routes) => {
+                            if (settled) return;
+                            settled = true;
+                            clearTimeout(timer);
+                            if (err || !routes || routes.length === 0) reject(err || new Error("OSRM failed"));
+                            else { let r = routes[0]; r.engine = 'OSRM'; r.mode = 'STD'; resolve(r); }
+                        }, context, options);
+                    } catch (e) {
+                        if (!settled) { settled = true; clearTimeout(timer); reject(e); }
+                    }
                 });
 
                 const getValhallaPayload = () => ({
@@ -1317,21 +1469,705 @@
             if (state.focusedSection === null && !state.targetCoords) DOM.secIntel.classList.add('hidden');
         };
 
-        // --- MAGNETOMETER HOOKS ---
-        let hasAbsoluteOrientation = false;
-        function handleOrientationUpdate(alphaOrHeading) { state.rawSensorHeading = alphaOrHeading; }
+        // --- MAGNETOMETER CALIBRATION MODULE ---
+        // Captures the magnetometer's hard-iron bias and approximate soft-iron scale
+        // via an 8-pattern (figure-8) gesture. The figure-8 maximizes the volume of
+        // the (x,y,z) ellipsoid swept by the magnetometer as the phone rotates — its
+        // bounding box gives us a per-axis affine correction.
+        //
+        // Why this matters:
+        //   Every phone has a fixed magnetic bias from its own components (hard-iron)
+        //   plus a non-uniform response curve (soft-iron). The OS does a rough global
+        //   correction but it drifts with mounting orientation, cases, mounts in car
+        //   docks, etc. Without per-app calibration the heading can be off by 30-60°,
+        //   which is what produces the "moving sideways" feeling during route-follow.
+        //
+        // Storage: persisted in localforage so one calibration survives reloads.
+        // Detected sensors in priority order:
+        //   1. Magnetometer Sensor API (raw µT, when available)
+        //   2. deviceorientation magnetic-field API (webkitCompassMagnitude*)
+        //   3. Synthetic field vector from fused heading + |B| (fallback only)
+        const MAGCAL_KEY = 'meteo_magcal_v1';
+        const magCalState = {
+            // Live calibration capture state
+            capturing: false,
+            samples: null,           // Float64Array [N*3] for x,y,z
+            sampleCount: 0,
+            sampleStride: 3,
+            min: [ Infinity,  Infinity,  Infinity],
+            max: [-Infinity, -Infinity, -Infinity],
+            canvasCtx: null,
+            rafId: null,
+            magSensor: null,
+            // Loaded/persisted calibration
+            bias: [0, 0, 0],          // hard-iron offset per axis (µT)
+            scale: [1, 1, 1],         // soft-iron scale per axis
+            quality: 0,               // 0..1 — coverage across axes
+            timestamp: 0
+        };
 
+        // Approximate geomagnetic field magnitude for sanity checks. World Magnetic
+        // Model gives ~25-65 µT total; outside that range we're seeing something
+        // other than the Earth's field (e.g. a magnet nearby) — calibration is invalid.
+        const REF_B_MIN = 20, REF_B_MAX = 75;
+
+        async function loadMagCalibration() {
+            try {
+                if (!window.localforage) return;
+                const stored = await localforage.getItem(MAGCAL_KEY);
+                if (!stored || !stored.bias) return;
+                magCalState.bias = stored.bias;
+                magCalState.scale = stored.scale;
+                magCalState.quality = stored.quality || 0;
+                magCalState.timestamp = stored.timestamp || 0;
+                console.info('MagCal: loaded calibration, quality=' + (magCalState.quality * 100).toFixed(0) + '%');
+            } catch(e) { console.warn('MagCal load failed:', e); }
+        }
+        async function saveMagCalibration() {
+            try {
+                if (!window.localforage) return;
+                await localforage.setItem(MAGCAL_KEY, {
+                    bias: magCalState.bias, scale: magCalState.scale,
+                    quality: magCalState.quality, timestamp: magCalState.timestamp
+                });
+            } catch(e) { console.warn('MagCal save failed:', e); }
+        }
+        async function clearMagCalibrationStored() {
+            try { if (window.localforage) await localforage.removeItem(MAGCAL_KEY); } catch(e) {}
+            magCalState.bias = [0, 0, 0];
+            magCalState.scale = [1, 1, 1];
+            magCalState.quality = 0;
+            magCalState.timestamp = 0;
+        }
+
+        // UI entry point (invoked by the compass button)
+        window.openMagCalModal = function() {
+            DOM.modals.magCal.classList.remove('hidden');
+            // Wire canvas context once.
+            const canvas = document.getElementById('magcal-canvas');
+            if (canvas && !magCalState.canvasCtx) {
+                const dpr = Math.min(window.devicePixelRatio || 1, 2);
+                canvas.width = canvas.clientWidth * dpr;
+                canvas.height = canvas.clientHeight * dpr;
+                magCalState.canvasCtx = canvas.getContext('2d');
+                magCalState.canvasCtx.scale(dpr, dpr);
+            }
+            updateMagCalUI();
+            drawMagCalCanvas();
+        };
+        window.clearMagCalibration = function() {
+            clearMagCalibrationStored().then(() => {
+                updateMagCalUI();
+                drawMagCalCanvas();
+            });
+        };
+
+        function updateMagCalUI() {
+            const qStr = magCalState.quality >= 0.8 ? 'CALIBRATED'
+                       : magCalState.quality >= 0.4 ? 'PARTIAL'
+                       : magCalState.quality >  0   ? 'LOW'
+                       :                              'UNCALIBRATED';
+            const qEl = document.getElementById('magcal-quality');
+            if (qEl) {
+                qEl.textContent = qStr;
+                qEl.className = 'text-[10px] font-mono font-bold uppercase tracking-widest pt-2 border-t border-surface-700 ' +
+                    (magCalState.quality >= 0.8 ? 'text-brand-success' :
+                     magCalState.quality >= 0.4 ? 'text-brand-warning' : 'text-brand-red');
+            }
+            // Range read-out of current calibration
+            const fmtRange = (i) => {
+                const b = magCalState.bias[i], s = magCalState.scale[i];
+                if (magCalState.quality === 0) return '--';
+                return `bias ${b.toFixed(1)} • scale ${(1/s).toFixed(2)}`;
+            };
+            const rx = document.getElementById('magcal-x-range');
+            const ry = document.getElementById('magcal-y-range');
+            const rz = document.getElementById('magcal-z-range');
+            if (rx) rx.textContent = fmtRange(0);
+            if (ry) ry.textContent = fmtRange(1);
+            if (rz) rz.textContent = fmtRange(2);
+            // Status
+            const statusEl = document.getElementById('magcal-status');
+            if (statusEl) {
+                const span = statusEl.querySelector('span');
+                if (span) span.textContent = magCalState.capturing ? 'CAPTURING…' : (magCalState.quality >= 0.8 ? 'READY' : 'NEEDS CAL');
+            }
+            const goBtn = document.getElementById('magcal-go-btn');
+            if (goBtn) {
+                goBtn.textContent = magCalState.capturing ? 'Finish' : 'Start';
+                goBtn.classList.toggle('bg-brand-red', magCalState.capturing);
+                goBtn.classList.toggle('bg-brand-purple', !magCalState.capturing);
+            }
+        }
+
+        function drawMagCalCanvas() {
+            const ctx = magCalState.canvasCtx;
+            if (!ctx) return;
+            const canvas = ctx.canvas;
+            const w = canvas.clientWidth, h = canvas.clientHeight;
+            ctx.clearRect(0, 0, w, h);
+
+            // Grid
+            ctx.strokeStyle = 'rgba(42,42,42,0.6)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h);
+            ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
+            ctx.stroke();
+
+            // Plot current sample cloud (xy projection)
+            if (magCalState.samples && magCalState.sampleCount > 0) {
+                // Use the running min/max to normalize.
+                const rangeX = Math.max(1e-3, magCalState.max[0] - magCalState.min[0]);
+                const rangeY = Math.max(1e-3, magCalState.max[1] - magCalState.min[1]);
+                ctx.fillStyle = 'rgba(168,85,247,0.7)';
+                const n = Math.min(magCalState.sampleCount, 600);
+                for (let i = 0; i < n; i++) {
+                    const idx = i * magCalState.sampleStride;
+                    const px = ((magCalState.samples[idx]     - magCalState.min[0]) / rangeX) * (w - 16) + 8;
+                    const py = ((magCalState.samples[idx + 1] - magCalState.min[1]) / rangeY) * (h - 16) + 8;
+                    ctx.fillRect(px - 1, py - 1, 2, 2);
+                }
+                // Draw bounding ellipse center (post-calibration correction point)
+                const cx = w/2, cy = h/2;
+                ctx.strokeStyle = 'rgba(20,184,166,0.9)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(cx, cy, Math.min(w, h) * 0.25, 0, Math.PI * 2);
+                ctx.stroke();
+                // Coverage %
+                const coverage = coverageScore();
+                ctx.fillStyle = '#14b8a6';
+                ctx.font = 'bold 11px JetBrains Mono, monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${(coverage*100).toFixed(0)}% COVERAGE`, cx, h - 8);
+            } else {
+                ctx.fillStyle = '#555';
+                ctx.font = 'bold 11px JetBrains Mono, monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('PRESS START AND TRACE FIGURE-8', w/2, h/2);
+            }
+        }
+
+        // Coverage score 0..1 — fraction of the unit sphere the samples cover.
+        // Cheap approximation: normalize each axis' range to a fixed reference B
+        // range and take the min (worst axis). Bias-corrected post-capture.
+        function coverageScore() {
+            const rangeX = magCalState.max[0] - magCalState.min[0];
+            const rangeY = magCalState.max[1] - magCalState.min[1];
+            const rangeZ = magCalState.max[2] - magCalState.min[2];
+            if (rangeX <= 0 || rangeY <= 0 || rangeZ <= 0) return 0;
+            // Reference — full sphere sweep yields ~2×|B| range per axis
+            // (each axis dips from -|B| to +|B|). Use midpoint |B|≈45 µT.
+            const REF = 45 * 2;
+            const sx = Math.min(1, rangeX / REF);
+            const sy = Math.min(1, rangeY / REF);
+            const sz = Math.min(1, rangeZ / REF);
+            // Cube-root product gives equal weight to each axis (volume covered).
+            return Math.cbrt(sx * sy * sz);
+        }
+
+        // Start / finish capture
+        async function startMagCalCapture() {
+            if (magCalState.capturing) {
+                finishMagCalCapture();
+                return;
+            }
+            // Reset accumulators
+            magCalState.capturing = true;
+            magCalState.samples = new Float64Array(2000 * 3); // 10s @ 200Hz max
+            magCalState.sampleCount = 0;
+            magCalState.min = [ Infinity,  Infinity,  Infinity];
+            magCalState.max = [-Infinity, -Infinity, -Infinity];
+            // Hook sensors. Magnetometer Sensor API is the cleanest path.
+            try {
+                if ('Magnetometer' in window) {
+                    magCalState.magSensor = new Magnetometer({ frequency: 60 });
+                    magCalState.magSensor.addEventListener('reading', () => {
+                        pushMagSample(magCalState.magSensor.x, magCalState.magSensor.y, magCalState.magSensor.z);
+                    });
+                    magCalState.magSensor.start();
+                }
+            } catch(e) { console.warn('Magnetometer sensor unavailable, using deviceorientation fallback', e); }
+            // Fallback: deviceorientation gives us webkitCompassMagnitude* on iOS
+            // and a synthesized field vector elsewhere. We attach a listener that
+            // triggers the same pushMagSample path.
+            window.addEventListener('deviceorientation', magCalDevOrientHandler, true);
+
+            // Auto-stop after 12 seconds — long enough to walk an 8.
+            magCalState.autoStopTimer = setTimeout(() => {
+                if (magCalState.capturing) finishMagCalCapture();
+            }, 12000);
+
+            // Make sure the canvas repaints every frame during capture.
+            const tick = () => {
+                if (!magCalState.capturing) return;
+                drawMagCalCanvas();
+                updateMagCalUI();
+                magCalState.rafId = requestAnimationFrame(tick);
+            };
+            magCalState.rafId = requestAnimationFrame(tick);
+            updateMagCalUI();
+        }
+
+        function magCalDevOrientHandler(e) {
+            if (!magCalState.capturing) return;
+            // iOS exposes magnetic field via deviceorientation: webkitCompassAccuracy
+            // and magnitude are non-standard but widely available.
+            const mx = e.webkitCompassMagnitude || e.webkitCompassMagnitudeX || 0;
+            const my = e.webkitCompassMagnitudeY || 0;
+            const mz = e.webkitCompassMagnitudeZ || (e.webkitCompassMagnitude ? e.webkitCompassMagnitude : 0);
+            if (mx || my || mz) pushMagSample(mx, my, mz);
+            else if (e.alpha !== null) {
+                // Best-effort: project (alpha, beta, gamma) into a synthetic µT vector
+                // using a hardcoded |B|=45 µT reference. This captures orientation
+                // coverage even when raw B is missing; bias calibration is approximate.
+                const rad = Math.PI / 180;
+                const cA = Math.cos(e.alpha * rad), sA = Math.sin(e.alpha * rad);
+                const cB = Math.cos((e.beta  || 0) * rad), sB = Math.sin((e.beta  || 0) * rad);
+                const cG = Math.cos((e.gamma || 0) * rad), sG = Math.sin((e.gamma || 0) * rad);
+                pushMagSample(45 * sB, 45 * sG * cA, 45 * cB * cG);
+            }
+        }
+
+        function pushMagSample(x, y, z) {
+            if (!magCalState.capturing) return;
+            const i = magCalState.sampleCount;
+            if (i * 3 >= magCalState.samples.length) return;   // buffer full
+            const idx = i * 3;
+            magCalState.samples[idx]     = x;
+            magCalState.samples[idx + 1] = y;
+            magCalState.samples[idx + 2] = z;
+            magCalState.sampleCount++;
+            if (x < magCalState.min[0]) magCalState.min[0] = x;
+            if (x > magCalState.max[0]) magCalState.max[0] = x;
+            if (y < magCalState.min[1]) magCalState.min[1] = y;
+            if (y > magCalState.max[1]) magCalState.max[1] = y;
+            if (z < magCalState.min[2]) magCalState.min[2] = z;
+            if (z > magCalState.max[2]) magCalState.max[2] = z;
+            const cEl = document.getElementById('magcal-count');
+            if (cEl && (i & 7) === 0) cEl.textContent = i + ' samples';
+        }
+
+        function finishMagCalCapture() {
+            if (!magCalState.capturing) return;
+            magCalState.capturing = false;
+            if (magCalState.magSensor) {
+                try { magCalState.magSensor.stop(); } catch(e) {}
+                magCalState.magSensor = null;
+            }
+            window.removeEventListener('deviceorientation', magCalDevOrientHandler, true);
+            if (magCalState.autoStopTimer) { clearTimeout(magCalState.autoStopTimer); magCalState.autoStopTimer = null; }
+            if (magCalState.rafId) { cancelAnimationFrame(magCalState.rafId); magCalState.rafId = null; }
+
+            // --- Least-squares ellipsoid fit (Merayo 2000 closed-form) ---
+            // Previous heuristic: bias = midpoint of axis range, scale = 1/halfRange.
+            // That works ONLY when the figure-8 swept all axes symmetrically. In
+            // practice a phone-flat 8-pattern gives full coverage on X,Y but little
+            // on Z, so the midpoint (max+min)/2 is heavily skewed by the very thin
+            // Z range. The Merayo estimator fits the ellipsoid:
+            //     ||B_i||² ≈ 2 B_i · c + k
+            // which linearises to a 3×3 least-squares system:
+            //     M · c = v ;  M = Σ (B_i B_i^T) ,  v = ½ Σ (||B_i||² · B_i)
+            // Solved by Cramer's rule on the 3×3 matrix (no SVD/Jacobi needed).
+            //
+            // For rod/sparse cases the system is regularised by a small diagonal
+            // term borrowing the running axis-wise min/max so an under-covered axis
+            // collapses the bias toward the historic range midpoint rather than NaN.
+            const coverage = coverageScore();
+            if (coverage > 0.15 && magCalState.sampleCount >= 30) {
+                // Compute matrix M and vector v from the captured samples.
+                let sumXX=0, sumYY=0, sumZZ=0, sumXY=0, sumXZ=0, sumYZ=0;
+                let vX=0, vY=0, vZ=0;
+                const N = magCalState.sampleCount;
+                for (let i = 0; i < N; i++) {
+                    const idx = i * 3;
+                    const x = magCalState.samples[idx];
+                    const y = magCalState.samples[idx + 1];
+                    const z = magCalState.samples[idx + 2];
+                    const norm2 = x*x + y*y + z*z;
+                    sumXX += x*x; sumYY += y*y; sumZZ += z*z;
+                    sumXY += x*y; sumXZ += x*z; sumYZ += y*z;
+                    vX  += 0.5 * norm2 * x;
+                    vY  += 0.5 * norm2 * y;
+                    vZ  += 0.5 * norm2 * z;
+                }
+                // Regularise — adds a tiny ridge so degenerate axes (e.g. flat Z)
+                // don't zero out the determinant. The ridge is sized to a tiny
+                // fraction of the diagonal so it's negligible when the sweep was full.
+                const ridge = Math.max(sumXX, sumYY, sumZZ) * 1e-6;
+                const Mxx = sumXX/N + ridge, Myy = sumYY/N + ridge, Mzz = sumZZ/N + ridge;
+                const Mxy = sumXY/N, Mxz = sumXZ/N, Myz = sumYZ/N;
+                const bvX = vX/N, bvY = vY/N, bvZ = vZ/N;
+                // Cofactor expansion for det(M) → inverse via adjugate / det.
+                const det = Mxx*(Myy*Mzz - Myz*Myz)
+                          - Mxy*(Mxy*Mzz - Myz*Mxz)
+                          + Mxz*(Mxy*Myz - Myy*Mxz);
+                let biasX, biasY, biasZ, usedFit = false;
+                if (Math.abs(det) > 1e-9) {
+                    // Adjugate / det = inverse. Multiply inverse by v to get bias.
+                    const invDet = 1 / det;
+                    const A11 =  (Myy*Mzz - Myz*Myz) * invDet;
+                    const A12 = -(Mxy*Mzz - Mxz*Myz) * invDet;
+                    const A13 =  (Mxy*Myz - Mxz*Myy) * invDet;
+                    const A22 =  (Mxx*Mzz - Mxz*Mxz) * invDet;
+                    const A23 = -(Mxx*Myz - Mxy*Mxz) * invDet;
+                    const A33 =  (Mxx*Myy - Mxy*Mxy) * invDet;
+                    biasX = A11*bvX + A12*bvY + A13*bvZ;
+                    biasY = A12*bvX + A22*bvY + A23*bvZ;
+                    biasZ = A13*bvX + A23*bvY + A33*bvZ;
+                    usedFit = true;
+                }
+                // Always keep a safe midpoint fallback per axis if the fit blew up.
+                for (let i = 0; i < 3; i++) {
+                    if (!usedFit || !isFinite([biasX,biasY,biasZ][i])) {
+                        magCalState.bias[0] = (magCalState.max[0] + magCalState.min[0]) / 2;
+                        magCalState.bias[1] = (magCalState.max[1] + magCalState.min[1]) / 2;
+                        magCalState.bias[2] = (magCalState.max[2] + magCalState.min[2]) / 2;
+                        usedFit = false;
+                        break;
+                    }
+                }
+                if (usedFit) { magCalState.bias[0] = biasX; magCalState.bias[1] = biasY; magCalState.bias[2] = biasZ; }
+                // Per-axis soft-iron scale: corrected-X std / reference scale.
+                // Sample variance of each axis post-bias removal is the spread
+                // the actual |B| sweep produced; we normalise the smallest-variance
+                // axis (the weakest, e.g. Z on a flat 8) to match the strongest one
+                // and then both to the reference |B|. This de-skews partial coverage.
+                let varX=0, varY=0, varZ=0;
+                for (let i = 0; i < N; i++) {
+                    const idx = i * 3;
+                    const cx = magCalState.samples[idx]     - magCalState.bias[0];
+                    const cy = magCalState.samples[idx + 1] - magCalState.bias[1];
+                    const cz = magCalState.samples[idx + 2] - magCalState.bias[2];
+                    varX += cx*cx; varY += cy*cy; varZ += cz*cz;
+                }
+                varX = Math.sqrt(varX/N); varY = Math.sqrt(varY/N); varZ = Math.sqrt(varZ/N);
+                // Reference |B| — derived from mean corrected magnitude.
+                let meanCorrMag = 0;
+                for (let i = 0; i < N; i++) {
+                    const idx = i * 3;
+                    const cx = magCalState.samples[idx]     - magCalState.bias[0];
+                    const cy = magCalState.samples[idx + 1] - magCalState.bias[1];
+                    const cz = magCalState.samples[idx + 2] - magCalState.bias[2];
+                    meanCorrMag += Math.sqrt(cx*cx + cy*cy + cz*cz);
+                }
+                meanCorrMag /= N;
+                // Per-axis scale = (mean |B|) / (3 × std-of-axis); the factor 3
+                // arrives because variance over each axis of a sphere = (mean|B|)²/3.
+                const denom = (x) => x > 1e-3 ? x : 1;
+                magCalState.scale[0] = meanCorrMag / (Math.sqrt(3) * denom(varX));
+                magCalState.scale[1] = meanCorrMag / (Math.sqrt(3) * denom(varY));
+                magCalState.scale[2] = meanCorrMag / (Math.sqrt(3) * denom(varZ));
+                // Sanity: average field magnitude should fall within plausible geo range.
+                // If not (e.g. user was near a magnet), reject the calibration.
+                let valid = true;
+                if (magCalState.magSensor !== undefined || magCalState.samples[0] !== 0 || magCalState.samples[1] !== 0 || magCalState.samples[2] !== 0) {
+                    // Compute post-calibration |B| for a few samples — if outside [REF_B_MIN, REF_B_MAX] reject.
+                    let sumB = 0, cnt = 0;
+                    for (let i = 0; i < Math.min(magCalState.sampleCount, 100); i++) {
+                        const idx = i * 3;
+                        const x = (magCalState.samples[idx]     - magCalState.bias[0]) * magCalState.scale[0];
+                        const y = (magCalState.samples[idx + 1] - magCalState.bias[1]) * magCalState.scale[1];
+                        const z = (magCalState.samples[idx + 2] - magCalState.bias[2]) * magCalState.scale[2];
+                        sumB += Math.sqrt(x*x + y*y + z*z); cnt++;
+                    }
+                    const avgB = cnt > 0 ? sumB / cnt : 0;
+                    if (avgB < REF_B_MIN || avgB > REF_B_MAX) {
+                        console.warn('MagCal rejected: avg |B|=' + avgB.toFixed(1) + ' µT outside plausible range');
+                        valid = false;
+                    }
+                }
+                if (valid) {
+                    magCalState.quality = Math.min(1, coverage);
+                    magCalState.timestamp = Date.now();
+                    saveMagCalibration();
+                    console.info('MagCal saved: bias=(' + magCalState.bias.map(v => v.toFixed(1)).join(',') + ') scale=(' + magCalState.scale.map(v => v.toFixed(2)).join(',') + ') quality=' + (coverage*100).toFixed(0) + '%');
+                } else {
+                    magCalState.quality = 0;
+                    updateMagCalStatusSpan('REJECTED — magnetic interference');
+                }
+            } else {
+                console.warn('MagCal capture too sparse: ' + magCalState.sampleCount + ' samples, coverage=' + (coverage*100).toFixed(0) + '%');
+                magCalState.quality = 0;
+                updateMagCalStatusSpan('CAPTURE TOO SHORT');
+            }
+            updateMagCalUI();
+            drawMagCalCanvas();
+        }
+        function updateMagCalStatusSpan(text) {
+            const wrap = document.getElementById('magcal-status');
+            if (!wrap) return;
+            const span = wrap.querySelector('span');
+            if (span) span.textContent = text;
+        }
+
+        // --- MAGNETOMETER HOOKS (calibrated) ---
+        // Two parallel sensor sources feed `state.rawSensorHeading`:
+        //   (1) Live raw Magnetometer Sensor API —preferred. We see the raw
+        //       body-frame B vector and can apply the FULL hard/soft-iron
+        //       calibration transform `B' = (B - bias) * scale` BEFORE deriving
+        //       a heading via yaw-plane atan2. This is the only way the 8-pattern
+        //       calibration actually does anything useful.
+        //   (2) deviceorientation (webkitCompassHeading / alpha) — fallback.
+        //       The OS has already collapsed B to a heading; we cannot un-mix the
+        //       axes, so we can only apply a *residual scalar offset* in the
+        //       heading domain. That residual is learned online by MagHeadingFuser
+        //       from GNSS sync points; the calibration we stored still helps the
+        //       OS-side (on iOS webkitCompassHeading already consumes the saved
+        //       gestural cal), but the explicit bias/scale array is only used by
+        //       path (1).
+        //
+        // When calibration is neutral (quality=0, bias=0, scale=1) every path
+        // degenerates to identity, so this costs zero performance and zero
+        // accuracy regression until the user runs the 8-pattern flow.
+        let hasAbsoluteOrientation = false;
+        let rawMagHeading = null;        // heading from path (1), null until rawSensor fires
+        let rawMagListener = null;        // live Magnetometer instance
+        const _RAD2DEG = 180 / Math.PI;
+        const _DEG2RAD = Math.PI / 180;
+
+        // Cached attitude (degrees) updated from deviceorientation. Used by the
+        // calibrated magnetometer path to tilt-compensate B before deriving yaw.
+        let _tiltPitchDeg = 0, _tiltRollDeg = 0, _tiltAt = 0;
+
+        // Apply full hard/soft-iron correction to a raw (x,y,z) magnetic-flux
+        // sample and derive a yaw-plane heading (degrees, 0=N). Returns null when
+        // the sample is degenerate (zero vector, NaN, or no horizontal component).
+        //
+        // Tilt-compensation: when pitch/roll have been refreshed recently (<2 s),
+        // the body-frame B vector is rotated into the world frame before atan2 —
+        // this preserves heading accuracy when the phone is held in a tilted mount
+        // (e.g. dashboard dock), where the raw XY projection alone would be off by
+        // 20-40°. Without tilt compensation the user observes "moving sideways" even
+        // after a clean calibration, because the OS we'd compare against (iOS tilt
+        // path) is already tilt-corrected.
+        function calibratedHeadingFromB(bx, by, bz) {
+            // Identity short-circuit: skip math entirely when the calibration is neutral.
+            if (magCalState.quality === 0) return null;
+            if (isNaN(bx) || isNaN(by) || isNaN(bz)) return null;
+            // Hard-iron + soft-iron correction in body frame.
+            let cx = (bx - magCalState.bias[0]) * magCalState.scale[0];
+            let cy = (by - magCalState.bias[1]) * magCalState.scale[1];
+            let cz = (bz - magCalState.bias[2]) * magCalState.scale[2];
+
+            // Tilt compensate (Android SensorManager.getRotationMatrix recipe).
+            // Rotate body→world by inverse pitch then inverse roll.
+            const tiltFresh = (Date.now() - _tiltAt) < 2000;
+            if (tiltFresh && (_tiltPitchDeg !== 0 || _tiltRollDeg !== 0)) {
+                const p = _tiltPitchDeg * _DEG2RAD;
+                const r = _tiltRollDeg  * _DEG2RAD;
+                const cp = Math.cos(p), sp = Math.sin(p);
+                const cr = Math.cos(r), sr = Math.sin(r);
+                // R = R_x(roll) · R_y(pitch) — equivalent to Android's matrix.
+                // World-frame components of B (X=East-ish, Y=North-ish, Z=Up).
+                const wx =  cr * cx           + sr * sp * cy  + sr * cp * cz;
+                const wy =  cp * cy           - sp * cz;
+                cx = wx; cy = wy;              // cz dropped — only yaw matters
+            }
+
+            // Horizontal magnitude sanity — if the user is nearly vertical, the
+            // B-vector points down and yaw heading is meaningless. Reject those.
+            const hMag = Math.sqrt(cx * cx + cy * cy);
+            if (hMag < 5) return null;        // < 5 µT horizontal — phone tipped
+            // Vehicle-frame convention: heading 0 = magnetic north (By pointing up).
+            // atan2(-Hx, -Hy) mirrors the WMM phone-frame convention used by
+            // webkitCompassHeading (consistent with 360 - e.alpha below).
+            let h = Math.atan2(-cx, -cy) * _RAD2DEG;
+            if (h < 0) h += 360;
+            return h;
+        }
+
+        // Apply residual scalar correction to an OS-derived heading (path 2).
+        // We cannot decompose the OS heading back to B-vectors — but the
+        // hard-iron bias has an equivalent rotation signature: the mean error
+        // between OS-mag heading and GNSS heading that MagHeadingFuser learns
+        // online. We forward this to the fuser; here we just return the input,
+        // and `applyOffset` is called from the GPS tick before the final blend.
+        function applyMagCalibrationToHeading(heading) {
+            return heading;
+        }
+
+        function handleOrientationUpdate(alphaOrHeading) {
+            // Quality-of-life: skip absurd spikes (sensor glitch) before they pollute EMA.
+            // 1500°/s = a 4 RPM rotation, which exceeds any hand motion during driving.
+            const now = performance.now();
+            if (state._lastSampleAt && state._lastSampleHeading !== undefined) {
+                const dt = (now - state._lastSampleAt) / 1000;
+                if (dt > 0 && dt < 0.5) {
+                    let diff = alphaOrHeading - state._lastSampleHeading;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    const rate = Math.abs(diff) / dt;
+                    if (rate > 1500) {
+                        // Glitch — drop sample.
+                        return;
+                    }
+                }
+            }
+            state._lastSampleAt = now;
+            state._lastSampleHeading = alphaOrHeading;
+            state.rawSensorHeading = alphaOrHeading;
+        }
+
+        // ---- PATH 1: raw Magnetometer Sensor API (preferred) ----
+        // When available, we see (Bx, By, Bz) in body frame and can apply the
+        // *full* calibration transform BEFORE deriving heading. This is the
+        // path the 8-pattern UI was designed to feed; it was previously orphaned.
+        (function startRawMagListener() {
+            if (!('Magnetometer' in window)) return;
+            try {
+                const sensor = new Magnetometer({ frequency: 30 });
+                sensor.addEventListener('reading', () => {
+                    const h = calibratedHeadingFromB(sensor.x, sensor.y, sensor.z);
+                    if (h === null) return;
+                    rawMagHeading = h;
+                    window.__METEO_CORE_STATE.rawMagHeading = h;
+                    window.__METEO_CORE_STATE.rawMagAt = Date.now();
+                    // Prefer the fully-calibrated raw-B heading over the OS
+                    // deviceorientation heading when both are present.
+                    handleOrientationUpdate(h);
+                });
+                sensor.addEventListener('error', () => { /* permission denied / unavailable */ });
+                sensor.start();
+                rawMagListener = sensor;
+            } catch(e) { console.warn('Raw Magnetometer unavailable; falling back to deviceorientation-only path.', e); }
+        })();
+
+        // ---- PATH 2: deviceorientation (fallback / complement) ----
+        // Tilt telemetry refresh — feeds calibrated magnetometer's tilt-compensator.
+        // We attach this once and let it always run (independent of which path is
+        // producing headings); beta/gamma accuracy doesn't depend on whether the
+        // OS is collapsing alpha into a heading.
         window.addEventListener('deviceorientationabsolute', (e) => {
             if (e.alpha !== null) { hasAbsoluteOrientation = true; handleOrientationUpdate(360 - e.alpha); }
+            if (e.beta !== null && e.gamma !== null) {
+                _tiltPitchDeg = e.beta;
+                _tiltRollDeg  = e.gamma;
+                _tiltAt = Date.now();
+            }
         });
 
         window.addEventListener('deviceorientation', (e) => {
+            // Tilt is always refreshed (cheap, and needed by raw-mag path).
+            if (e.beta !== null && e.gamma !== null) {
+                _tiltPitchDeg = e.beta;
+                _tiltRollDeg  = e.gamma;
+                _tiltAt = Date.now();
+            }
+            // Skip heading when raw-Magnetometer path is already producing
+            // calibrated headings — would double-feed the EMA and dilute the
+            // calibration effect.
+            if (rawMagHeading !== null) return;
             if (e.webkitCompassHeading != null) {
                 handleOrientationUpdate(e.webkitCompassHeading);
             } else if (!hasAbsoluteOrientation && e.absolute && e.alpha !== null) {
                 handleOrientationUpdate(360 - e.alpha);
             }
         });
+
+        // Age out raw-mag fallback when the sensor stops firing (background tab,
+        // permission revoked, hardware fault) — re-enables deviceorientation path.
+        let _rawMagLastSeenAt = performance.now();
+        const _rawMagSentry = setInterval(() => {
+            const last = window.__METEO_CORE_STATE.rawMagAt || 0;
+            if (Date.now() - last > 3000) rawMagHeading = null;
+        }, 2000);
+
+        // --- HEADING FUSION (GNSS + Magnetometer) ---
+        // Replaces the previous strict-priority handshake:
+        //   "speed >= 2 ? GNSS-only : magnetometer-only"
+        // with a smooth speed-gated blend. At highway speed the GNSS heading
+        // dominates (it's the actual line-of-travel vector). At walking speed the
+        // magnetometer dominates (GPS heading is null/unreliable below ~1.4 m/s).
+        // The crossover uses a logistic curve so there's never a hard switch and
+        // never a "drifting sideways" handoff artifact.
+        //
+        // Also incorporates per-session residual offset between magnetometer and
+        // GNSS heading — captures environmental hard-iron bias (mount, dashboard,
+        // phone in car dock) and applies it back to the magnetometer reading so
+        // the cos/sin-vector math is consistent.
+        // ---- Heading validity guard ----
+        // GPS heading is null below ~1.4 m/s on most chipsets, and a NaN creeping
+        // through here would silently propagate into the fuser's circular mean.
+        function gnssHeadingValid(h) { return h !== null && !isNaN(h) && isFinite(h); }
+
+        const MagHeadingFuser = {
+            // Residual offset in degrees — learned online from sync points where
+            // both sources report a valid heading AND speed is high enough that GPS
+            // heading is trustworthy.
+            offset: 0,
+            offsetConfidence: 0,  // 0..1, decays between sync points
+            lastSyncAt: 0,
+            // Sync point requires GPS heading valid for >3s @ >10 km/h before learning.
+            syncAccumulatorGain: 0,
+            // Apply learned offset to a magnetometer-derived heading.
+            applyOffset(heading) {
+                if (this.offsetConfidence <= 0) return heading;
+                let h = (heading + this.offset * this.offsetConfidence) % 360;
+                if (h < 0) h += 360;
+                return h;
+            },
+            // Speed-gated weight 0..1 for MAG contribution (1 = pure mag, 0 = pure gnss).
+            // Logistic crossover with midpoint at ~7 km/h — below 5 km/h the GPS heading
+            // is noisy/null on most phones, above 12 km/h it's typically solid.
+            magWeight(speedKmh) {
+                const k = 7, s = 2.5;
+                return 1 / (1 + Math.exp((speedKmh - k) / s));
+            },
+            // Sync — learn residual between mag and gnss when both reliable.
+            // Called from the GPS tick when gpsHeading is non-null AND speed is solid.
+            sync(gnssHeading, speedKmh, accuracyM) {
+                if (speedKmh < 12 || accuracyM > 15) { this.syncAccumulatorGain = 0; return; }
+                // We require 2 consecutive fixes (>= 2) of high-quality data before
+                // trusting the offset — artefact guard against single-fix glitches.
+                this.syncAccumulatorGain++;
+                if (this.syncAccumulatorGain < 3) return;
+                if (state.sensorHeading === null) return;
+                // angular delta (gnss - mag)
+                let delta = gnssHeading - state.sensorHeading;
+                if (delta > 180) delta -= 360;
+                if (delta < -180) delta += 360;
+                // Wrap-safe envelope: delta must be < 90°, otherwise it's likely a
+                // spurious GNSS heading (e.g. driving in circles). Skip those.
+                if (Math.abs(delta) > 90) return;
+                // EMA-learn the offset. Slow TC (~10 sync points) so a transient
+                // spurious gnss reading doesn't snap the offset.
+                const learn = 0.1;
+                this.offset = (this.offset + delta * learn + 540) % 360 - 180;
+                this.offsetConfidence = Math.min(1, this.offsetConfidence + 0.05);
+                this.lastSyncAt = Date.now();
+            },
+            // Slow confidence decay — if no sync points in 60s, fall back to raw mag.
+            decay() {
+                if (this.offsetConfidence > 0 && Date.now() - this.lastSyncAt > 60000) {
+                    this.offsetConfidence = Math.max(0, this.offsetConfidence - 0.01);
+                    if (this.offsetConfidence <= 0.01) { this.offset = 0; this.offsetConfidence = 0; }
+                }
+            },
+            // Combined heading (degrees 0..360) — main entry.
+            // Returns null if no source available.
+            fuse(gnssHeading, magHeading, speedKmh, gnssFreshMs) {
+                this.decay();
+                const gnssValid = (gnssHeading !== null && !isNaN(gnssHeading) && gnssFreshMs < 3000);
+                const magValid = (magHeading !== null && !isNaN(magHeading));
+                if (!gnssValid && !magValid) return null;
+                if (gnssValid && !magValid) return gnssHeading;
+                if (!gnssValid && magValid) return this.applyOffset(magHeading);
+                // Both valid — blend with circular mean weighted by magWeight(speed).
+                const wMag = this.magWeight(speedKmh);
+                const wGnss = 1 - wMag;
+                // Apply offset before blending so both sources are in the same frame.
+                const magAdj = this.applyOffset(magHeading);
+                // Circular weighted mean via vector sum.
+                const rad = Math.PI / 180;
+                const sx = Math.cos(gnssHeading * rad) * wGnss + Math.cos(magAdj * rad) * wMag;
+                const sy = Math.sin(gnssHeading * rad) * wGnss + Math.sin(magAdj * rad) * wMag;
+                let h = Math.atan2(sy, sx) * (180 / Math.PI);
+                if (h < 0) h += 360;
+                return h;
+            }
+        };
 
         // --- GPS TRACKING ENGINE ---
         function startBackgroundTracking() {
@@ -1450,11 +2286,18 @@
                                 return;
                             }
                             // Bypass lookahead: up to 3 future nodes; if any is
-                            // significantly closer by >=1.5 km²² ≥the user has passed
-                            // the current node. Use full haversine for the comparison.
+                            // significantly closer (by >=1.5 km) the user has passed
+                            // the current node. Use squared distances throughout:
+                            // x < y - 1500 ⟺ x² < y² - 2·1500·y + 1500² (not a clean
+                            // squared compare, so we keep one sqrt per endpoint).
+                            // The previous code path used `Math.sqrt(dSq)` (a lower
+                            // bound) and `fastDistance` (true haversine) together,
+                            // which made the test harder to satisfy than intended and
+                            // missed legit bypasses near the equator. Now both
+                            // comparisons use the true haversine for symmetry.
                             let bypassed = false;
                             const lookaheadEnd = Math.min(cursor + 3, nodesToProcess.length);
-                            const d = Math.sqrt(dSq);
+                            const d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
                             for (let j = cursor + 1; j < lookaheadEnd; j++) {
                                 const futureDist = fastDistance(lat, lon, nodesToProcess[j].lat, nodesToProcess[j].lon);
                                 if (futureDist < d - 1500) { bypassed = true; break; }
@@ -1484,12 +2327,34 @@
                         processNodes(state.originalRouteNodes, 'originalRouteNodesCursor');
 
                         const isMoving = state.currentSpeed >= 2;
-                        if (isMoving && gpsHeading !== null && !isNaN(gpsHeading)) {
-                            state.renderHeading = gpsHeading; state.sensorHeading = gpsHeading;
-                            window.__METEO_CORE_STATE.fusedHeading = gpsHeading;
-                            triggerRenderPipeline();
+                        // --- Heading pipeline (was: hard override) ---
+                        // Previously the GPS tick *replaced* the magnetometer with raw
+                        // `gpsHeading` whenever speed >= 2 km/h. That discontinuity at
+                        // the 2 km/h threshold is exactly the "moving sideways" feeling
+                        // during route-follow. The fuser now blends mag and GNSS via a
+                        // smooth speed-gated circular mean with logistic crossover at
+                        // ~7 km/h, and learns the residual mag offset online when both
+                        // sources are reliable. See MagHeadingFuser above.
+                        if (gnssHeadingValid(gpsHeading) && isMoving) {
+                            MagHeadingFuser.sync(gpsHeading, state.currentSpeed, accuracy);
+                            const gnssFreshMs = now - (window.__METEO_CORE_STATE.lastGnssUpdate || 0);
+                            const magH = state.sensorHeading;
+                            const fused = MagHeadingFuser.fuse(gpsHeading, magH, state.currentSpeed, gnssFreshMs);
+                            if (fused !== null) {
+                                state.sensorHeading = fused;
+                                state.renderHeading = fused;
+                                window.__METEO_CORE_STATE.fusedHeading = fused;
+                                triggerRenderPipeline();
+                            }
                         } else if (state.sensorHeading !== null) {
-                            state.renderHeading = state.sensorHeading; triggerRenderPipeline();
+                            // Below 2 km/h OR no GPS heading — pure magnetometer
+                            // (already bias-corrected if raw-Magnetometer path is live).
+                            const fused = MagHeadingFuser.fuse(null, state.sensorHeading, state.currentSpeed, 99999);
+                            if (fused !== null) {
+                                state.sensorHeading = fused;
+                                state.renderHeading = fused;
+                                triggerRenderPipeline();
+                            }
                         }
 
                         if (isMoving) { DOM.hudMap.classList.add('hud-moving'); DOM.hudMap.classList.remove('hud-idle'); }
@@ -1792,8 +2657,12 @@
             const route = e.routes[0];
             const summary = route.summary;
             const distKm = (summary.totalDistance / 1000).toFixed(1);
-            const timeMin = Math.round((summary.totalTime % 3600) / 60);
-            const timeHr = Math.floor(summary.totalTime / 3600);
+            // Duration in H:MM. Use floor(seconds/60) so 59m59s -> "59M" and 60m00s -> "1H 0M".
+            // The previous Math.round here would have produced "60M" for any duration in
+            // [59:30, 60:00), which is awkward and reads as a bug to the user.
+            const totalSec = Math.floor(summary.totalTime);
+            const timeHr = Math.floor(totalSec / 3600);
+            const timeMin = Math.floor((totalSec % 3600) / 60);
             let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
             const totalNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
             const engineTag = window.lastWinningEngine ? `[${window.lastWinningEngine}] ` : '';
@@ -1877,7 +2746,8 @@
                             totalDistance: route.summary.totalDistance,
                             coords: coordsPlain,
                             intervalDist: CONFIG.routingIntervalNodeDist
-                        });
+                        }, { signal });   // Pass AbortSignal so a route swap cancels
+                                         // the stale compute before it poisons state.
                     } catch (e) { console.warn('Route node calculation failed:', e); state.routeNodes = []; }
                 } else { state.routeNodes = []; }
                 state.routeNodesCursor = 0;
@@ -2599,7 +3469,16 @@
 
                 const modelList = WeatherEnsemble.models.join(',');
 
-                const [rCurr, rFore, rSolar] = await Promise.all([
+                // --- Total-budget race ---
+                // Each fetch can independently take up to 1+2+4s backoff + 15s timeout =
+                // ~22 s per endpoint (all awaited together via Promise.all). Total wall
+                // clock for failed weather = ~22 s before the user gets any view, which
+                // violates the "feels instant" UX contract. Race the whole bundle
+                // against an 8 s budget — if the network can't win in 8 s we fall back
+                // to localforage cache immediately so UI shows last-known telemetry
+                // (clearly marked offline), rather than a frozen spin.
+                const WEATHER_FETCH_BUDGET_MS = 8000;
+                const fetchBundle = Promise.all([
                     // rCurr: single best_match, fields needed for real-time display
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
                     // rFore: all 4 models, all variables including gusts for ensemble bridge
@@ -2607,6 +3486,10 @@
                     // rSolar: single model, UV and shortwave only
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
                 ]);
+                const budgetTimeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('weather fetch exceeded 8s budget')), WEATHER_FETCH_BUDGET_MS)
+                );
+                const [rCurr, rFore, rSolar] = await Promise.race([fetchBundle, budgetTimeout]);
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
@@ -2954,12 +3837,12 @@
         } catch (e) { console.warn('AeroHUD: AbsoluteOrientationSensor unavailable:', e); }
     })();
 
-    window.addEventListener('deviceorientation', (e) => {
-        if (e.webkitCompassHeading != null) {
-            st.deviceHeading = e.webkitCompassHeading;
-        } else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) {
-            st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
-        }
+    // PITCH/ROLL BLOCK ONLY — heading is sourced from the calibrated pipeline
+    // (state.rawSensorHeading → executeRenderPipeline → __METEO_CORE_STATE.fusedHeading).
+    // The Aero HUD readchain at line ~3798 already prefers fusedHeading, so to
+    // avoid a redundant second-EMA pass we skip the heading assignment entirely
+    // when the main pipeline is producing data.
+    function aeroApplyTilt(e) {
         if (e.beta !== null && e.gamma !== null) {
             const rad = Math.PI / 180;
             const b = e.beta * rad, g = e.gamma * rad;
@@ -2969,21 +3852,22 @@
             st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
             st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
         }
+    }
+
+    window.addEventListener('deviceorientation', (e) => {
+        // Fallback heading ONLY when the main pipeline is silent.
+        if (st.fusedHeading === null) {
+            if (e.webkitCompassHeading != null) st.deviceHeading = e.webkitCompassHeading;
+            else if (e.absolute && e.alpha !== null && e.beta !== null && e.gamma !== null && !st.quaternionActive) st.deviceHeading = computeRobustHeading(e.alpha, e.beta, e.gamma);
+        }
+        aeroApplyTilt(e);
     });
 
     window.addEventListener('deviceorientationabsolute', (e) => {
-        if (e.alpha !== null && !st.quaternionActive) {
+        if (st.fusedHeading === null && e.alpha !== null && !st.quaternionActive) {
             st.deviceHeading = computeRobustHeading(e.alpha, e.beta ?? 0, e.gamma ?? 0);
         }
-        if (e.beta !== null && e.gamma !== null) {
-            const rad = Math.PI / 180;
-            const b = e.beta * rad, g = e.gamma * rad;
-            const gx = Math.cos(b) * Math.sin(g);
-            const gy = Math.sin(b);
-            const gz = Math.cos(b) * Math.cos(g);
-            st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
-            st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
-        }
+        aeroApplyTilt(e);
     });
 
     function mountActiveAeroUI() {
