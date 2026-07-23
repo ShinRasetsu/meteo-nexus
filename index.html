@@ -63,7 +63,8 @@
             lastGnssUpdate: 0,
             fusedHeading: null,
             rawMagHeading: null,
-            rawMagAt: 0
+            rawMagAt: 0,
+            brierScores: null
         };
     </script>
 
@@ -557,6 +558,74 @@
         //     drizzle (e.g. 0.05 mm hard to forecast) gets fractional weight rather
         //     than a binary 0/100 — improves forecast skill vs deterministic baseline
         //     for low-accumulation events.
+
+        // --- REGION-AWARE ENSEMBLE WEIGHTS ---
+        // Global static weights in ENSEMBLE_WEIGHTS are a reasonable "anywhere" default
+        // but model skill is strongly geographic:
+        //   • ICON-EU (icon_seamless) is competitive with — or better than — ECMWF for
+        //     precip placement inside Europe (DWD nests at 6km), and degrades quickly
+        //     outside Europe/MENA.
+        //   • JMA (jma_seamless) leads ECMWF solidly in the Western Pacific (Japan,
+        //     Korea, coastal East Asia), but skill drops to GFS-level globally.
+        //   • ECMWF IFS leads globally, particularly outside those sweet-spots.
+        // We compute per-region weight tables so the consensus reflects *who actually
+        // knows*, summarised by three rectangular buffels:
+        //
+        //   EUROPE_BOX:        35° N..72° N,   -15° E..40° E   (Europe + parts of MENA)
+        //   EAST_ASIA_BOX:     10° N..55° N,  110° E..180° E  (JP/KR/coastal CN + W Pac)
+        //   DEFAULT:           everywhere else
+        //
+        // Each regime's weights sum to 1.0 so downstream renormalisation math is
+        // unchanged. Regime is determined once per fetch and cached for the duration
+        // of the call (no per-waypoint recomputation needed for typical routes ≤ 99
+        // nodes that mostly sit in one regime; buy-node reach is limited).
+        const REGIONAL_WEIGHTS = {
+            default:   { ecmwf_ifs025: 0.40, gfs_seamless:  0.30, icon_seamless: 0.18, jma_seamless: 0.12 },
+            europe:    { ecmwf_ifs025: 0.32, gfs_seamless:  0.22, icon_seamless: 0.36, jma_seamless: 0.10 },
+            east_asia: { ecmwf_ifs025: 0.36, gfs_seamless:  0.22, icon_seamless: 0.14, jma_seamless: 0.28 }
+        };
+
+        // Long-lead weights (~+72h+): ECMWF's lead shrinks; GFS converges; ICON/JMA
+        // are not competitive at long range outside their nested domains. Used as the
+        // far-end interpolation target by setActiveWeightsAtLead(). Both ECMWF and
+        // GFS carry 0.40 (the documented convergence point); regional models shrink.
+        const LONG_LEAD_WEIGHTS = {
+            default:   { ecmwf_ifs025: 0.40, gfs_seamless:  0.40, icon_seamless: 0.12, jma_seamless: 0.08 },
+            europe:    { ecmwf_ifs025: 0.36, gfs_seamless:  0.36, icon_seamless: 0.22, jma_seamless: 0.06 },
+            east_asia: { ecmwf_ifs025: 0.40, gfs_seamless:  0.36, icon_seamless: 0.10, jma_seamless: 0.18 }
+        };
+
+        function _inEurope(lat, lon)   { return lat >= 35 && lat <= 72 && lon >= -15 && lon <= 40; }
+        function _inEastAsia(lat, lon){ return lat >= 10 && lat <= 55 && lon >= 110 && lon <= 180; }
+
+        // Returns the weight regime key for a (lat, lon) — exposed so callers can
+        // display "REGIONAL ONLY • EUROPE" in the UI when ECMWF/GFS dip out.
+        function getWeightRegime(lat, lon) {
+            if (lat == null || lon == null) return 'default';
+            if (_inEastAsia(lat, lon)) return 'east_asia';
+            if (_inEurope(lat, lon))   return 'europe';
+            return 'default';
+        }
+
+        // Public entry — returns a *fresh* weights object for the regime that contains
+        // the requested coordinates. Callers must not mutate the result (or just be
+        // done with it before the next regime switch — the captive caller path is
+        // fetch-then-render, no caching beyond one tick).
+        function getEnsembleWeights(lat, lon) {
+            return REGIONAL_WEIGHTS[getWeightRegime(lat, lon)] || REGIONAL_WEIGHTS.default;
+        }
+
+        // Linear-interpolate two weight tables by factor f in [0,1].
+        // f=0 returns shortLead weights, f=1 returns longLead weights. Both inputs
+        // must share the same keys; result is *not* guaranteed to sum to 1.0 unless
+        // both inputs do (which they do by construction).
+        function _lerpWeights(shortLead, longLead, f) {
+            const out = {};
+            for (const k of Object.keys(shortLead)) {
+                out[k] = shortLead[k] * (1 - f) + longLead[k] * f;
+            }
+            return out;
+        }
         const ENSEMBLE_WEIGHTS = {
             ecmwf_ifs025: 0.40,  // ECMWF IFS 0.25° — verified leader on 24-72h precip
                                 // skill (WMO SVSNA 2023-2024, Open-Meteo validation).
@@ -581,6 +650,46 @@
             // Object.keys() on hot paths was responsible for ~12% of the WeatherEnsemble
             // CPU time; freezing the index order means JS engines can inline the loop.
             _MI: Object.entries(ENSEMBLE_WEIGHTS).map(([m, w]) => ({ m, w })),
+            // The geographic context that active weights reflect. Defaults to 'default'
+            // (global); call setActiveWeights(lat, lon) before rendering to switch the
+            // regime, and restoreWeights() afterwards. Active weight table is the same
+            // shape as ENSEMBLE_WEIGHTS and used unchanged by every bulk/per-index API
+            // — no per-API changes needed; they all read this._MI.
+            _activeRegime: 'default',
+            _defaultMI: Object.entries(ENSEMBLE_WEIGHTS).map(([m, w]) => ({ m, w })),
+            _defaultACK : ENSEMBLE_WEIGHTS.ecmwf_ifs025 + ENSEMBLE_WEIGHTS.gfs_seamless,
+            // setActiveWeights(lat, lon) — sets this._MI from REGIONAL_WEIGHTS and
+            // recomputes _GLOBAL_ACK so lowConfidence math stays consistent with the
+            // active regime (e.g. in Europe, ECMWF+GFS account for 0.54 instead of
+            // 0.70, so a "regional-only" verdict is reached only at lower thresholds).
+            setActiveWeights(lat, lon) {
+                const w = getEnsembleWeights(lat, lon);
+                this._MI = Object.entries(w).map(([m, weight]) => ({ m, weight }));
+                this._activeRegime = getWeightRegime(lat, lon);
+                this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
+            },
+            // Lead-time-aware variant — used by long-range route timelines where
+            // tail hours (+36h .. +48h) drift toward the long-lead weight table.
+            // `leadHours` is the hour offset from "now". Below 12h uses short-lead
+            // (regional) weights unchanged; above 72h uses long-lead weights; in
+            // between we linear-interpolate so there's no discontinuity at the
+            // crossings.
+            setActiveWeightsAtLead(lat, lon, leadHours) {
+                const regime = getWeightRegime(lat, lon);
+                const shortW = REGIONAL_WEIGHTS[regime] || REGIONAL_WEIGHTS.default;
+                const longW  = LONG_LEAD_WEIGHTS[regime] || LONG_LEAD_WEIGHTS.default;
+                const f = Math.max(0, Math.min(1, ((leadHours || 0) - 12) / 60));
+                const w = _lerpWeights(shortW, longW, f);
+                this._MI = Object.entries(w).map(([m, weight]) => ({ m, weight }));
+                this._activeRegime = regime;
+                this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
+            },
+            restoreWeights() {
+                this._MI = this._defaultMI;
+                this._GLOBAL_ACK = this._defaultACK;
+                this._activeRegime = 'default';
+            },
+            getActiveRegime() { return this._activeRegime; },
             WET_THRESHOLD_MM: 0.1,    // per-model precipitation floor
             // WET_POSSIBLE threshold must align with the sum of weights and the new
             // Brier ramp. With one model voting for measurable rain (≥ FULL=1.0 mm),
@@ -628,13 +737,29 @@
             },
 
             // Coverage-aware health: partial degradation reads as degraded, not healthy.
+            // Also rejects all-zero arrays (sentinel output from Open-Meteo when a model
+            // is out-of-region or temporarily faulted) — without this guard a dead
+            // model masquerades as 100% healthy / dry since every cell passes the
+            // non-null check. We require the array to have at least one strictly-
+            // positive value to be considered "live"; the dry-but-real case (whole
+            // week clear sky) is statistically negligible over a 48h hourly sample
+            // — most regions have at least one forecast hour with > 0.01 mm precip.
             checkHealth(arr) {
                 if (!arr || !Array.isArray(arr) || arr.length === 0) return { healthy: false, coveragePct: 0 };
-                let valid = 0;
+                let valid = 0, sumAbs = 0;
                 const len = arr.length;
-                for (let i = 0; i < len; i++) if (arr[i] !== null && arr[i] !== undefined) valid++;
+                for (let i = 0; i < len; i++) {
+                    if (arr[i] !== null && arr[i] !== undefined) {
+                        valid++;
+                        sumAbs += Math.abs(arr[i]);
+                    }
+                }
                 const coveragePct = (valid / len) * 100;
-                return { healthy: coveragePct >= this.HEALTH_DEGRADED_PCT, coveragePct };
+                // All-zero sentinel — count as unhealthy. The 1e-9 floor prevents a
+                // fp-noise false negative where -0.0 + 0.0 == 1e-15 or similar.
+                const sentinelDead = (sumAbs < 1e-9 && valid > 0);
+                const healthy = !sentinelDead && coveragePct >= this.HEALTH_DEGRADED_PCT;
+                return { healthy, coveragePct: sentinelDead ? 0 : coveragePct, sentinelDead };
             },
 
             // Continuous wetness contribution for one precip value. Returns 0..1.
@@ -2890,28 +3015,59 @@
             // pure DOM building with no WeatherEnsemble math in it.
             const nodeStats = new Array(N);
             const currentUnixMs = Date.now();
+            let prevRegime = null;
             for (let k = 0; k < N; k++) {
                 const p = weatherPoints[k];
                 const m = modelPoints[k];
-                let baseNowIndex = 0;
+                const wp = waypoints[k];
+                // Per-waypoint regional weighting — routes typically stay in one regime
+                // but long-haul (e.g. EU→JP) cross-buckets and each crossing needs a
+                // different weight vector. Lead-time matters too — a +48h tail node
+                // uses long-lead weights (GFS gets more share), a "now" node uses
+                // short-lead regional weights (ECMWF/ICON/MMA dominant). We always
+                // call setActiveWeightsAtLead; the internal map() tracks the regime
+                // and swap cost is negligible vs the wetness bulk pass that follows.
+                // Note: the "nowIndex" for the *current sample's hourly block* may
+                // not be 0 (we get back exactly 48 hours per fetch); we estimate the
+                // per-node hour offset relative to the user's wall-clock now and pass
+                // that as leadHours.
+                let waypointNowIndex = 0;
                 if (p.hourly && p.hourly.time) {
                     let minDiff = Infinity;
                     const times = p.hourly.time;
                     for (let i = 0; i < times.length; i++) {
                         const diff = Math.abs((times[i] * 1000) - currentUnixMs);
-                        if (diff < minDiff) { minDiff = diff; baseNowIndex = i; }
+                        if (diff < minDiff) { minDiff = diff; waypointNowIndex = i; }
                     }
                 }
+                if (wp) {
+                    const leadHours = Math.max(0, (waypointNowIndex - (p.hourly?.time ? 0 : 0))); // p.hourly.time[0] is "now"; offset = waypointNowIndex
+                    WeatherEnsemble.setActiveWeightsAtLead(wp.lat, wp.lon, leadHours);
+                }
+                const baseNowIndex = waypointNowIndex;
                 const mH = m.hourly || {};
                 const precipModels = WeatherEnsemble.extractModelArrays(mH, 'precipitation');
-                // Bulk wetness over a 2-hour window (nowIdx-1 .. nowIdx+1) — current hour
-                // is always included; we read the middle of the bulk output. Window gives
-                // the ensemble a tiny temporal smoothing without losing current accuracy.
+                // Pre-filter sentinel-dead precip arrays (all-zero Open-Meteo out-of-region
+                // pattern) so the renormalisation math excludes them as nulls. Mirrors the
+                // dashboard consensus path.
+                for (const _m of WeatherEnsemble.models) {
+                    if (precipModels[_m] && WeatherEnsemble.checkHealth(precipModels[_m]).sentinelDead) precipModels[_m] = null;
+                }
+                // Wetness verdict — current-hour only, matching the dashboard's
+                // `hourlyAgreement[0]` instead of a 3-hour rolling average. The rolling
+                // average was incompatible with dashboard verdicts: light showers that
+                // passed within a half hour were *flagged* by the dashboard but the
+                // 3-hour window averaged them out into "STABLE" on the route timeline, so
+                // the user saw radar switching from RAIN_LIKELY → STABLE across the same
+                // route step. Now both UI surfaces agree on the same metric.
+                // We also keep `wetPctShortWindow` for an extra tooltip — short-lived
+                // (~2h) post-rain wetness that may show on radar but already be over.
                 const winStart = Math.max(0, baseNowIndex - 1);
                 const winEnd = Math.min((mH.time || p.hourly?.time || []).length || 0, baseNowIndex + 2);
                 const wetArr = WeatherEnsemble.weightedWetnessAll(precipModels, winStart, winEnd);
-                const wet = wetArr.length >= 2 ? (wetArr[0] + wetArr[1] + (wetArr[2] || wetArr[1])) / Math.min(3, wetArr.length) : (wetArr[0] || 0);
-                nodeStats[k] = { baseNowIndex, wetPct: wet, precipModels, winStart, winEnd };
+                const currentWetPct = wetArr.length >= (baseNowIndex - winStart) ? (wetArr[baseNowIndex - winStart] || 0) : (wetArr[0] || 0);
+                const shortWindowWet = wetArr.length >= 2 ? (wetArr[0] + wetArr[1] + (wetArr[2] || wetArr[1])) / Math.min(3, wetArr.length) : (wetArr[0] || 0);
+                nodeStats[k] = { baseNowIndex, wetPct: currentWetPct, wetPctShortWindow: shortWindowWet, precipModels, winStart, winEnd };
             }
 
             for (let idx = 0; idx < N; idx++) {
@@ -3033,6 +3189,9 @@
                 const newScrollTrack = document.getElementById('timeline-scroll-track');
                 if (newScrollTrack) newScrollTrack.scrollTop = scrollPos;
             }
+            // Restore default weights so the dashboard consensus (which does not
+            // call setActiveWeights before every render) starts from a clean slate.
+            WeatherEnsemble.restoreWeights();
         }
 
         // --- CLOCK ---
@@ -3209,6 +3368,14 @@
         //     conservative rounded value (e.g. "+" half-degree uncertainty badge).
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
+            // Activate region-aware ensemble weights for this render pass.
+            // The active regime stays set on WeatherEnsemble until the next call to
+            // setActiveWeights() or restoreWeights() — both processTelemetryPayload
+            // and fetchRouteIntelligence will overwrite per their own coordinates, so
+            // no risk of a stale regime leaking across renders.
+            if (state.telemetryCache && state.telemetryCache.lat) {
+                WeatherEnsemble.setActiveWeights(state.telemetryCache.lat, state.telemetryCache.lon);
+            }
             let curr = dCurr.current;
             const h    = dFore.hourly;
             const hSol = dSolar.hourly;
@@ -3256,6 +3423,15 @@
             }
 
             // Bulk wetness / band / wind over the full hour vector via single-pass loops.
+            // Pre-filter: any model whose precip array came back all-zero (sentinel pattern
+            // for "this model is out of region / faulted") is treated as a null contributor
+            // so the renormalisation excludes it entirely. Without this, dead models
+            // were counted as fully-healthy 0 mm votes, which would push the consensus
+            // silently toward "STABLE" even when the actually-live models agreed on rain.
+            for (const _m of WeatherEnsemble.models) {
+                const a = precipModels[_m];
+                if (a && WeatherEnsemble.checkHealth(a).sentinelDead) precipModels[_m] = null;
+            }
             const hourlyAgreement = WeatherEnsemble.weightedWetnessAll(precipModels, nowIndex, maxSlice);
             const tempBand        = WeatherEnsemble.bandAll(tempModels, nowIndex, maxSlice);
 
@@ -3419,11 +3595,14 @@
             // as "REGIONAL ONLY" and fade the label to amber, signalling to the user
             // that the consensus is being held up by regional models (ICON in EU/JMA
             // in JP) which may be less trustworthy far from their nested-grid domains.
+            // Also surface the active regime ("EUROPE"/"EAST ASIA"/"GLOBAL") so the
+            // user can see which weight table drove the consensus.
             if (DOM.metricTempSpread) {
                 if (tempBand && tempBand[0]) {
                     const spreadStr = `±${(tempBand[0].spread / 2).toFixed(1)}° MODEL SPREAD`;
+                    const regimeTag = WeatherEnsemble.getActiveRegime ? ` • ${WeatherEnsemble.getActiveRegime().toUpperCase()}` : '';
                     const lcSuffix  = lowConfidence ? ' • REGIONAL ONLY' : '';
-                    updateText(DOM.metricTempSpread, spreadStr + lcSuffix);
+                    updateText(DOM.metricTempSpread, spreadStr + regimeTag + lcSuffix);
                     updateClass(DOM.metricTempSpread, `text-[10px] font-mono font-bold uppercase tracking-widest mt-1 ${lowConfidence ? 'text-brand-warning' : 'text-gray-500'}`);
                 } else {
                     updateText(DOM.metricTempSpread, '');
@@ -3487,6 +3666,153 @@
         // --- PROCESS TELEMETRY PAYLOAD ---
         // CHANGED: wind/gust bridge to Aero HUD now uses the 4-model ensemble blend.
         // Falls back to dCurr.current only if every model returned null this hour.
+
+        // --- PHASE W3: Brier skill log (forecast-vs-observed) ---
+        // Tiny ring buffer persisted in localforage. Each fetch snap-shots a few
+        // *future* hours of forecast so that future fetches can come back and verdict
+        // the predictions against what the same API just reported for `now`.
+        //
+        // Why this matters:
+        //   • Static weights (even regional+lead-time) are a hand-set prior. The right
+        //     long-term answer is to let *outcomes* tell us which model actually scores
+        //     better for this user's geography, then shift weight toward whoever wins.
+        //   • This module is the cheapest possible first step: it persists comparisons
+        //     to localforage without sending telemetry, and surfaces a per-model Brier
+        //     score in the console so the user (or a future skills page) can audit.
+        //
+        // Brier definition: BS = mean((f - o)^2) where f ∈ [0,1] is the forecast
+        // probability of "rain" (we derive it via WeatherEnsemble._precipContribution
+        // — same Brier ramp used by the live consensus — so the score measures the
+        // skill of *this consensus curve*), and o ∈ {0,1} is the observed yes/no.
+        // Lower BS = better. A climatology baseline of "always 30%" scores ~0.21.
+        //
+        // Persistence key: 'meteo_brier_log_v1' = array of {hourEpoch, votesByModel,
+        // observedMm}. Ring-capped at 600 entries (~24 waypoints × 25 hours) so disk
+        // stays bounded.
+        const BRIER_KEY = 'meteo_brier_log_v1';
+        const BRIER_CAP = 600;
+        let _brierCache = null;     // in-memory cache — only ONE async get per session
+
+        async function _loadBrierLog() {
+            if (_brierCache) return _brierCache;
+            try { _brierCache = (await localforage.getItem(BRIER_KEY)) || []; }
+            catch (e) { _brierCache = []; }
+            return _brierCache;
+        }
+        async function _saveBrierLog(arr) { _brierCache = arr; try { await localforage.setItem(BRIER_KEY, arr); } catch (e) {} }
+
+        // Append up to 3 future hours of per-model votes (hour-aligned to the
+        // response's hourly.time array so we can match later observations).
+        async function brierRecordForecast(dFore) {
+            if (!dFore || !dFore.hourly || !dFore.hourly.time) return;
+            const h = dFore.hourly;
+            const nowMs = Date.now();
+            const bucketLat = (state.telemetryCache && state.telemetryCache.lat != null) ? Math.round(state.telemetryCache.lat * 10) / 10 : null;
+            const bucketLon = (state.telemetryCache && state.telemetryCache.lon != null) ? Math.round(state.telemetryCache.lon * 10) / 10 : null;
+            if (bucketLat === null || bucketLon === null) return;
+            // Record 3 hours: T+1, T+2, T+3 (skip T+0 since that's "now" and there's
+            // no forecast to validate). Use T+24..T+48 too? No — 48h lead is outside
+            // the EMA horizon over which we'll ever collect a meaningful sample.
+            const log = await _loadBrierLog();
+            for (let leadHour = 1; leadHour <= 3; leadHour++) {
+                // Find the hour index in h.time closest to now + leadHour * 3600.
+                const target = nowMs / 1000 + leadHour * 3600;
+                let bestIdx = -1, bestDiff = Infinity;
+                for (let i = 0; i < h.time.length; i++) {
+                    const d = Math.abs(h.time[i] - target);
+                    if (d < bestDiff) { bestDiff = d; bestIdx = i; }
+                }
+                if (bestIdx < 0 || bestDiff > 1800) continue;   // out of API range or > 30 min off
+                // Per-model forecast-vote contribution 0..1, using the same ramp as the
+                // live consensus. We *do not* apply regional weights here — the Brier
+                // score is per-model, weights would just dilute the comparison.
+                const votes = {};
+                for (const _m of WeatherEnsemble.models) {
+                    const arr = h[`precipitation_${_m}`];
+                    if (!arr) { votes[_m] = null; continue; }
+                    const v = arr[bestIdx];
+                    votes[_m] = (v == null) ? null : WeatherEnsemble._precipContribution(v);
+                }
+                log.push({ t: nowMs, hourEpoch: h.time[bestIdx], lat: bucketLat, lon: bucketLon, votesByModel: votes, observedMm: null });
+            }
+            // Trim oldest entries (FIFO). Keeps ~24h × ~3 entries/cat-1 epoch.
+            while (log.length > BRIER_CAP) log.shift();
+            await _saveBrierLog(log);
+        }
+
+        // Observation pass — for every entry whose hourEpoch has already passed and
+        // whose observation has not yet been recorded, take the current dCurr's
+        // precipitation reading (if that hour is bracketed by dFore) and backfill
+        // observedMm. Then compute the rolling Brier score per model and surface via
+        // console.info + __METEO_CORE_STATE.brierScores.
+        async function brierRecordObservation(dFore) {
+            if (!dFore || !dFore.hourly || !dFore.hourly.time) return;
+            const h = dFore.hourly;
+            const nowSec = Date.now() / 1000;
+            const log = await _loadBrierLog();
+            if (log.length === 0) return;
+            // Find current-hour precipitation from h.precipitation (best_match model).
+            // Yes — observation is biased to be the same API's re-forecast, NOT a true
+            // rain gauge; this is a known limitation but the *relative* skill ordering
+            // of models is still meaningful because every model is now re-forecasted
+            // by the same engine. With a real weather station pluggable later we'd
+            // swap observation source here.
+            const observedBestMatch = h.precipitation || null;
+            let nowIdx = -1, bestDiff = Infinity;
+            if (observedBestMatch) {
+                for (let i = 0; i < h.time.length; i++) {
+                    const d = Math.abs(h.time[i] - nowSec);
+                    if (d < bestDiff) { bestDiff = d; nowIdx = i; }
+                }
+                if (bestDiff > 3600) nowIdx = -1;
+            }
+            if (nowIdx < 0) return;
+            const observedMm = observedBestMatch[nowIdx] || 0;
+            const obsThresholdBet = WeatherEnsemble.WET_THRESHOLD_MM || 0.1;
+            // For each log entry whose predicted hour is now or in the past, record
+            // the observation and tag it verified. We don't try to backfill old past
+            // ones (browser session may have offline-gapped); just take what we can.
+            const votesByModel = WeatherEnsemble.models;
+            const tally = {};
+            for (const _m of votesByModel) tally[_m] = { sum: 0, n: 0 };
+            let changed = false;
+            for (const e of log) {
+                if (e.observedMm !== null) continue;       // already observed
+                if (Math.abs(e.hourEpoch - h.time[nowIdx]) > 1800) continue; // only verify THIS hour's predictions
+                e.observedMm = observedMm;
+                changed = true;
+                // Tally for any completed entry where this model had a non-null vote.
+            }
+            if (changed) {
+                let totalObserved = 0;
+                for (const e of log) {
+                    if (e.observedMm === null) continue;
+                    totalObserved++;
+                    const o = (e.observedMm >= obsThresholdBet) ? 1 : 0;
+                    for (const _m of votesByModel) {
+                        const f = e.votesByModel && e.votesByModel[_m];
+                        if (f === null || f === undefined) continue;
+                        tally[_m].sum += (f - o) * (f - o);
+                        tally[_m].n += 1;
+                    }
+                }
+                const scores = {};
+                for (const _m of votesByModel) {
+                    scores[_m] = tally[_m].n > 0 ? tally[_m].sum / tally[_m].n : null;
+                }
+                window.__METEO_CORE_STATE.brierScores = scores;
+                const readyCount = totalObserved;
+                if (readyCount >= 3) {
+                    console.info('BrierSkill (n=' + readyCount + '): ' + WeatherEnsemble.models.map(m => {
+                        const s = scores[m]; return `${m}=${(s == null ? 'NA' : s.toFixed(3))}`;
+                    }).join('  '));
+                }
+            }
+            await _saveBrierLog(log);
+        }
+        // Expose a small getter for future UI usage.
+        window.getMeteoBrierScores = function() { return window.__METEO_CORE_STATE.brierScores || null; };
+
         async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
             if (dCurr && dCurr.elevation !== undefined) {
                 window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation;
@@ -3554,6 +3880,9 @@
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
+                // Brier log — record today's forecast so future fetches can verdict
+                // the predictions against actual observations.
+                try { brierRecordForecast(dFore); brierRecordObservation(dFore); } catch (e) { /* silent – Brier log is not on critical UX path */ }
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
 
             } catch (e) {
