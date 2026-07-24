@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com https://kit.fontawesome.com https://cdn.maptiler.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cdn.maptiler.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; media-src 'self' https://*.github.io; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
@@ -1103,7 +1103,7 @@
 
         // --- STATE STORE ---
         let state = {
-            mode: 'auto', autoCoords: null, targetCoords: null,
+            autoCoords: null, targetCoords: null,
             visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0,
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
@@ -2150,10 +2150,6 @@
         // between OS-mag heading and GNSS heading that MagHeadingFuser learns
         // online. We forward this to the fuser; here we just return the input,
         // and `applyOffset` is called from the GPS tick before the final blend.
-        function applyMagCalibrationToHeading(heading) {
-            return heading;
-        }
-
         function handleOrientationUpdate(alphaOrHeading) {
             // Quality-of-life: skip absurd spikes (sensor glitch) before they pollute EMA.
             // 1500°/s = a 4 RPM rotation, which exceeds any hand motion during driving.
@@ -2620,13 +2616,13 @@
             window.applyTacticalMode();
         }
 
-        function handleRouteError(e, existingWaypoints) {
+        function handleRouteError(e) {
             console.warn("Routing error intercepted at top level:", e);
             updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
         }
 
-        function initRoute(bypassExclude = false, existingWaypoints = null) {
+        function initRoute(existingWaypoints = null) {
             if (!state.autoCoords || !state.targetCoords || !state.mapObj) return;
             if (state.routeCtrl) state.mapObj.removeControl(state.routeCtrl);
             let wps;
@@ -2643,7 +2639,7 @@
                 }
             }).addTo(state.mapObj);
             state.routeCtrl.on('routesfound', (e) => { updateRouteStatus(e); });
-            state.routeCtrl.on('routingerror', (e) => handleRouteError(e, wps));
+            state.routeCtrl.on('routingerror', (e) => handleRouteError(e));
         }
 
         function updateInterceptMarkersPool(waypoints) {
@@ -3477,7 +3473,7 @@
                 const hh = String(Math.floor((t % 86400) / 3600)).padStart(2, '0');
                 const mm = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
                 const s = `${hh}:${mm}`;
-                times[i] = (s === "00:00" || s === "24:00") ? "00:00 (+1d)" : s;
+                times[i] = s === "00:00" ? "00:00 (+1d)" : s;
                 const uv = uvArr[j];
                 uvData[i] = (uv === null || uv === undefined) ? 0 : uv;
                 const so = solArr[j];
@@ -3988,7 +3984,7 @@
             DOM.navBtn.classList.add('hidden');
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
             DOM.secIntel.classList.add('hidden');
-            state.mode = 'auto'; state.tacticalMode = 1;
+            state.tacticalMode = 1;
             window.applyTacticalMode();
         };
 
@@ -4364,7 +4360,7 @@
                         <div class="text-right pointer-events-none">
                             <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
                             <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
-                                <span id="ui-radar-alt" class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
+                                <span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
                                 <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                             </div>
                         </div>

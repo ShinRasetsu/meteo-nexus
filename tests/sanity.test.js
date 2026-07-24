@@ -185,8 +185,35 @@ assertIncludes(html, "await loadMagCalibration()", "loadMagCalibration called in
 {
   const cspMatch = html.match(/http-equiv="Content-Security-Policy"[^>]*content="([^"]+)"/);
   assert(cspMatch, "CSP meta tag present");
-  assert(!/unsafe-eval/.test(cspMatch?.[1] || ""), "CSP script-src does not grant unsafe-eval");
+  const csp = cspMatch[1];
+  assert(!/unsafe-eval/.test(csp), "CSP script-src does not grant unsafe-eval");
+  assert(!/kit\.fontawesome\.com/.test(csp), "CSP does not grant dead kit.fontawesome.com origin");
+  assert(!/cdn\.maptiler\.com/.test(csp), "CSP does not grant dead cdn.maptiler.com origin");
+  assert(!/\.github\.io/.test(csp), "CSP does not grant dead media-src *.github.io");
+  assert(!/api\.maptiler\.com/.test(csp), "CSP does not grant dead api.maptiler.com");
+  assert(!/nominatim/.test(csp), "CSP does not grant dead nominatim origin");
+  assert(!/firebasestorage/.test(csp), "CSP does not grant dead firebasestorage origin");
 }
+
+// Dead state property state.mode removed
+assert(!/mode:\s*'auto'/.test(html.slice(html.indexOf("let state = {"), html.indexOf("let state = {") + 500)),
+  "state.mode dead property removed");
+assert(!/state\.mode\s*=/.test(html), "state.mode dead write removed");
+
+// Dead functions removed: applyMagCalibrationToHeading
+assert(!/applyMagCalibrationToHeading/.test(html), "dead applyMagCalibrationToHeading removed");
+
+// Dead param removed: initRoute bypassExclude
+assert(!/'bypassExclude/.test(html) && !/bypassExclude\s*=/.test(html), "dead bypassExclude param removed");
+
+// Dead param removed: handleRouteError existingWaypoints
+assert(!/handleRouteError\(e,\s*wps\)/.test(html), "dead existingWaypoints param removed from handleRouteError call");
+
+// Dead branch removed: "24:00" in timestamp formatting
+assert(!/"24:00"/.test(html), "dead 24:00 branch removed from timestamp formatting");
+
+// Dead Aero HUD span ID removed
+assert(!/id=["']ui-radar-alt["']/.test(html), "dead ui-radar-alt span ID removed");
 
 // Worker dispatch surface (must match worker.js)
 assertIncludes(html, "DECODE_VALHALLA", "main thread can request DECODE_VALHALLA");
