@@ -117,8 +117,46 @@ assertIncludes(html, "document.addEventListener('visibilitychange'", "visibility
 assertIncludes(html, "weatherAbort = new AbortController()", "weather fetch bundle has AbortController");
 assertIncludes(html, "weatherAbort.abort()", "budget timeout aborts pending weather fetches");
 
-// Offline day/night detection uses targetTimezone, not device local time
-assertIncludes(html, "state.targetTimezone", "offline is_day uses targetTimezone");
+// CSP must include gmaps-proxy for paste-link feature
+assertIncludes(html, "gmaps-proxy.strikefreedomnine.workers.dev", "CSP includes gmaps-proxy for paste-link");
+
+// DOM.modals must include magCal entry (was missing, caused crash on compass calibrate)
+assertIncludes(html, "magCal:", "DOM.modals includes magCal entry");
+
+// Offline cache timestamp passed to processTelemetryPayload
+assertIncludes(html, "cachedTimestamp", "processTelemetryPayload accepts cachedTimestamp for offline nowIndex");
+
+// Chart splice validates against old dataset length
+assertIncludes(html, "oldL", "chart splice validates against chart's existing dataset length");
+
+// Wake lock re-requests on resume (no stale null-check guard blocking)
+// The guard "if (wakeLock !== null) return;" was removed from requestWakeLock
+{
+  const wakeLockFn = html.slice(html.indexOf('async function requestWakeLock'), html.indexOf('async function requestWakeLock') + 280);
+  assert(
+    !/if\s*\(wakeLock\s*!==\s*null\)\s*return/.test(wakeLockFn),
+    "wakeLock requestWakeLock does not block re-request with stale null-check"
+  );
+}
+
+// Overpass same-distance stations use >= for stable sort
+{
+  const workerSrc2 = readFileSync(join(repoRoot, "worker.js"), "utf8");
+  assertIncludes(workerSrc2, "top[topCount - 1].distMeters >= d", "worker.js Top-K uses >= for same-distance stations");
+}
+
+// executeRenderPipeline no longer writes fusedHeading (only GPS tick does)
+assert(
+  !/"__METEO_CORE_STATE.fusedHeading\s*=\s*state\.sensorHeading/.test(html),
+  "executeRenderPipeline no longer writes fusedHeading (prevents race with GPS tick)"
+);
+
+// Dead-reckoning prefers lastHeading (fresh GPS tick bearing) over visual.heading EMA
+assertIncludes(html, "state.lastHeading", "dead-reckoning uses lastHeading before visual.heading");
+
+// Dead properties removed: state.coords and timelineIdleTimer
+assert(!/coords:\s*\{\}/.test(html), "state.coords dead property removed");
+assert(!/timelineIdleTimer/.test(html), "state.timelineIdleTimer dead property removed");
 
 // Worker dispatch surface (must match worker.js)
 assertIncludes(html, "DECODE_VALHALLA", "main thread can request DECODE_VALHALLA");

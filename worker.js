@@ -182,9 +182,9 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
             while (p >= 0 && top[p].distMeters > d) { top[p + 1] = top[p]; p--; }
             top[p + 1] = station;
             topCount++;
-        } else if (top[topCount - 1].distMeters > d) {
+        } else if (top[topCount - 1].distMeters >= d) {
             let p = topCount - 1;
-            while (p > 0 && top[p - 1].distMeters > d) { top[p] = top[p - 1]; p--; }
+            while (p > 0 && top[p - 1].distMeters >= d) { top[p] = top[p - 1]; p--; }
             top[p] = station;
         }
     }

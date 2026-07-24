@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com https://kit.fontawesome.com https://cdn.maptiler.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cdn.maptiler.com; worker-src 'self' blob:; media-src 'self' https://*.github.io; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com https://kit.fontawesome.com https://cdn.maptiler.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cdn.maptiler.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; media-src 'self' https://*.github.io; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
@@ -15,6 +15,9 @@
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
+    <link rel="preconnect" href="https://router.project-osrm.org" crossorigin>
+    <link rel="preconnect" href="https://valhalla1.openstreetmap.de" crossorigin>
     
     <link rel="preload" as="style" href="./tailwind.min.css">
     <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
@@ -684,13 +687,10 @@
             },
             getActiveRegime() { return this._activeRegime; },
             WET_THRESHOLD_MM: 0.1,    // per-model precipitation floor
-            // WET_POSSIBLE threshold must align with the sum of weights and the new
-            // Brier ramp. With one model voting for measurable rain (≥ FULL=1.0 mm),
-            // the wetness % equals the model's weight when no other member agrees.
-            // The lowest individual model weight is 0.12 (JMA), so triggering on
-            // "any single model reports ≥ 1.0 mm" requires the threshold to be ≤ 12%.
-            // 30% requires two of the four models (e.g. ECMWF+GFS, or ECMWF+ICON, or
-            // GFS+ICON) to agree on measurable rain — that is genuinely "possible".
+            // WET_POSSIBLE threshold of 30% requires at least two models (e.g. ECMWF+GFS,
+            // or ECMWF+ICON, or GFS+ICON, combined weight ≥ 30%) to agree on measurable
+            // rain — that is genuinely "possible". A single-model vote (e.g. JMA alone
+            // at 12% weight) is below threshold and classified as STABLE.
             WET_POSSIBLE_PCT: 30,     // weighted % → RAIN_POSSIBLE
             WET_LIKELY_PCT:   75,     // weighted % → RAIN_LIKELY + sonar trigger
             HEALTH_DEGRADED_PCT: 80,  // below this coverage → "degraded" (yellow badge)
@@ -1103,7 +1103,7 @@
 
         // --- STATE STORE ---
         let state = {
-            mode: 'auto', autoCoords: null, targetCoords: null, coords: {},
+            mode: 'auto', autoCoords: null, targetCoords: null,
             visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0,
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
@@ -1113,7 +1113,7 @@
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
-            isFuelOnlyRoute: false, customRouteWaypoints: null, timelineIdleTimer: null,
+            isFuelOnlyRoute: false, customRouteWaypoints: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
             renderAccText: null, renderAccClass: null
         };
@@ -1167,7 +1167,7 @@
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
-            modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
+            modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn'),
@@ -1347,7 +1347,6 @@
                     state.sensorHeading = (state.sensorHeading + diff * 0.75 + 360) % 360;
                 }
                 if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) state.renderHeading = state.sensorHeading;
-                window.__METEO_CORE_STATE.fusedHeading = state.sensorHeading;
                 state.rawSensorHeading = null;
             }
             if (state.renderSpeed !== null) {
@@ -1412,7 +1411,9 @@
             const moving = state.currentSpeed >= 2;
             if (moving && timeSinceFix > 0 && timeSinceFix < 3000) {
                 const speedMs = state.currentSpeed / 3.6;
-                const rawHeading = state.visual.heading !== null ? state.visual.heading : (state.cumulativeHeading || 0);
+                const rawHeading = (state.lastHeading && !isNaN(state.lastHeading))
+                    ? state.lastHeading
+                    : (state.visual.heading !== null ? state.visual.heading : (state.cumulativeHeading || 0));
                 if (!isNaN(rawHeading)) {
                     const headingRad = rawHeading * (Math.PI / 180);
                     const projectedDistanceM = speedMs * (timeSinceFix / 1000);
@@ -1572,7 +1573,6 @@
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
-                    if (wakeLock !== null) return;
                     wakeLock = await navigator.wakeLock.request('screen');
                     wakeLock.addEventListener('release', () => { wakeLock = null; });
                 }
@@ -2729,7 +2729,11 @@
                 }
                 let cleanWaypoints = [];
                 for (let i = 0; i < explicitWaypoints.length; i++) {
-                    if (i === 0 || explicitWaypoints[i].lat !== explicitWaypoints[i-1].lat || explicitWaypoints[i].lng !== explicitWaypoints[i-1].lng) cleanWaypoints.push(explicitWaypoints[i]);
+                    if (i === 0 || explicitWaypoints[i].lat !== explicitWaypoints[i-1].lat || explicitWaypoints[i].lng !== explicitWaypoints[i-1].lng) {
+                        // Also filter waypoints within 50m of the last kept waypoint.
+                        if (cleanWaypoints.length > 0 && fastDistance(cleanWaypoints[cleanWaypoints.length - 1].lat, cleanWaypoints[cleanWaypoints.length - 1].lng, explicitWaypoints[i].lat, explicitWaypoints[i].lng) < 50) continue;
+                        cleanWaypoints.push(explicitWaypoints[i]);
+                    }
                 }
                 explicitWaypoints = cleanWaypoints;
 
@@ -3322,11 +3326,9 @@
             const tempMax = tempBand.map(b => b ? b.max : null);
 
             if (state.chart) {
-                // Validate new data lengths match labels — a shift in the API's
-                // "now-hour" bracket can change array lengths silently, and splice()
-                // without matching would corrupt bar-to-label assignment.
                 const L = labels.length;
-                if (solarData.length !== L || uvData.length !== L || rainData.eu.length !== L ||
+                const oldL = state.chart.data.labels.length;
+                if (L !== oldL || solarData.length !== L || uvData.length !== L || rainData.eu.length !== L ||
                     rainData.us.length !== L || rainData.de.length !== L || rainData.jp.length !== L ||
                     tempMin.length !== L || tempMax.length !== L) {
                     state.chart.destroy(); state.chart = null;
@@ -3428,13 +3430,8 @@
         //   • Accurate low-confidence flag: if global model weight contribution drops
         //     below ACK baseline, curr is tagged lowConfidence and UI can show a more
         //     conservative rounded value (e.g. "+" half-degree uncertainty badge).
-        function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline) {
+        function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
-            // Activate region-aware ensemble weights for this render pass.
-            // The active regime stays set on WeatherEnsemble until the next call to
-            // setActiveWeights() or restoreWeights() — both processTelemetryPayload
-            // and fetchRouteIntelligence will overwrite per their own coordinates, so
-            // no risk of a stale regime leaking across renders.
             if (state.telemetryCache && state.telemetryCache.lat) {
                 WeatherEnsemble.setActiveWeights(state.telemetryCache.lat, state.telemetryCache.lon);
             }
@@ -3442,7 +3439,7 @@
             const h    = dFore.hourly;
             const hSol = dSolar.hourly;
 
-            const currentUnixMs = Date.now();
+            const currentUnixMs = isOffline && cachedTimestamp ? cachedTimestamp : Date.now();
             let nowIndex = 0, minDiff = Infinity;
             if (h && h.time) {
                 const times = h.time;
@@ -3885,12 +3882,12 @@
         // Expose a small getter for future UI usage.
         window.getMeteoBrierScores = function() { return window.__METEO_CORE_STATE.brierScores || null; };
 
-        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false) {
+        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false, cachedTimestamp = null) {
             if (dCurr && dCurr.elevation !== undefined) {
                 window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation;
             }
 
-            const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline);
+            const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp);
 
             // FIX: Aero-Vector HUD wind/gust previously sourced from single best_match (dCurr.current).
             // Now uses the weighted 4-model ensemble. Nothing in initActiveAeroTelemetry changes —
@@ -3970,7 +3967,7 @@
                 console.warn("Network Error. Failing over to IndexedDB LocalForage cache.", e);
                 try {
                     const cached = await localforage.getItem('telemetry_payload');
-                    if (cached) processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true);
+                    if (cached) processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp);
                 } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }
             }
         }
@@ -4201,9 +4198,7 @@
             }
 
             requestAnimationFrame(smoothVisualsLoop);
-            if (state.mode === 'manual' && state.coords && state.coords.lat) {
-                initMap(state.coords.lat, state.coords.lon); fetchData(state.coords.lat, state.coords.lon, false);
-            } else if (state.autoCoords) {
+            if (state.autoCoords) {
                 initMap(state.autoCoords.lat, state.autoCoords.lon);
                 if (state.isMapLocked) window.applyTacticalMode();
                 fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
