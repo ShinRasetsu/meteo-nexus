@@ -57,6 +57,14 @@ assert(
   "index.html does NOT load the CDN Tailwind JIT (uses precompiled CSS)"
 );
 
+// Content Security Policy meta tag
+assertIncludes(html, 'http-equiv="Content-Security-Policy"', "index.html has CSP meta tag");
+assertIncludes(html, "www.gstatic.com", "CSP script-src permits gstatic.com (Firebase imports)");
+
+// SRI hashes for Firebase dynamic imports (modulepreload)
+assertIncludes(html, 'modulepreload', "index.html modulepreloads Firebase with SRI integrity");
+assertIncludes(html, 'integrity="sha384', "Firebase modulepreload has sha384 integrity");
+
 // Local PWA icons + iOS apple-touch-icon
 assertIncludes(html, '<link rel="apple-touch-icon"', "index.html has apple-touch-icon for iOS");
 assertIncludes(html, './icon-180.png', "index.html references local icon-180.png");
@@ -65,6 +73,21 @@ assertIncludes(html, './icon-180.png', "index.html references local icon-180.png
 assert(
   !/__initial_auth_token/.test(html),
   "index.html does NOT expose __initial_auth_token injection surface"
+);
+
+// Firebase config must use __firebase_config_sealed guard
+assertIncludes(html, "__firebase_config_sealed", "index.html guards Firebase config with __firebase_config_sealed");
+
+// statNodes DOM keys must match HTML ids (stat-eu/us/de/jp) and render loop labels
+const statElRegex = /getElementById\('stat-(\w+)'\)/g;
+let statElMatch;
+const statIdsInDOM = new Set();
+while ((statElMatch = statElRegex.exec(html)) !== null) {
+  statIdsInDOM.add(statElMatch[1]);
+}
+assert(
+  statIdsInDOM.size >= 4 && ['eu', 'us', 'de', 'jp'].every(id => statIdsInDOM.has(id)),
+  "DOM.statNodes references stat-eu, stat-us, stat-de, stat-jp (IDs match HTML)"
 );
 
 // Critical CDN libs
@@ -89,6 +112,13 @@ assertIncludes(html, "window.__METEO_CORE_STATE", "__METEO_CORE_STATE exposed fo
 // Visibility-gated render loop (added in 5b patch)
 assertIncludes(html, "document.visibilityState", "render loop respects visibilityState");
 assertIncludes(html, "document.addEventListener('visibilitychange'", "visibilitychange listener wired");
+
+// Weather fetch race uses AbortController to cancel on budget timeout
+assertIncludes(html, "weatherAbort = new AbortController()", "weather fetch bundle has AbortController");
+assertIncludes(html, "weatherAbort.abort()", "budget timeout aborts pending weather fetches");
+
+// Offline day/night detection uses targetTimezone, not device local time
+assertIncludes(html, "state.targetTimezone", "offline is_day uses targetTimezone");
 
 // Worker dispatch surface (must match worker.js)
 assertIncludes(html, "DECODE_VALHALLA", "main thread can request DECODE_VALHALLA");

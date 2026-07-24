@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com https://kit.fontawesome.com https://cdn.maptiler.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cdn.maptiler.com; worker-src 'self' blob:; media-src 'self' https://*.github.io; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
@@ -17,6 +18,10 @@
     
     <link rel="preload" as="style" href="./tailwind.min.css">
     <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+
+    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" integrity="sha384-JU5BZoPLFT50NKsen0cKt0RTuYeiJ8LaXWA97AZ+JjLppaQ72oIFUVre0Vb/MBYO" crossorigin="anonymous">
+    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" integrity="sha384-zD+VnXMUMWCArv4u3Gxh8to370Q7NeoMtDYNNhnw8711mv1amoE8p4oDmdc7d7xy" crossorigin="anonymous">
+    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js" integrity="sha384-4945sCngUQDV87Ya/YMj0C/CtNaGKMyhUP6ilixT6PaLNU/Wfb64r91sLpw+uD/q" crossorigin="anonymous">
 
     <link rel="stylesheet" href="./tailwind.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
@@ -501,7 +506,8 @@
 
         async function initializeCloudServices() {
             try {
-                const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+                const configSealed = typeof __firebase_config_sealed !== 'undefined' && __firebase_config_sealed === true;
+                const configStr = configSealed && typeof __firebase_config !== 'undefined' ? __firebase_config : null;
                 if (configStr) {
                     const firebaseConfig = JSON.parse(configStr);
                     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
@@ -511,7 +517,7 @@
                     auth = getAuth(app);
                     db = getFirestore(app);
                     firestoreOps = { doc, setDoc, getDoc };
-                    appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    appId = configSealed && typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                     await signInAnonymously(auth).catch(console.error);
                     state.userAuth = auth.currentUser;
                     isCloudActive = true;
@@ -1166,10 +1172,10 @@
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn'),
             statNodes: {
-                ecmwf: document.getElementById('stat-ecmwf'),
-                gfs: document.getElementById('stat-gfs'),
-                icon: document.getElementById('stat-icon'),
-                jma: document.getElementById('stat-jma')
+                eu: document.getElementById('stat-eu'),
+                us: document.getElementById('stat-us'),
+                de: document.getElementById('stat-de'),
+                jp: document.getElementById('stat-jp')
             }
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
@@ -3568,7 +3574,13 @@
                     weather_code:        codeBlend.code !== null ? codeBlend.code : 0,
                     wind_speed_10m:      wsNow.value !== null ? wsNow.value : 0,
                     wind_direction_10m:  wdBlend !== null ? wdBlend : 0,
-                    is_day: (new Date().getHours() > 6 && new Date().getHours() < 18) ? 1 : 0
+                    is_day: (() => {
+                    const tz = state.targetTimezone || 'UTC';
+                    try {
+                        const h = parseInt(new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', hour12: false }), 10);
+                        return (h > 6 && h < 18) ? 1 : 0;
+                    } catch (_) { return 1; }
+                })()
                 };
             }
 
@@ -3937,25 +3949,22 @@
                 // to localforage cache immediately so UI shows last-known telemetry
                 // (clearly marked offline), rather than a frozen spin.
                 const WEATHER_FETCH_BUDGET_MS = 8000;
+                const weatherAbort = new AbortController();
                 const fetchBundle = Promise.all([
-                    // rCurr: single best_match, fields needed for real-time display
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
-                    // rFore: all 4 models, all variables including gusts for ensemble bridge
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000),
-                    // rSolar: single model, UV and shortwave only
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000 }, 3, 1000)
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000)
                 ]);
                 const budgetTimeout = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('weather fetch exceeded 8s budget')), WEATHER_FETCH_BUDGET_MS)
+                    setTimeout(() => { weatherAbort.abort(); reject(new Error('weather fetch exceeded 8s budget')); }, WEATHER_FETCH_BUDGET_MS)
                 );
                 const [rCurr, rFore, rSolar] = await Promise.race([fetchBundle, budgetTimeout]);
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
-                // Brier log — record today's forecast so future fetches can verdict
-                // the predictions against actual observations.
-                try { brierRecordForecast(dFore); brierRecordObservation(dFore); } catch (e) { /* silent – Brier log is not on critical UX path */ }
+                try { brierRecordForecast(dFore); brierRecordObservation(dFore); } catch (e) { /* silent */ }
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
+                weatherAbort.abort();
 
             } catch (e) {
                 console.warn("Network Error. Failing over to IndexedDB LocalForage cache.", e);
@@ -4242,7 +4251,11 @@
             }
             let deferredPrompt;
             const installBtn = document.getElementById('pwa-install-btn');
-            window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; installBtn.classList.remove('hidden'); installBtn.classList.add('flex'); });
+            if (window.matchMedia('(display-mode: standalone)').matches) {
+                installBtn.classList.add('hidden');
+            }
+            window.addEventListener('appinstalled', () => { installBtn.classList.add('hidden'); installBtn.classList.remove('flex'); deferredPrompt = null; });
+            window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; if (!window.matchMedia('(display-mode: standalone)').matches) { installBtn.classList.remove('hidden'); installBtn.classList.add('flex'); } });
             installBtn.addEventListener('click', async () => {
                 if (deferredPrompt) { deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice; if (outcome === 'accepted') { installBtn.classList.add('hidden'); installBtn.classList.remove('flex'); } deferredPrompt = null; }
             });
