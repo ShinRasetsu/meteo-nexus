@@ -44,7 +44,8 @@ self.addEventListener('install', (e) => {
         await Promise.all(CDN_PRECACHE.map(async (url) => {
             try { await cdnCache.add(url); } catch { /* no-op */ }
         }));
-        self.skipWaiting();
+        // Defer activation — skipWaiting is handled by SKIP_WAITING message
+        // from the updatefound controllerchange listener in the main thread.
     })());
 });
 
@@ -72,28 +73,33 @@ async function swrFetch(request, cacheName, maxAgeMs) {
         const tsStr = cachedRaw.headers.get('X-SW-Cached-At');
         cachedTime = tsStr ? parseInt(tsStr, 10) : 0;
     }
-    // Network race in parallel with cache — return cached immediately if present
-    // and staleness tolerable, otherwise race to network and update cache.
-    const networkPromise = fetch(request).then(netRes => {
+    // Fresh enough — return cached immediately, update cache in background.
+    const isFresh = cachedRaw && (Date.now() - cachedTime) < maxAgeMs;
+    if (isFresh) {
+        // Fire-and-forget background refresh — the SWR pattern's core optimization.
+        fetch(request).then(netRes => {
+            if (netRes && netRes.ok) {
+                const clone = netRes.clone();
+                const headers = new Headers(clone.headers);
+                headers.set('X-SW-Cached-At', String(Date.now()));
+                const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
+                cache.put(request, tagged).catch(() => {});
+            }
+        }).catch(() => {});
+        return cachedRaw;
+    }
+    // Stale or no cache — wait on network, fall back to cached if it fails.
+    try {
+        const netRes = await fetch(request);
         if (netRes && netRes.ok) {
-            // Clone + inject freshness header
             const clone = netRes.clone();
             const headers = new Headers(clone.headers);
             headers.set('X-SW-Cached-At', String(Date.now()));
             const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
             cache.put(request, tagged).catch(() => {});
+            return netRes;
         }
-        return netRes;
-    }).catch(() => null);
-
-    if (cachedRaw && (Date.now() - cachedTime) < maxAgeMs) {
-        // Fresh enough — return cached, fire-and-forget network refresh in background.
-        networkPromise.catch(() => {});
-        return cachedRaw;
-    }
-    // Stale or no cache — wait on network, fall back to cached if it fails.
-    const net = await networkPromise;
-    if (net) return net;
+    } catch { /* network unreachable — fall through to cached or 503 */ }
     if (cachedRaw) return cachedRaw;
     return new Response('{"error":"offline"}', { status: 503, headers: { 'Content-Type': 'application/json' } });
 }
@@ -107,14 +113,14 @@ let _mapCacheBytes = 0;
 const MAP_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 
 async function putTileInCache(cache, req, fetchRes) {
-    const cl = parseInt(fetchRes.headers.get('content-length'), 10) || 0;
-    _mapCacheBytes += cl;
+    const cl = parseInt(fetchRes.headers.get('content-length'), 10);
+    _mapCacheBytes += cl > 0 ? cl : 15000;  // consistent fallback for insert and evict
     await cache.put(req, fetchRes.clone());
     if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) await evictOldestTiles(cache);
 }
 async function evictOldestTiles(cache) {
     const keys = await cache.keys();
-    keys.sort(); // lexicographic = oldest (lowest z/x/y) first
+    keys.sort(); // by URL string — evicts lower z/x/y tiles first (larger-scale, coarser detail)
     for (const req of keys) {
         if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) break;
         const res = await cache.match(req);
@@ -209,7 +215,6 @@ self.addEventListener('fetch', (e) => {
             try {
                 const response = await fetch(e.request);
                 if (!response || (response.status !== 200 && response.status !== 0)) return response;
-                if (!e.request.url.startsWith('http')) return response;
                 // Only cache true navigation/document requests to APP_CACHE; leave API/tile handlers above.
                 const cache = await caches.open(APP_CACHE);
                 cache.put(e.request, response.clone()).catch(() => {});

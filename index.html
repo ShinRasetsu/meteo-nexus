@@ -538,11 +538,10 @@
         //   • All per-index iteration now happens over cached model index pairs (typed
         //     ordered array `_MI`) instead of Object.keys() on every call — eliminates
         //     a hidden string-allocation per hot-loop invocation.
-        //   • extractModelArrays now registers arrays once and reuses them through a
-        //     tiny fast-path cache (modelArraysCache) for repeated lookups within the
-        //     same render pass.
+        //   • extractModelArrays constructs per-variable model dicts inline — the 4-model
+        //     loop is negligible overhead and kept generic for future model expansion.
         //   • New bulk APIs weightedWetnessAll() / weightedValueAll() / bandAll() /
-        //     weightedMajorityAll() compute the entire hour vector in a single
+        //     weightedMajorityAt() compute the entire hour vector in a single
         //     double-tightened nested loop — replaces ~24 separate per-hour calls per
         //     chart render and ~99 per route timeline render. Same math, fewer passes.
         //   • Coverage-aware renormalization for partial-outage scenarios: when only
@@ -674,7 +673,9 @@
                 const regime = getWeightRegime(lat, lon);
                 const shortW = REGIONAL_WEIGHTS[regime] || REGIONAL_WEIGHTS.default;
                 const longW  = LONG_LEAD_WEIGHTS[regime] || LONG_LEAD_WEIGHTS.default;
-                const f = Math.max(0, Math.min(1, ((leadHours || 0) - 12) / 60));
+                const LEAD_START_HRS = 12;     // below 12h: pure short-lead weights
+                const LEAD_WINDOW_HRS = 60;    // 12..72h: linear interpolation
+                const f = Math.max(0, Math.min(1, ((leadHours || 0) - LEAD_START_HRS) / LEAD_WINDOW_HRS));
                 const w = _lerpWeights(shortW, longW, f);
                 this._MI = Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }));
                 this._activeRegime = regime;
@@ -686,7 +687,7 @@
                 this._activeRegime = 'default';
             },
             getActiveRegime() { return this._activeRegime; },
-            WET_THRESHOLD_MM: 0.1,    // per-model precipitation floor
+            WET_THRESHOLD_MM: 0.1,    // Brier-skill observation threshold — used by brierRecordObservation
             // WET_POSSIBLE threshold of 30% requires at least two models (e.g. ECMWF+GFS,
             // or ECMWF+ICON, or GFS+ICON, combined weight ≥ 30%) to agree on measurable
             // rain — that is genuinely "possible". A single-model vote (e.g. JMA alone
@@ -886,16 +887,18 @@
             },
 
             // Bulk version — one pass over hour range. Returns Float32Array (memory-friendly
-            // for cache, faster iterate for chart rendering) and caches modelsReporting.
+            // for cache, faster iterate for chart rendering) plus a parallel modelsReporting
+            // Uint8Array so route timeline nodes can surface model-count context.
             weightedWetnessAll(modelArrays, startIdx, endIdx) {
                 const len = endIdx - startIdx;
                 const out = new Float32Array(len);
+                const modelsRpt = new Uint8Array(len);
                 const n = this._MI.length;
                 const arrs = new Array(n);
                 for (let i = 0; i < n; i++) arrs[i] = modelArrays[this._MI[i].m];
                 for (let k = 0; k < len; k++) {
                     const idx = startIdx + k;
-                    let wetWeight = 0, totalWeight = 0;
+                    let wetWeight = 0, totalWeight = 0, rptCount = 0;
                     for (let i = 0; i < n; i++) {
                         const arr = arrs[i];
                         if (!arr) continue;
@@ -904,10 +907,12 @@
                         const { w } = this._MI[i];
                         totalWeight += w;
                         wetWeight += w * this._precipContribution(v);
+                        rptCount++;
                     }
                     out[k] = totalWeight === 0 ? 0 : (wetWeight / totalWeight) * 100;
+                    modelsRpt[k] = rptCount;
                 }
-                return out;
+                return { wet: out, modelsReporting: modelsRpt };
             },
 
             // Weighted majority vote for categorical fields (WMO weather_code).
@@ -929,7 +934,9 @@
                 if (totalWeight === 0) return { code: null, agreementPct: 0, agreeingCount: 0, modelsReporting: 0 };
                 let bestCode = null, bestWeight = -1, bestCount = 0;
                 for (const [code, entry] of tally.entries()) {
-                    if (entry.weight > bestWeight) { bestWeight = entry.weight; bestCode = code; bestCount = entry.count; }
+                    if (entry.weight > bestWeight || (entry.weight === bestWeight && entry.count > bestCount)) {
+                        bestWeight = entry.weight; bestCode = code; bestCount = entry.count;
+                    }
                 }
                 return { code: bestCode, agreementPct: (bestWeight / totalWeight) * 100, agreeingCount: bestCount, modelsReporting };
             },
@@ -2125,10 +2132,10 @@
                 const r = _tiltRollDeg  * _DEG2RAD;
                 const cp = Math.cos(p), sp = Math.sin(p);
                 const cr = Math.cos(r), sr = Math.sin(r);
-                // R = R_x(roll) · R_y(pitch) — equivalent to Android's matrix.
+                // R = R_y(pitch) · R_x(roll) — rotates body-frame B to world-frame.
                 // World-frame components of B (X=East-ish, Y=North-ish, Z=Up).
-                const wx =  cr * cx           + sr * sp * cy  + sr * cp * cz;
-                const wy =  cp * cy           - sp * cz;
+                const wx =  cp * cx           + sr * sp * cy  + cr * sp * cz;
+                const wy =  cr * cy           - sr * cz;
                 cx = wx; cy = wy;              // cz dropped — only yaw matters
             }
 
@@ -2286,7 +2293,7 @@
             // Called from the GPS tick when gpsHeading is non-null AND speed is solid.
             sync(gnssHeading, speedKmh, accuracyM) {
                 if (speedKmh < 12 || accuracyM > 15) { this.syncAccumulatorGain = 0; return; }
-                // We require 2 consecutive fixes (>= 2) of high-quality data before
+                // We require 3 consecutive fixes of high-quality data before
                 // trusting the offset — artefact guard against single-fix glitches.
                 this.syncAccumulatorGain++;
                 if (this.syncAccumulatorGain < 3) return;
@@ -2342,7 +2349,7 @@
         // restart of the watch. Also cleans up on pagehide.
         function startBackgroundTracking() {
             if (state.gpsWatchId) return;
-            const EMA_ALPHA_SPEED = 0.85;
+            const EMA_ALPHA_SPEED = 0.85;  // 85 % weight towards latest sample (responsive EMA)
             state.gpsWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
                     const lat = pos.coords.latitude;
@@ -2396,14 +2403,14 @@
                         if (accuracy > 120) {
                             isGlitch = true;
                         } else {
-                            const maxAccelKmhPerSec = 54;
+                            const maxAccelKmhPerSec = 8;  // ~0.22 g — rejects GPS speed-spike glitches while allowing legit braking/accel
                             const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
                             const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
                             if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) isGlitch = true;
                         }
                         if (!isGlitch) {
                             if (state.smoothedSpeed === null) state.smoothedSpeed = rawSpeedKmh;
-                            else state.smoothedSpeed = (EMA_ALPHA_SPEED * rawSpeedKmh) + ((1 - EMA_ALPHA_SPEED) * state.smoothedSpeed);
+                            else state.smoothedSpeed = state.smoothedSpeed + EMA_ALPHA_SPEED * (rawSpeedKmh - state.smoothedSpeed);
                             const displaySpeedKmH = Math.round(state.smoothedSpeed);
                             state.currentSpeed = displaySpeedKmH; state.renderSpeed = displaySpeedKmH;
                             state.lastSpeedTimestamp = now; triggerRenderPipeline();
@@ -3109,10 +3116,11 @@
                 // (~2h) post-rain wetness that may show on radar but already be over.
                 const winStart = Math.max(0, baseNowIndex - 1);
                 const winEnd = Math.min((mH.time || p.hourly?.time || []).length || 0, baseNowIndex + 2);
-                const wetArr = WeatherEnsemble.weightedWetnessAll(precipModels, winStart, winEnd);
+                const wetResult = WeatherEnsemble.weightedWetnessAll(precipModels, winStart, winEnd);
+                const wetArr = wetResult.wet;
                 const currentWetPct = wetArr.length >= (baseNowIndex - winStart) ? (wetArr[baseNowIndex - winStart] || 0) : (wetArr[0] || 0);
-                const shortWindowWet = wetArr.length >= 2 ? (wetArr[0] + wetArr[1] + (wetArr[2] || wetArr[1])) / Math.min(3, wetArr.length) : (wetArr[0] || 0);
-                nodeStats[k] = { baseNowIndex, wetPct: currentWetPct, wetPctShortWindow: shortWindowWet, precipModels, winStart, winEnd };
+                const shortWindowWet = wetArr.length >= 2 ? (wetArr[0] + wetArr[1] + (wetArr.length > 2 ? (wetArr[2] != null ? wetArr[2] : wetArr[1]) : wetArr[1])) / Math.min(3, wetArr.length) : (wetArr[0] || 0);
+                nodeStats[k] = { baseNowIndex, wetPct: currentWetPct, wetPctShortWindow: shortWindowWet, precipModels, winStart, winEnd, modelsReporting: wetResult.modelsReporting[baseNowIndex - winStart] || 0 };
             }
 
             for (let idx = 0; idx < N; idx++) {
@@ -3490,7 +3498,8 @@
                 const a = precipModels[_m];
                 if (a && WeatherEnsemble.checkHealth(a).sentinelDead) precipModels[_m] = null;
             }
-            const hourlyAgreement = WeatherEnsemble.weightedWetnessAll(precipModels, nowIndex, maxSlice);
+            const wetResult       = WeatherEnsemble.weightedWetnessAll(precipModels, nowIndex, maxSlice);
+            const hourlyAgreement = wetResult.wet;
             const tempBand        = WeatherEnsemble.bandAll(tempModels, nowIndex, maxSlice);
 
             // Clean (zero-fill nulls) each model's precip range for chart lines — done inline
@@ -3693,6 +3702,13 @@
 
             updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[200px] md:min-h-[250px] relative overflow-hidden ");
 
+            // Reset status-specific classes before applying the new state.
+            DOM.mainCard.classList.remove(
+                'bg-brand-red/20', 'border-brand-red',
+                'bg-brand-warning/20', 'border-brand-warning',
+                'bg-brand-warning/10', 'border-brand-warning/50',
+                'bg-brand-success/10', 'border-brand-success/50'
+            );
             // FIX: branches on classifyWetness() string — same threshold the route timeline uses
             if (currentStatus === 'RAIN_LIKELY') {
                 DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
@@ -4025,7 +4041,7 @@
                 let sampled = [], step = Math.max(1, Math.floor(upcoming.length / 15));
                 for(let i=0; i<upcoming.length; i+=step) sampled.push(upcoming[i]);
                 if(sampled[sampled.length-1] !== upcoming[upcoming.length-1]) sampled.push(upcoming[upcoming.length-1]);
-                const cacheKey = `fuel_route_all_${conf.brand}_${sampled[0].lat.toFixed(2)}_${sampled[0].lon.toFixed(2)}`;
+                const cacheKey = `fuel_route_all_${conf.brand}_${sampled[0].lat.toFixed(2)}_${sampled[0].lon.toFixed(2)}_${sampled[sampled.length - 1].lat.toFixed(2)}_${sampled[sampled.length - 1].lon.toFixed(2)}`;
                 try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 3600000)) return cached.data; } catch(e) {}
                 let queryParts = [];
                 sampled.forEach(node => {
@@ -4164,7 +4180,7 @@
                 DOM.fuel.save.addEventListener('click', () => {
                     FuelManager.saveConfig({ brand: DOM.fuel.brand.value, variant: DOM.fuel.variant.value, avoidTolls: DOM.fuel.toll.checked, avoidHighways: DOM.fuel.highway.checked, avoidFerries: DOM.fuel.ferry.checked });
                     closeModal('fuel-settings-modal');
-                    if (state.routeCtrl) { const wps = state.routeCtrl.getWaypoints(); state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; initRoute(false, wps); }
+                    if (state.routeCtrl) { const wps = state.routeCtrl.getWaypoints(); state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; initRoute(wps); }
                     else if (state.targetCoords && state.autoCoords) window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon, state.isFuelOnlyRoute);
                 });
                 DOM.fuel.trigger.addEventListener('click', () => this.triggerIntercept());
@@ -4176,6 +4192,7 @@
             initComputeWorker();
             requestWakeLock();
             await loadMagCalibration();
+            initializeCloudServices();
             startBackgroundTracking();
             await FuelManager.init();
 

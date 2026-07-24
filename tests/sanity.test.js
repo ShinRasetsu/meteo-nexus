@@ -215,6 +215,10 @@ assert(!/"24:00"/.test(html), "dead 24:00 branch removed from timestamp formatti
 // Dead Aero HUD span ID removed
 assert(!/id=["']ui-radar-alt["']/.test(html), "dead ui-radar-alt span ID removed");
 
+// Firebase initializeCloudServices called from runApp (was dead — never invoked)
+assertIncludes(html, "initializeCloudServices();", "initializeCloudServices called in runApp startup");
+assertIncludes(html, "initRoute(wps)", "fuel config save correctly passes waypoints to initRoute");
+
 // Worker dispatch surface (must match worker.js)
 assertIncludes(html, "DECODE_VALHALLA", "main thread can request DECODE_VALHALLA");
 assertIncludes(html, "CALCULATE_NODES", "main thread can request CALCULATE_NODES");
@@ -229,6 +233,8 @@ for (const type of ["DECODE_VALHALLA", "CALCULATE_NODES", "PROCESS_OVERPASS"]) {
 }
 assertIncludes(workerSrc, "self.onmessage", "worker.js listens for messages");
 assertIncludes(workerSrc, "self.postMessage", "worker.js posts results back");
+assertIncludes(workerSrc, "exactInTopK", "worker.js uses Top-K-scoped exact match count");
+assertIncludes(workerSrc, "exactInTopK > 0", "worker.js strict filter gates on Top-K exact count");
 
 // ---------------------------------------------------------------------------
 // sw.js — cache-strategy integrity
@@ -243,6 +249,9 @@ assertIncludes(swSrc, "_mapCacheBytes", "sw.js has MAP_CACHE in-memory byte trac
 assertIncludes(swSrc, "evictOldestTiles", "sw.js has MAP_CACHE LRU eviction");
 assertIncludes(swSrc, "./tailwind.min.css", "sw.js STATIC_ASSETS includes tailwind.min.css");
 assertIncludes(swSrc, "fa-solid-900.woff2", "sw.js CDN_PRECACHE includes Font Awesome woff2 fonts");
+assert(!/self\.skipWaiting/.test(swSrc.slice(swSrc.indexOf("self.addEventListener('install'"), swSrc.indexOf("self.addEventListener('activate'"))),
+  "sw.js install hook no longer calls skipWaiting() (deferred to SKIP_WAITING message)");
+assertIncludes(swSrc, "SKIP_WAITING", "sw.js handles SKIP_WAITING message for controlled activation");
 
 // ---------------------------------------------------------------------------
 // manifest.json — valid JSON + required PWA fields

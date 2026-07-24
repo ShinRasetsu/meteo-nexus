@@ -146,8 +146,8 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
     const TOP_K = 32;
     const top = new Array(TOP_K);
     let topCount = 0;
+    let exactInTopK = 0;
     const seenIds = new Set();
-    let exactMatchesCount = 0;
     const reqOsmTag = variantMap[targetVariant];
 
     for (let i = 0; i < data.elements.length; i++) {
@@ -155,9 +155,9 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
         const tLat = el.lat != null ? el.lat : el.center.lat;
         const tLon = el.lon != null ? el.lon : el.center.lon;
 
-        // 53-bit Safe Integer hash — precise enough that a few-decimal-meter swizzle
-        // does not exist in real OSM data (poles are meter-apart); existing comment.
-        const idInt = ((Math.round(tLat * 10000) + 900000) * 10000000) + (Math.round(tLon * 10000) + 1800000);
+        // 53-bit Safe Integer hash — 5-decimal resolution (~1.1 m at equator)
+        // keeps adjacent stations (e.g. multi-brand at same interchange) unique.
+        const idInt = ((Math.round(tLat * 100000) + 9000000) * 100000000) + (Math.round(tLon * 100000) + 18000000);
 
         if (seenIds.has(idInt)) continue;
         seenIds.add(idInt);
@@ -165,7 +165,7 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
         const d = fastDistance(lat, lon, tLat, tLon);
         const dKm = d / 1000;
         let isExact = false;
-        if (reqOsmTag && el.tags && el.tags[reqOsmTag] === 'yes') { isExact = true; exactMatchesCount++; }
+        if (reqOsmTag && el.tags && el.tags[reqOsmTag] === 'yes') { isExact = true; }
 
         const station = {
             lat: tLat, lon: tLon,
@@ -182,10 +182,13 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
             while (p >= 0 && top[p].distMeters > d) { top[p + 1] = top[p]; p--; }
             top[p + 1] = station;
             topCount++;
+            if (isExact) exactInTopK++;
         } else if (top[topCount - 1].distMeters >= d) {
+            if (top[topCount - 1].isExact) exactInTopK--;
             let p = topCount - 1;
             while (p > 0 && top[p - 1].distMeters >= d) { top[p] = top[p - 1]; p--; }
             top[p] = station;
+            if (isExact) exactInTopK++;
         }
     }
 
@@ -193,7 +196,7 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
     let finalArray = top.slice(0, topCount);
     let isStrictFiltered = false;
 
-    if (exactMatchesCount > 0 && reqOsmTag) {
+    if (exactInTopK > 0 && reqOsmTag) {
         // In-place strict filter (keep only isExact)
         let keepIdx = 0;
         for (let i = 0; i < finalArray.length; i++) {
