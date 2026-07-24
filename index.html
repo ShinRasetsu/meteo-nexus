@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com https://kit.fontawesome.com https://cdn.maptiler.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cdn.maptiler.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; media-src 'self' https://*.github.io; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com https://kit.fontawesome.com https://cdn.maptiler.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://nominatim.openstreetmap.org https://api.maptiler.com https://www.firebasestorage.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://cdn.maptiler.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; media-src 'self' https://*.github.io; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
@@ -660,7 +660,7 @@
             // 0.70, so a "regional-only" verdict is reached only at lower thresholds).
             setActiveWeights(lat, lon) {
                 const w = getEnsembleWeights(lat, lon);
-                this._MI = Object.entries(w).map(([m, weight]) => ({ m, weight }));
+                this._MI = Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }));
                 this._activeRegime = getWeightRegime(lat, lon);
                 this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
             },
@@ -676,7 +676,7 @@
                 const longW  = LONG_LEAD_WEIGHTS[regime] || LONG_LEAD_WEIGHTS.default;
                 const f = Math.max(0, Math.min(1, ((leadHours || 0) - 12) / 60));
                 const w = _lerpWeights(shortW, longW, f);
-                this._MI = Object.entries(w).map(([m, weight]) => ({ m, weight }));
+                this._MI = Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }));
                 this._activeRegime = regime;
                 this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
             },
@@ -3906,9 +3906,10 @@
             renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
         }
 
-        // --- FETCH DATA ---
+// --- FETCH DATA ---
         // CHANGED: rFore adds wind_gusts_10m, uses WeatherEnsemble.models.join(',') so
         // the model list is defined in exactly one place.
+        let _lastGeoLat = 0, _lastGeoLon = 0, _lastGeoName = '';
         async function fetchData(lat, lon, skipReverseGeo = false) {
             state.lastHudLat = lat; state.lastHudLon = lon;
             state.telemetryCache.timestamp = Date.now();
@@ -3916,7 +3917,6 @@
 
             // Reverse-geocode only when the user has moved >1km² from the last
             // successful lookup. Eliminates ~80% of redundant BigDataCloud calls.
-            let _lastGeoLat = 0, _lastGeoLon = 0, _lastGeoName = '';
             if (!skipReverseGeo && navigator.onLine) {
                 const dLat = lat - _lastGeoLat, dLon = lon - _lastGeoLon;
                 if ((dLat * dLat + dLon * dLon) > 1e-7 || !_lastGeoName) { // ~1 km²
@@ -3928,10 +3928,10 @@
                             updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`);
                         })
                         .catch(() => {
-                            // Fall back to coordinates display if reverse-geocode fails.
                             updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)},${lon.toFixed(2)}`);
                         });
                 }
+            }
             try {
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
@@ -4179,6 +4179,7 @@
         async function runApp() {
             initComputeWorker();
             requestWakeLock();
+            await loadMagCalibration();
             startBackgroundTracking();
             await FuelManager.init();
 

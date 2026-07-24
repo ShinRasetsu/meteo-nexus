@@ -158,6 +158,36 @@ assertIncludes(html, "state.lastHeading", "dead-reckoning uses lastHeading befor
 assert(!/coords:\s*\{\}/.test(html), "state.coords dead property removed");
 assert(!/timelineIdleTimer/.test(html), "state.timelineIdleTimer dead property removed");
 
+// WeatherEnsemble _MI entries must use field 'w' (not 'weight') for consistent destructuring
+// The pattern `({ m, weight })` in setActiveWeights/setActiveWeightsAtLead was a critical bug
+// causing NaN weights across all ensemble math. Verify it's fixed.
+{
+  const setAW = html.slice(html.indexOf("this._MI = Object.entries(w).map(([m, wVal])"), html.indexOf("this._MI = Object.entries(w).map(([m, wVal])") + 120);
+  assert(setAW.includes("w: wVal"), "_MI uses field 'w' (not 'weight') in setActiveWeights");
+}
+{
+  // Find the second occurrence (setActiveWeightsAtLead)
+  const firstIdx = html.indexOf("this._MI = Object.entries(w).map(([m, wVal])");
+  const secondIdx = html.indexOf("this._MI = Object.entries(w).map(([m, wVal])", firstIdx + 1);
+  assert(secondIdx > firstIdx, "both setActiveWeights and setActiveWeightsAtLead use 'w' field");
+}
+
+// _lastGeoLat/Lon/Name are module-scope (not function-local) — reverse-geocode gate persists across fetches
+assert(
+  !/"fetchData".*\n.*let _lastGeoLat/.test(html.slice(html.indexOf("async function fetchData") - 20, html.indexOf("async function fetchData") + 40)),
+  "_lastGeoLat not declared inside fetchData (module scope)"
+);
+
+// loadMagCalibration called on startup (was dead code — never invoked)
+assertIncludes(html, "await loadMagCalibration()", "loadMagCalibration called in runApp startup");
+
+// CSP script-src no longer grants 'unsafe-eval' (no eval/new Function usage)
+{
+  const cspMatch = html.match(/http-equiv="Content-Security-Policy"[^>]*content="([^"]+)"/);
+  assert(cspMatch, "CSP meta tag present");
+  assert(!/unsafe-eval/.test(cspMatch?.[1] || ""), "CSP script-src does not grant unsafe-eval");
+}
+
 // Worker dispatch surface (must match worker.js)
 assertIncludes(html, "DECODE_VALHALLA", "main thread can request DECODE_VALHALLA");
 assertIncludes(html, "CALCULATE_NODES", "main thread can request CALCULATE_NODES");
