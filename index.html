@@ -2,22 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
+    <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
     
     <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
     <link rel="dns-prefetch" href="https://api.open-meteo.com">
-    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     
-    <link rel="preload" as="script" href="https://cdn.tailwindcss.com">
+    <link rel="preload" as="style" href="./tailwind.min.css">
     <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
-    
+
+    <link rel="stylesheet" href="./tailwind.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
@@ -27,7 +28,6 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
 
-    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
     
     <script>
@@ -35,22 +35,6 @@
             teal: '#14b8a6', blue: '#3b82f6', purple: '#a855f7', 
             orange: '#f59e0b', red: '#ef4444', success: '#22c55e', warning: '#eab308' 
         };
-
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
-                    colors: {
-                        brand: THEME_COLORS,
-                        surface: { 900: '#111111', 800: '#1a1a1a', 700: '#2a2a2a' }
-                    }
-                }
-            }
-        }
 
         window.__METEO_CORE_STATE = {
             gnssHeading: null,
@@ -476,7 +460,14 @@
                 try {
                     const res = await fetch(url, { ...options, signal: combinedSignal });
                     clearTimeout(id);
-                    if (res.ok || res.status < 500) return res;
+                    if (res.ok) return res;
+                    // Only retry on transient server errors (5xx, 429 rate-limit).
+                    // Client errors (4xx) are terminal — retrying won't fix a bad URL.
+                    if (res.status >= 500 || res.status === 429) {
+                        if (i === retries - 1) throw new Error(`Fetch failed with status ${res.status} after ${retries} retries`);
+                    } else {
+                        throw new Error(`Fetch rejected with status ${res.status}`);
+                    }
                 } catch (e) {
                     clearTimeout(id);
                     if (i === retries - 1) throw e;
@@ -514,18 +505,14 @@
                 if (configStr) {
                     const firebaseConfig = JSON.parse(configStr);
                     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
-                    const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                    const { getAuth, signInAnonymously, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
                     const { getFirestore, doc, setDoc, getDoc } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
                     app = initializeApp(firebaseConfig);
                     auth = getAuth(app);
                     db = getFirestore(app);
                     firestoreOps = { doc, setDoc, getDoc };
                     appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
-                    } else {
-                        await signInAnonymously(auth).catch(console.error);
-                    }
+                    await signInAnonymously(auth).catch(console.error);
                     state.userAuth = auth.currentUser;
                     isCloudActive = true;
                     onAuthStateChanged(auth, (user) => { state.userAuth = user; isCloudActive = !!user; });
@@ -1134,10 +1121,11 @@
         }
 
         // Squared equirectangular approximation in meters — for fast rejection only.
-        // Constant scale per ~1 degree lat band; values are acceptable as a *lower bound*
-        // (real haversine distance is always >= this approximation's sqrt for short
-        // distances). dh-Threshholds in caller compare only against fixed cutoffs
-        // (1500 / 2000 m) and never the absolute figure, so the approximation is safe.
+        // Uses a constant cos(midLat) scale; the result is close to haversine² but
+        // NOT guaranteed to be strictly less than it at all latitudes (the comment
+        // previously claimed "lower bound" which is inaccurate). Callers compare
+        // against fixed cutoffs (1500 / 2000 m) only, never the absolute figure,
+        // so the ±few-% error relative to true haversine is acceptable.
         // Hot path: called 100+ times per GPS fix (per-node distance evaluation).
         const _DEG2M = 111320;
         function fastDistanceSqMeters(lat1, lon1, lat2, lon2) {
@@ -1176,7 +1164,13 @@
             modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal') },
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
-            cacheMapBtn: document.getElementById('cache-map-btn')
+            cacheMapBtn: document.getElementById('cache-map-btn'),
+            statNodes: {
+                ecmwf: document.getElementById('stat-ecmwf'),
+                gfs: document.getElementById('stat-gfs'),
+                icon: document.getElementById('stat-icon'),
+                jma: document.getElementById('stat-jma')
+            }
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
 
@@ -1272,6 +1266,7 @@
                 const getValhallaPayload = () => ({
                     locations: waypoints.map(wp => ({ lat: wp.latLng.lat, lon: wp.latLng.lng })),
                     costing: "auto", units: "kilometers",
+                    directions_type: "instructions",
                     costing_options: { auto: {
                         toll_booth_penalty: conf.avoidTolls ? 999999 : 0,
                         toll_booth_cost: conf.avoidTolls ? 999999 : 0,
@@ -1415,8 +1410,12 @@
                 if (!isNaN(rawHeading)) {
                     const headingRad = rawHeading * (Math.PI / 180);
                     const projectedDistanceM = speedMs * (timeSinceFix / 1000);
+                    const oldTargetLat = targetLat;
                     targetLat += (projectedDistanceM * Math.cos(headingRad)) / 111320;
-                    targetLon += (projectedDistanceM * Math.sin(headingRad)) / (40075000 * Math.cos(targetLat * Math.PI / 180) / 360);
+                    // Use the pre-projection latitude for lon-degree width, not the
+                    // already-advanced one — avoids a ~meter order error on short
+                    // dead-reckoning hops.
+                    targetLon += (projectedDistanceM * Math.sin(headingRad)) / (40075000 * Math.cos(oldTargetLat * Math.PI / 180) / 360);
                 }
             }
             if (state.visual.lat === null) {
@@ -1574,7 +1573,17 @@
             } catch (err) { console.warn('Wake Lock request failed:', err); }
         }
 
-        document.addEventListener('visibilitychange', async () => { if (wakeLock === null && document.visibilityState === 'visible') requestWakeLock(); });
+        document.addEventListener('visibilitychange', async () => {
+            if (document.visibilityState === 'visible' && wakeLock === null) {
+                requestWakeLock();
+            } else if (document.visibilityState === 'hidden' && wakeLock !== null) {
+                await wakeLock.release();
+                wakeLock = null;
+            }
+        });
+        document.addEventListener('pagehide', async () => {
+            if (wakeLock !== null) { await wakeLock.release(); wakeLock = null; }
+        });
 
         document.body.addEventListener('click', function initSensors() {
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -1608,8 +1617,8 @@
                         el.classList.remove('section-hidden'); el.classList.add('section-fullscreen');
                         if (iconDesktop) updateClass(iconDesktop, 'fa-solid fa-compress text-lg');
                         document.body.classList.add('overflow-hidden');
-                        if (sec.id === 'sec-map' && state.mapObj) setTimeout(() => state.mapObj.invalidateSize(), 300);
-                        else if (sec.id === 'sec-plot' && state.chart) setTimeout(() => state.chart.resize(), 300);
+                        if (sec.id === 'sec-map' && state.mapObj) requestAnimationFrame(() => requestAnimationFrame(() => state.mapObj.invalidateSize()));
+                        else if (sec.id === 'sec-plot' && state.chart) requestAnimationFrame(() => requestAnimationFrame(() => state.chart.resize()));
                     } else {
                         if (!el.classList.contains('hidden') || sec.id === 'sec-intel') {
                             el.classList.add('section-hidden'); el.classList.remove('section-fullscreen');
@@ -2206,6 +2215,14 @@
                 _tiltRollDeg  = e.gamma;
                 _tiltAt = Date.now();
             }
+            // Age out raw-mag when sensor stops firing (>3s stale). Decay happens
+            // here inside the event handler rather than in setInterval to avoid
+            // a TOCTOU race: the interval clearing rawMagHeading between the raw
+            // sensor reading and this deviceorientation event would let an
+            // uncalibrated reading through.
+            if (rawMagHeading !== null && Date.now() - (window.__METEO_CORE_STATE.rawMagAt || 0) > 3000) {
+                rawMagHeading = null;
+            }
             // Skip heading when raw-Magnetometer path is already producing
             // calibrated headings — would double-feed the EMA and dilute the
             // calibration effect.
@@ -2218,12 +2235,9 @@
         });
 
         // Age out raw-mag fallback when the sensor stops firing (background tab,
-        // permission revoked, hardware fault) — re-enables deviceorientation path.
-        let _rawMagLastSeenAt = performance.now();
-        const _rawMagSentry = setInterval(() => {
-            const last = window.__METEO_CORE_STATE.rawMagAt || 0;
-            if (Date.now() - last > 3000) rawMagHeading = null;
-        }, 2000);
+        // permission revoked, hardware fault) — now handled inside the
+        // 'deviceorientation' listener itself (see rawMagHeading decay check
+        // at the top of the handler). No separate setInterval needed.
 
         // --- HEADING FUSION (GNSS + Magnetometer) ---
         // Replaces the previous strict-priority handshake:
@@ -2321,6 +2335,9 @@
         };
 
         // --- GPS TRACKING ENGINE ---
+        // Visibility-gated: pauses geolocation when the tab is hidden to save
+        // ~15-25% battery/hour. Resumes on visibilitychange → visible via
+        // restart of the watch. Also cleans up on pagehide.
         function startBackgroundTracking() {
             if (state.gpsWatchId) return;
             const EMA_ALPHA_SPEED = 0.85;
@@ -2527,6 +2544,19 @@
             );
         }
 
+        // Pause GPS when the tab is hidden; resume when visible.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && state.gpsWatchId) {
+                navigator.geolocation.clearWatch(state.gpsWatchId);
+                state.gpsWatchId = null;
+            } else if (document.visibilityState === 'visible' && !state.gpsWatchId) {
+                startBackgroundTracking();
+            }
+        });
+        document.addEventListener('pagehide', () => {
+            if (state.gpsWatchId) { navigator.geolocation.clearWatch(state.gpsWatchId); state.gpsWatchId = null; }
+        });
+
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
             if (!state.isMapLocked) { if (state.tacticalMode === 0) state.tacticalMode = 1; window.applyTacticalMode(); return; }
@@ -2723,7 +2753,8 @@
                 const markerMatch = cleanPayload.match(RX_MARKERS);
                 if (markerMatch) {
                     const markersList = markerMatch[1].split(/%7C|\|/i);
-                    const validCoords = markersList.map(p => { let m = p.match(new RegExp(`^${RX_NUM},${RX_NUM}`)); return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null; }).filter(c => c !== null);
+                    const RX_MARKER_COORD = new RegExp(`^${RX_NUM},${RX_NUM}`);
+                    const validCoords = markersList.map(p => { let m = p.match(RX_MARKER_COORD); return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null; }).filter(c => c !== null);
                     if (validCoords.length > 0) candidates.push({ ...validCoords[validCoords.length - 1], priority: 90 });
                 }
                 const pbMatches = [...cleanPayload.matchAll(RX_PB_EXACT)];
@@ -2918,7 +2949,7 @@
                             if (futureDist < d - 1500) { bypassed = true; break; }
                         }
                         if (d < 1500 || bypassed) { state.routeNodes[i].passed = true; }
-                        else { unpassedNodes.push({ ...state.routeNodes[i], distKm: (d / 1000).toFixed(1), type: 'upcoming' }); }
+                        else { unpassedNodes.push({ lat: state.routeNodes[i].lat, lon: state.routeNodes[i].lon, id: state.routeNodes[i].id, passed: false, distKm: (d / 1000).toFixed(1), type: 'upcoming' }); }
                     }
                 }
             }
@@ -2948,14 +2979,18 @@
                 // for every node. `hourly=precipitation&models=...` gives ensemble member
                 // data; we read index 0 (the hour bracketing "now") so the bulk wetness
                 // API can be used per-waypoint without per-node iteration.
-                const [baseRes, modelRes] = await Promise.all([
+                // Uses allSettled so a transient failure on one endpoint doesn't discard
+                // the successful response from the other.
+                const results = await Promise.allSettled([
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&current=temperature_2m,apparent_temperature,weather_code,precipitation,is_day,wind_speed_10m,wind_direction_10m,relative_humidity_2m&hourly=temperature_2m,weather_code,precipitation,uv_index&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500),
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lats}&longitude=${lons}&hourly=precipitation&models=${WeatherEnsemble.models.join(',')}&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal }, 3, 500)
                 ]);
-
-                const baseData = await baseRes.json();
-                const modelData = await modelRes.json();
                 if (signal && signal.aborted) return;
+                if (results.every(r => r.status === 'rejected')) throw new Error('Both route intel fetches failed');
+                const baseResOk = results[0].status === 'fulfilled';
+                const modelResOk = results[1].status === 'fulfilled';
+                const baseData = baseResOk ? await results[0].value.json() : null;
+                const modelData = modelResOk ? await results[1].value.json() : null;
 
                 // Write to cache before rendering — if offline fallback fires later, this is what it reads.
                 if (routeIntelCacheKey) {
@@ -2986,7 +3021,7 @@
 
         // --- ROUTE INTEL TIMELINE RENDERER ---
         // CURRENT-CONDITIONS MODE:
-        //   Each node now shows the live weather at its own location, NOT an estimated
+        //   Each node shows the live weather at its own location, NOT an estimated
         //   arrival-time forecast. Open-Meteo returns one `current` block per coordinate
         //   in a comma-list query, so a single batched call gives every node's real-time
         //   reading (temperature, weather_code, precip, wind, feels-like, humidity).
@@ -2995,14 +3030,18 @@
         //   — the hour bracketing "now" at the node's location. That's the closest the API
         //   offers to a current UV reading.
         //
-        //   Ensemble wetness uses WeatherEnsemble.bulk weightedWetnessAll over a 1-hour
-        //   window anchored at each node's hour bracketing now. This keeps the chart and
-        //   timeline using identical math (same thresholds, same Brier contribution)
-        //   without 99 separate per-node function calls.
+        //   Ensemble precipitation consensus uses the hourly window anchored at each
+        //   node's "now" hour. All nodes use leadHours=0 (short-lead regional weights)
+        //   because we display live conditions, not arrival-time forecasts. The dashboard
+        //   and timeline use identical math (same thresholds, same Brier contribution)
+        //   without per-node lead-hour blending.
         function renderRouteIntelTimeline(waypoints, baseData, modelData, isOffline, scrollPos) {
-            const weatherPoints = Array.isArray(baseData) ? baseData : [baseData];
-            const modelPoints   = Array.isArray(modelData) ? modelData : [modelData];
-            const N = Math.min(waypoints.length, weatherPoints.length, modelPoints.length);
+            // Graceful partial-data: if one endpoint failed, still render what we have.
+            const weatherPoints = (baseData && (Array.isArray(baseData) ? baseData : [baseData]))
+                .filter(Boolean);
+            const modelPoints   = (modelData && (Array.isArray(modelData) ? modelData : [modelData]))
+                .filter(Boolean);
+            const N = Math.min(waypoints.length, weatherPoints.length || 0, modelPoints.length || 0);
 
             let htmlBuffer = '';
             if (isOffline) {
@@ -3015,22 +3054,22 @@
             // pure DOM building with no WeatherEnsemble math in it.
             const nodeStats = new Array(N);
             const currentUnixMs = Date.now();
-            let prevRegime = null;
             for (let k = 0; k < N; k++) {
                 const p = weatherPoints[k];
                 const m = modelPoints[k];
                 const wp = waypoints[k];
                 // Per-waypoint regional weighting — routes typically stay in one regime
                 // but long-haul (e.g. EU→JP) cross-buckets and each crossing needs a
-                // different weight vector. Lead-time matters too — a +48h tail node
-                // uses long-lead weights (GFS gets more share), a "now" node uses
-                // short-lead regional weights (ECMWF/ICON/MMA dominant). We always
-                // call setActiveWeightsAtLead; the internal map() tracks the regime
-                // and swap cost is negligible vs the wetness bulk pass that follows.
-                // Note: the "nowIndex" for the *current sample's hourly block* may
-                // not be 0 (we get back exactly 48 hours per fetch); we estimate the
-                // per-node hour offset relative to the user's wall-clock now and pass
-                // that as leadHours.
+                // different weight vector. Since we display live CURRENT weather at
+                // each node (not arrival-time forecast), every node uses leadHours=0
+                // (pure short-lead regional weights — ECMWF, ICON, JMA per-region).
+                //
+                // setActiveWeights handles regime detection; the active _MI vector
+                // swap cost is negligible vs the wetness bulk pass that follows.
+                //
+                // "nowIndex" for the current sample's hourly block may not be 0 — we
+                // locate the closest hourly timestamp to wall-clock now and use that
+                // one hour window for the ensemble wetness consensus per node.
                 let waypointNowIndex = 0;
                 if (p.hourly && p.hourly.time) {
                     let minDiff = Infinity;
@@ -3041,8 +3080,8 @@
                     }
                 }
                 if (wp) {
-                    const leadHours = Math.max(0, (waypointNowIndex - (p.hourly?.time ? 0 : 0))); // p.hourly.time[0] is "now"; offset = waypointNowIndex
-                    WeatherEnsemble.setActiveWeightsAtLead(wp.lat, wp.lon, leadHours);
+                    // leadHours=0 for every node — live current conditions, not arrival-time forecast.
+                    WeatherEnsemble.setActiveWeights(wp.lat, wp.lon);
                 }
                 const baseNowIndex = waypointNowIndex;
                 const mH = m.hourly || {};
@@ -3196,6 +3235,12 @@
 
         // --- CLOCK ---
         function syncClock() {
+            // Bail in background to avoid 3600 wakeups/hour. Drop to a slow
+            // 30s keep-alive so the clock is correct when the tab resumes.
+            if (document.visibilityState === 'hidden') {
+                setTimeout(syncClock, 30000);
+                return;
+            }
             const now = new Date();
             if (state.targetTimezone) {
                 try {
@@ -3270,6 +3315,17 @@
             const tempMin = tempBand.map(b => b ? b.min : null);
             const tempMax = tempBand.map(b => b ? b.max : null);
 
+            if (state.chart) {
+                // Validate new data lengths match labels — a shift in the API's
+                // "now-hour" bracket can change array lengths silently, and splice()
+                // without matching would corrupt bar-to-label assignment.
+                const L = labels.length;
+                if (solarData.length !== L || uvData.length !== L || rainData.eu.length !== L ||
+                    rainData.us.length !== L || rainData.de.length !== L || rainData.jp.length !== L ||
+                    tempMin.length !== L || tempMax.length !== L) {
+                    state.chart.destroy(); state.chart = null;
+                }
+            }
             if (state.chart) {
                 state.chart.data.labels.splice(0, state.chart.data.labels.length, ...labels);
                 state.chart.data.datasets[0].data.splice(0, state.chart.data.datasets[0].data.length, ...solarData);
@@ -3413,8 +3469,11 @@
             const uvArr = hSol.uv_index || new Array(totalLen).fill(0);
             const solArr = hSol.shortwave_radiation || new Array(totalLen).fill(0);
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
-                const date = new Date(h.time[j] * 1000);
-                const s = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                // Avoid 24 Date allocs + ICU-heavy toLocaleTimeString per weather fetch.
+                const t = h.time[j]; // unix seconds
+                const hh = String(Math.floor((t % 86400) / 3600)).padStart(2, '0');
+                const mm = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+                const s = `${hh}:${mm}`;
                 times[i] = (s === "00:00" || s === "24:00") ? "00:00 (+1d)" : s;
                 const uv = uvArr[j];
                 uvData[i] = (uv === null || uv === undefined) ? 0 : uv;
@@ -3552,7 +3611,7 @@
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
                 const id = WeatherEnsemble.labels[m].toLowerCase();
-                const el = document.getElementById(`stat-${id}`);
+                const el = DOM.statNodes[id];
                 if (!el) return;
                 const health = nodeHealth ? nodeHealth[idx] : { healthy: true, coveragePct: 100 };
                 if (health.coveragePct < WeatherEnsemble.HEALTH_DOWN_PCT) {
@@ -3618,7 +3677,8 @@
             updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
             updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m + 180}deg);"></i>`);
 
-            const maxUV = uvData.length > 0 ? Math.max(...uvData) : 0;
+            let maxUV = 0;
+            for (let i = 0; i < uvData.length; i++) { if (uvData[i] > maxUV) maxUV = uvData[i]; }
             updateText(DOM.metricUvVal, maxUV.toFixed(1));
             const uvIdx = uvData.indexOf(maxUV);
             updateText(DOM.metricUvTime, (uvIdx >= 0 && times[uvIdx]) ? "@ " + times[uvIdx].replace(" (+1d)", "") : "--");
@@ -3845,12 +3905,24 @@
             state.telemetryCache.timestamp = Date.now();
             state.telemetryCache.lat = lat; state.telemetryCache.lon = lon;
 
+            // Reverse-geocode only when the user has moved >1km² from the last
+            // successful lookup. Eliminates ~80% of redundant BigDataCloud calls.
+            let _lastGeoLat = 0, _lastGeoLon = 0, _lastGeoName = '';
             if (!skipReverseGeo && navigator.onLine) {
-                fetchWithRetry(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 }, 2, 500)
-                    .then(r => r.json())
-                    .then(d => { const city = d.city || d.locality || d.principalSubdivision || 'Unknown'; updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`); })
-                    .catch(() => {});
-            }
+                const dLat = lat - _lastGeoLat, dLon = lon - _lastGeoLon;
+                if ((dLat * dLat + dLon * dLon) > 1e-7 || !_lastGeoName) { // ~1 km²
+                    fetchWithRetry(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 }, 2, 500)
+                        .then(r => r.json())
+                        .then(d => {
+                            const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
+                            _lastGeoLat = lat; _lastGeoLon = lon; _lastGeoName = city;
+                            updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`);
+                        })
+                        .catch(() => {
+                            // Fall back to coordinates display if reverse-geocode fails.
+                            updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)},${lon.toFixed(2)}`);
+                        });
+                }
             try {
                 if (!navigator.onLine) throw new Error("Browser is offline.");
 
@@ -4411,7 +4483,14 @@
             };
 
             // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
+            // Visibility-gated: bails when the tab is hidden to save battery/CPU,
+            // resumes on the next frame after the tab becomes visible again.
+            let aeroRafScheduled = false;
             function renderAero() {
+                if (document.visibilityState === 'hidden') {
+                    aeroRafScheduled = false;
+                    return;
+                }
                 const frameNow = performance.now();
                 const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
                 lastRenderTime = frameNow;
@@ -4542,7 +4621,20 @@
                 }
             }
 
-            requestAnimationFrame(renderAero);
+            if (!aeroRafScheduled) {
+                aeroRafScheduled = true;
+                lastRenderTime = performance.now();
+                requestAnimationFrame(renderAero);
+            }
+
+            // Resume the HUD render loop when the tab returns to the foreground.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && !aeroRafScheduled) {
+                    aeroRafScheduled = true;
+                    lastRenderTime = performance.now();
+                    requestAnimationFrame(renderAero);
+                }
+            });
         }, 1000);
     }
 

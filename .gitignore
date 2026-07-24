@@ -1,0 +1,23 @@
+// dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# build / cache
+.eslintcache
+.cache/
+
+# OS cruft
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# secrets / env
+.env
+.env.*
+*.pem
+*-key.json

@@ -4,10 +4,7 @@
 // Duplicated here because Web Workers do not share the main thread's scope.
 // Optimizations:
 //   1) Prefetched trig (cos caching pattern) kept tight per call.
-//   2) New fastDistanceSqMeters helper mirroring the main thread's, used as a
-//      cheap lower-bound early-exit in route node iteration where 1.5km
-//      cutoffs matter — saves ~1 Math.asin + ~1 Math.sqrt per candidate.
-//   3) Cumulative distance array upgraded to Float64Array (zero-GC fixed memory,
+//   2) Cumulative distance array upgraded to Float64Array (zero-GC fixed memory,
 //      tight numeric access pattern; pen-and-paper 8x faster than ad-hoc Float
 //      arrays in V8's TurboFan).
 function fastDistance(lat1, lon1, lat2, lon2) {
@@ -16,14 +13,6 @@ function fastDistance(lat1, lon1, lat2, lon2) {
     const a = 0.5 - c((lat2 - lat1) * p)/2 +
               c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
     return 12742000 * Math.asin(Math.sqrt(a));
-}
-
-const _DEG2M_W = 111320;
-function fastDistanceSqMeters(lat1, lon1, lat2, lon2) {
-    const dLat = (lat2 - lat1) * _DEG2M_W;
-    const cosLat = Math.cos((lat1 + lat2) * 0.5 * 0.017453292519943295);
-    const dLon = (lon2 - lon1) * _DEG2M_W * cosLat;
-    return dLat * dLat + dLon * dLon;
 }
 
 // --- VALHALLA DECODER (ZERO-ALLOCATION POLYLINE DECOMPRESSION) ---
@@ -83,11 +72,9 @@ function decodeValhallaPolyline(str) {
 // --- ROUTE NODE CALCULATOR ---
 // Optimization: replaced the `new Float32Array(coords.length)` cumulative-distance
 // scratch with a Float64Array (matching the numeric stability of the haversine
-// path) and added a fast-squared-distance early reject for tiny segment gaps.
-// Refactored to a single-pass loop that interleaves the cumulative-dist scan with
-// the node generation — the old version precomputed cumulative distances first
-// then iterated again for node generation. Single-pass means ~50% fewer cache
-// misses on large route arrays.
+// path). The algorithm uses two sequential passes — a cumulative-distance scan
+// then a node-interpolation pass — sharing the same Float64Array buffer to
+// reduce GC pressure on large route arrays.
 function calculateRouteNodes(totalDistance, coords, intervalDist) {
     if (!coords || coords.length === 0) return [];
 

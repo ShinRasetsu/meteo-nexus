@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --color-brand-teal: #14b8a6;
+  --color-brand-blue: #3b82f6;
+  --color-brand-purple: #a855f7;
+  --color-brand-orange: #f59e0b;
+  --color-brand-red: #ef4444;
+  --color-brand-success: #22c55e;
+  --color-brand-warning: #eab308;
+  --color-surface-900: #111111;
+  --color-surface-800: #1a1a1a;
+  --color-surface-700: #2a2a2a;
+}

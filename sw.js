@@ -8,20 +8,26 @@ const STATIC_ASSETS = [
     './index.html',
     './manifest.json',
     './worker.js',
-    './sw.js'
+    './sw.js',
+    './tailwind.min.css',
+    './icon-192.png',
+    './icon-512.png'
 ];
 
 // CDN assets that ship the app shell. Pre-caching them on install lets the app
 // boot fully offline the first time it loads after SW install, and shrinks the
 // network-dependent critical path on repeat loads to ~0 bytes.
 const CDN_PRECACHE = [
-    'https://cdn.tailwindcss.com',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js',
     'https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css',
     'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-brands-400.woff2',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-v4compatibility.woff2',
     'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js'
 ];
 
@@ -32,11 +38,11 @@ self.addEventListener('install', (e) => {
         // (e.g. jsdelivr down) does not block SW activation.
         const appCache = await caches.open(APP_CACHE);
         await Promise.all(STATIC_ASSETS.map(async (url) => {
-            try { await appCache.add(url); } catch (e) { /* no-op */ }
+            try { await appCache.add(url); } catch { /* no-op */ }
         }));
         const cdnCache = await caches.open(CDN_CACHE);
         await Promise.all(CDN_PRECACHE.map(async (url) => {
-            try { await cdnCache.add(url); } catch (e) { /* no-op */ }
+            try { await cdnCache.add(url); } catch { /* no-op */ }
         }));
         self.skipWaiting();
     })());
@@ -61,7 +67,7 @@ self.addEventListener('message', (e) => {
 async function swrFetch(request, cacheName, maxAgeMs) {
     const cache = await caches.open(cacheName);
     const cachedRaw = await cache.match(request);
-    let cached = null, cachedTime = 0;
+    let cachedTime = 0;
     if (cachedRaw) {
         const tsStr = cachedRaw.headers.get('X-SW-Cached-At');
         cachedTime = tsStr ? parseInt(tsStr, 10) : 0;
@@ -92,26 +98,61 @@ async function swrFetch(request, cacheName, maxAgeMs) {
     return new Response('{"error":"offline"}', { status: 503, headers: { 'Content-Type': 'application/json' } });
 }
 
+// MAP_CACHE byte-budget tracking — maintains a running total so the
+// LRU prune never needs to clone+measure every cached response body (which
+// spikes ~30 MB on a 2000-tile cache). Each cache.put reads Content-Length
+// from the fetch response; each cache.delete decrements the counter.
+// Soft cap at 50 MB keeps the origin well under the shared Cache-Storage quota.
+let _mapCacheBytes = 0;
+const MAP_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+
+async function putTileInCache(cache, req, fetchRes) {
+    const cl = parseInt(fetchRes.headers.get('content-length'), 10) || 0;
+    _mapCacheBytes += cl;
+    await cache.put(req, fetchRes.clone());
+    if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) await evictOldestTiles(cache);
+}
+async function evictOldestTiles(cache) {
+    const keys = await cache.keys();
+    keys.sort(); // lexicographic = oldest (lowest z/x/y) first
+    for (const req of keys) {
+        if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) break;
+        const res = await cache.match(req);
+        if (!res) continue;
+        const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+        await cache.delete(req);
+        _mapCacheBytes -= cl;
+    }
+}
+
 self.addEventListener('fetch', (e) => {
     if (e.request.method !== 'GET') return;
 
     const url = new URL(e.request.url);
 
-    // MAP TILE CACHE: Cache First, Network Fallback
-    if (url.hostname.includes('tile.openstreetmap.org')) {
-        e.respondWith(
-            caches.match(e.request).then(res => {
-                return res || fetch(e.request).then(netRes => {
-                    return caches.open(MAP_CACHE).then(cache => {
-                        if (netRes.ok) cache.put(e.request, netRes.clone());
-                        return netRes;
-                    });
-                }).catch(() => new Response(
-                    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#111"/><text x="128" y="128" fill="#333" font-family="monospace" font-size="14" text-anchor="middle">OFFLINE</text></svg>',
-                    { headers: { 'Content-Type': 'image/svg+xml' } }
-                ));
-            })
-        );
+// MAP TILE CACHE: Cache First, Network Fallback.
+        // Byte-budget tracked in-memory; tile bodies are never cloned just to
+        // measure size. Existence checked before cache.put to skip wasteful
+        // Response.clone() on already-cached tiles.
+        if (url.hostname.includes('tile.openstreetmap.org')) {
+            e.respondWith((async () => {
+                const cached = await caches.match(e.request);
+                if (cached) return cached;
+                try {
+                    const netRes = await fetch(e.request);
+                    if (netRes.ok) {
+                        const cache = await caches.open(MAP_CACHE);
+                        const hit = await cache.match(e.request);
+                        if (!hit) await putTileInCache(cache, e.request, netRes);
+                    }
+                    return netRes;
+                } catch {
+                    return new Response(
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#111"/><text x="128" y="128" fill="#333" font-family="monospace" font-size="14" text-anchor="middle">OFFLINE</text></svg>',
+                        { headers: { 'Content-Type': 'image/svg+xml' } }
+                    );
+                }
+            })());
         return;
     }
 
@@ -173,7 +214,7 @@ self.addEventListener('fetch', (e) => {
                 const cache = await caches.open(APP_CACHE);
                 cache.put(e.request, response.clone()).catch(() => {});
                 return response;
-            } catch (err) {
+            } catch {
                 const cached = await caches.match(e.request);
                 return cached || Response.error();
             }
