@@ -2518,18 +2518,19 @@
                             const magH = state.sensorHeading;
                             const fused = MagHeadingFuser.fuse(gpsHeading, magH, state.currentSpeed, gnssFreshMs);
                             if (fused !== null) {
-                                state.sensorHeading = fused;
+                                // Writes fused heading ONLY to __METEO_CORE_STATE and the render heading.
+                                // state.sensorHeading retains its own EMA pipeline (executeRenderPipeline)
+                                // so the magnetic sensor path stays smooth between GPS ticks.
                                 state.renderHeading = fused;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
                             }
                         } else if (state.sensorHeading !== null) {
                             // Below 2 km/h OR no GPS heading — pure magnetometer
-                            // (already bias-corrected if raw-Magnetometer path is live).
                             const fused = MagHeadingFuser.fuse(null, state.sensorHeading, state.currentSpeed, 99999);
                             if (fused !== null) {
-                                state.sensorHeading = fused;
                                 state.renderHeading = fused;
+                                window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
                             }
                         }
@@ -4557,15 +4558,19 @@
                 
 
                 // HEADING PRIORITY CHAIN
-                // P1: main engine EMA-smoothed fused heading (kinematically guarded)
-                // P2: raw GNSS heading (valid within 3s TTL)
-                // P3: local IMU (deviceorientation absolute path)
+                // Harmonised with the MAP compass — reads the EMA-smoothed blend
+                // from the main pipeline, which is continuously refreshed at every
+                // GPS tick (both above and below 2 km/h) via MagHeadingFuser.
                 if (st.fusedHeading !== null) {
                     activeHeading = st.fusedHeading; headingValid = true;
-                } else if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
-                    activeHeading = st.gnssHeading; headingValid = true;
-                } else if (st.deviceHeading !== null) {
-                    activeHeading = st.deviceHeading; headingValid = true;
+                } else {
+                    // Fused heading not yet available (boot race) — use whatever
+                    // the device provides, but prefer the less-noisy absolute path.
+                    if (st.gnssHeading !== null && (now - st.lastGnssUpdate < 3000)) {
+                        activeHeading = st.gnssHeading; headingValid = true;
+                    } else if (st.deviceHeading !== null) {
+                        activeHeading = st.deviceHeading; headingValid = true;
+                    }
                 }
 
                 // COMPASS RING — EMA in JS, no CSS transition (stops the stop-dance)
