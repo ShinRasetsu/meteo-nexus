@@ -2372,6 +2372,7 @@
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
                         if (impliedSpeedKmh > 350 && accuracy > 10) return;
                     }
+                    state.lastHudLat = lat; state.lastHudLon = lon;
                     state.lastLocationTimestamp = now;
 
                     state.renderAccuracy = accuracy;
@@ -2393,7 +2394,8 @@
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        const distMovedKm = (state.lastHudLat === 0) ? 999 : (fastDistance(lat, lon, state.lastHudLat, state.lastHudLon) / 1000);
+                        const prevLat = state.lastHudLat, prevLon = state.lastHudLon;
+                        const distMovedKm = (prevLat === 0 && prevLon === 0) ? 999 : (fastDistance(lat, lon, prevLat, prevLon) / 1000);
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
                             state.lastFetchAttempt = now; fetchData(lat, lon, false);
                         }
