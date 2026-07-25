@@ -1356,11 +1356,9 @@
                 }
                 if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) state.renderHeading = state.sensorHeading;
                 state.rawSensorHeading = null;
-            }
-            // Continuous live-mag heading for Aero HUD — computed at magnetometer rate
-            // (30-60 Hz) with GPS-learned offset applied. The Aero EMA runs over this
-            // high-rate stream instead of the 1 Hz fusedHeading, eliminating jitter.
-            if (state.sensorHeading !== null) {
+                // Push live heading to Aero HUD at sensor rate — zero-frame latency,
+                // offset-corrected. The Aero EMA runs over this high-rate stream
+                // instead of the 1 Hz fusedHeading, eliminating all jitter.
                 window.__METEO_CORE_STATE.liveMagHeading = MagHeadingFuser.applyOffset(state.sensorHeading);
             }
             if (state.renderSpeed !== null) {
