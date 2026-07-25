@@ -54,6 +54,7 @@
             windGust: 0,
             lastGnssUpdate: 0,
             fusedHeading: null,
+            liveMagHeading: null,
             rawMagHeading: null,
             rawMagAt: 0,
             brierScores: null
@@ -1356,6 +1357,12 @@
                 if (Math.abs(state.sensorHeading - state.lastHeading) >= 0.5) state.renderHeading = state.sensorHeading;
                 state.rawSensorHeading = null;
             }
+            // Continuous live-mag heading for Aero HUD — computed at magnetometer rate
+            // (30-60 Hz) with GPS-learned offset applied. The Aero EMA runs over this
+            // high-rate stream instead of the 1 Hz fusedHeading, eliminating jitter.
+            if (state.sensorHeading !== null) {
+                window.__METEO_CORE_STATE.liveMagHeading = MagHeadingFuser.applyOffset(state.sensorHeading);
+            }
             if (state.renderSpeed !== null) {
                 updateText(DOM.liveSpeed, state.renderSpeed);
                 if (state.renderSpeed > state.maxSpeed && state.renderSpeed < 350 && state.renderAccuracy <= 25) {
@@ -2520,15 +2527,11 @@
                             const magH = state.sensorHeading;
                             const fused = MagHeadingFuser.fuse(gpsHeading, magH, state.currentSpeed, gnssFreshMs);
                             if (fused !== null) {
-                                // Writes fused heading ONLY to __METEO_CORE_STATE and the render heading.
-                                // state.sensorHeading retains its own EMA pipeline (executeRenderPipeline)
-                                // so the magnetic sensor path stays smooth between GPS ticks.
                                 state.renderHeading = fused;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
                             }
                         } else if (state.sensorHeading !== null) {
-                            // Below 2 km/h OR no GPS heading — pure magnetometer
                             const fused = MagHeadingFuser.fuse(null, state.sensorHeading, state.currentSpeed, 99999);
                             if (fused !== null) {
                                 state.renderHeading = fused;
@@ -2536,6 +2539,7 @@
                                 triggerRenderPipeline();
                             }
                         }
+                        
 
                         if (isMoving) { DOM.hudMap.classList.add('hud-moving'); DOM.hudMap.classList.remove('hud-idle'); }
                         else { DOM.hudMap.classList.add('hud-idle'); DOM.hudMap.classList.remove('hud-moving'); }
@@ -4560,10 +4564,15 @@
                 
 
                 // HEADING PRIORITY CHAIN
-                // Harmonised with the MAP compass — reads the EMA-smoothed blend
-                // from the main pipeline, which is continuously refreshed at every
-                // GPS tick (both above and below 2 km/h) via MagHeadingFuser.
-                if (st.fusedHeading !== null) {
+                // Aero compass ring runs at 60fps — feeds from the continuous
+                // liveMagHeading (magnetometer + learned offset, EMA-smoothed at
+                // 30-60 Hz) instead of fusedHeading (GPS-tick rate, 1 Hz). This
+                // eliminates the freeze→jump→freeze→jump jitter.
+                // When liveMagHeading is not yet seeded (boot race), fall back to
+                // fusedHeading then deviceHeading.
+                if (st.liveMagHeading !== null) {
+                    activeHeading = st.liveMagHeading; headingValid = true;
+                } else if (st.fusedHeading !== null) {
                     activeHeading = st.fusedHeading; headingValid = true;
                 } else {
                     // Fused heading not yet available (boot race) — use whatever
