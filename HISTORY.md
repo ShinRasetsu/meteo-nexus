@@ -126,7 +126,7 @@ Three-pass deep audit of entire codebase (index.html 4700+ lines, worker.js 243 
 
 **Bug:** The catch-all same-origin handler was caching ALL successful GET requests — including API calls that might be dynamic. This polluted APP_CACHE with inside telemetry data.
 
-**Fix:** Now only caches responses with content-type containing `text/html`, `text/css`, `application/text`, `javascript/image/*`.
+**Fix:** Now only caches responses with content-type containing `text/html`, `text/css`, `application/javascript`, or `image/`.
 
 ### MEDIUM: DOM write + immediate read causes forced layout
 
@@ -152,7 +152,7 @@ Three-pass deep audit of entire codebase (index.html 4700+ lines, worker.js 243 
 
 **Fix:** Added `if (document.visibilityState === 'hidden') return;` at top of loop.
 
-### MEDIUM: getWindDirection() / you getCardinalStr() per-frame allocation
+### MEDIUM: getWindDirection() / getCardinalStr() per-frame allocation
 
 **File:** index.html, lines ~3280, ~4518
 
@@ -188,8 +188,8 @@ Three-pass deep audit of entire codebase (index.html 4700+ lines, worker.js 243 
 
 - **Versioning:** `VERSION` file is single source of truth. Header and footer read it via `data-version-badge` attribute at runtime (script at bottom of body). No duplicate hardcoded version strings.
 - **Handoff protocol:** This file + `VERSION` = full context for any new agent/session.
-- **Fusion architecture:** `rawSensor` reads from 30-60Hz Magnetometer API → `executeRenderPipeline()` EMA-smooths with alpha=0.75 → `MagHeadingFuser.applyOffset()` applies GPS-learned bias correction → written to `window.__METEO_CORE_STATE.liveMagHeading` for Aero HUD consumption. `fusedHeading` still exists for map compass but Aero HUD now uses higher-rate stream.
-- **Regions:** `VERSION`.
+- **Fusion architecture:** Raw magnetometer readings → `handleOrientationUpdate` → `state.rawSensorHeading` → `executeRenderPipeline()` EMA-smooths with alpha=0.75 → `state.sensorHeading` → `MagHeadingFuser.applyOffset()` applies GPS-learned bias correction → written to `window.__METEO_CORE_STATE.liveMagHeading` for Aero HUD consumption. `fusedHeading` and the `__METEO_CORE_STATE` also now has a new `liveMagHeading` field alongside the existing `fusedHeading`, `rawMagHeading`, `gnssHeading`, etc.
+- **Project entry points:** `index.html` (entire app), `worker.js` (Web Worker), `sw.js` (Service Worker).
 
 ## Original codebase (1.0.0)
 
@@ -204,4 +204,12 @@ The initial project is a single-file PWA (4680+ lines inline script in index.htm
 - 90-source sanity test suite (`tests/sanity.test.js`)
 - No build step, no bundler — all libraries via CDN `<script>`
 
-No bugs found in worker.js. Extensive TW and code validation confirm correctness.
+No bugs found in worker.js. Extensive test and code validation confirm correctness.
+
+### Fix summary (1.1.0)
+
+- **11 HIGH** bugs fixed (jitter, 4xx retry, missing await, Merayo bias, GPS dead fetch, wind trail drift, Brier corruption, SW cache counter, SW background overwrite, invalid CSS, NaN propagation through heading chain)
+- **6 MEDIUM** fixes (SW API caching, DOM layout thrash, accuracy gate, background RAF, per-frame alloc, null guard, toast glitch)
+- **1 LOW** fix (CORS mode)
+- **2 structural** additions: versioning system (VERSION + HISTORY.md + dynamic badges), handoff protocol
+- **3 audit passes** total — no remaining known bugs

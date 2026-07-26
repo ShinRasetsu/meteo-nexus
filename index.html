@@ -2169,6 +2169,10 @@
         // online. We forward this to the fuser; here we just return the input,
         // and `applyOffset` is called from the GPS tick before the final blend.
         function handleOrientationUpdate(alphaOrHeading) {
+            // Reject NaN / non-finite values — a buggy sensor producing NaN would
+            // otherwise propagate through the EMA chain and corrupt liveMagHeading,
+            // freezing the Aero HUD compass ring until the next page reload.
+            if (!isFinite(alphaOrHeading)) return;
             // Quality-of-life: skip absurd spikes (sensor glitch) before they pollute EMA.
             // 1500°/s = a 4 RPM rotation, which exceeds any hand motion during driving.
             const now = performance.now();
