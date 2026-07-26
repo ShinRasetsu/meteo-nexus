@@ -113,7 +113,7 @@
         .section-fullscreen { 
             position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
             z-index: 9999 !important; margin: 0 !important; border-radius: 0 !important; max-width: none !important; 
-            height: 100vh !important; overflow-y: auto !important; background-color: #00 !important; 
+            height: 100vh !important; overflow-y: auto !important; background-color: #000000 !important; 
         }
         .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
         .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
@@ -1234,8 +1234,14 @@
             _toastEl.style.borderColor = p.border;
             _toastEl.style.boxShadow = `0 8px 32px ${p.shadow}`;
             _toastEl.textContent = message;
-            // Re-trigger transition.
-            requestAnimationFrame(() => { _toastEl.style.opacity = '1'; _toastEl.style.transform = 'translateX(-50%) translateY(0)'; });
+            // Reset transform synchronously so a mid-fade previous toast doesn't
+            // carry its translateY(-8px) into the new one's initial frame.
+            _toastEl.style.transition = 'none';
+            _toastEl.style.transform = 'translateX(-50%) translateY(0)';
+            // Force a style recalc, then re-enable transitions before the RAF opacity fade-in.
+            _toastEl.offsetHeight;
+            _toastEl.style.transition = 'opacity 0.3s, transform 0.3s';
+            _toastEl.style.opacity = '1';
             if (_toastTimer) clearTimeout(_toastTimer);
             _toastTimer = setTimeout(() => {
                 _toastEl.style.opacity = '0';
@@ -1998,16 +2004,14 @@
                     usedFit = true;
                 }
                 // Always keep a safe midpoint fallback per axis if the fit blew up.
+                let fitOk = usedFit;
                 for (let i = 0; i < 3; i++) {
-                    if (!usedFit || !isFinite([biasX,biasY,biasZ][i])) {
-                        magCalState.bias[0] = (magCalState.max[0] + magCalState.min[0]) / 2;
-                        magCalState.bias[1] = (magCalState.max[1] + magCalState.min[1]) / 2;
-                        magCalState.bias[2] = (magCalState.max[2] + magCalState.min[2]) / 2;
-                        usedFit = false;
-                        break;
+                    if (!fitOk || !isFinite([biasX,biasY,biasZ][i])) {
+                        if (fitOk) { fitOk = false; }
+                        magCalState.bias[i] = (magCalState.max[i] + magCalState.min[i]) / 2;
                     }
                 }
-                if (usedFit) { magCalState.bias[0] = biasX; magCalState.bias[1] = biasY; magCalState.bias[2] = biasZ; }
+                if (usedFit && fitOk) { magCalState.bias[0] = biasX; magCalState.bias[1] = biasY; magCalState.bias[2] = biasZ; }
                 // Per-axis soft-iron scale: corrected-X std / reference scale.
                 // Sample variance of each axis post-bias removal is the spread
                 // the actual |B| sweep produced; we normalise the smallest-variance
@@ -3747,12 +3751,16 @@
 
             if (isOffline) {
                 updateText(DOM.weatherDesc, "OFFLINE: RTC INTERPOLATION");
-                DOM.weatherDesc.classList.remove("text-gray-300");
-                DOM.weatherDesc.classList.add("text-brand-orange");
+                if (DOM.weatherDesc) {
+                    DOM.weatherDesc.classList.remove("text-gray-300");
+                    DOM.weatherDesc.classList.add("text-brand-orange");
+                }
             } else {
                 updateText(DOM.weatherDesc, WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`);
-                DOM.weatherDesc.classList.remove("text-brand-orange");
-                DOM.weatherDesc.classList.add("text-gray-300");
+                if (DOM.weatherDesc) {
+                    DOM.weatherDesc.classList.remove("text-brand-orange");
+                    DOM.weatherDesc.classList.add("text-gray-300");
+                }
             }
         }
 
@@ -3785,7 +3793,7 @@
         const BRIER_KEY = 'meteo_brier_log_v1';
         const BRIER_CAP = 600;
         let _brierCache = null;
-        let _brierWriteIdx = 0;  // ring-buffer cursor — avoids O(n) Array.shift()
+        let _brierWriteIdx = 0;
 
         async function _loadBrierLog() {
             if (_brierCache) return _brierCache;
@@ -3829,13 +3837,10 @@
                 }
                 log.push({ t: nowMs, hourEpoch: h.time[bestIdx], lat: bucketLat, lon: bucketLon, votesByModel: votes, observedMm: null });
             }
-            // Ring-buffer trim — overwrites the oldest entry in-place rather than
-            // shifting the entire array (which is O(600) per trim, ~30 trim events/h).
-            while (log.length > BRIER_CAP) {
-                const idx = _brierWriteIdx % BRIER_CAP;
-                log[idx] = log.pop();
-                _brierWriteIdx = (idx + 1) % BRIER_CAP;
-            }
+            // Trim oldest entries (FIFO). Keeps ~24h × ~3 entries/cat-1 epoch.
+            // At 600 entries, Array.shift() is negligible (~3-6 entries shifted
+            // every hour — far cheaper than the complexity of a manual ring buffer).
+            while (log.length > BRIER_CAP) log.shift();
             await _saveBrierLog(log);
         }
 
@@ -4654,7 +4659,7 @@
                     if (now - lastHistoryTime > 10000) {
                         if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
                         historyIdx = (historyIdx + 1) % 3;
-                        lastHistoryTime = lastHistoryTime === 0 ? now : lastHistoryTime + 10000;
+                        lastHistoryTime = now;
                     }
 
                     for (let i = 0; i < 3; i++) {
