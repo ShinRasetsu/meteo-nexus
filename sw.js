@@ -55,6 +55,21 @@ self.addEventListener('activate', (e) => {
         await Promise.all(keys.map(k => {
             if (![APP_CACHE, API_CACHE, MAP_CACHE, CDN_CACHE].includes(k)) return caches.delete(k);
         }));
+        // Seed the in-memory byte counter from the on-disk MAP_CACHE so the
+        // LRU budget survives SW restarts and version bumps. Without this,
+        // the counter resets to 0 and the cache grows unbounded until the
+        // eviction logic catches up from scratch.
+        try {
+            const mapCache = await caches.open(MAP_CACHE);
+            const tileReqs = await mapCache.keys();
+            for (const req of tileReqs) {
+                const res = await mapCache.match(req);
+                if (res) {
+                    const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+                    _mapCacheBytes += cl;
+                }
+            }
+        } catch { /* seed fails silently — counter starts at 0, self-heals over time */ }
         await self.clients.claim();
     })());
 });
@@ -76,16 +91,31 @@ async function swrFetch(request, cacheName, maxAgeMs) {
     // Fresh enough — return cached immediately, update cache in background.
     const isFresh = cachedRaw && (Date.now() - cachedTime) < maxAgeMs;
     if (isFresh) {
-        // Fire-and-forget background refresh — the SWR pattern's core optimization.
-        fetch(request).then(netRes => {
-            if (netRes && netRes.ok) {
-                const clone = netRes.clone();
-                const headers = new Headers(clone.headers);
-                headers.set('X-SW-Cached-At', String(Date.now()));
-                const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
-                cache.put(request, tagged).catch(() => {});
-            }
-        }).catch(() => {});
+        // Background refresh — checks freshness to avoid overwriting a tag
+        // the main path just stored (stale-then-fresh race). Deduplicated so
+        // rapid repeat requests only spawn one background fetch.
+        _bgRefreshRequests = _bgRefreshRequests || new Map();
+        const bgUrl = request.url;
+        if (!_bgRefreshRequests.has(bgUrl)) {
+            _bgRefreshRequests.set(bgUrl, true);
+            fetch(request).then(netRes => {
+                _bgRefreshRequests.delete(bgUrl);
+                if (netRes && netRes.ok) {
+                    caches.open(cacheName).then(bgCache => bgCache.match(request).then(existing => {
+                        if (existing) {
+                            const tsStr = existing.headers.get('X-SW-Cached-At');
+                            const existingTime = tsStr ? parseInt(tsStr, 10) : 0;
+                            if (existingTime > Date.now() - maxAgeMs) return;
+                        }
+                        const clone = netRes.clone();
+                        const headers = new Headers(clone.headers);
+                        headers.set('X-SW-Cached-At', String(Date.now()));
+                        const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
+                        bgCache.put(request, tagged).catch(() => {});
+                    }).catch(() => {}));
+                }
+            }).catch(() => { _bgRefreshRequests.delete(bgUrl); });
+        }
         return cachedRaw;
     }
     // Stale or no cache — wait on network, fall back to cached if it fails.
@@ -110,7 +140,9 @@ async function swrFetch(request, cacheName, maxAgeMs) {
 // from the fetch response; each cache.delete decrements the counter.
 // Soft cap at 50 MB keeps the origin well under the shared Cache-Storage quota.
 let _mapCacheBytes = 0;
+let _isEvicting = false;
 const MAP_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+let _bgRefreshRequests = null;  // Map<url, boolean> — SWR background fetch dedup
 
 async function putTileInCache(cache, req, fetchRes) {
     const cl = parseInt(fetchRes.headers.get('content-length'), 10);
@@ -119,16 +151,20 @@ async function putTileInCache(cache, req, fetchRes) {
     if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) await evictOldestTiles(cache);
 }
 async function evictOldestTiles(cache) {
-    const keys = await cache.keys();
-    keys.sort(); // by URL string — evicts lower z/x/y tiles first (larger-scale, coarser detail)
-    for (const req of keys) {
-        if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) break;
-        const res = await cache.match(req);
-        if (!res) continue;
-        const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
-        await cache.delete(req);
-        _mapCacheBytes -= cl;
-    }
+    if (_isEvicting) return;
+    _isEvicting = true;
+    try {
+        const keys = await cache.keys();
+        keys.sort(); // by URL string — evicts lower z/x/y tiles first (larger-scale, coarser detail)
+        for (const req of keys) {
+            if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) break;
+            const res = await cache.match(req);
+            if (!res) continue;
+            const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+            await cache.delete(req);
+            _mapCacheBytes = Math.max(0, _mapCacheBytes - cl);
+        }
+    } finally { _isEvicting = false; }
 }
 
 self.addEventListener('fetch', (e) => {
@@ -209,15 +245,20 @@ self.addEventListener('fetch', (e) => {
         return;
     }
 
-    // APP SHELL & SAME-ORIGIN: Network First, App Cache fallback (with SWR-style bg refresh).
+    // APP SHELL & SAME-ORIGIN: Network First, App Cache fallback.
+    // Only caches HTML documents (navigation requests) and static assets — skips
+    // JSON/API responses to avoid polluting APP_CACHE with dynamic telemetry data.
     if (url.origin === self.location.origin) {
         e.respondWith((async () => {
             try {
                 const response = await fetch(e.request);
-                if (!response || (response.status !== 200 && response.status !== 0)) return response;
-                // Only cache true navigation/document requests to APP_CACHE; leave API/tile handlers above.
-                const cache = await caches.open(APP_CACHE);
-                cache.put(e.request, response.clone()).catch(() => {});
+                if (!response || response.status !== 200) return response;
+                const cType = response.headers.get('content-type') || '';
+                if (cType.includes('text/html') || cType.includes('text/css') ||
+                    cType.includes('application/javascript') || cType.includes('image/')) {
+                    const cache = await caches.open(APP_CACHE);
+                    cache.put(e.request, response.clone()).catch(() => {});
+                }
                 return response;
             } catch {
                 const cached = await caches.match(e.request);

@@ -470,16 +470,16 @@
                     const res = await fetch(url, { ...options, signal: combinedSignal });
                     clearTimeout(id);
                     if (res.ok) return res;
-                    // Only retry on transient server errors (5xx, 429 rate-limit).
-                    // Client errors (4xx) are terminal — retrying won't fix a bad URL.
                     if (res.status >= 500 || res.status === 429) {
                         if (i === retries - 1) throw new Error(`Fetch failed with status ${res.status} after ${retries} retries`);
                     } else {
-                        throw new Error(`Fetch rejected with status ${res.status}`);
+                        // Client errors (4xx) are terminal — retrying won't fix a bad URL.
+                        // Throw immediately so we don't waste 6s+ on doomed requests.
+                        throw Object.assign(new Error(`Fetch rejected with status ${res.status}`), { status: res.status, terminal: true });
                     }
                 } catch (e) {
                     clearTimeout(id);
-                    if (i === retries - 1) throw e;
+                    if (e.terminal || i === retries - 1) throw e;
                 } finally {
                     if (abortHandler && options.signal) options.signal.removeEventListener('abort', abortHandler);
                 }
@@ -1403,6 +1403,7 @@
 
         function smoothVisualsLoop(time) {
             requestAnimationFrame(smoothVisualsLoop);
+            if (document.visibilityState === 'hidden') return;
             const dt = Math.min(time - lastVisualFrameTime, 100);
             lastVisualFrameTime = time;
             if (!state.mapObj || !state.autoCoords) return;
@@ -1544,7 +1545,7 @@
                     if(signal.aborted) throw new Error("Aborted");
                     const batch = urls.slice(i, i + concurrency);
                     await Promise.all(batch.map(async (url) => {
-                        try { const res = await cache.match(url); if (!res) { const fetchRes = await fetch(url, { mode: 'cors', credentials: 'omit', signal }); if (fetchRes.ok) await cache.put(url, fetchRes.clone()); } } catch(e) {}
+                        try { const res = await cache.match(url); if (!res) { const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit', signal }); if (fetchRes.ok || fetchRes.type === 'opaque') await cache.put(url, fetchRes.clone()); } } catch(e) {}
                         downloaded++;
                     }));
                     if (i % 20 === 0) { const pct = Math.round((downloaded / urls.length) * 100); updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-cloud-arrow-down fa-fade"></i><span class="hidden md:block">${pct}%</span>`); }
@@ -2377,6 +2378,9 @@
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
                         if (impliedSpeedKmh > 350 && accuracy > 10) return;
                     }
+                    // Save previous coords before overwriting so the distance check
+                    // below compares against the actual previous fix, not the current one.
+                    const prevLat = state.lastHudLat, prevLon = state.lastHudLon;
                     state.lastHudLat = lat; state.lastHudLon = lon;
                     state.lastLocationTimestamp = now;
 
@@ -2391,15 +2395,14 @@
                         state.renderAccText = `Tracking | LTE/A-GPS (${Math.round(accuracy)}m)`;
                         state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
                     }
-                    triggerRenderPipeline();
 
                     if (accuracy > 3000 && state.lastHudLat !== 0) return;
+                    triggerRenderPipeline();
                     state.autoCoords = { lat, lon };
 
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        const prevLat = state.lastHudLat, prevLon = state.lastHudLon;
                         const distMovedKm = (prevLat === 0 && prevLon === 0) ? 999 : (fastDistance(lat, lon, prevLat, prevLon) / 1000);
                         if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
                             state.lastFetchAttempt = now; fetchData(lat, lon, false);
@@ -3244,8 +3247,12 @@
             htmlBuffer += '</div>';
             updateHTML(DOM.timelineContainer, htmlBuffer);
             if (scrollPos > 0) {
-                const newScrollTrack = document.getElementById('timeline-scroll-track');
-                if (newScrollTrack) newScrollTrack.scrollTop = scrollPos;
+                // Defer the scrollTop write so the browser has a full frame to parse
+                // the new innerHTML before we force a synchronous layout read.
+                requestAnimationFrame(() => {
+                    const newScrollTrack = document.getElementById('timeline-scroll-track');
+                    if (newScrollTrack) newScrollTrack.scrollTop = scrollPos;
+                });
             }
             // Restore default weights so the dashboard consensus (which does not
             // call setActiveWeights before every render) starts from a clean slate.
@@ -3271,9 +3278,9 @@
         }
         syncClock();
 
+        const WIND_DIR_ARR = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
         function getWindDirection(deg) {
-            const arr = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-            return arr[Math.floor((deg / 22.5) + 0.5) % 16];
+            return WIND_DIR_ARR[Math.floor((deg / 22.5) + 0.5) % 16];
         }
 
         window.purgeSystem = function() { DOM.modals.custom.classList.remove('hidden'); };
@@ -3777,7 +3784,8 @@
         // stays bounded.
         const BRIER_KEY = 'meteo_brier_log_v1';
         const BRIER_CAP = 600;
-        let _brierCache = null;     // in-memory cache — only ONE async get per session
+        let _brierCache = null;
+        let _brierWriteIdx = 0;  // ring-buffer cursor — avoids O(n) Array.shift()
 
         async function _loadBrierLog() {
             if (_brierCache) return _brierCache;
@@ -3821,8 +3829,13 @@
                 }
                 log.push({ t: nowMs, hourEpoch: h.time[bestIdx], lat: bucketLat, lon: bucketLon, votesByModel: votes, observedMm: null });
             }
-            // Trim oldest entries (FIFO). Keeps ~24h × ~3 entries/cat-1 epoch.
-            while (log.length > BRIER_CAP) log.shift();
+            // Ring-buffer trim — overwrites the oldest entry in-place rather than
+            // shifting the entire array (which is O(600) per trim, ~30 trim events/h).
+            while (log.length > BRIER_CAP) {
+                const idx = _brierWriteIdx % BRIER_CAP;
+                log[idx] = log.pop();
+                _brierWriteIdx = (idx + 1) % BRIER_CAP;
+            }
             await _saveBrierLog(log);
         }
 
@@ -3976,7 +3989,7 @@
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
                 await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
-                try { brierRecordForecast(dFore); brierRecordObservation(dFore); } catch (e) { /* silent */ }
+                try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (e) { /* silent */ }
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
                 weatherAbort.abort();
 
@@ -4504,10 +4517,7 @@
             let visualWindAngle = null;
             let lastRenderTime  = performance.now();
 
-            const getCardinalStr = (deg) => {
-                const arr = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-                return arr[Math.floor((deg / 22.5) + 0.5) % 16];
-            };
+            const getCardinalStr = getWindDirection;  // reuse module-level 16-point compass (avoids per-frame array alloc)
 
             // PHYSICS RENDER LOOP — 60fps, frame-rate-independent via dt
             // Visibility-gated: bails when the tab is hidden to save battery/CPU,
