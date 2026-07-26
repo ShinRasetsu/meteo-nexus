@@ -137,6 +137,7 @@
         <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
             <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i> 
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
+            <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
         </h1>
         
         <div class="flex flex-wrap items-center gap-2 md:gap-3">
@@ -4697,6 +4698,24 @@
 })();
 
         checkDependenciesAndRun();
+    </script>
+    <footer class="w-full text-center pb-4 mt-2">
+        <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest uppercase opacity-40 hover:opacity-100 transition-opacity" title="MeteoNexus Tactical HUD — deployed version" data-version-badge></span>
+    </footer>
+    <script>
+        (async function hydrateVersion() {
+            const badges = document.querySelectorAll('[data-version-badge]');
+            if (!badges.length) return;
+            try {
+                const res = await fetch('./VERSION', { cache: 'no-cache' });
+                if (!res.ok) throw new Error('VERSION not found');
+                const ver = (await res.text()).trim();
+                if (!ver) return;
+                for (const el of badges) el.textContent = 'v' + ver;
+            } catch {
+                for (const el of badges) el.textContent = 'v?';
+            }
+        })();
     </script>
 </body>
 </html>
