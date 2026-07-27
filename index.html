@@ -660,9 +660,11 @@
             // active regime (e.g. in Europe, ECMWF+GFS account for 0.54 instead of
             // 0.70, so a "regional-only" verdict is reached only at lower thresholds).
             setActiveWeights(lat, lon) {
+                const regime = getWeightRegime(lat, lon);
+                if (regime === this._activeRegime) return;
+                this._activeRegime = regime;
                 const w = getEnsembleWeights(lat, lon);
                 this._MI = Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }));
-                this._activeRegime = getWeightRegime(lat, lon);
                 this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
             },
             // Lead-time-aware variant — used by long-range route timelines where
@@ -1389,7 +1391,9 @@
                 state.lastHeading = heading;
                 updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
                 updateText(DOM.liveHeadingTxt, getWindDirection(heading));
-                DOM.liveCompassIcon.style.transform = `rotate(${heading}deg)`;
+                const liveHeading = window.__METEO_CORE_STATE.liveMagHeading;
+                DOM.liveCompassIcon.style.transform = liveHeading !== null
+                    ? `rotate(${liveHeading}deg)` : `rotate(${heading}deg)`;
                 state.renderHeading = null;
             }
         }
@@ -1409,8 +1413,13 @@
         let visualLastMarkerTX = 0, visualLastMarkerTY = 0;
 
         function smoothVisualsLoop(time) {
+            // Do not reschedule when hidden — idle ~15% battery/hour saved.
+            // The visibilitychange listener restarts the loop when the tab is visible.
+            if (document.visibilityState === 'hidden') {
+                state._smoothLoopActive = false;
+                return;
+            }
             requestAnimationFrame(smoothVisualsLoop);
-            if (document.visibilityState === 'hidden') return;
             const dt = Math.min(time - lastVisualFrameTime, 100);
             lastVisualFrameTime = time;
             if (!state.mapObj || !state.autoCoords) return;
@@ -1479,7 +1488,7 @@
                 const dMapLat = state.visual.lat - (state.lastSetViewLat || 0);
                 const dMapLon = state.visual.lon - (state.lastSetViewLon || 0);
                 if ((dMapLat*dMapLat + dMapLon*dMapLon) > 2.5e-9) {
-                    state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
+                    state.mapObj.panTo([state.visual.lat, state.visual.lon], { animate: false, duration: 0 }); state.mapObj.setZoom(targetZoom);
                     state.lastSetViewLat = state.visual.lat; state.lastSetViewLon = state.visual.lon;
                 }
                 if (state.tacticalMode === 4) {
@@ -2575,8 +2584,13 @@
             if (document.visibilityState === 'hidden' && state.gpsWatchId) {
                 navigator.geolocation.clearWatch(state.gpsWatchId);
                 state.gpsWatchId = null;
-            } else if (document.visibilityState === 'visible' && !state.gpsWatchId) {
-                startBackgroundTracking();
+            } else if (document.visibilityState === 'visible') {
+                if (!state.gpsWatchId) startBackgroundTracking();
+                if (state.mapObj && !state._smoothLoopActive) {
+                    lastVisualFrameTime = performance.now();
+                    state._smoothLoopActive = true;
+                    requestAnimationFrame(smoothVisualsLoop);
+                }
             }
         });
         document.addEventListener('pagehide', () => {
@@ -2600,8 +2614,8 @@
                 updateHTML(DOM.tacticalBtn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 if (state.tacticalMode !== 4) DOM.hudMap.style.transform = `rotate(0deg)`;
-                if (state.visual.lat !== null) state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, {animate: false});
-                else if (state.autoCoords) state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, {animate: false});
+                if (state.visual.lat !== null) { state.mapObj.panTo([state.visual.lat, state.visual.lon], { animate: false, duration: 0 }); state.mapObj.setZoom(targetZoom); }
+                else if (state.autoCoords) { state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], { animate: false, duration: 0 }); state.mapObj.setZoom(targetZoom); }
             } else {
                 state.isMapLocked = false;
                 if (state.scaleCtrl) state.scaleCtrl.remove();
@@ -2617,10 +2631,10 @@
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            state.mapObj = L.map('hud-map', { zoomControl: false, preferCanvas: true }).setView([lat, lon], 14);
+            state.mapObj = L.map('hud-map', { zoomControl: false }).setView([lat, lon], 14);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', maxZoom: 22, maxNativeZoom: 18,
-                detectRetina: true, keepBuffer: 2, updateWhenIdle: true, updateWhenZooming: false
+                detectRetina: true, keepBuffer: 4, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 200
             }).addTo(state.mapObj);
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
             state.mapObj.on('dragstart', () => {
@@ -2902,9 +2916,10 @@
                 fetchRouteIntelligence(route, state.intelFetchAbortController.signal);
             }
 
-            const wps = state.routeCtrl.getWaypoints();
-            if (wps && wps.length > 1) {
-                DOM.navBtn.onclick = () => {
+            DOM.navBtn.onclick = () => {
+                if (!state.routeCtrl) return;
+                const wps = state.routeCtrl.getWaypoints();
+                if (!wps || wps.length < 2) return;
                     const conf = FuelManager.getConfig();
                     let avoidParams = [];
                     if (conf.avoidTolls) avoidParams.push('tolls');
@@ -2921,8 +2936,7 @@
                     }
                     const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&travelmode=driving${waypointsStr}${avoidStr}`;
                     window.open(url, '_blank');
-                };
-            }
+            };
         }
         // ======================== END OF PART 1 ========================
 
@@ -3289,7 +3303,9 @@
 
         const WIND_DIR_ARR = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
         function getWindDirection(deg) {
-            return WIND_DIR_ARR[Math.floor((deg / 22.5) + 0.5) % 16];
+            if (deg == null || isNaN(deg)) return '--';
+            const idx = Math.floor((((deg % 360) + 360) % 360) / 22.5 + 0.5) % 16;
+            return WIND_DIR_ARR[idx];
         }
 
         window.purgeSystem = function() { DOM.modals.custom.classList.remove('hidden'); };
@@ -3462,7 +3478,7 @@
             }
             let curr = dCurr.current;
             const h    = dFore.hourly;
-            const hSol = dSolar.hourly;
+            const hSol = dSolar ? dSolar.hourly : null;
 
             const currentUnixMs = isOffline && cachedTimestamp ? cachedTimestamp : Date.now();
             let nowIndex = 0, minDiff = Infinity;
@@ -3494,8 +3510,8 @@
             const times  = new Array(sliceLen);
             const uvData = new Array(sliceLen);
             const solarData = new Array(sliceLen);
-            const uvArr = hSol.uv_index || new Array(totalLen).fill(0);
-            const solArr = hSol.shortwave_radiation || new Array(totalLen).fill(0);
+            const uvArr = (hSol && hSol.uv_index) ? hSol.uv_index : new Array(totalLen).fill(0);
+            const solArr = (hSol && hSol.shortwave_radiation) ? hSol.shortwave_radiation : new Array(totalLen).fill(0);
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
                 // Avoid 24 Date allocs + ICU-heavy toLocaleTimeString per weather fetch.
                 const t = h.time[j]; // unix seconds
@@ -4019,8 +4035,8 @@
             state.targetCoords = null; state.customRouteWaypoints = null; state.routeNodes = null; state.originalRouteNodes = null;
             state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0;
             clearPersistedNavTarget();
-            if (state.fuelMarkers && state.fuelMarkers.length > 0) { state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); state.fuelMarkers = []; }
-            for (let item of state.interceptMarkers) { if (item.marker) state.mapObj.removeLayer(item.marker); }
+            if (state.fuelMarkers && state.fuelMarkers.length > 0) { if (state.mapObj) state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); state.fuelMarkers = []; }
+            if (state.mapObj) for (let item of state.interceptMarkers) { if (item.marker) state.mapObj.removeLayer(item.marker); }
             state.interceptMarkers = [];
             state.lastIntelFetch = 0; state.currentRouteCoords = null; state.isFuelOnlyRoute = false;
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
@@ -4106,7 +4122,8 @@
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/50 whitespace-nowrap");
                     return;
                 }
-                if (state.fuelMarkers && state.fuelMarkers.length > 0) { state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); }
+                if (!state.mapObj) return;
+                if (state.fuelMarkers && state.fuelMarkers.length > 0) { if (state.mapObj) state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); }
                 state.fuelMarkers = [];
                 updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-fade mr-2"></i> SCANNING FOR ${this.getConfig().brand}...`);
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
@@ -4239,6 +4256,7 @@
                     !!restored.isFuelOnlyRoute, wps);
             }
 
+            state._smoothLoopActive = true;
             requestAnimationFrame(smoothVisualsLoop);
             if (state.autoCoords) {
                 initMap(state.autoCoords.lat, state.autoCoords.lon);

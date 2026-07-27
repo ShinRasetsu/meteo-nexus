@@ -6,15 +6,15 @@
 
 ---
 
-## Current state at session end (2026-07-26)
+## Current state at session end (2026-07-27)
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.1.0` |
-| `package.json` → version | `1.1.0` (sync manually with VERSION on bump) |
+| `VERSION` | `1.2.0` |
+| `package.json` → version | `1.2.0` (sync manually with VERSION on bump) |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.1.0` — create with `git tag v1.1.0` before push |
+| Git tag | `v1.2.0` — create with `git tag v1.2.0` before push |
 | Tests | `npm test` — 90 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
 
@@ -26,6 +26,60 @@
 4. Append a new `## X.Y.Z — YYYY-MM-DD` section below with all changes
 5. Run `npm test && npm run lint` before declaring done
 6. (Optional) `git tag v1.2.0` for deployment tracking
+
+---
+
+## 1.2.0 — 2026-07-27
+
+### Session 1: Map navigation fluidity
+
+**Root cause:** The map jittered/lagged during GPS movement because `setView()` at 60fps (line 1484) was destroying and rebuilding the entire tile grid on every frame. Tiles loaded only when the map stopped (`updateWhenIdle: true`), so during continuous movement tiles flickered blank → partial → gone.
+
+**Changes:**
+- `updateWhenIdle: false` + `updateWhenZooming: true` + `updateInterval: 200` — tiles now stream continuously during movement, never waiting for idle
+- `setView({animate: false})` → `panTo({animate: false, duration: 0})` + `setZoom()` — panTo moves the existing tile plane via CSS `translate3d()` (hardware-accelerated, single composite). setView was re-laying-out the entire tile grid every frame — the root jitter source
+- `preferCanvas: true` removed (back to default `<img>` tiles) — individual `<img>` tiles GPU-composite independently; `<canvas>` forces single-layer software compositing that fights external CSS transforms
+- `keepBuffer: 2` → `4` — loads +2 edge tile columns so panning never hits an unloaded edge
+
+**Additionally:** Tracking card compass icon now reads `window.__METEO_CORE_STATE.liveMagHeading` (same offset-corrected magnetometer stream as Aero HUD) instead of the noisier single-stage EMA `sensorHeading`.
+
+### Session 2: Deep audit — crash fixes, logic fixes, performance
+
+#### HIGH: `dSolar` null crash in offline fallback
+
+**Bug:** `normalizeTelemetryData()` line 3467: `const hSol = dSolar.hourly` — when `dSolar` is null (failed solar endpoint cached in localforage from a previous session), `null.hourly` throws TypeError. Also downstream `hSol.uv_index`/`hSol.shortwave_radiation` would crash if `hSol` is null.
+
+**Fix:** `dSolar ? dSolar.hourly : null` guard; `uvArr`/`solArr` now fall back to `new Array(totalLen).fill(0)` when `hSol` or its properties are absent.
+
+#### HIGH: `getWindDirection` returns undefined for null/NaN/negative degrees
+
+**Bug:** `WIND_DIR_ARR[Math.floor((deg / 22.5) + 0.5) % 16]` — when `deg` is `null` → `NaN % 16 = NaN` → `WIND_DIR_ARR[NaN] = undefined`. When `deg` is negative (crosswind math), `-1 % 16 = -1` in JS → `WIND_DIR_ARR[-1] = undefined`. Both cases injected literal `"undefined"` into the DOM.
+
+**Fix:** Early return `'--'` for null/NaN; normalize negative degrees with `((deg % 360) + 360) % 360`.
+
+#### HIGH: Stale waypoints in Nav button onclick
+
+**Bug:** `updateRouteStatus()` at line 2907 set `DOM.navBtn.onclick` once with `const wps = state.routeCtrl.getWaypoints()` from the first `routesfound` event. The closure captured stale waypoints forever. Adding a pit stop mid-route would change `state.routeCtrl` waypoints but the Google Maps deep-link still pointed to the original destination.
+
+**Fix:** Onclick now calls `state.routeCtrl.getWaypoints()` fresh on every actual click. No more stale closure.
+
+#### MEDIUM: `smoothVisualsLoop` wasted RAF scheduling in hidden tabs
+
+**Bug:** `requestAnimationFrame(smoothVisualsLoop)` was called unconditionally at the top of the function, before the `document.visibilityState === 'hidden'` bail. When the PWA was backgrounded, 60 RAFs/sec were still scheduled and immediately bailed — ~15% battery/hour wasted. Unlike `renderAero` which correctly placed the RAF *after* the visibility check.
+
+**Fix:** RAF moved after the hidden bail. A `_smoothLoopActive` flag + visibilitychange listener restarts the loop when the tab becomes visible again.
+
+#### LOW: `WeatherEnsemble.setActiveWeights` redundant recomputation
+
+**Bug:** Called N times per `renderRouteIntelTimeline` node — every node iterated `Object.entries(w).map(...)` even when 99% of nodes shared the same regime.
+
+**Fix:** Memoized — `getWeightRegime(lat, lon)` is a cheap 2-rect-check call. Now computed first; if it matches `_activeRegime`, the `Object.entries.map` and `_GLOBAL_ACK` recomputation is skipped.
+
+### Architecture decisions made
+
+- Media generation and editing test flows all retain previous architecture (no new files, no build step, no bundler).
+- `smoothVisualsLoop` now operates via a scheduled/active flag model (same pattern as `aeroRafScheduled`) rather than an unconditional forever-loop.
+- `DOM.navBtn.onclick` now follows a "read on click" instead of "capture-on-setup" pattern.
 
 ---
 
