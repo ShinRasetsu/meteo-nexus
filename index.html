@@ -296,7 +296,7 @@
 
             <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
                 <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
-                    <span class="text-xs md:text-sm font-black tracking-tighter">200m</span>
+                    <i class="fa-solid fa-compass text-lg md:text-xl"></i>
                 </button>
                 <button onclick="openMagCalModal()" id="magcal-btn" class="bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-purple hover:border-brand-purple w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Calibrate Compass (figure-8 pattern)">
                     <i class="fa-solid fa-compass text-base md:text-lg"></i>
@@ -2625,11 +2625,11 @@
                 state.isMapLocked = true;
                 if (state.scaleCtrl) state.scaleCtrl.addTo(state.mapObj);
                 const targetZoom = [0, 17, 19][state.tacticalMode];
-                const scaleLabels = ["", "NAVIGATION", "TACTICAL"];
+                const scaleIcons = ["", "fa-compass", "fa-crosshairs"];
                 const borderColors = ["", "border-brand-teal", "border-brand-red"];
                 const shadowColors = ["", "rgba(20,184,166,0.3)", "rgba(239,68,68,0.3)"];
                 const textColors = ["", "text-brand-teal", "text-brand-red"];
-                updateHTML(DOM.tacticalBtn, `<span class="text-[10px] md:text-xs font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
+                updateHTML(DOM.tacticalBtn, `<i class="fa-solid ${scaleIcons[state.tacticalMode]} text-lg md:text-xl"></i>`);
                 updateClass(DOM.tacticalBtn, `bg-surface-800 border-4 ${borderColors[state.tacticalMode]} ${textColors[state.tacticalMode]} w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_${shadowColors[state.tacticalMode]}] transition-all font-mono`);
                 if (state.visual.lat !== null) {
                     state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
