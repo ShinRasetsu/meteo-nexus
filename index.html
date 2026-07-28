@@ -1387,13 +1387,15 @@
             }
             if (state.renderHeading !== null) {
                 const heading = state.renderHeading;
-                let delta = heading - state.lastHeading;
+let delta = heading - state.lastHeading;
                 if (delta > 180) delta -= 360;
                 if (delta < -180) delta += 360;
                 state.cumulativeHeading += delta;
                 state.lastHeading = heading;
-                updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
-                updateText(DOM.liveHeadingTxt, getWindDirection(heading));
+                const liveMagH = window.__METEO_CORE_STATE.liveMagHeading;
+                const displayH = liveMagH !== null ? liveMagH : heading;
+                updateText(DOM.liveHeadingDeg, Math.round(displayH).toString().padStart(3, '0') + '°');
+                updateText(DOM.liveHeadingTxt, getWindDirection(displayH));
                 state.renderHeading = null;
             }
         }
