@@ -99,7 +99,10 @@
             will-change: transform; transform: translateZ(0); backface-visibility: hidden; 
         }
         
-        #hud-map { --user-heading: 0deg; }
+        #hud-map {
+            background-color: #111111 !important;
+            --user-heading: 0deg;
+        }
         .hud-moving .user-dot { opacity: 0 !important; transform: scale(0.5) !important; }
         .hud-moving .user-arrow { opacity: 1 !important; transform: scale(1) !important; }
         .hud-idle .user-dot { opacity: 1 !important; transform: scale(1) !important; }
@@ -283,7 +286,7 @@
                     </div>
                 </div>
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
-                    <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-sm transition-transform duration-75"></i>
+                    <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-sm"></i>
                     <div class="flex items-baseline gap-1">
                         <span id="live-heading-txt" class="font-mono text-base font-black text-white leading-none">N</span>
                         <span id="live-heading-deg" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">000°</span>
@@ -1391,9 +1394,6 @@
                 state.lastHeading = heading;
                 updateText(DOM.liveHeadingDeg, Math.round(heading).toString().padStart(3, '0') + '°');
                 updateText(DOM.liveHeadingTxt, getWindDirection(heading));
-                const liveHeading = window.__METEO_CORE_STATE.liveMagHeading;
-                DOM.liveCompassIcon.style.transform = liveHeading !== null
-                    ? `rotate(${liveHeading}deg)` : `rotate(${heading}deg)`;
                 state.renderHeading = null;
             }
         }
@@ -1461,7 +1461,15 @@
                 const dLon = targetLon - state.visual.lon;
                 const distSq = (dLat * dLat) + (dLon * dLon);
                 if (distSq > 0.000025) { state.visual.lat = targetLat; state.visual.lon = targetLon; }
-                else if (distSq > 1e-12) { const lerpPos = 1 - Math.exp(-dt / 180); state.visual.lat += dLat * lerpPos; state.visual.lon += dLon * lerpPos; }
+                else if (distSq > 1e-12) {
+                    // Speed-proportional visual lerp: TC shrinks at higher speeds so
+                    // the map keeps pace with the user. At 0 km/h: TC=400ms (floaty),
+                    // at 60 km/h: TC=80ms (tight, fast).
+                    const speedClamped = Math.min(state.currentSpeed, 80);
+                    const tc = 400 - (speedClamped * (320 / 80));
+                    const lerpPos = 1 - Math.exp(-dt / Math.max(tc, 16));
+                    state.visual.lat += dLat * lerpPos; state.visual.lon += dLon * lerpPos;
+                }
             }
             // Marker redraw gate — only when the actual visual lat/lon has moved past
             // the deadband. Saves ~60 wasted setLatLng transforms/sec when stationary.
@@ -1485,11 +1493,19 @@
             }
             if (state.isMapLocked && state.tacticalMode > 0) {
                 const targetZoom = [0, 16, 17, 18, 19][state.tacticalMode];
-                const dMapLat = state.visual.lat - (state.lastSetViewLat || 0);
-                const dMapLon = state.visual.lon - (state.lastSetViewLon || 0);
-                if ((dMapLat*dMapLat + dMapLon*dMapLon) > 2.5e-9) {
-                    state.mapObj.panTo([state.visual.lat, state.visual.lon], { animate: false, duration: 0 }); state.mapObj.setZoom(targetZoom);
-                    state.lastSetViewLat = state.visual.lat; state.lastSetViewLon = state.visual.lon;
+                const dMapLat = state.visual.lat - (state.lastSetViewLat || state.visual.lat);
+                const dMapLon = state.visual.lon - (state.lastSetViewLon || state.visual.lon);
+                const distSqMap = dMapLat * dMapLat + dMapLon * dMapLon;
+                // Speed-proportional deadband: tighter when moving fast, looser when slow.
+                // Also rate-limit setView to max every 80ms to avoid tile thrash.
+                const speedDeadband = 1e-9 * (1 + state.currentSpeed / 15);
+                const nowTS = performance.now();
+                const viewAge = nowTS - (state._lastSetViewTS || 0);
+                if (distSqMap > speedDeadband && viewAge > 80) {
+                    state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
+                    state.lastSetViewLat = state.visual.lat;
+                    state.lastSetViewLon = state.visual.lon;
+                    state._lastSetViewTS = nowTS;
                 }
                 if (state.tacticalMode === 4) {
                     if (Math.abs(state.visual.heading - (state.lastCssHeading || 0)) > 0.1) {
@@ -1501,6 +1517,12 @@
             if (Math.abs(state.visual.heading - (state.lastArrowHeading || 0)) > 0.1) {
                 DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
                 state.lastArrowHeading = state.visual.heading;
+            }
+            // Compass-icon rotation driven by lerped visual heading — smooth, not jittery
+            if (DOM.liveCompassIcon && state.visual.heading !== null &&
+                Math.abs(state.visual.heading - (state._lastCmpRot || -999)) > 0.1) {
+                DOM.liveCompassIcon.style.transform = `rotate(${state.visual.heading}deg)`;
+                state._lastCmpRot = state.visual.heading;
             }
         }
 
@@ -2614,8 +2636,14 @@
                 updateHTML(DOM.tacticalBtn, `<span class="text-xs md:text-sm font-black tracking-tighter">${scaleLabels[state.tacticalMode]}</span>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono");
                 if (state.tacticalMode !== 4) DOM.hudMap.style.transform = `rotate(0deg)`;
-                if (state.visual.lat !== null) { state.mapObj.panTo([state.visual.lat, state.visual.lon], { animate: false, duration: 0 }); state.mapObj.setZoom(targetZoom); }
-                else if (state.autoCoords) { state.mapObj.panTo([state.autoCoords.lat, state.autoCoords.lon], { animate: false, duration: 0 }); state.mapObj.setZoom(targetZoom); }
+                if (state.visual.lat !== null) {
+                    state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
+                    state.lastSetViewLat = state.visual.lat; state.lastSetViewLon = state.visual.lon; state._lastSetViewTS = performance.now();
+                }
+                else if (state.autoCoords) {
+                    state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, { animate: false });
+                    state.lastSetViewLat = state.autoCoords.lat; state.lastSetViewLon = state.autoCoords.lon; state._lastSetViewTS = performance.now();
+                }
             } else {
                 state.isMapLocked = false;
                 if (state.scaleCtrl) state.scaleCtrl.remove();
@@ -2632,9 +2660,10 @@
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
             state.mapObj = L.map('hud-map', { zoomControl: false }).setView([lat, lon], 14);
+            state.lastSetViewLat = lat; state.lastSetViewLon = lon; state._lastSetViewTS = performance.now();
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', maxZoom: 22, maxNativeZoom: 18,
-                detectRetina: true, keepBuffer: 4, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 200
+                detectRetina: true, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 100
             }).addTo(state.mapObj);
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
             state.mapObj.on('dragstart', () => {
