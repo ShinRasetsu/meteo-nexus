@@ -81,9 +81,23 @@ Pinch-zoom works freely in modes 1-2 without breaking GPS lock. Only drag unlock
 - `smoothVisualsLoop` stops RAF scheduling when tab hidden — ~15% battery/hour saved in background
 - `WelcomeEnsemble.setActiveWeights` memoized per regime — skips redundant per-node recomputation in router renders
 
+### MEDIUM: Tracking card heading text mismatch vs Aero HUD
+
+**Root cause:** Tracking card text (degree + cardinal) was still using `fusedHeading` (GPS course-over-ground, ~1Hz) while the compass icon and Aero HUD both used `liveMagHeading` (magnetometer + offset, 30-60Hz). The two sources can diverge by several degrees, producing different cardinal directions on the two UI surfaces.
+
+**Fix:** Tracking card text now reads `liveMagHeading` with fallback to `fusedHeading` — matches Aero HUD and compass icon.
+
+### MEDIUM: Tactical mode buttons — text labels → icons for consistency
+
+All three modes now use Font Awesome icons matching mode 0's existing icon style:
+- 0: `fa-route` (purple)
+- 1: `fa-compass` (teal)
+- 2: `fa-crosshairs` (red)
+- Unlocked: `fa-location-crosshairs` (grey)
+
 ### Architecture decisions
 
-- `setView` reserved for: startup (`initMap`), tactical mode switches (`applyTacticalMode`), and mode-0 route fit. All GPS-follow movement is `panTo` only.
+* `setView` reserved for: startup (`initMap`), tactical mode switches (`applyTacticalMode`), and mode-0 route fit. All GPS-follow movement is `panTo` only.
 - Tile streaming is decoupled from map panning — `updateWhenIdle: false` loads tiles continuously while `panTo` slides the existing matrix.
 - Tactical zoom map rendering honors user zoom but locks to GPS position — this combines the best of both modes (soft lock + free zoom).
 - Compass icon + Aero HUD now share identical lerped heading from `visual.heading` — no mismatch.
