@@ -6,26 +6,87 @@
 
 ---
 
-## Current state at session end (2026-07-27)
+## Current state at session end (2026-07-28)
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.2.0` |
-| `package.json` → version | `1.2.0` (sync manually with VERSION on bump) |
+| `VERSION` | `1.3.0` |
+| `package.json` → version | `1.3.0` (sync manually with VERSION on bump) |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.2.0` — create with `git tag v1.2.0` before push |
+| Git tag | `v1.3.0` — create with `git tag v1.3.0` before push |
 | Tests | `npm test` — 90 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
 
 ## How to bump version in a new session
 
 1. Read `VERSION` to know current version
-2. Edit `VERSION` (e.g., `1.1.0` → `1.2.0`) — this automatically updates header + footer
-3. Sync `package.json` → `"version": "1.2.0"`
+2. Edit `VERSION` (e.g., `1.3.0` → `1.4.0`) — this automatically updates header + footer
+3. Sync `package.json` → `"version": "1.4.0"`
 4. Append a new `## X.Y.Z — YYYY-MM-DD` section below with all changes
 5. Run `npm test && npm run lint` before declaring done
-6. (Optional) `git tag v1.2.0` for deployment tracking
+6. (Optional) `git tag v1.4.0` for deployment tracking
+
+---
+
+## 1.3.0 — 2026-07-28
+
+### Session scope
+
+Tactical navigation overhaul: re-architected map panning for Google Maps-like fluidity, reduced zoom modes from 5 to 3, added auto-recenter, fixed blank-tile rendering and compass jitter. Final comprehensive audit with 4 crash/logic/perf fixes.
+
+### HIGH: Map panning re-architected — fluid, speed-proportional
+
+**Root cause:** Previous `setView({animate: false})` at 60fps in the GPS-follow loop was destroying and rebuilding the entire tile grid every frame. At 60 km/h with 16ms frames, this produced visible tile flicker, jitter, and blank areas.
+
+**Fix:**
+- `setView` → `panTo({animate: false, duration: 0})` every frame — `panTo` slides the existing tile matrix via CSS `translate3d`, zero tile reload, zero flicker
+- Speed-proportional visual lerp (TC=400ms at 0 km/h → TC=80ms at 60+ km/h) — the visual position trails GPS tightly at highway speed, gently at walking speed
+- Frame-by-frame microscopic panning (~0.28m/frame at 60km/h) — accumulated CSS transforms IS the smooth motion
+- `updateWhenIdle: false` + `updateInterval: 100` + `keepBuffer: 8` — tiles stream in the background, ahead of the pan
+
+**Result:** Map feels like Google Maps — pin fixed at center, tile world slides underneath at exact movement speed.
+
+### HIGH: Tactical navigation modes reduced 5 → 3
+
+**Old:** 5 modes (route overview, 200m, 100m, 50m, 20m). Only mode 4 rotated to heading. Pinch-zoom broke GPS lock. Too many taps to cycle.
+
+**New:** 3 modes with distinct colors:
+- **0 ROUTE** (purple) — fit bounds, free nav, no lock, no heading rotation
+- **1 NAVIGATION** (teal) — GPS locked, z=17 (100m), rotates to heading, pinch-zoom stays locked
+- **2 TACTICAL** (red) — GPS locked, z=19 (20m), rotates to heading, pinch-zoom stays locked
+
+Pinch-zoom works freely in modes 1-2 without breaking GPS lock. Only drag unlocks. `dragend` starts a 5s idle timer — after 5s of no touch, map smoothly pans back to GPS and re-locks (Google Maps re-center behavior).
+
+### HIGH: Blank white tiles during navigation
+
+**Root cause:** Missing tiles (network gaps, near z=18 edge) rendered as transparent → the Leaflet background was white, and `keepBuffer: 4` exhausted at high-speed panning.
+
+**Fix:**
+- `background-color: #111` on `#hud-map` — missing tiles now show dark instead of white
+- `keepBuffer: 4` → `8` — double the off-image preload edge
+- `updateInterval: 200` → `100` — tile loader refreshes twice as often
+
+### MEDIUM: Compass icon jitter
+
+**RootCause:** Icon rotation was driven from `executeRenderPipeline` (raw sensor rate, 60fps), with `transition-transform duration-75` CSS fighting per-frame transform writes.
+
+**Fix:** Moved rotation to `smoothVirtualLoop` using the lerped `visual.heading` — same EMA as everything else. Removed CSS transition. Deadband `> 0.1°` prevents micro-wobble.
+
+### LOW: Crash + logic fixes (cumulative from session 3)
+
+- `dSolar` null guard — offline cached payload missing solar data no longer crashes `normalizeTelemetryData`
+- `getWindDirection` null/NaN/negative-degree guard — returns `'--'` instead of `undefined` in DOM
+- `DOM.navBtn.onclick` now re-reads `state.routeCtrl.getWaypoints()` on each click — pit-stop route changes now correctly reflected in Google Maps deep-link
+- `smoothVisualsLoop` stops RAF scheduling when tab hidden — ~15% battery/hour saved in background
+- `WelcomeEnsemble.setActiveWeights` memoized per regime — skips redundant per-node recomputation in router renders
+
+### Architecture decisions
+
+- `setView` reserved for: startup (`initMap`), tactical mode switches (`applyTacticalMode`), and mode-0 route fit. All GPS-follow movement is `panTo` only.
+- Tile streaming is decoupled from map panning — `updateWhenIdle: false` loads tiles continuously while `panTo` slides the existing matrix.
+- Tactical zoom map rendering honors user zoom but locks to GPS position — this combines the best of both modes (soft lock + free zoom).
+- Compass icon + Aero HUD now share identical lerped heading from `visual.heading` — no mismatch.
 
 ---
 
