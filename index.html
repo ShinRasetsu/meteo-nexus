@@ -2793,7 +2793,7 @@ let delta = heading - state.lastHeading;
                     return true;
                 };
 
-                const dirMatch = cleanUrl.match(/\/dir\/([^\?]+)/i);
+                let dirMatch = cleanUrl.match(/\/dir\/([^\?]+)/i);
                 if (dirMatch) {
                     const pathPart = dirMatch[1].split(/\/@|\/data=/i)[0];
                     const segments = pathPart.split('/');
@@ -2801,6 +2801,19 @@ let delta = heading - state.lastHeading;
                         const decodedSeg = decodeURIComponent(seg);
                         const m = decodedSeg.match(/^([+-]?\d+(?:\.\d+)?),([+-]?\d+(?:\.\d+)?)$/);
                         if (m) { const wpLat = parseFloat(m[1]); const wpLon = parseFloat(m[2]); if (isValid(wpLat, wpLon)) explicitWaypoints.push(L.latLng(wpLat, wpLon)); }
+                    }
+                    // If /dir/ only has an origin coordinate (destination is a named
+                    // address, not lat/lon), extract the destination from the pb data
+                    // embedded in the HTML proxy response. Google encodes destinations
+                    // as !3m2!3d{lat}!4d{lng} pairs — the LAST such pair in the
+                    // pb stream is the destination.
+                    if (explicitWaypoints.length === 1) {
+                        const pbDests = [...cleanPayload.matchAll(/!3m2!3d([+-]?\d+(?:\.\d+)?)!4d([+-]?\d+(?:\.\d+)?)/g)];
+                        if (pbDests.length > 0) {
+                            const last = pbDests[pbDests.length - 1];
+                            const dLat = parseFloat(last[1]), dLon = parseFloat(last[2]);
+                            if (isValid(dLat, dLon)) explicitWaypoints.push(L.latLng(dLat, dLon));
+                        }
                     }
                 }
                 let cleanWaypoints = [];
