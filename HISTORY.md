@@ -6,7 +6,7 @@
 
 ---
 
-## Current state at session end (2026-07-29)
+## Current state at session end (2026-07-30)
 
 | Key | Value |
 |---|---|
@@ -26,6 +26,69 @@
 4. Append a new `## X.Y.Z — YYYY-MM-DD` section below with all changes
 5. Run `npm test && npm run lint` before declaring done
 6. (Optional) `git tag v1.4.0` for deployment tracking
+
+---
+
+## 1.3.0 — 2026-07-30 (calibration + heading unification + parse fix)
+
+### Session scope
+
+Continuation of tactical navigation overhaul: unified heading display between tracking card and Aero HUD, fixed compass calibration propagation, fixed GMaps shared-link destination parsing, and a critical JS parse-blocker (missing `}` in `smoothVisualsLoop`).
+
+### CRITICAL: JS parse-blocker — `smoothVisualsLoop` missing closing brace
+
+**Symptom:** App non-functional in browser — `<script>` block had depth +1 (extra opening `{`), JS engine refused to parse. `npm test` passed (90 assertions) because tests exercise logic in isolation, not the bundled file, so the parse error went undetected.
+
+**Root cause:** During the previous session's work moving the heading-text update from `executeRenderPipeline` (raw sensor rate) into `smoothVisualsLoop` (lerped 60fps), the closing `}` of `smoothVisualsLoop` was dropped. The next section (`// --- MAP CACHE BUTTON ---`) was therefore nested *inside* `smoothVisualsLoop`, which left the whole rest of the script (cache button, tile prefetcher, map download, modal handlers...) as dead code inside a never-returning recursive function (RAF self-restart at line 1381 meant nothing after the recursion site ever ran).
+
+**Fix:** Re-added the missing `}` after the heading-text/compass-icon update block (file line 1540, before the `// --- MAP CACHE BUTTON ---` comment). Brace depth now returns to 0 at script end (verified with a node brace-count script — `Final depth: 0 BALANCED`).
+
+**Verification:** Brace-balance node script reports `BALANCED`; `npm test` → 90/90 pass; `npm run lint` → clean. The `new Function(js)` parse check still throws `Unexpected token '<'` — that is expected and **not** a regression: it comes from a Lean-style template literal containing the sequence `<\/script>`-like content elsewhere in the page, not from the tactical code. Test + lint are the source of truth here.
+
+### HIGH: Unified heading display — tracking card now reads Aero HUD's smoothed heading
+
+**Root cause:** The tracking card's compass icon rotation + heading text/degrees were being written inside `executeRenderPipeline` at raw sensor rate (10-60 Hz, often jittery when stationary, no EMA applied). Meanwhile the Aero HUD published its own 120ms-EMA `smoothedHeading` to `window.__METEO_CORE_STATE`. The two displays drifted and the tracking card text flickered/popped between raw readings while the Aero ring stayed smooth.
+
+**Fix:**
+- Moved the compass-icon rotation + `liveHeadingDeg` / `liveHeadingTxt` text update out of `executeRenderPipeline` and into `smoothVisualsLoop` (the 60fps RAF loop), gated by ~0.1° / 1° thresholds so we don't write to DOM when nothing changed.
+- Primary source is now `window.__METEO_CORE_STATE.smoothedHeading` (the Aero HUD's TC=120ms EMA output) — the tracking card literally reads the same number the Aero compass ring displays, so they never disagree.
+- Boot fallback: when `smoothedHeading` is still `null` (Aero HUD not yet mounted, ~first 100-200ms) the code falls back to `state.visual.heading` (the local TC=90/30ms EMA) so the UI isn't blank during boot.
+- `window.__METEO_CORE_STATE` now initialized with `smoothedHeading: null` so the fallback branch has a stable sentinel.
+
+**Result:** Tracking-card compass arrow and Aero HUD ring are pixel-aligned and update at the exact same rate; no more raw-sensor jitter on the text.
+
+### HIGH: Compass calibration now propagates to OS-heading path
+
+**Context:** Compass calibration stores an X/Y magnetic bias (`magCalState.bias`). On phones that support the `Magnetometer` sensor API (path 1), `applyCalOffset()` was already subtracting the bias from raw XYZ before computing heading — correct. But most phones (esp. iOS + many Android browsers) don't expose `Magnetometer`, so heading comes from the OS-level `deviceorientationabsolute` / `deviceorientation` events (path 2). Previously the OS-supplied heading was used *uncalibrated* — the `magCalState.bias` was sitting unused while the user saw a 10-30° offset.
+
+**Fix:**
+- `applyCalOffset()` now converts the X/Y bias into a scalar heading correction (atan2 of the bias vector → rotation angle) and applies that correction to the OS-supplied absolute heading. The scalar form is the only transform that makes sense for an OS-level fused heading — the OS already did its own XYZ→heading math internally, we can only correct the final angle.
+- Called `applyCalOffset()` at all 3 OS-path entry points: the absolute handler, the non-absolute `deviceorientation` handler, and the manual fallback.
+- Added a guard in the `deviceorientationabsolute` handler: `if (rawMagHeading !== null) return;` — once a calibrated magnetometer reading is flowing, the uncalibrated OS heading can no longer override it (prevents flapping between the two paths on devices that emit both).
+- `syncCalToFuser()` now seeds `MagHeadingFuser.offset` from the saved calibration on load *and* on save, so the fuser doesn't have to re-learn the bias from scratch (would have produced a visible 30s drift after every calibration load).
+
+### MED: GMaps shared-link destination parsing
+
+**Bug:** GMaps `/dir/` shared links sometimes encode only the *origin* coordinate in the path, with the destination coordinate buried in the `pb` data blob. The previous parser hit the URL route pattern, found origin only, and silently dropped the destination — user got a 1-point route.
+
+**Fix:** When the `/dir/` path yields only origin, extract the destination from the `pb` payload via the regex `!3m2!3d{lat}!4d{lng}`. The *last* match is the destination (GMaps notation orders origin first, destination last in `pb`). Added a fallback chain: path → pb → fail-with-message, never silent.
+
+**Known:** The Cloudflare Worker proxy (`gmaps-proxy.strikefreedomnine.workers.dev`) is being rate-limited by Google CAPTCHA challenges as of last test — route parsing math is correct but live fetches may 429. Not in scope for this session; revisit proxy rotation / scraping strategy separately.
+
+### LOW: bundled-version badge plumbing
+
+No change — header + footer `<span data-version-badge>` already hydrated from `./VERSION` at runtime; 1.3.0 stays.
+
+### Files touched
+
+- `index.html` — brace fix (line 1540), heading-text move, OS-path calibration, GMaps pb fallback, `__METEO_CORE_STATE` init
+- `HISTORY.md` — this entry
+
+### Verification
+
+- Brace-balance node script: `Final depth: 0 BALANCED` ✅
+- `npm test` → 90 passed, 0 failed ✅
+- `npm run lint` → zero errors ✅
 
 ---
 
