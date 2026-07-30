@@ -6,7 +6,7 @@
 
 ---
 
-## Current state at session end (2026-07-28)
+## Current state at session end (2026-07-29)
 
 | Key | Value |
 |---|---|
@@ -94,6 +94,14 @@ All three modes now use Font Awesome icons matching mode 0's existing icon style
 - 1: `fa-compass` (teal)
 - 2: `fa-crosshairs` (red)
 - Unlocked: `fa-location-crosshairs` (grey)
+
+### MEDIUM: Google Maps shared link — destination extraction fix
+
+**Root cause:** When pasting a `maps.app.goo.gl` directions short link, the resolved `/dir/` URL had the origin as a lat/lon coordinate but the destination as a named address (e.g. `Bokal+na+Mainit+Hot+Spring`). The parser only extracted the origin coordinate, then fell through to fallback regexes which grabbed the `@center` point (route overview center) instead of the actual destination. This produced a route to the wrong place.
+
+**Fix:** When `/dir/` yields only 1 coordinate waypoint, the parser now extracts the destination from the protobuf `data=` payload embedded in the proxy response HTML. The pattern `!3m2!3d{lat}!4d{lng}` encodes a lat/lng pair — the last such pair in the pb stream is always the destination. With both origin and destination, the full route is generated via OSRM.
+
+**Note:** Google Maps shared links only include origin + destination (not polyline or intermediate waypoints), so the OSRM-generated route will approximate but not exactly match Google's traffic-aware routing.
 
 ### Architecture decisions
 

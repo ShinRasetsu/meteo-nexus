@@ -57,6 +57,7 @@
             liveMagHeading: null,
             rawMagHeading: null,
             rawMagAt: 0,
+            smoothedHeading: null,
             brierScores: null
         };
     </script>
@@ -1392,10 +1393,6 @@ let delta = heading - state.lastHeading;
                 if (delta < -180) delta += 360;
                 state.cumulativeHeading += delta;
                 state.lastHeading = heading;
-                const liveMagH = window.__METEO_CORE_STATE.liveMagHeading;
-                const displayH = liveMagH !== null ? liveMagH : heading;
-                updateText(DOM.liveHeadingDeg, Math.round(displayH).toString().padStart(3, '0') + '°');
-                updateText(DOM.liveHeadingTxt, getWindDirection(displayH));
                 state.renderHeading = null;
             }
         }
@@ -1513,11 +1510,34 @@ let delta = heading - state.lastHeading;
                 DOM.hudMap.style.setProperty('--user-heading', `${state.visual.heading}deg`);
                 state.lastArrowHeading = state.visual.heading;
             }
-            // Compass-icon rotation driven by lerped visual heading — smooth, not jittery
-            if (DOM.liveCompassIcon && state.visual.heading !== null &&
-                Math.abs(state.visual.heading - (state._lastCmpRot || -999)) > 0.1) {
-                DOM.liveCompassIcon.style.transform = `rotate(${state.visual.heading}deg)`;
-                state._lastCmpRot = state.visual.heading;
+            // Compass icon + heading text driven by Aero HUD's polished visualHeading
+            // (TC=120ms EMA, same as Aero compass ring). No duplicate smoothing.
+            const aeroHeading = window.__METEO_CORE_STATE.smoothedHeading;
+            if (aeroHeading !== null) {
+                if (DOM.liveCompassIcon &&
+                    Math.abs(aeroHeading - (state._lastCmpRot || -999)) > 0.1) {
+                    DOM.liveCompassIcon.style.transform = `rotate(${aeroHeading}deg)`;
+                    state._lastCmpRot = aeroHeading;
+                }
+                if (Math.abs(aeroHeading - (state._lastHeadText || -999)) >= 1) {
+                    updateText(DOM.liveHeadingDeg, Math.round(aeroHeading).toString().padStart(3, '0') + '°');
+                    updateText(DOM.liveHeadingTxt, getWindDirection(aeroHeading));
+                    state._lastHeadText = aeroHeading;
+                }
+            } else if (state.visual.heading !== null) {
+                // Boot fallback: Aero HUD not yet mounted, use local visual heading
+                if (DOM.liveCompassIcon &&
+                    Math.abs(state.visual.heading - (state._lastCmpRot || -999)) > 0.1) {
+                    DOM.liveCompassIcon.style.transform = `rotate(${state.visual.heading}deg)`;
+                    state._lastCmpRot = state.visual.heading;
+                }
+                if (Math.abs(state.visual.heading - (state._lastHeadText || -999)) >= 1) {
+                    updateText(DOM.liveHeadingDeg, Math.round(state.visual.heading).toString().padStart(3, '0') + '°');
+                    updateText(DOM.liveHeadingTxt, getWindDirection(state.visual.heading));
+                    state._lastHeadText = state.visual.heading;
+                }
+            }
+                state._lastHeadText = state.visual.heading;
             }
         }
 
@@ -1733,6 +1753,7 @@ let delta = heading - state.lastHeading;
                 magCalState.quality = stored.quality || 0;
                 magCalState.timestamp = stored.timestamp || 0;
                 console.info('MagCal: loaded calibration, quality=' + (magCalState.quality * 100).toFixed(0) + '%');
+                syncCalToFuser();
             } catch(e) { console.warn('MagCal load failed:', e); }
         }
         async function saveMagCalibration() {
@@ -2092,6 +2113,7 @@ let delta = heading - state.lastHeading;
                     magCalState.quality = Math.min(1, coverage);
                     magCalState.timestamp = Date.now();
                     saveMagCalibration();
+                    syncCalToFuser();
                     console.info('MagCal saved: bias=(' + magCalState.bias.map(v => v.toFixed(1)).join(',') + ') scale=(' + magCalState.scale.map(v => v.toFixed(2)).join(',') + ') quality=' + (coverage*100).toFixed(0) + '%');
                 } else {
                     magCalState.quality = 0;
@@ -2190,10 +2212,39 @@ let delta = heading - state.lastHeading;
 
         // Apply residual scalar correction to an OS-derived heading (path 2).
         // We cannot decompose the OS heading back to B-vectors — but the
-        // hard-iron bias has an equivalent rotation signature: the mean error
-        // between OS-mag heading and GNSS heading that MagHeadingFuser learns
-        // online. We forward this to the fuser; here we just return the input,
-        // and `applyOffset` is called from the GPS tick before the final blend.
+        // hard-iron bias has an equivalent scalar heading offset: the bias
+        // X/Y components represent the magnetic distortion direction in the
+        // horizontal plane. When the raw Magnetometer API is unavailable, we
+        // apply this as a scalar correction to the OS-provided heading so the
+        // figure-8 calibration still improves tracking-card accuracy.
+        // Returns the calibrated heading.
+        function applyCalOffset(alphaOrHeading) {
+            if (magCalState.quality === 0) return alphaOrHeading;
+            if (rawMagHeading !== null) return alphaOrHeading; // raw-path already calibrated
+            const bx = magCalState.bias[0], by = magCalState.bias[1];
+            const bMag = Math.sqrt(bx * bx + by * by);
+            if (bMag < 1) return alphaOrHeading; // bias too weak
+            // bias angle in the body frame — the heading correction is the
+            // negative of this angle (we remove the distortion, not add it)
+            const biasAngle = Math.atan2(bx, by) * _RAD2DEG;
+            return (alphaOrHeading - biasAngle + 720) % 360;
+        }
+
+        // Forward raw-bias calibration offset to MagHeadingFuser.applyOffset
+        // equivalent so the fuser doesn't double-learn what we've already removed.
+        // Called once when calibration changes (not per-frame).
+        function syncCalToFuser() {
+            if (magCalState.quality === 0 || magCalState.quality == null) return;
+            if (rawMagHeading !== null) return; // raw-path handles calibration directly
+            const bx = magCalState.bias[0], by = magCalState.bias[1];
+            const bMag = Math.sqrt(bx * bx + by * by);
+            if (bMag < 1) return;
+            const offset = Math.atan2(bx, by) * _RAD2DEG;
+            MagHeadingFuser.offset = (-offset + 360) % 360;
+            MagHeadingFuser.offsetConfidence = magCalState.quality;
+            MagHeadingFuser.lastSyncAt = Date.now();
+        }
+
         function handleOrientationUpdate(alphaOrHeading) {
             // Reject NaN / non-finite values — a buggy sensor producing NaN would
             // otherwise propagate through the EMA chain and corrupt liveMagHeading,
@@ -2250,12 +2301,14 @@ let delta = heading - state.lastHeading;
         // producing headings); beta/gamma accuracy doesn't depend on whether the
         // OS is collapsing alpha into a heading.
         window.addEventListener('deviceorientationabsolute', (e) => {
-            if (e.alpha !== null) { hasAbsoluteOrientation = true; handleOrientationUpdate(360 - e.alpha); }
             if (e.beta !== null && e.gamma !== null) {
                 _tiltPitchDeg = e.beta;
                 _tiltRollDeg  = e.gamma;
                 _tiltAt = Date.now();
             }
+            // Skip heading when raw-Magnetometer path is producing calibrated headings
+            if (rawMagHeading !== null) return;
+            if (e.alpha !== null) { hasAbsoluteOrientation = true; handleOrientationUpdate(applyCalOffset(360 - e.alpha)); }
         });
 
         window.addEventListener('deviceorientation', (e) => {
@@ -2278,9 +2331,9 @@ let delta = heading - state.lastHeading;
             // calibration effect.
             if (rawMagHeading !== null) return;
             if (e.webkitCompassHeading != null) {
-                handleOrientationUpdate(e.webkitCompassHeading);
+                handleOrientationUpdate(applyCalOffset(e.webkitCompassHeading));
             } else if (!hasAbsoluteOrientation && e.absolute && e.alpha !== null) {
-                handleOrientationUpdate(360 - e.alpha);
+                handleOrientationUpdate(applyCalOffset(360 - e.alpha));
             }
         });
 
@@ -4689,6 +4742,8 @@ let delta = heading - state.lastHeading;
                     }
                     const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
                     if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                    // Expose polished heading for tracking-card consumption
+                    window.__METEO_CORE_STATE.smoothedHeading = visualHeading;
                 }
 
                 // WIND VECTOR MATH + SMOOTHING
