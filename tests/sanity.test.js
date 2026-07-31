@@ -225,6 +225,58 @@ assertIncludes(html, "CALCULATE_NODES", "main thread can request CALCULATE_NODES
 assertIncludes(html, "PROCESS_OVERPASS", "main thread can request PROCESS_OVERPASS");
 
 // ---------------------------------------------------------------------------
+// index.html — weather status observation-override + map rotation unlock
+// ---------------------------------------------------------------------------
+// Observation override: when Open-Meteo current.weather_code reports an active
+// precip code, the dashboard status must say "RAIN NOW" regardless of how
+// weakly the ensemble forecast agreement comes out at this hour. Without this
+// override the dashboard would display "RAIN POSSIBLE" while it was already
+// raining (regression auditors should look here first).
+assertIncludes(html, "const WMO_RAIN_CODES = new Set([", "index.html declares WMO_RAIN_CODES active-precip code set");
+assertIncludes(html, "WMO_RAIN_CODES.has(curr.weather_code)", "index.html gates isRainingNow on WMO_RAIN_CODES membership");
+assertIncludes(html, "if (isRainingNow) {", "index.html elevates RAIN NOW above ensemble-forecast status tiers");
+assertIncludes(html, "\"RAIN NOW\"", "index.html surfaces RAIN NOW status text");
+
+// Map rotation unlock/relock: dragstart must not snap the rotated tactical-mode
+// map by 130°+ in a single rAF frame. The fix uses a transient CSS transition
+// class + clear of lastCssHeading so the live heading-follow drive can't fire
+// on stale values mid-drag.
+assertIncludes(html, "#hud-map.hud-rotating", "index.html defines .hud-rotating transition CSS for unlocked state");
+assertIncludes(html, "classList.add('hud-rotating')", "index.html applies hud-rotating class on unlock/relock");
+assertIncludes(html, "state.lastCssHeading = null;", "index.html clears lastCssHeading on dragstart to prevent stale rotation writes mid-drag");
+
+// Route timeline nodes: observed weather_code must drive wetness status, not
+// the ensemble forecast vote — same "RAIN NOW" override as the dashboard applies.
+assertIncludes(html, "const isRainingNowNode = WMO_RAIN_CODES.has(code);", "index.html route nodes override ensemble wetness with observed weather_code");
+assertIncludes(html, "isRainingNowNode ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct)", "index.html route nodes elevate to RAIN_NOW when observation reports active precip");
+assertIncludes(html, "status === 'RAIN_NOW'", "index.html route node path icon/color distinguishes RAIN_NOW tier");
+
+// Aero-Vector HUD: surface the observed current.weather_code (and active-rain
+// boolean) to the Aero HUD's __METEO_CORE_STATE consumer, plus a weather chip
+// rendered below the HUD title that uses the observed code — not the ensemble
+// agreement forecast vote.
+assertIncludes(html, "__METEO_CORE_STATE.weatherCode = dCurr.current.weather_code", "index.html surfaces observed weather_code to Aero HUD");
+assertIncludes(html, "__METEO_CORE_STATE.isRainingNow = WMO_RAIN_CODES.has(window.__METEO_CORE_STATE.weatherCode)", "index.html precomputes isRainingNow verdict for the Aero HUD hot path");
+assertIncludes(html, "id=\"ui-radar-wxm-icon\"", "index.html declares Aero HUD weather-icon element");
+assertIncludes(html, "id=\"ui-radar-wxm-text\"", "index.html declares Aero HUD weather-text element");
+
+// Telemetry chart hour-strip: ALL THREE of (1) local-hour conversion from UTC
+// unix seconds, (2) Today/Tomorrow day label row via tick callback, (3) raw
+// unix-second sidecar on state.chart so the callback can recover the actual
+// local date bucket per tick. Without (1) the chart showed UTC hours while
+// the user's wall clock showed local — the "23:00 at 6:47 AM" confusion.
+assertIncludes(html, "if (typeof dCurr.utc_offset_seconds === 'number') state.utcOffsetSec = dCurr.utc_offset_seconds;", "index.html caches Open-Meteo utc_offset_seconds for local-hour decoding");
+assertIncludes(html, "const localSec = ((t + utcOffsetSec) % 86400 + 86400) % 86400;", "index.html chart hour-label uses local time (UTC+offset), not raw UTC");
+assertIncludes(html, "timesUnix[i] = t;", "index.html thread raw unix timestamps through to chart for day-label computation");
+assertIncludes(html, "state.chart.timesUnixRef = timesUnix", "index.html stores raw unix timestamps on chart for tick callback");
+assertIncludes(html, "callback: function(value, index)", "index.html x-axis uses custom tick callback for day labels");
+assertIncludes(html, "'TODAY'", "index.html x-axis callback can emit TODAY day label");
+assertIncludes(html, "'TOMORROW'", "index.html x-axis callback can emit TOMORROW day label");
+assertIncludes(html, "'YESTERDAY'", "index.html x-axis callback covers cache-stale data spanning a previous-day fetch");
+
+// ---------------------------------------------------------------------------
+// worker.js — task dispatcher integrity
+// ---------------------------------------------------------------------------
 // worker.js — task dispatcher integrity
 // ---------------------------------------------------------------------------
 const workerSrc = readFileSync(join(repoRoot, "worker.js"), "utf8");

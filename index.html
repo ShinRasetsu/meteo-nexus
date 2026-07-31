@@ -104,6 +104,12 @@
             background-color: #111111 !important;
             --user-heading: 0deg;
         }
+        /* Smear the rotation unlock/relock over 250ms so the map doesn't snap
+           130°+ in a single rAF frame when the user touches the map mid-tactical-
+           mode. Only applied transiently: dragstart adds it for the unlock-to-0,
+           the re-lock path adds it right before applyTacticalMode, then both
+           remove it before the live heading-follow drive resumes. */
+        #hud-map.hud-rotating { transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1); }
         .hud-moving .user-dot { opacity: 0 !important; transform: scale(0.5) !important; }
         .hud-moving .user-arrow { opacity: 1 !important; transform: scale(1) !important; }
         .hud-idle .user-dot { opacity: 1 !important; transform: scale(1) !important; }
@@ -1062,6 +1068,20 @@
             85: 'Slight Snow Showers', 86: 'Heavy Snow Showers',
             95: 'Thunderstorm', 96: 'Thunderstorm + Hail', 99: 'Heavy Thunderstorm + Hail'
         };
+        // WMO codes that indicate active precipitation is happening *now* (drizzle,
+        // rain, freezing rain, snow, thunderstorm). The `current.weather_code` from
+        // Open-Meteo is an observation (or near-nowcast), unlike the ensemble
+        // agreement which is a forecast vote. When the observation says it is
+        // raining the dashboard status must say so even if the ensemble agreement
+        // is below the WET_LIKELY_PCT threshold — without this override the
+        // dashboard would display "RAIN POSSIBLE" while the user is getting soaked.
+        const WMO_RAIN_CODES = new Set([
+            51, 53, 55, 56, 57,        // drizzle + freezing drizzle
+            61, 63, 65, 66, 67,        // rain + freezing rain
+            80, 81, 82,                // rain showers
+            71, 73, 75, 77, 85, 86,    // snow (counts as active precip too)
+            95, 96, 99                 // thunderstorms (always contain rain)
+        ]);
 
         const WMO_ICONS = {
             0: 'fa-sun', 1: 'fa-sun', 2: 'fa-cloud-sun', 3: 'fa-cloud',
@@ -2716,7 +2736,15 @@ let delta = heading - state.lastHeading;
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
             state.mapObj.on('dragstart', () => {
                 if (state._recenterTimer) { clearTimeout(state._recenterTimer); state._recenterTimer = null; }
-                state.isMapLocked = false; DOM.hudMap.style.transform = `rotate(0deg)`;
+                state.isMapLocked = false;
+                // Smear the unlock rotation from heading-aligned back to north-up
+                // over 250ms instead of snapping 130°+ in one frame under the
+                // user's finger. Stale lastCssHeading is cleared so the live
+                // heading-follow block can't fire on the old value mid-drag.
+                state.lastCssHeading = null;
+                DOM.hudMap.classList.add('hud-rotating');
+                DOM.hudMap.style.transform = `rotate(0deg)`;
+                setTimeout(() => { if (!state.isMapLocked) DOM.hudMap.classList.remove('hud-rotating'); }, 280);
                 updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });
@@ -2729,7 +2757,16 @@ let delta = heading - state.lastHeading;
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 0.5 });
                             setTimeout(() => {
                                 state.isMapLocked = true;
+                                // Re-lock: smear the rotation from north-up back to
+                                // heading-aligned over 250ms, then drop the transition
+                                // class so the live heading-follow drive resumes
+                                // frame-by-frame without lag. lastCssHeading is null
+                                // (cleared at dragstart) so the smoothVisualsLoop
+                                // rotation block will write the new transform once
+                                // and trigger the transition.
+                                DOM.hudMap.classList.add('hud-rotating');
                                 window.applyTacticalMode();
+                                setTimeout(() => DOM.hudMap.classList.remove('hud-rotating'), 280);
                             }, 600);
                         }
                     }, 5000);
@@ -3287,16 +3324,26 @@ let delta = heading - state.lastHeading;
                 let icon = WMO_ICONS[code] || 'fa-cloud';
                 if (isDay === 0) icon = icon.replace('sun', 'moon');
 
-                const status   = WeatherEnsemble.classifyWetness(stats.wetPct);
-                const rainProb = stats.wetPct;
-                const isWet    = status !== 'STABLE';
+                // Observation override: if the API's current.weather_code for this
+                // node reports an active precip code (rain/snow/drizzle/thunder),
+                // elevate the wetness tier to RAIN_NOW regardless of how weakly the
+                // multi-model ensemble agrees at this exact hour. The icon already
+                // reflects the observed code; the colored path ribbon must match
+                // the icon, not the (forecast-vote) agreement percentage. This is
+                // the route-node analogue of the dashboard's isRainingNow override.
+                const isRainingNowNode = WMO_RAIN_CODES.has(code);
+                const status   = isRainingNowNode ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct);
+                const rainProb = isRainingNowNode ? 100 : stats.wetPct;
+                const isWet    = isRainingNowNode || status !== 'STABLE';
 
-                const pathColor = status === 'RAIN_LIKELY'   ? 'text-brand-blue font-black drop-shadow-md'
-                                : status === 'RAIN_POSSIBLE' ? 'text-brand-warning font-black drop-shadow-md'
-                                :                              'text-brand-success drop-shadow-md';
-                const pathIcon  = status === 'RAIN_LIKELY'   ? 'fa-water'
-                                : status === 'RAIN_POSSIBLE' ? 'fa-cloud-rain'
-                                :                              'fa-road';
+                const pathColor = status === 'RAIN_NOW'       ? 'text-brand-red font-black drop-shadow-md'
+                                : status === 'RAIN_LIKELY'    ? 'text-brand-blue font-black drop-shadow-md'
+                                : status === 'RAIN_POSSIBLE'  ? 'text-brand-warning font-black drop-shadow-md'
+                                :                               'text-brand-success drop-shadow-md';
+                const pathIcon  = status === 'RAIN_NOW'       ? 'fa-cloud-showers-heavy'
+                                : status === 'RAIN_LIKELY'    ? 'fa-water'
+                                : status === 'RAIN_POSSIBLE'  ? 'fa-cloud-rain'
+                                :                               'fa-road';
                 const uvColor = +uv >= 8 ? 'text-brand-red font-black drop-shadow-md' : (+uv >= 5 ? 'text-brand-orange drop-shadow-md' : 'text-brand-purple drop-shadow-md');
 
                 let bgClass = "bg-surface-800", textClass = "text-gray-400", iconClass = "text-gray-300", borderLeft = "border-surface-600";
@@ -3313,7 +3360,9 @@ let delta = heading - state.lastHeading;
                     } else {
                         titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-broadcast-tower mr-1"></i>LIVE • NOW</span>`;
                     }
-                    if (status === 'RAIN_LIKELY') {
+                    if (status === 'RAIN_NOW') {
+                        bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red";
+                    } else if (status === 'RAIN_LIKELY') {
                         bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red";
                     } else if (status === 'RAIN_POSSIBLE') {
                         bgClass = "bg-brand-warning/10"; textClass = "text-brand-warning"; iconClass = "text-brand-warning"; borderLeft = "border-brand-warning";
@@ -3365,7 +3414,7 @@ let delta = heading - state.lastHeading;
                             </div>
                         </div>
                         <div class="w-full flex items-center justify-between text-sm md:text-base font-mono font-black uppercase tracking-widest pt-3 border-t border-surface-700/50">
-                            <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-lg opacity-90"></i> <span>${status === 'RAIN_LIKELY' ? 'WET' : (status === 'RAIN_POSSIBLE' ? 'DAMP' : 'DRY')}</span></span>
+                            <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-lg opacity-90"></i> <span>${status === 'RAIN_NOW' ? 'NOW' : (status === 'RAIN_LIKELY' ? 'WET' : (status === 'RAIN_POSSIBLE' ? 'DAMP' : 'DRY'))}</span></span>
                             <span class="${isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-white drop-shadow-md'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-lg opacity-90"></i> ${Math.round(rainProb)}%</span>
                             <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-lg opacity-90"></i> UV ${uv}</span>
                         </div>
@@ -3467,7 +3516,7 @@ let delta = heading - state.lastHeading;
         // --- CHART ---
         // CHANGED: gains tempBand param, adds Temp Min/Max datasets (indices 6+7) as a
         // shaded confidence band without adding a legend entry or tooltip line.
-        function renderChart(labels, rainData, solarData, uvData, hourlyAgreement, tempBand) {
+        function renderChart(labels, timesUnix, rainData, solarData, uvData, hourlyAgreement, tempBand) {
             const tc = THEME_COLORS;
             const tempMin = tempBand.map(b => b ? b.min : null);
             const tempMax = tempBand.map(b => b ? b.max : null);
@@ -3492,6 +3541,11 @@ let delta = heading - state.lastHeading;
                 state.chart.data.datasets[6].data.splice(0, state.chart.data.datasets[6].data.length, ...tempMin);
                 state.chart.data.datasets[7].data.splice(0, state.chart.data.datasets[7].data.length, ...tempMax);
                 state.chart.hourlyAgreementRef = hourlyAgreement;
+                // Raw unix-second timestamps for chart hours — refreshed on every
+                // payload so the tick callback can always read the actual local date
+                // bucket for "Today" / "Tomorrow" labels below the hour strip even
+                // when cache-stale telemetry spans a midnight rollover.
+                state.chart.timesUnixRef = timesUnix;
                 state.chart.update('none');
                 return;
             }
@@ -3553,7 +3607,61 @@ let delta = heading - state.lastHeading;
                         }
                     },
                     scales: {
-                        x:       { grid: { display: false }, ticks: { color: '#6b7280', maxTicksLimit: 12, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'} } },
+                        // X-axis tick callback injects a 2nd line "Today"/"Tomorrow" label
+                        // below each local HH:MM tick. Chart.js renders array-valued tick
+                        // strings as multi-line labels. The day label comes from the actual
+                        // epoch bucket (timesUnixRef) — yields a single human label per
+                        // day, applied only on the FIRST tick that belongs to that day so
+                        // the strip doesn't repeat "Today" under every hour of the slice.
+                        // Without this row the user could not tell whether a 24-tick plot
+                        // started at last night's 23:00 (cache-stale fetch) or today's
+                        // 06:00 — only the day label disambiguates.
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#6b7280',
+                                maxTicksLimit: 12,
+                                font: {family: 'JetBrains Mono', size: 11, weight: 'bold'},
+                                callback: function(value, index) {
+                                    // Recover the raw label (HH:MM string) from the chart data
+                                    const label = (this.chart && this.chart.data && this.chart.data.labels)
+                                                  ? this.chart.data.labels[index]
+                                                  : null;
+                                    if (!label) return '';
+                                    const unixArr = (this.chart && this.chart.timesUnixRef)
+                                                    ? this.chart.timesUnixRef
+                                                    : null;
+                                    if (!unixArr || unixArr[index] === undefined) return label;
+                                    // Treat unix seconds as UTC epoch instant; apply cached
+                                    // utcOffsetSec for local-day classification. Falls back
+                                    // to 0 offset when state.utcOffsetSec was never seeded
+                                    // (cold boot, fetch failure).
+                                    const utcOffsetSec = (state.utcOffsetSec) || 0;
+                                    const tSec = unixArr[index] + utcOffsetSec;
+                                    // Day index since epoch-local-midnight. 86400 sec/day.
+                                    const dayIdx = Math.floor(tSec / 86400);
+                                    // Compute today's dayIdx = same division on Date.now().
+                                    const todayIdx = Math.floor((Date.now() / 1000 + utcOffsetSec) / 86400);
+                                    let dayLabel = '';
+                                    if (dayIdx === todayIdx) dayLabel = 'TODAY';
+                                    else if (dayIdx === todayIdx + 1) dayLabel = 'TOMORROW';
+                                    else if (dayIdx === todayIdx - 1) dayLabel = 'YESTERDAY';
+                                    else dayLabel = new Date(unixArr[index] * 1000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                                    // Only render the day label on the FIRST tick whose
+                                    // dayIdx differs from the previous rendered tick.
+                                    let prevDayIdx = null;
+                                    if (unixArr[index - 1] !== undefined) {
+                                        prevDayIdx = Math.floor((unixArr[index - 1] + utcOffsetSec) / 86400);
+                                    }
+                                    if (index > 0 && prevDayIdx === dayIdx) {
+                                        // Same day as previous tick — show hour only, no day repeat
+                                        return label;
+                                    }
+                                    // First tick of a new day OR index 0: render [HH:MM, DAY]
+                                    return [label, dayLabel];
+                                }
+                            }
+                        },
                         y_rain:  { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 2 },
                         y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
                         y_uv:    { type: 'linear', display: false, min: 0, max: 15 },
@@ -3562,6 +3670,7 @@ let delta = heading - state.lastHeading;
                 }
             });
             state.chart.hourlyAgreementRef = hourlyAgreement;
+            state.chart.timesUnixRef = timesUnix;
         }
 
         // --- NORMALIZE TELEMETRY ---
@@ -3579,6 +3688,12 @@ let delta = heading - state.lastHeading;
         //     conservative rounded value (e.g. "+" half-degree uncertainty badge).
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
+            // Cache the API-reported UTC offset (seconds) so the hour-strip in the chart
+            // can render LOCAL hours instead of UTC hours. Without this fix the chart
+            // labels displayed UTC time-marks while the user's wall clock + status text
+            // rendered local time — producing the "I'm at 06:47 but the chart says 23:00"
+            // confusion. Open-Meteo guarantees utc_offset_seconds when timezone=auto.
+            if (typeof dCurr.utc_offset_seconds === 'number') state.utcOffsetSec = dCurr.utc_offset_seconds;
             if (state.telemetryCache && state.telemetryCache.lat) {
                 WeatherEnsemble.setActiveWeights(state.telemetryCache.lat, state.telemetryCache.lon);
             }
@@ -3613,18 +3728,33 @@ let delta = heading - state.lastHeading;
             const sliceLen = maxSlice - nowIndex;
 
             // Pre-allocate single output arrays used by both chart and aeroHUD cache.
-            const times  = new Array(sliceLen);
+            const times      = new Array(sliceLen);
+            // Raw unix-second timestamps for each chart hour. Rendered tick labels
+            // (local HH:MM) are cosmetic, but computing Today/Tomorrow day rows below
+            // the hour strip needs the actual epoch bucket — the formatted strings
+            // alone are ambiguous around midnight (only the first 00:00 gets (+1d),
+            // so a 24h slice spanning two midnights has no human-readable day hint).
+            const timesUnix  = new Array(sliceLen);
             const uvData = new Array(sliceLen);
             const solarData = new Array(sliceLen);
             const uvArr = (hSol && hSol.uv_index) ? hSol.uv_index : new Array(totalLen).fill(0);
             const solArr = (hSol && hSol.shortwave_radiation) ? hSol.shortwave_radiation : new Array(totalLen).fill(0);
+            // BUG FIX: Open-Meteo with timezone=auto returns hourly timestamps in unix
+            // SECONDS aligned to LOCAL midnights — the unix seconds encode the actual
+            // UTC instant for "06:00 Asia/Manila" (e.g. 22:00 UTC the previous day).
+            // Computing (t % 86400) / 3600 produces the UTC hour (22 in that example),
+            // NOT the local hour (06). Add utcOffsetSec before mod to recover local
+            // hour-of-day. Without this fix the chart labels displayed UTC time while
+            // the user's wall clock + status text rendered local time — producing the
+            // "I am at 06:47 local but the chart says 23:00" confusion.
+            const utcOffsetSec = (typeof state.utcOffsetSec === 'number') ? state.utcOffsetSec : 0;
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
-                // Avoid 24 Date allocs + ICU-heavy toLocaleTimeString per weather fetch.
-                const t = h.time[j]; // unix seconds
-                const hh = String(Math.floor((t % 86400) / 3600)).padStart(2, '0');
-                const mm = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
-                const s = `${hh}:${mm}`;
-                times[i] = s === "00:00" ? "00:00 (+1d)" : s;
+                const t = h.time[j]; // unix seconds (UTC instant)
+                timesUnix[i] = t;
+                const localSec = ((t + utcOffsetSec) % 86400 + 86400) % 86400;
+                const hh = String(Math.floor(localSec / 3600)).padStart(2, '0');
+                const mm = String(Math.floor((localSec % 3600) / 60)).padStart(2, '0');
+                times[i] = `${hh}:${mm}`;
                 const uv = uvArr[j];
                 uvData[i] = (uv === null || uv === undefined) ? 0 : uv;
                 const so = solArr[j];
@@ -3749,13 +3879,20 @@ let delta = heading - state.lastHeading;
 
             const currentAgreement = hourlyAgreement[0] || 0;
             const currentStatus    = WeatherEnsemble.classifyWetness(currentAgreement);
+            // Observation override: if the API's current weather_code says it is
+            // precipitating *now*, do not let a low ensemble agreement demote the
+            // status to RAIN_POSSIBLE (or worse, STABLE). The display layer uses
+            // this to surface "RAIN NOW" instead of "RAIN POSSIBLE" while the
+            // user is actively being rained on.
+            const isRainingNow = (curr && typeof curr.weather_code === 'number'
+                                  && WMO_RAIN_CODES.has(curr.weather_code));
             let incomingRain = false;
             for (let i = 1; i <= 3 && i < hourlyAgreement.length; i++) {
                 if (WeatherEnsemble.classifyWetness(hourlyAgreement[i]) === 'RAIN_LIKELY') { incomingRain = true; break; }
             }
 
-            return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, incomingRain, lowConfidence,
+            return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble };
         }
 
@@ -3763,7 +3900,7 @@ let delta = heading - state.lastHeading;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -3852,8 +3989,18 @@ let delta = heading - state.lastHeading;
                 'bg-brand-warning/10', 'border-brand-warning/50',
                 'bg-brand-success/10', 'border-brand-success/50'
             );
-            // FIX: branches on classifyWetness() string — same threshold the route timeline uses
-            if (currentStatus === 'RAIN_LIKELY') {
+            // FIX: branches on classifyWetness() string — same threshold the route timeline uses.
+            // The RAIN NOW branch takes precedence over the ensemble agreement tiers: the
+            // Open-Meteo current.weather_code is an observation, not a forecast vote, so when
+            // it reports an active precip code the dashboard must say so regardless of how
+            // weakly the multi-model ensemble happens to agree at this exact hour.
+            if (isRainingNow) {
+                DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
+                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-showers-heavy text-brand-red`);
+                updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-red uppercase');
+                updateText(DOM.statusText, "RAIN NOW");
+                if (!isOffline) playSonarPing();
+            } else if (currentStatus === 'RAIN_LIKELY') {
                 DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-showers-heavy text-brand-red`);
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-red uppercase');
@@ -4063,9 +4210,24 @@ let delta = heading - state.lastHeading;
                 if (dCurr.current.wind_speed_10m     !== undefined) window.__METEO_CORE_STATE.windSpeed  = dCurr.current.wind_speed_10m;
                 if (dCurr.current.wind_gusts_10m     !== undefined) window.__METEO_CORE_STATE.windGust   = dCurr.current.wind_gusts_10m;
             }
+            // Surface the OBSERVED weather_code + is_day flag to the Aero-Vector HUD
+            // (the Aero HUD renders at 60fps and reads everything from __METEO_CORE_STATE).
+            // Use the observed current.weather_code, NOT the ensemble-agreement classification,
+            // so the HUD shows "RAIN NOW" exactly when the dashboard does — the two displays
+            // must never diverge on whether it is actually precipitating at the user's
+            // location right now.
+            if (dCurr && dCurr.current) {
+                if (typeof dCurr.current.weather_code === 'number')  window.__METEO_CORE_STATE.weatherCode = dCurr.current.weather_code;
+                if (typeof dCurr.current.is_day         === 'number')  window.__METEO_CORE_STATE.isDay       = dCurr.current.is_day;
+            }
+            // Also expose the active-rain verdict (boolean) for the HUD's tiny wxm chip
+            // — avoids the Aero HUD having to import WMO_RAIN_CODES on the hot 60fps path.
+            if (typeof window.__METEO_CORE_STATE.weatherCode === 'number') {
+                window.__METEO_CORE_STATE.isRainingNow = WMO_RAIN_CODES.has(window.__METEO_CORE_STATE.weatherCode);
+            }
 
             renderTelemetryUI(data, isOffline);
-            renderChart(data.times, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
+            renderChart(data.times, data.timesUnix, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
         }
 
 // --- FETCH DATA ---
@@ -4523,6 +4685,10 @@ let delta = heading - state.lastHeading;
                 <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
                     <div class="flex flex-col">
                         <span class="text-sm font-bold tracking-widest uppercase text-brand-teal"><i class="fa-solid fa-jet-fighter mr-2"></i> Aero-Vector HUD</span>
+                        <div class="flex items-center gap-1.5 mt-1">
+                            <i id="ui-radar-wxm-icon" class="fa-solid fa-circle-notch fa-spin text-sm text-gray-400" title="weather code"></i>
+                            <span id="ui-radar-wxm-text" class="text-[10px] font-black uppercase tracking-widest text-gray-300">--</span>
+                        </div>
                         <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
                     </div>
                     <div class="flex items-start gap-4">
@@ -4601,6 +4767,8 @@ let delta = heading - state.lastHeading;
                 windSpeed:    document.getElementById('ui-radar-wind-speed'),
                 altContainer: document.getElementById('ui-radar-alt-container'),
                 gust:         document.getElementById('ui-radar-gust'),
+                wxmIcon:      document.getElementById('ui-radar-wxm-icon'),
+                wxmText:      document.getElementById('ui-radar-wxm-text'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
                 ghost: [
@@ -4641,7 +4809,8 @@ let delta = heading - state.lastHeading;
             const _uiCache = {
                 alt: '', windSpeed: '', gust: 'hidden',
                 ringTrans: '', relAngle: '',
-                windTrans: '', head: '', cross: ''
+                windTrans: '', head: '', cross: '',
+                wxm: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -4703,7 +4872,38 @@ let delta = heading - state.lastHeading;
                     } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
                 }
 
-                
+                // WEATHER NOW (observed) — chip rendered below the "Aero-Vector HUD" title.
+                // Uses the OBSERVED current.weather_code from __METEO_CORE_STATE (set by
+                // processTelemetryPayload), NOT the ensemble agreement forecast vote. This
+                // keeps the Aero HUD in lockstep with the dashboard's RAIN NOW status —
+                // the two displays must never disagree on whether it is precipitating now.
+                if (_el.wxmIcon && _el.wxmText) {
+                    const code = st.weatherCode;
+                    let wxmStr = '';
+                    let wxmIconClass = 'fa-circle-notch fa-spin text-gray-400';
+                    let wxmTextClass = 'text-gray-300';
+                    if (typeof code === 'number') {
+                        // Same icon mapping the dashboard uses, with night-code remap.
+                        let icon = WMO_ICONS[code] || 'fa-cloud';
+                        if (st.isDay === 0) icon = icon.replace('sun', 'moon');
+                        const label = WMO_CODES[code] || `Code: ${code}`;
+                        // Compose a single cached cache string: iconClass|textClass|label
+                        if (st.isRainingNow) {
+                            wxmIconClass = `${icon} text-brand-red drop-shadow-md`;
+                            wxmTextClass = 'text-brand-red';
+                        } else {
+                            wxmIconClass = `${icon} text-gray-300`;
+                            wxmTextClass = 'text-gray-300';
+                        }
+                        wxmStr = `${wxmIconClass}\u0001${wxmTextClass}\u0001${label}`;
+                    }
+                    if (_uiCache.wxm !== wxmStr) {
+                        _el.wxmIcon.className = `fa-solid ${wxmStr ? wxmStr.split('\u0001')[0] : 'fa-circle-notch fa-spin text-gray-400'}`;
+                        _el.wxmText.className = `text-[10px] font-black uppercase tracking-widest ${wxmStr ? wxmStr.split('\u0001')[1] : 'text-gray-300'}`;
+                        _el.wxmText.textContent = wxmStr ? wxmStr.split('\u0001')[2] : '--';
+                        _uiCache.wxm = wxmStr;
+                    }
+                }
 
                 // HEADING PRIORITY CHAIN
                 // Aero compass ring runs at 60fps — feeds from the continuous

@@ -6,7 +6,7 @@
 
 ---
 
-## Current state at session end (2026-07-30)
+## Current state at session end (2026-07-31)
 
 | Key | Value |
 |---|---|
@@ -15,7 +15,7 @@
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Git tag | `v1.3.0` — create with `git tag v1.3.0` before push |
-| Tests | `npm test` — 90 assertions, all passing |
+| Tests | `npm test` — 112 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
 
 ## How to bump version in a new session
@@ -89,6 +89,57 @@ No change — header + footer `<span data-version-badge>` already hydrated from 
 - Brace-balance node script: `Final depth: 0 BALANCED` ✅
 - `npm test` → 90 passed, 0 failed ✅
 - `npm run lint` → zero errors ✅
+
+---
+
+## 1.3.0 — 2026-07-31 (weather-code consistency + UTC→local chart-axis fix)
+
+### Session scope
+
+Three displays in the app read weather data — the local telemetry status card, the tracking-card route nodes, and the Aero-Vector HUD — and only one of them (the status card, fixed last session) honored the *observed* `current.weather_code`. The other two branched on the multi-model ensemble forecast agreement, so when observation said "it is raining now" but the ensemble agreement sat below the WET_LIKELY threshold (50-74 %), all three displays said "RAIN POSSIBLE" or "STABLE" while the user was being rained on. Plus a long-standing axis-label bug in the atmospheric telemetry chart: hour ticks were rendered as **UTC** hours while every other time-of-day surface in the app (status text, route timeline, clock badge) rendered **local** hours. So a user checking the chart at 06:47 local saw ticks starting at 22:00 / 23:00 (UTC) — and had no way to disambiguate a cache-stale fetch from a current-day fetch because the strip had no day labels.
+
+### HIGH: Route timeline nodes — observed-rain override
+
+**Root cause:** Route nodes drew their weather icon from `p.current.weather_code` (observed) but derived their wetness *status*, colored path ribbon, and border classes from `WeatherEnsemble.classifyWetness(stats.wetPct)` (forecast agreement). When observation said rain and ensemble agreement was weak, the node showed `fa-cloud-rain` / `fa-cloud-showers-heavy` icons inside a yellow "RAIN POSSIBLE" tier ribbon — visually contradictory.
+
+**Fix:** Added `isRainingNowNode = WMO_RAIN_CODES.has(code)` at the same point the icon is chosen. When observation reports an active precip code, the wetness tier is elevated to `'RAIN_NOW'` regardless of agreement percentage. Path icon → `fa-cloud-showers-heavy` (red), node bg / border → `bg-brand-red/10` / `border-brand-red`, and the "WET/DAMP/DRY" footer tag now reads **"NOW"** for the elevated tier — visually consistent with the icon and with the dashboard's RAIN NOW status text.
+
+### HIGH: Aero-Vector HUD — added weather chip + observed-code override
+
+**Root cause:** The Aero HUD read only `windDir` / `windSpeed` / `windGust` / `altitude` / heading from `__METEO_CORE_STATE` — it had no weather display at all, and no source for the observed weather code.
+
+**Fix:**
+- Added a small weather chip below the "Aero-Vector HUD" title (`#ui-radar-wxm-icon` + `#ui-radar-wxm-text`).
+- `processTelemetryPayload` now surfaces `__METEO_CORE_STATE.weatherCode`, `__METEO_CORE_STATE.isDay`, and `__METEO_CORE_STATE.isRainingNow` (precomputed on the slow payload path so the 60fps Aero render loop never imports `WMO_RAIN_CODES`).
+- The Aero `renderAero()` reads the observed code and renders the same `WMO_ICONS[code]` mapping the dashboard uses, with night-remap. When `isRainingNow` is true the icon + text are styled `text-brand-red` so the HUD color-matches the dashboard's RAIN NOW tier exactly.
+- UI write-cache (`_uiCache.wxm`) protects the 60fps path — DOM writes only when the composed icon-class + label changes.
+
+### HIGH: Atmospheric chart hour strip — UTC → local hour fix
+
+**Root cause:** `normalizeTelemetryData` built the hour labels via `(t % 86400) / 3600` where `t = h.time[j]` is the unix-seconds UTC instant at which the local hour begins. Open-Meteo with `timezone=auto` returns timestamps aligned to *local* midnight, but the timestamps themselves are still UTC seconds — `(t % 86400) / 3600` therefore extracts the **UTC hour-of-day**, not the local hour. Result: the user's wall clock said 06:47 local but the chart ticks started at 22 / 23 (UTC hour).
+
+**Confusion amplification:** The previous code also tagged the first local-midnight bucket with `"00:00 (+1d)"` — but because `t % 86400` returns 0 only on UTC-midnight (not local-midnight), the marker fired at the wrong hour, so the +1d hint was both misplaced and insufficient (no support for cache-stale data spanning multiple midnights).
+
+**Fix:**
+- Cache `dCurr.utc_offset_seconds` into `state.utcOffsetSec` on every payload.
+- New local-hour decode: `localSec = ((t + utcOffsetSec) % 86400 + 86400) % 86400` (double-positive-mod belt-and-suspenders for negative-offset zones).
+- Drop the "00:00 (+1d)" string hack entirely — it's replaced by the proper day-label system below. Labels are now plain `HH:MM` local.
+- Thread raw unix-second timestamps `timesUnix` through to `renderChart` as a new parameter; stored on `state.chart.timesUnixRef` so the x-axis tick callback can recover the actual epoch bucket for every tick.
+- x-axis tick `callback` writes a 2-line tick: `[HH:MM, "TODAY" | "TOMORROW" | "YESTERDAY" | "<Weekday, Mon DD>"]`. Day classification uses `floor((t + utcOffsetSec) / 86400)` against `floor((Date.now()/1000 + utcOffsetSec) / 86400)` for `today`. Long-form weekday label is reserved for cache-stale data older than 2 days.
+- The day row renders only on the FIRST tick of each day — repeats of the same day show the hour tick alone, so the strip doesn't plaster "TODAY" under every hour of a 24-hour slice.
+- Cache-stale fallback: when raw timestamps aren't available (old payload schema), tick callback falls back to the old single-line `HH:MM` label with no day row — graceful degradation, no broken chart.
+
+### Verification
+
+- Brace-balance node script: `Final depth: 0 BALANCED` ✅
+- `npm test` → 112 passed, 0 failed ✅ (+15 new assertions covering WMO_RAIN_CODES propagation across all three displays + local-hour decode + Today/Tomorrow label emit)
+- `npm run lint` → zero errors ✅
+
+### Files touched
+
+- `index.html` — route node RAIN NOW override, Aero HUD weather chip (HTML + render block + `__METEO_CORE_STATE` publish), `state.utcOffsetSec` cache, local-hour decode in `normalizeTelemetryData`, `timesUnix` sidecar through `renderChart`, x-axis tick callback with Today/Tomorrow/Yesterday day labels
+- `HISTORY.md` — this entry
+- `tests/sanity.test.js` — +15 new assertions
 
 ---
 
