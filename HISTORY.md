@@ -6,16 +6,16 @@
 
 ---
 
-## Current state at session end (2026-07-31)
+## Current state at session end (2026-08-01)
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.1` |
-| `package.json` → version | `1.3.1` (sync manually with VERSION on bump) |
+| `VERSION` | `1.3.2` |
+| `package.json` → version | `1.3.2` |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.1` — create with `git tag v1.3.1` before push |
-| Tests | `npm test` — 115 assertions, all passing |
+| Git tag | `v1.3.2` — create with `git tag v1.3.2` before push |
+| Tests | `npm test` — 127 assertions, all passing |
 | Consent / audio | `audioEnabled` persists in `localforage` after first interactive gesture |
 
 ## How to bump version in a new session
@@ -28,6 +28,39 @@
 6. (Optional) `git tag v1.4.0` for deployment tracking
 
 ---
+
+## 1.3.2 — 2026-08-01 (weather station profile, precip breakdown, post-audit fixups)
+
+### Bump rationale
+
+Patch bump from 1.3.1 → 1.3.2. Added full weather-station variable support (precipitation, rain, showers, snowfall, cloud_cover, pressure_msl, visibility) to the main telemetry fetch and surface all 14 variables on at least one display. Fixed a critical `precip` vs `prec` variable name mismatch that silently disabled precipitation intensity display in the telemetry card. Removed dead code and added explicit null-defaults for all new `__METEO_CORE_STATE` fields.
+
+### Full changelog
+
+- `index.html`:
+  - Main telemetry `current=` block now requests `precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility` (was: 8 fields, now: 15)
+  - Telemetry card weather-desc now shows rich breakdown: `"Moderate Drizzle · 0.5mm (Rain 0.3mm, Showers 0.2mm) · 72% Cloud (Mostly Cloudy)"` instead of bare WMO label
+  - New pressure + visibility row below wind direction on telemetry card (`1015 hPa | 40.7 km vis`)
+  - Aero HUD weather chip now includes precip type: `"Moderate Drizzle 0.5mm (R:0.3 S:0.2)"`
+  - Aero HUD new visibility meter: `"VIS 41 km"` with red/yellow color coding (red <1km, yellow <5km)
+  - `__METEO_CORE_STATE` init extended with 10 new field defaults (weatherCode through visibility)
+  - `precipBreakdown` struct assembled in `normalizeTelemetryData` for telemetry card consumption
+  - Critical fix: `precip` → `prec` typo at telemetry card precip guard line
+  - Removed unused `descHasDataFlag` dead code
+  - Simplified redundant `prec != null ? ... : '?'` guard in Aero HUD wxm render
+  - Route-node offline `curr` reconstruction preserves observed `weather_code` from `dCurr.current`
+- `VERSION` → `1.3.2`
+- `package.json` → `1.3.2`
+- `tests/sanity.test.js` — +12 new assertions (total: 127)
+- `HISTORY.md` — this entry + updated current-state table
+
+### Verification
+
+- Brace-balance node script: `Final depth: 0 BALANCED` ✅
+- `npm test` → 127 passed, 0 failed ✅
+- `npm run lint` → zero errors ✅
+
+
 
 ## 1.3.1 — 2026-07-31 (weather-code consistency, UTC→local chart, post-audit null-guards)
 

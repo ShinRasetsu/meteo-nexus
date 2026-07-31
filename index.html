@@ -58,7 +58,10 @@
             rawMagHeading: null,
             rawMagAt: 0,
             smoothedHeading: null,
-            brierScores: null
+            brierScores: null,
+            weatherCode: null, isDay: null, isRainingNow: false,
+            precipitation: null, rain: null, showers: null, snowfall: null,
+            cloudCover: null, pressure: null, visibility: null
         };
     </script>
 
@@ -4105,10 +4108,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const snowCm  = (typeof pBreak.snowfall === 'number') ? pBreak.snowfall : null;
                 const ccover  = (typeof cloudCover === 'number') ? cloudCover : null;
                 const parts = [wmoLabel];
-                let descHasDataFlag = false;
-                if (isRainingNow && precip !== null && precip >= 0.1) {
-                    parts.push(`${precip.toFixed(1)}mm`);
-                    descHasDataFlag = true;
+                if (isRainingNow && prec !== null && prec >= 0.1) {
+                    parts.push(`${prec.toFixed(1)}mm`);
                     let typeParts = [];
                     if (rainMm !== null && rainMm >= 0.1) typeParts.push(`Rain ${rainMm.toFixed(1)}mm`);
                     if (showMm !== null && showMm >= 0.1) typeParts.push(`Showers ${showMm.toFixed(1)}mm`);
@@ -5007,7 +5008,7 @@ function checkDependenciesAndRun() {
                         // the HUD. Falls back gracefully to the plain WMO label when
                         // the new fields haven't been fetched yet (old cache).
                         if (st.precipitation !== null && st.isRainingNow) {
-                            const pLabel = `${prec != null ? prec.toFixed(1) : '?'}mm`;
+                            const pLabel = `${(prec !== null ? prec : 0).toFixed(1)}mm`;
                             let pType = '';
                             if (typeof st.rain === 'number' && st.rain >= 0.1) pType += `R:${st.rain.toFixed(1)} `;
                             if (typeof st.showers === 'number' && st.showers >= 0.1) pType += `S:${st.showers.toFixed(1)} `;
