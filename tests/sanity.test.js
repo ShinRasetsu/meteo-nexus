@@ -279,6 +279,23 @@ assertIncludes(html, "&& DOM.secIntel)", "index.html DOM.secIntel access is null
 assertIncludes(html, "magCalState._countEl = document.getElementById('magcal-count')", "index.html caches magcal-count DOM element once instead of getElementById at 60Hz");
 assertIncludes(html, "try { await wakeLock.release(); } catch (e)", "index.html wakeLock release is try-catch guarded");
 
+// Weather station fields (since 1.3.1): precipitation intensity, pressure, visibility
+assertIncludes(html, "current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m", "index.html main telemetry fetch requests precipitation, precip-breakdown, pressure, visibility");
+assertIncludes(html, "__METEO_CORE_STATE.visibility = dCurr.current.visibility", "index.html publishes visibility to Aero HUD state");
+assertIncludes(html, "__METEO_CORE_STATE.pressure   = dCurr.current.pressure", "index.html publishes pressure to Aero HUD state");
+assertIncludes(html, "id=\"metric-pressure\"", "index.html declares telemetry-card pressure element");
+assertIncludes(html, "id=\"metric-visibility\"", "index.html declares telemetry-card visibility element");
+assertIncludes(html, "id=\"ui-radar-visibility\"", "index.html declares Aero HUD visibility element");
+
+// Full weather station profile: rain, showers, snowfall, cloud_cover are
+// now requested AND displayed in telemetry card + Aero HUD.
+assertIncludes(html, "precipBreakdown: {", "index.html assembles precipBreakdown struct in normalizeTelemetryData");
+assertIncludes(html, "rain:    (dCurr && dCurr.current && typeof dCurr.current.rain", "index.html propagates rain (frontal) precip");
+assertIncludes(html, "showers: (dCurr && dCurr.current && typeof dCurr.current.showers", "index.html propagates showers (convective) precip");
+assertIncludes(html, "snowfall:(dCurr && dCurr.current && typeof dCurr.current.snowfall", "index.html propagates snowfall");
+assertIncludes(html, "cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover", "index.html propagates cloud cover");
+assertIncludes(html, "const ccover  = (typeof cloudCover === 'number')", "index.html telemetry card reads cloud cover for human label");
+
 // ---------------------------------------------------------------------------
 // worker.js — task dispatcher integrity
 // ---------------------------------------------------------------------------

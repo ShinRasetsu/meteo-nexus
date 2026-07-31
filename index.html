@@ -226,6 +226,11 @@
                             <div id="metric-hum" class="font-mono text-2xl md:text-3xl font-black text-brand-blue leading-none">--</div>
                         </div>
                         <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
+                        <div class="flex items-center gap-3 mt-1.5">
+                            <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- hPa</span>
+                            <span class="text-gray-600 text-[10px]">|</span>
+                            <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- km</span>
+                        </div>
                     </div>
                     <div class="text-right">
                         <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
@@ -1196,6 +1201,7 @@
             metricHum: document.getElementById('metric-hum'), metricAgree: document.getElementById('metric-agree'),
             codeAgreementBadge: document.getElementById('code-agreement-badge'),
             metricWindSpeed: document.getElementById('metric-wind-speed'), metricWindDir: document.getElementById('metric-wind-dir'),
+            metricPressure: document.getElementById('metric-pressure'), metricVisibility: document.getElementById('metric-visibility'),
             metricUvVal: document.getElementById('metric-uv-val'), metricUvTime: document.getElementById('metric-uv-time'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
@@ -3915,14 +3921,27 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
                      tempBand, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence,
-                     nodeHealth, codeAgreement, windEnsemble };
+                     nodeHealth, codeAgreement, windEnsemble,
+                     // Extra atmospheric fields from the API current block that the
+                     // offline-reconstructed `curr` object doesn't carry. These are
+                     // only useful when displaying live observed data (precip breakdown,
+                     // cloud cover) — if null, the display surfaces degrade gracefully.
+                     precipBreakdown: {
+                         rain:    (dCurr && dCurr.current && typeof dCurr.current.rain    === 'number') ? dCurr.current.rain    : null,
+                         showers: (dCurr && dCurr.current && typeof dCurr.current.showers  === 'number') ? dCurr.current.showers  : null,
+                         snowfall:(dCurr && dCurr.current && typeof dCurr.current.snowfall === 'number') ? dCurr.current.snowfall : null,
+                     },
+                     cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'number') ? dCurr.current.cloud_cover : null,
+                     pressure:   (dCurr && dCurr.current && typeof dCurr.current.pressure_msl=== 'number') ? dCurr.current.pressure_msl : null,
+                     visibility: (dCurr && dCurr.current && typeof dCurr.current.visibility === 'number') ? dCurr.current.visibility : null
+                   };
         }
 
         // --- RENDER TELEMETRY UI ---
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -3992,6 +4011,26 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
             updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m + 180}deg);"></i>`);
+            // Pressure + visibility — two fields the old dashboard never fetched.
+            // Pressure is the best short-term weather-change heuristic available:
+            // a falling barometer (below ~1010 hPa) usually means deteriorating
+            // conditions. Visibility is critical for driving — < 1km is fog/rain
+            // hazard. Both come from the Open-Meteo current= block added this session.
+            const pRaw = curr.pressure_msl;
+            const vRaw = curr.visibility;
+            if (typeof pRaw === 'number') {
+                updateText(DOM.metricPressure, `${Math.round(pRaw)} hPa`);
+            } else {
+                updateText(DOM.metricPressure, '-- hPa');
+            }
+            if (typeof vRaw === 'number') {
+                // Visibility comes in metres from the API; convert to km for
+                // easy human scanning. < 1.0 km → hazmat.
+                const visKm = (vRaw / 1000).toFixed(vRaw < 1000 ? 2 : 1);
+                updateText(DOM.metricVisibility, `${visKm} km vis`);
+            } else {
+                updateText(DOM.metricVisibility, '-- km');
+            }
 
             let maxUV = 0;
             for (let i = 0; i < uvData.length; i++) { if (uvData[i] > maxUV) maxUV = uvData[i]; }
@@ -4051,11 +4090,43 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     DOM.weatherDesc.classList.remove("text-gray-300");
                     DOM.weatherDesc.classList.add("text-brand-orange");
                 }
-            } else {
-                updateText(DOM.weatherDesc, WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`);
+} else {
+                // Rich weather description: WMO label + precipitation intensity
+                // + precip type (rain vs showers) + cloud cover %. Previously the
+                // card only showed the WMO text label, which told you "Moderate
+                // Drizzle" but gave no sense of HOW much or what KIND of precip.
+                // The four fields below are now requested from the Open-Meteo
+                // current= block (this session).
+                const wmoLabel = WMO_CODES[curr.weather_code] || `Code: ${curr.weather_code}`;
+                const prec = (curr && typeof curr.precipitation === 'number') ? curr.precipitation : null;
+                const pBreak = precipBreakdown || {};
+                const rainMm  = (typeof pBreak.rain    === 'number') ? pBreak.rain    : null;
+                const showMm  = (typeof pBreak.showers  === 'number') ? pBreak.showers  : null;
+                const snowCm  = (typeof pBreak.snowfall === 'number') ? pBreak.snowfall : null;
+                const ccover  = (typeof cloudCover === 'number') ? cloudCover : null;
+                const parts = [wmoLabel];
+                let descHasDataFlag = false;
+                if (isRainingNow && precip !== null && precip >= 0.1) {
+                    parts.push(`${precip.toFixed(1)}mm`);
+                    descHasDataFlag = true;
+                    let typeParts = [];
+                    if (rainMm !== null && rainMm >= 0.1) typeParts.push(`Rain ${rainMm.toFixed(1)}mm`);
+                    if (showMm !== null && showMm >= 0.1) typeParts.push(`Showers ${showMm.toFixed(1)}mm`);
+                    if (snowCm !== null && snowCm >= 0.1) typeParts.push(`Snow ${snowCm.toFixed(1)}cm`);
+                    if (typeParts.length > 0) parts.push(`(${typeParts.join(', ')})`);
+                }
+                if (ccover !== null) {
+                    const cloudLabel = ccover >= 80 ? 'Overcast' : ccover >= 50 ? 'Mostly Cloudy' : ccover >= 20 ? 'Partly Cloudy' : 'Mostly Clear';
+                    parts.push(`${Math.round(ccover)}% Cloud (${cloudLabel})`);
+                }
+                // Determine colour: when it is raining, the text goes red;
+                // otherwise neutral gray.
+                const descColorClass = isRainingNow ? 'text-brand-red' : 'text-gray-300';
+                const descStr = parts.join(' · ');
+                updateText(DOM.weatherDesc, descStr);
                 if (DOM.weatherDesc) {
-                    DOM.weatherDesc.classList.remove("text-brand-orange");
-                    DOM.weatherDesc.classList.add("text-gray-300");
+                    DOM.weatherDesc.classList.remove("text-brand-orange", "text-gray-300", "text-brand-red");
+                    DOM.weatherDesc.classList.add(descColorClass);
                 }
             }
         }
@@ -4241,6 +4312,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (dCurr && dCurr.current) {
                 if (typeof dCurr.current.weather_code === 'number')  window.__METEO_CORE_STATE.weatherCode = dCurr.current.weather_code;
                 if (typeof dCurr.current.is_day         === 'number')  window.__METEO_CORE_STATE.isDay       = dCurr.current.is_day;
+                if (typeof dCurr.current.precipitation   === 'number')  window.__METEO_CORE_STATE.precipitation = dCurr.current.precipitation;
+                // Precip breakdown — rain (frontal) vs showers (convective) tells you
+                // whether the wet road is a persistent annoyance or a visibility hazard.
+                // snowfall is cm, so the HUD can differentiate ice vs water.
+                if (typeof dCurr.current.rain      === 'number') window.__METEO_CORE_STATE.rain      = dCurr.current.rain;
+                if (typeof dCurr.current.showers    === 'number') window.__METEO_CORE_STATE.showers    = dCurr.current.showers;
+                if (typeof dCurr.current.snowfall   === 'number') window.__METEO_CORE_STATE.snowfall   = dCurr.current.snowfall;
+                if (typeof dCurr.current.cloud_cover === 'number') window.__METEO_CORE_STATE.cloudCover = dCurr.current.cloud_cover;
+                if (typeof dCurr.current.pressure_msl=== 'number') window.__METEO_CORE_STATE.pressure   = dCurr.current.pressure_msl;
+                if (typeof dCurr.current.visibility  === 'number') window.__METEO_CORE_STATE.visibility = dCurr.current.visibility;
             }
             // Also expose the active-rain verdict (boolean) for the HUD's tiny wxm chip
             // — avoids the Aero HUD having to import WMO_RAIN_CODES on the hot 60fps path.
@@ -4294,7 +4375,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const WEATHER_FETCH_BUDGET_MS = 8000;
                 const weatherAbort = new AbortController();
                 const fetchBundle = Promise.all([
-                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
+                    fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
                     fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000)
                 ]);
@@ -4774,6 +4855,7 @@ function checkDependenciesAndRun() {
                             <span class="text-surface-600">|</span>
                             <span id="ui-radar-headwind">HWD: 0</span>
                         </div>
+                        <span id="ui-radar-visibility" class="text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1 block opacity-0 transition-opacity">VIS 99 km</span>
                     </div>
                 </div>
             `;
@@ -4790,6 +4872,7 @@ function checkDependenciesAndRun() {
                 gust:         document.getElementById('ui-radar-gust'),
                 wxmIcon:      document.getElementById('ui-radar-wxm-icon'),
                 wxmText:      document.getElementById('ui-radar-wxm-text'),
+                visibility:   document.getElementById('ui-radar-visibility'),
                 cross:        document.getElementById('ui-radar-crosswind'),
                 head:         document.getElementById('ui-radar-headwind'),
                 ghost: [
@@ -4831,7 +4914,7 @@ function checkDependenciesAndRun() {
                 alt: '', windSpeed: '', gust: 'hidden',
                 ringTrans: '', relAngle: '',
                 windTrans: '', head: '', cross: '',
-                wxm: ''
+                wxm: '', vis: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -4907,8 +4990,30 @@ function checkDependenciesAndRun() {
                         // Same icon mapping the dashboard uses, with night-code remap.
                         let icon = WMO_ICONS[code] || 'fa-cloud';
                         if (st.isDay === 0) icon = icon.replace('sun', 'moon');
-                        const label = WMO_CODES[code] || `Code: ${code}`;
+                        let label = WMO_CODES[code] || `Code: ${code}`;
+                        // Append precipitation intensity when it is actively raining
+                        // (isRainingNow) and the value is meaningful (>= 0.1 mm).
+                        // The Aero HUD chip is small, so use "Drizzle 0.1mm" format
+                        // instead of a separate line.
+                        const prec = (st.precipitation !== null && typeof st.precipitation === 'number')
+                                     ? st.precipitation : null;
+                        if (st.isRainingNow && prec !== null && prec >= 0.1) {
+                            label = `${label} ${prec.toFixed(1)}mm`;
+                        }
                         // Compose a single cached cache string: iconClass|textClass|label
+                        // When precip is active, append the precip type in a compact
+                        // "Rain 0.1mm" format so pilots can differentiate between
+                        // steady frontal rain and convective showers without leaving
+                        // the HUD. Falls back gracefully to the plain WMO label when
+                        // the new fields haven't been fetched yet (old cache).
+                        if (st.precipitation !== null && st.isRainingNow) {
+                            const pLabel = `${prec != null ? prec.toFixed(1) : '?'}mm`;
+                            let pType = '';
+                            if (typeof st.rain === 'number' && st.rain >= 0.1) pType += `R:${st.rain.toFixed(1)} `;
+                            if (typeof st.showers === 'number' && st.showers >= 0.1) pType += `S:${st.showers.toFixed(1)} `;
+                            if (typeof st.snowfall === 'number' && st.snowfall >= 0.1) pType += `Sn:${st.snowfall.toFixed(1)}`;
+                            label = pType ? `${label} ${pLabel} (${pType.trim()})` : `${label} ${pLabel}`;
+                        }
                         if (st.isRainingNow) {
                             wxmIconClass = `${icon} text-brand-red drop-shadow-md`;
                             wxmTextClass = 'text-brand-red';
@@ -4923,6 +5028,35 @@ function checkDependenciesAndRun() {
                         _el.wxmText.className = `text-[10px] font-black uppercase tracking-widest ${wxmStr ? wxmStr.split('\u0001')[1] : 'text-gray-300'}`;
                         _el.wxmText.textContent = wxmStr ? wxmStr.split('\u0001')[2] : '--';
                         _uiCache.wxm = wxmStr;
+                    }
+                }
+
+                // VISIBILITY — single-line meter at the bottom-right of the HUD card.
+                // Show as "VIS 10 km" etc. below 5 km turns the text yellow; below
+                // 1 km turns red. Visibility in metres from Open-Meteo; convert to km
+                // for scanability. The element starts opacity-0 and becomes visible
+                // only when a real value arrives from __METEO_CORE_STATE.
+                if (_el.visibility) {
+                    const visRaw = st.visibility;
+                    let visStr = '';
+                    let visClass = '';
+                    if (typeof visRaw === 'number') {
+                        const km = visRaw / 1000;
+                        const label = km < 1.0 ? km.toFixed(2) : km.toFixed(1);
+                        const whole = km < 10 ? `${label} km` : `${Math.round(km)} km`;
+                        visStr = `VIS ${whole}`;
+                        if (km < 1.0)       visClass = 'text-brand-red';
+                        else if (km < 5.0)   visClass = 'text-brand-warning';
+                        else                 visClass = 'text-gray-400';
+                    }
+                    if (_uiCache.vis !== visStr) {
+                        if (visStr) {
+                            _el.visibility.textContent = visStr;
+                            _el.visibility.className = `text-[9px] font-mono font-bold uppercase tracking-widest mt-1 block opacity-100 transition-opacity ${visClass}`;
+                        } else {
+                            _el.visibility.classList.add('opacity-0');
+                        }
+                        _uiCache.vis = visStr;
                     }
                 }
 
