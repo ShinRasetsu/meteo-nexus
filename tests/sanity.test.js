@@ -274,8 +274,11 @@ assertIncludes(html, "'TODAY'", "index.html x-axis callback can emit TODAY day l
 assertIncludes(html, "'TOMORROW'", "index.html x-axis callback can emit TOMORROW day label");
 assertIncludes(html, "'YESTERDAY'", "index.html x-axis callback covers cache-stale data spanning a previous-day fetch");
 
-// ---------------------------------------------------------------------------
-// worker.js — task dispatcher integrity
+// Null-safety + closure hoist audit fix checks.
+assertIncludes(html, "&& DOM.secIntel)", "index.html DOM.secIntel access is null-guarded");
+assertIncludes(html, "magCalState._countEl = document.getElementById('magcal-count')", "index.html caches magcal-count DOM element once instead of getElementById at 60Hz");
+assertIncludes(html, "try { await wakeLock.release(); } catch (e)", "index.html wakeLock release is try-catch guarded");
+
 // ---------------------------------------------------------------------------
 // worker.js — task dispatcher integrity
 // ---------------------------------------------------------------------------

@@ -1667,12 +1667,12 @@ let delta = heading - state.lastHeading;
             if (document.visibilityState === 'visible' && wakeLock === null) {
                 requestWakeLock();
             } else if (document.visibilityState === 'hidden' && wakeLock !== null) {
-                await wakeLock.release();
+                try { await wakeLock.release(); } catch (e) { /* browser already released */ }
                 wakeLock = null;
             }
         });
         document.addEventListener('pagehide', async () => {
-            if (wakeLock !== null) { await wakeLock.release(); wakeLock = null; }
+            if (wakeLock !== null) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
         });
 
         document.body.addEventListener('click', function initSensors() {
@@ -1716,7 +1716,7 @@ let delta = heading - state.lastHeading;
                     }
                 }
             });
-            if (state.focusedSection === null && !state.targetCoords) DOM.secIntel.classList.add('hidden');
+            if (state.focusedSection === null && !state.targetCoords && DOM.secIntel) DOM.secIntel.classList.add('hidden');
         };
 
         // --- MAGNETOMETER CALIBRATION MODULE ---
@@ -1930,7 +1930,9 @@ let delta = heading - state.lastHeading;
             magCalState.sampleCount = 0;
             magCalState.min = [ Infinity,  Infinity,  Infinity];
             magCalState.max = [-Infinity, -Infinity, -Infinity];
-            // Hook sensors. Magnetometer Sensor API is the cleanest path.
+            // Cache the sample-count DOM element so PushMagSample (up to 60Hz)
+            // doesn't re-walk the DOM looking for #magcal-count every frame.
+            magCalState._countEl = document.getElementById('magcal-count');
             try {
                 if ('Magnetometer' in window) {
                     magCalState.magSensor = new Magnetometer({ frequency: 60 });
@@ -1996,7 +1998,7 @@ let delta = heading - state.lastHeading;
             if (y > magCalState.max[1]) magCalState.max[1] = y;
             if (z < magCalState.min[2]) magCalState.min[2] = z;
             if (z > magCalState.max[2]) magCalState.max[2] = z;
-            const cEl = document.getElementById('magcal-count');
+            const cEl = magCalState._countEl;
             if (cEl && (i & 7) === 0) cEl.textContent = i + ' samples';
         }
 
@@ -2544,10 +2546,12 @@ let delta = heading - state.lastHeading;
                         // calls per fix. Asin-evaluation is preserved in the bypassed
                         // branch where its correctness matters (the short-circuit
                         // fallback also scores a relative-factor decision).
-                        state.routeNodesCursor = state.routeNodesCursor || 0;
+state.routeNodesCursor = state.routeNodesCursor || 0;
                         state.originalRouteNodesCursor = state.originalRouteNodesCursor || 0;
 
-                        const processNodes = (nodesToProcess, cursorKey) => {
+                        // Hoisted — prevents a new closure alloc every GPS fix (1Hz).
+                        // Now called outside the watch callback with explicit lat/lon.
+                        function processNodes(lat, lon, nodesToProcess, cursorKey) {
                             if (!nodesToProcess || nodesToProcess.length === 0) return;
                             let cursor = state[cursorKey] || 0;
                             // Defensive: clamp cursor to passed-region start (handles
@@ -2615,9 +2619,11 @@ let delta = heading - state.lastHeading;
                                 count++;
                             }
                             state[cursorKey] = cursor;
-                        };
-                        processNodes(state.routeNodes, 'routeNodesCursor');
-                        processNodes(state.originalRouteNodes, 'originalRouteNodesCursor');
+                        }
+                        if (state.currentWatch) navigator.geolocation.clearWatch(state.currentWatch);
+
+                processNodes(lat, lon, state.routeNodes, 'routeNodesCursor');
+                processNodes(lat, lon, state.originalRouteNodes, 'originalRouteNodesCursor');
 
                         const isMoving = state.currentSpeed >= 2;
                         // --- Heading pipeline (was: hard override) ---
@@ -3095,9 +3101,7 @@ let delta = heading - state.lastHeading;
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
 
-            if (state.focusedSection === null || state.focusedSection === 'sec-intel') {
-                DOM.secIntel.classList.remove('hidden');
-            }
+            if ((state.focusedSection === null || state.focusedSection === 'sec-intel') && DOM.secIntel) DOM.secIntel.classList.remove('hidden');
 
             let scrollPos = 0;
             const scrollTrack = document.getElementById('timeline-scroll-track');
@@ -3226,7 +3230,7 @@ let delta = heading - state.lastHeading;
             // Graceful partial-data: if one endpoint failed, still render what we have.
             const weatherPoints = (baseData && (Array.isArray(baseData) ? baseData : [baseData]))
                 .filter(Boolean);
-            const modelPoints   = (modelData && (Array.isArray(modelData) ? modelData : [modelData]))
+            const modelPoints   = ((modelData && (Array.isArray(modelData) ? modelData : [modelData])) || [])
                 .filter(Boolean);
             const N = Math.min(waypoints.length, weatherPoints.length || 0, modelPoints.length || 0);
 
@@ -4311,7 +4315,7 @@ let delta = heading - state.lastHeading;
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
             DOM.navBtn.classList.add('hidden');
             if (state.focusedSection === 'sec-intel') toggleFocus('sec-intel');
-            DOM.secIntel.classList.add('hidden');
+            if (DOM.secIntel) DOM.secIntel.classList.add('hidden');
             state.tacticalMode = 1;
             window.applyTacticalMode();
         };
@@ -4546,11 +4550,10 @@ let delta = heading - state.lastHeading;
             }
         }
 
-        function checkDependenciesAndRun() {
+function checkDependenciesAndRun() {
             if (typeof localforage === 'undefined' || typeof Chart === 'undefined' || typeof L === 'undefined' || typeof L.Routing === 'undefined') {
                 setTimeout(checkDependenciesAndRun, 50); return;
             }
-            if (state.targetCoords) window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon);
             runApp();
         }
 
