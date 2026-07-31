@@ -3846,6 +3846,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const fBlend   = WeatherEnsemble.weightedValueAt(feelsModels, nowIndex);
                 const hBlend   = WeatherEnsemble.weightedValueAt(humidModels, nowIndex);
                 const codeBlend = WeatherEnsemble.weightedMajorityAt(codeModels, nowIndex);
+                // In OFFLINE mode the ensembles' hourly cells are the only live hours
+                // we have (no freshly-fetched current.weather_code). But when !curr
+                // happens while *online* (rare, e.g. empty API response payload),
+                // the original dCurr.current may still hold the observed weather_code /
+                // is_day — prefer those over the ensemble vote because the status card
+                // and Aero HUD both display the observed precipitation condition, not
+                // the forecast-driven agreement vote.
+                const origCurr = (dCurr && dCurr.current) ? dCurr.current : null;
+                const codeObs = (origCurr && typeof origCurr.weather_code === 'number') ? origCurr.weather_code : null;
+                const isDayObs = (origCurr && typeof origCurr.is_day === 'number') ? origCurr.is_day : null;
                 curr = {
                     temperature_2m:     tBlend.value  !== null ? tBlend.value  : 0,
                     apparent_temperature: fBlend.value !== null ? fBlend.value  : (tBlend.value !== null ? tBlend.value : 0),
@@ -3853,14 +3863,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     weather_code:        codeBlend.code !== null ? codeBlend.code : 0,
                     wind_speed_10m:      wsNow.value !== null ? wsNow.value : 0,
                     wind_direction_10m:  wdBlend !== null ? wdBlend : 0,
-                    is_day: (() => {
-                    const tz = state.targetTimezone || 'UTC';
-                    try {
-                        const h = parseInt(new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', hour12: false }), 10);
-                        return (h > 6 && h < 18) ? 1 : 0;
-                    } catch (_) { return 1; }
-                })()
+                    is_day: isDayObs !== null ? isDayObs : (() => {
+                        const tz = state.targetTimezone || 'UTC';
+                        try {
+                            const h = parseInt(new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', hour12: false }), 10);
+                            return (h > 6 && h < 18) ? 1 : 0;
+                        } catch (_) { return 1; }
+                    })()
                 };
+                // When we have a real observed weather_code from the last API fetch,
+                // prefer it over the ensemble vote for the RAIN-NOW check + Aero HUD.
+                // The ensemble codeBlend can disagree with what the raw observation
+                // actually was (cold start, re-constructing from hourly forecast cells).
+                if (codeObs !== null) {
+                    curr.weather_code = codeObs;
+                    curr._offlineWxFromObserved = true;
+                }
             }
 
             // Coverage-% health per model — partial degradation now shows as yellow, not green.
