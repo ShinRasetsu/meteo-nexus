@@ -10,11 +10,11 @@
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.2` |
-| `package.json` → version | `1.3.2` |
+| `VERSION` | `1.3.3` |
+| `package.json` → version | `1.3.3` |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.2` — create with `git tag v1.3.2` before push |
+| Git tag | `v1.3.3` — create with `git tag v1.3.3` before push |
 | Tests | `npm test` — 127 assertions, all passing |
 | Consent / audio | `audioEnabled` persists in `localforage` after first interactive gesture |
 
@@ -26,6 +26,31 @@
 4. Append a new `## X.Y.Z — YYYY-MM-DD` section below with all changes
 5. Run `npm test && npm run lint` before declaring done
 6. (Optional) `git tag v1.4.0` for deployment tracking
+
+---
+
+## 1.3.3 — 2026-08-01 (driving usability: night mode, haptic rain, glance strip)
+
+### Bump rationale
+
+Patch bump from 1.3.2 → 1.3.3. Focused on **driving-mode usability and safety** rather than data plumbing: three new driver-facing features (night vision preservation, haptic rain alert, condensed glance strip) that reduce cognitive load behind the wheel. GPS accuracy badge was already implemented at 15m/60m/3-tier (HIGH/MED/LTE-A/GPS) thresholds — audited and confirmed, no work needed.
+
+### Full changelog
+
+- `index.html`:
+  - **Night mode auto-switch** — `body.night` class toggled idempotently when `current.is_day === 0`. CSS dims `.hud-card` to brightness 0.72, intensifies map filter to 78% brightness / 115% contrast, dims header/footer to 0.7, deepens body background to `#050505`. 800ms `cubic-bezier` transition so the day→night swap doesn't flash the driver. Toggle reuses the existing `__METEO_CORE_STATE.isDay` publish hook in `processTelemetryPayload`.
+  - **Haptic rain alert** — `navigator.vibrate(500)` fires on the dry→raining rising edge only, gated by a `window.__lastRainPulseState` latch. Latch resets on every non-RAIN-NOW branch so the next transition rearms the pulse. Cabin noise often drowns the sonar ping; a 500ms vibration is felt through the dashboard mount. iOS Safari does not implement `navigator.vibrate` so the call silently no-ops there.
+  - **Quick-glance summary strip** — new top-center overlay on the map: `RAIN | WIND | VIS | °C`. Single condensed line so the driver can absorb 4 high-impact fields in one glance instead of scanning the full telemetry card stack. Driven by the existing 60fps Aero HUD loop via `__METEO_CORE_STATE`; each field writes to DOM only when its compact string changes, so the hot loop stays cheap. Visibility color-codes red (<1km), yellow (<5km); rain shows `DRY` / `RAIN 0.5mm` (red); wind shows `WIND 12@045°`; temp shows `22°C`.
+  - Extended `__METEO_CORE_STATE` with `temperature`, `apparentTemp` fields (initialized null) plus publish hook from `processTelemetryPayload` for the glance strip's `°C` field.
+- `VERSION` → `1.3.3`
+- `package.json` → `1.3.3`
+- `HISTORY.md` — this entry + updated current-state table
+
+### Verification
+
+- Brace-balance check: clean (no unmatched `{}` `()` `[]`)
+- `npm test` → 127 passed, 0 failed ✅
+- `npm run lint` → zero errors ✅
 
 ---
 

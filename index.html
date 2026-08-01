@@ -61,7 +61,8 @@
             brierScores: null,
             weatherCode: null, isDay: null, isRainingNow: false,
             precipitation: null, rain: null, showers: null, snowfall: null,
-            cloudCover: null, pressure: null, visibility: null
+            cloudCover: null, pressure: null, visibility: null,
+            temperature: null, apparentTemp: null
         };
     </script>
 
@@ -121,6 +122,19 @@
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
         .smooth-glide { will-change: transform; transform: translateZ(0); }
+
+        /* Night mode — toggled on body.night when is_day=0. Preserves night vision by
+           dimming HUD chrome + intensifying map dark filter. Transitions over 800ms so
+           the day→night swap doesn't flash the driver. */
+        body.night .hud-card { filter: brightness(0.72) saturate(0.85); }
+        body.night .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(78%) contrast(115%); }
+        body.night header, body.night footer { filter: brightness(0.7); }
+        body.night .text-brand-teal { filter: brightness(0.85); }
+        body.night .text-brand-red  { filter: brightness(0.85); }
+        body.night { background-color: #050505 !important; }
+        body.night, body.night .hud-card, body.night header, body.night footer,
+        body.night .text-brand-teal, body.night .text-brand-red,
+        body.night .leaflet-tile-pane { transition: filter 800ms ease, background-color 800ms ease; }
 
         .section-hidden { display: none !important; }
         .section-fullscreen { 
@@ -306,6 +320,22 @@
                         <span id="live-heading-txt" class="font-mono text-base font-black text-white leading-none">N</span>
                         <span id="live-heading-deg" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">000°</span>
                     </div>
+                </div>
+            </div>
+
+            <!-- Quick-glance summary strip — single condensed line for driving mode.
+                 Surfaces the 4 highest-impact telemetry fields (rain, wind, visibility,
+                 temperature) in one read so the driver doesn't scan the full card stack.
+                 Driven by the 60fps Aero HUD loop via __METEO_CORE_STATE. -->
+            <div class="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none max-w-[90%]">
+                <div class="bg-surface-900/90 border border-surface-700 px-3 py-1 rounded-lg shadow-lg backdrop-blur-md flex items-center gap-3 text-xs md:text-sm font-mono font-bold whitespace-nowrap overflow-hidden">
+                    <span id="hud-glance-rain" class="text-gray-400 transition-colors">RAIN --</span>
+                    <span class="text-surface-600">|</span>
+                    <span id="hud-glance-wind" class="text-brand-blue">WIND --</span>
+                    <span class="text-surface-600">|</span>
+                    <span id="hud-glance-vis" class="text-gray-300">VIS --</span>
+                    <span class="text-surface-600">|</span>
+                    <span id="hud-glance-temp" class="text-brand-orange">--&deg;C</span>
                 </div>
             </div>
 
@@ -4064,6 +4094,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-red uppercase');
                 updateText(DOM.statusText, "RAIN NOW");
                 if (!isOffline) playSonarPing();
+                // Haptic rain alert — fire a vibration pulse only on the dry→raining
+                // rising edge, not on every telemetry refresh while rain persists.
+                // Cabin noise often drowns the sonar ping; a 500ms vibration is felt
+                // through the mount. iOS Safari does not implement navigator.vibrate,
+                // so the feature silently no-ops there.
+                if (!window.__lastRainPulseState && navigator.vibrate) {
+                    navigator.vibrate(500);
+                }
+                window.__lastRainPulseState = true;
             } else if (currentStatus === 'RAIN_LIKELY') {
                 DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-showers-heavy text-brand-red`);
@@ -4086,6 +4125,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-success uppercase');
                 updateText(DOM.statusText, "STABLE");
             }
+            // Reset the haptic rising-edge latch whenever we are NOT in the RAIN NOW
+            // branch, so the next dry→raining transition rearms the vibration pulse.
+            if (!isRainingNow) window.__lastRainPulseState = false;
 
             if (isOffline) {
                 updateText(DOM.weatherDesc, "OFFLINE: RTC INTERPOLATION");
@@ -4312,7 +4354,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // location right now.
             if (dCurr && dCurr.current) {
                 if (typeof dCurr.current.weather_code === 'number')  window.__METEO_CORE_STATE.weatherCode = dCurr.current.weather_code;
-                if (typeof dCurr.current.is_day         === 'number')  window.__METEO_CORE_STATE.isDay       = dCurr.current.is_day;
+                if (typeof dCurr.current.is_day         === 'number') {
+                    window.__METEO_CORE_STATE.isDay = dCurr.current.is_day;
+                    // Night-mode auto switch — preserves driver night vision by dimming
+                    // HUD chrome + deepening map filter when the sun goes down. Toggle
+                    // is idempotent so repeated telemetry refreshes don't retrigger.
+                    const wantNight = (dCurr.current.is_day === 0);
+                    if (wantNight && !document.body.classList.contains('night')) {
+                        document.body.classList.add('night');
+                    } else if (!wantNight && document.body.classList.contains('night')) {
+                        document.body.classList.remove('night');
+                    }
+                }
                 if (typeof dCurr.current.precipitation   === 'number')  window.__METEO_CORE_STATE.precipitation = dCurr.current.precipitation;
                 // Precip breakdown — rain (frontal) vs showers (convective) tells you
                 // whether the wet road is a persistent annoyance or a visibility hazard.
@@ -4323,6 +4376,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (typeof dCurr.current.cloud_cover === 'number') window.__METEO_CORE_STATE.cloudCover = dCurr.current.cloud_cover;
                 if (typeof dCurr.current.pressure_msl=== 'number') window.__METEO_CORE_STATE.pressure   = dCurr.current.pressure_msl;
                 if (typeof dCurr.current.visibility  === 'number') window.__METEO_CORE_STATE.visibility = dCurr.current.visibility;
+                if (typeof dCurr.current.temperature_2m       === 'number') window.__METEO_CORE_STATE.temperature   = dCurr.current.temperature_2m;
+                if (typeof dCurr.current.apparent_temperature === 'number') window.__METEO_CORE_STATE.apparentTemp = dCurr.current.apparent_temperature;
             }
             // Also expose the active-rain verdict (boolean) for the HUD's tiny wxm chip
             // — avoids the Aero HUD having to import WMO_RAIN_CODES on the hot 60fps path.
@@ -4880,7 +4935,11 @@ function checkDependenciesAndRun() {
                     document.getElementById('ui-radar-wind-ghost-1'),
                     document.getElementById('ui-radar-wind-ghost-2'),
                     document.getElementById('ui-radar-wind-ghost-3')
-                ]
+                ],
+                glanceRain: document.getElementById('hud-glance-rain'),
+                glanceWind: document.getElementById('hud-glance-wind'),
+                glanceVis:  document.getElementById('hud-glance-vis'),
+                glanceTemp: document.getElementById('hud-glance-temp')
             };
 
             const expandBtn  = radarCard.querySelector('#radar-expand-btn');
@@ -4915,7 +4974,8 @@ function checkDependenciesAndRun() {
                 alt: '', windSpeed: '', gust: 'hidden',
                 ringTrans: '', relAngle: '',
                 windTrans: '', head: '', cross: '',
-                wxm: '', vis: ''
+                wxm: '', vis: '',
+                glanceRain: '', glanceWind: '', glanceVis: '', glanceTemp: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -5058,6 +5118,62 @@ function checkDependenciesAndRun() {
                             _el.visibility.classList.add('opacity-0');
                         }
                         _uiCache.vis = visStr;
+                    }
+                }
+
+                // QUICK-GLANCE SUMMARY STRIP — top-center of map overlay.
+                // Single condensed line for driving mode: RAIN | WIND | VIS | °C.
+                // Each field only writes to DOM when its compact string changes,
+                // so the 60fps loop stays cheap.
+                if (_el.glanceRain) {
+                    let rainStr = '';
+                    let rainClass = 'text-gray-400';
+                    if (st.isRainingNow) {
+                        const prec = (typeof st.precipitation === 'number') ? st.precipitation : null;
+                        rainStr = prec !== null ? `RAIN ${prec.toFixed(1)}mm` : 'RAIN NOW';
+                        rainClass = 'text-brand-red';
+                    } else {
+                        rainStr = 'DRY';
+                        rainClass = 'text-brand-success';
+                    }
+                    if (_uiCache.glanceRain !== rainStr) {
+                        _el.glanceRain.textContent = rainStr;
+                        _el.glanceRain.className = `transition-colors ${rainClass}`;
+                        _uiCache.glanceRain = rainStr;
+                    }
+                }
+                if (_el.glanceWind) {
+                    const ws = (typeof st.windSpeed === 'number') ? Math.round(st.windSpeed) : null;
+                    const wd = (typeof st.windDir === 'number') ? Math.round(st.windDir) : null;
+                    let wStr = '--';
+                    if (ws !== null) wStr = (wd !== null) ? `WIND ${ws}@${wd}°` : `WIND ${ws}`;
+                    if (_uiCache.glanceWind !== wStr) {
+                        _el.glanceWind.textContent = wStr;
+                        _uiCache.glanceWind = wStr;
+                    }
+                }
+                if (_el.glanceVis) {
+                    let vStr = 'VIS --';
+                    let vClass = 'text-gray-300';
+                    if (typeof st.visibility === 'number') {
+                        const km = st.visibility / 1000;
+                        const label = km < 1.0 ? km.toFixed(2) : km < 10 ? km.toFixed(1) : `${Math.round(km)}`;
+                        vStr = `VIS ${label}km`;
+                        if (km < 1.0)    vClass = 'text-brand-red';
+                        else if (km < 5)  vClass = 'text-brand-warning';
+                    }
+                    if (_uiCache.glanceVis !== vStr) {
+                        _el.glanceVis.textContent = vStr;
+                        _el.glanceVis.className = `transition-colors ${vClass}`;
+                        _uiCache.glanceVis = vStr;
+                    }
+                }
+                if (_el.glanceTemp) {
+                    const t = (typeof st.temperature === 'number') ? Math.round(st.temperature) : null;
+                    const tStr = (t !== null) ? `${t}°C` : '--°C';
+                    if (_uiCache.glanceTemp !== tStr) {
+                        _el.glanceTemp.textContent = tStr;
+                        _uiCache.glanceTemp = tStr;
                     }
                 }
 
