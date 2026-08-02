@@ -62,7 +62,7 @@
             weatherCode: null, isDay: null, isRainingNow: false,
             precipitation: null, rain: null, showers: null, snowfall: null,
             cloudCover: null, pressure: null, visibility: null,
-            temperature: null, apparentTemp: null
+            temperature: null, apparentTemp: null, tempTrend: null
         };
     </script>
 
@@ -136,6 +136,20 @@
         body.night .text-brand-teal, body.night .text-brand-red,
         body.night .leaflet-tile-pane { transition: filter 800ms ease, background-color 800ms ease; }
 
+        /* Portrait phones (width < 768px): slide the quick-glance strip down below
+           the top-left speed/compass cluster so they don't overlap. The strip sits
+           just above the bottom-right tactical/mcalibration buttons. */
+        @media (max-width: 767px) {
+            #hud-glance-strip {
+                top: auto !important;
+                bottom: 5rem !important;
+                left: 0.75rem !important;
+                right: 0.75rem !important;
+                max-width: none !important;
+                transform: none !important;
+            }
+        }
+
         .section-hidden { display: none !important; }
         .section-fullscreen { 
             position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; 
@@ -171,6 +185,7 @@
             <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
                 <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
             </button>
+            <span id="cache-gauge" class="font-mono text-[10px] text-gray-500 bg-surface-800/50 px-2 py-1 rounded border border-surface-700/50 whitespace-nowrap hidden" title="Offline tile cache quota">-- MB</span>
             <button id="pwa-install-btn" aria-label="Install App" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
@@ -325,10 +340,15 @@
 
             <!-- Quick-glance summary strip — single condensed line for driving mode.
                  Surfaces the 4 highest-impact telemetry fields (rain, wind, visibility,
-                 temperature) in one read so the driver doesn't scan the full card stack.
-                 Driven by the 60fps Aero HUD loop via __METEO_CORE_STATE. -->
-            <div class="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none max-w-[90%]">
-                <div class="bg-surface-900/90 border border-surface-700 px-3 py-1 rounded-lg shadow-lg backdrop-blur-md flex items-center gap-3 text-xs md:text-sm font-mono font-bold whitespace-nowrap overflow-hidden">
+                 temperature) in one read so the driver doesn't scan the card stack.
+                 Driven by the 60fps Aero HUD loop via __METEO_CORE_STATE.
+
+                 Responsive: top-center on md+ where there's room beside the left pills;
+                 bottom-narrow on portrait where top-left and top-center overlap.
+                 Position switched by @media (max-width: 767px) in the CSS block. -->
+            <div id="hud-glance-strip" class="absolute z-[1000] pointer-events-none
+                        top-4 left-1/2 -translate-x-1/2 max-w-[90%] md:max-w-[60%]">
+                <div class="bg-surface-900/90 border border-surface-700 px-2 md:px-3 py-1 rounded-lg shadow-lg backdrop-blur-md flex items-center gap-2 md:gap-3 text-[10px] md:text-sm font-mono font-bold whitespace-nowrap overflow-hidden justify-center">
                     <span id="hud-glance-rain" class="text-gray-400 transition-colors">RAIN --</span>
                     <span class="text-surface-600">|</span>
                     <span id="hud-glance-wind" class="text-brand-blue">WIND --</span>
@@ -336,6 +356,8 @@
                     <span id="hud-glance-vis" class="text-gray-300">VIS --</span>
                     <span class="text-surface-600">|</span>
                     <span id="hud-glance-temp" class="text-brand-orange">--&deg;C</span>
+                    <span class="text-surface-600">|</span>
+                    <span id="hud-glance-trend" class="text-brand-purple">TREND --</span>
                 </div>
             </div>
 
@@ -3964,17 +3986,29 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                          showers: (dCurr && dCurr.current && typeof dCurr.current.showers  === 'number') ? dCurr.current.showers  : null,
                          snowfall:(dCurr && dCurr.current && typeof dCurr.current.snowfall === 'number') ? dCurr.current.snowfall : null,
                      },
-                     cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'number') ? dCurr.current.cloud_cover : null,
+cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'number') ? dCurr.current.cloud_cover : null,
                      pressure:   (dCurr && dCurr.current && typeof dCurr.current.pressure_msl=== 'number') ? dCurr.current.pressure_msl : null,
-                     visibility: (dCurr && dCurr.current && typeof dCurr.current.visibility === 'number') ? dCurr.current.visibility : null
-                   };
+                     visibility: (dCurr && dCurr.current && typeof dCurr.current.visibility === 'number') ? dCurr.current.visibility : null,
+
+                     // Temperature horizon trend: ensemble-blend temp at nowIndex+1
+                     // (1 hour ahead) minus blend at nowIndex. Null when no models
+                     // contribute (all null/down). Used by the HUD glance strip as a
+                     // compact trend badge (+3° in 1h / --°).
+                     temperatureTrend: (() => {
+                         if (!h || !h.temperature_2m || nowIndex + 1 >= Math.min(maxSlice, h.temperature_2m.length)) return null;
+                         const blendNow  = WeatherEnsemble.weightedValueAt(tempModels, nowIndex);
+                         const blendNext = WeatherEnsemble.weightedValueAt(tempModels, nowIndex + 1);
+                         if (blendNow == null || blendNext == null) return null;
+                         return Math.round(blendNext - blendNow);
+                     })()
+                    };
         }
 
         // --- RENDER TELEMETRY UI ---
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -4379,6 +4413,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (typeof dCurr.current.temperature_2m       === 'number') window.__METEO_CORE_STATE.temperature   = dCurr.current.temperature_2m;
                 if (typeof dCurr.current.apparent_temperature === 'number') window.__METEO_CORE_STATE.apparentTemp = dCurr.current.apparent_temperature;
             }
+            // Temperature trend — ensemble-blend delta between now and 1h ahead.
+            // Computed in normalizeTelemetryData, plumbed through the return tuple
+            // so the Aero HUD glance strip can show a compact "+3°" badge.
+            if (data && typeof data.temperatureTrend === 'number') {
+                window.__METEO_CORE_STATE.tempTrend = data.temperatureTrend;
+            }
             // Also expose the active-rain verdict (boolean) for the HUD's tiny wxm chip
             // — avoids the Aero HUD having to import WMO_RAIN_CODES on the hot 60fps path.
             if (typeof window.__METEO_CORE_STATE.weatherCode === 'number') {
@@ -4387,6 +4427,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             renderTelemetryUI(data, isOffline);
             renderChart(data.times, data.timesUnix, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
+            // Refresh tile-cache gauge — SW reply renders the #cache-gauge pill
+            // asynchronously. Fire-and-forget; no delay introduced.
+            if (typeof window.requestCacheStats === 'function') window.requestCacheStats();
         }
 
 // --- FETCH DATA ---
@@ -4729,6 +4772,35 @@ function checkDependenciesAndRun() {
                 });
                 let refreshing = false;
                 navigator.serviceWorker.addEventListener('controllerchange', () => { if (!refreshing) { refreshing = true; window.location.reload(); } });
+                // Listen for cache-stats replies from the SW. The SW counts map-cache
+                // tiles and byte usage; the page renders it as a compact gauge pill.
+                navigator.serviceWorker.addEventListener('message', (e) => {
+                    if (e.data && e.data.type === 'CACHE_STATS_REPLY') {
+                        const bytes = e.data.mapCacheBytes || 0;
+                        const maxBytes = e.data.mapCacheMax || 50 * 1024 * 1024;
+                        const tiles = e.data.tileCount || 0;
+                        const mbUsed = (bytes / (1024 * 1024)).toFixed(1);
+                        const mbMax  = (maxBytes / (1024 * 1024)).toFixed(0);
+                        const el = document.getElementById('cache-gauge');
+                        if (!el) return;
+                        const pct = Math.min(1.0, bytes / maxBytes);
+                        let cls = 'text-gray-500';
+                        if (pct > 0.9) cls = 'text-brand-red';
+                        else if (pct > 0.7) cls = 'text-brand-warning';
+                        else if (bytes > 0) cls = 'text-brand-teal';
+                        el.textContent = `${mbUsed}/${mbFull}MB · ${tiles} tiles`;
+                        el.className = `font-mono text-[10px] bg-surface-800/50 px-2 py-1 rounded border border-surface-700/50 whitespace-nowrap ${cls}`;
+                        el.classList.remove('hidden');
+                    }
+                });
+            }
+            // Send a cache-stats query to the SW. Reply arrives via the message
+            // listener above and renders the #cache-gauge pill. Called once at
+            // telemetry refresh + after map-cache-tap confirms.
+            window.requestCacheStats = () => {
+                if (!navigator.serviceWorker.controller) return;
+                navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATS' });
+            };
             }
             let deferredPrompt;
             const installBtn = document.getElementById('pwa-install-btn');
@@ -4939,7 +5011,8 @@ function checkDependenciesAndRun() {
                 glanceRain: document.getElementById('hud-glance-rain'),
                 glanceWind: document.getElementById('hud-glance-wind'),
                 glanceVis:  document.getElementById('hud-glance-vis'),
-                glanceTemp: document.getElementById('hud-glance-temp')
+                glanceTemp: document.getElementById('hud-glance-temp'),
+                glanceTrend: document.getElementById('hud-glance-trend')
             };
 
             const expandBtn  = radarCard.querySelector('#radar-expand-btn');
@@ -4975,7 +5048,7 @@ function checkDependenciesAndRun() {
                 ringTrans: '', relAngle: '',
                 windTrans: '', head: '', cross: '',
                 wxm: '', vis: '',
-                glanceRain: '', glanceWind: '', glanceVis: '', glanceTemp: ''
+                glanceRain: '', glanceWind: '', glanceVis: '', glanceTemp: '', glanceTrend: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -5176,6 +5249,20 @@ function checkDependenciesAndRun() {
                         _uiCache.glanceTemp = tStr;
                     }
                 }
+                if (_el.glanceTrend) {
+                    const trend = (typeof st.tempTrend === 'number') ? st.tempTrend : null;
+                    let trStr = '--', trClass = 'text-gray-400';
+                    if (trend !== null) {
+                        if (trend > 0) { trStr = `+${trend}°`; trClass = 'text-brand-red'; }
+                        else if (trend < 0) { trStr = `${trend}°`; trClass = 'text-brand-blue'; }
+                        else { trStr = '0°'; trClass = 'text-gray-400'; }
+                    }
+                    if (_uiCache.glanceTrend !== trStr) {
+                        _el.glanceTrend.textContent = trStr;
+                        _el.glanceTrend.className = `transition-colors ${trClass}`;
+                        _uiCache.glanceTrend = trStr;
+                    }
+                }
 
                 // HEADING PRIORITY CHAIN
                 // Aero compass ring runs at 60fps — feeds from the continuous
@@ -5254,7 +5341,11 @@ function checkDependenciesAndRun() {
                     }
 
                     if (_el.cross) {
-                        const cStr = `CRS: ${Math.abs(crossForce).toFixed(0)} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
+                        const absCross = Math.abs(crossForce);
+                        const latMps    = absCross / 3.6;             // km/h → m/s
+                        const latG      = latMps / 9.81;          // lateral force in g
+                        const gLabel    = latG >= 0.02 ? `&#160;${latG.toFixed(2)}g` : '';
+                        const cStr      = `CRS: ${absCross.toFixed(0)}${gLabel} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
                         if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
                     }
 

@@ -29,30 +29,35 @@
 
 ---
 
-## 1.3.3 — 2026-08-01 (driving usability: night mode, haptic rain, glance strip)
+## 1.3.3 — 2026-08-02 (driving usability: night mode, haptic rain, glance strip, plus performance/portrait audit)
 
 ### Bump rationale
 
-Patch bump from 1.3.2 → 1.3.3. Focused on **driving-mode usability and safety** rather than data plumbing: three new driver-facing features (night vision preservation, haptic rain alert, condensed glance strip) that reduce cognitive load behind the wheel. GPS accuracy badge was already implemented at 15m/60m/3-tier (HIGH/MED/LTE-A/GPS) thresholds — audited and confirmed, no work needed.
+Patch bump from 1.3.2 → 1.3.3. Focused on **driving-mode usability and safety**: 3 initial features (night vision preservation, haptic rain alert, condensed glance strip), then 4 follow-ups from a full code audit (portrait overlap fix, temperature trend badge, tile cache gauge, crosswind lateral force). No breaking changes.
 
 ### Full changelog
 
 - `index.html`:
-  - **Night mode auto-switch** — `body.night` class toggled idempotently when `current.is_day === 0`. CSS dims `.hud-card` to brightness 0.72, intensifies map filter to 78% brightness / 115% contrast, dims header/footer to 0.7, deepens body background to `#050505`. 800ms `cubic-bezier` transition so the day→night swap doesn't flash the driver. Toggle reuses the existing `__METEO_CORE_STATE.isDay` publish hook in `processTelemetryPayload`.
-  - **Haptic rain alert** — `navigator.vibrate(500)` fires on the dry→raining rising edge only, gated by a `window.__lastRainPulseState` latch. Latch resets on every non-RAIN-NOW branch so the next transition rearms the pulse. Cabin noise often drowns the sonar ping; a 500ms vibration is felt through the dashboard mount. iOS Safari does not implement `navigator.vibrate` so the call silently no-ops there.
-  - **Quick-glance summary strip** — new top-center overlay on the map: `RAIN | WIND | VIS | °C`. Single condensed line so the driver can absorb 4 high-impact fields in one glance instead of scanning the full telemetry card stack. Driven by the existing 60fps Aero HUD loop via `__METEO_CORE_STATE`; each field writes to DOM only when its compact string changes, so the hot loop stays cheap. Visibility color-codes red (<1km), yellow (<5km); rain shows `DRY` / `RAIN 0.5mm` (red); wind shows `WIND 12@045°`; temp shows `22°C`.
-  - Extended `__METEO_CORE_STATE` with `temperature`, `apparentTemp` fields (initialized null) plus publish hook from `processTelemetryPayload` for the glance strip's `°C` field.
+  - **Night mode auto-switch** — `body.night` class toggled idempotently when `current.is_day === 0`. CSS dims `.hud-card` to brightness 0.72, intensifies map filter to 78% brightness / 115% contrast, dims header/footer to 0.7, deepens body background to `#050505`. 800ms transition.
+  - **Haptic rain alert** — `navigator.vibrate(500)` fires on the dry→raining rising edge, gated by `window.__lastRainPulseState` latch. Resets on non-RAIN-NOW branches. iOS Safari silently no-ops.
+  - **Quick-glance summary strip** — top-center overlay `RAIN | WIND | VIS | °C | TREND`, driven by the 60fps Aero HUD loop + `__METEO_CORE_STATE`. Rain red/green, visibility red (<1km) / yellow (<5km), wind shows speed+direction, temp + trend badge.
+  - **Portrait overlap fix** — replaced dead `max-md:` Tailwind classes (not present in precompiled tailwind.min.css v4) with plain `@media (max-width: 767px)` CSS rule that slides the glance strip to bottom on narrow screens.
+  - **Temperature horizon trend badge** — `+3°` or `-2°` computed from ensemble-blend `temperature_2m` at nowIndex+1 minus nowIndex. Published to `__METEO_CORE_STATE.tempTrend`. Glance strip renders as `+3°` (red=heating, blue=cooling, grey=flat).
+  - **Compound tile cache gauge** — `#cache-gauge` pill in header shows `"23.1/50MB · 142 tiles"`. SW handles `CACHE_STATS` message, replies with `{mapCacheBytes, max, tileCount}`. Page calls `requestCacheStats()` at telemetry refresh + map-cache confirmation. Color: teal (<70%), yellow (<90%), red (>90%).
+  - **Crosswind lateral force annotation** — Aero HUD `CRS: 0` line now appends g-force equivalent when meaningful: `CRS: 12 0.03g ←`. Side-force = crosswind_kmh / 3.6 / 9.81. Thresholds suppress below 0.02g.
+  - Extended `__METEO_CORE_STATE` init with `temperature`, `apparentTemp`, `tempTrend` + publish from `processTelemetryPayload`.
+  - Added `temperatureTrend` to `normalizeTelemetryData()` return — ensemble blend at nowIndex vs nowIndex+1.
+- `sw.js`:
+  - `CACHE_STATS` message handler replies with `{mapCacheBytes, mapCacheMax, tileCount}` via `e.source.postMessage`.
 - `VERSION` → `1.3.3`
 - `package.json` → `1.3.3`
-- `HISTORY.md` — this entry + updated current-state table
+- `HISTORY.md` — updated current-state table + this entry
 
 ### Verification
 
-- Brace-balance check: clean (no unmatched `{}` `()` `[]`)
+- Codebase audit: checked 60fps hot loops for unnecessary DOM writes (none found), `getElementById` in render loops (none found — all cached), brace balance (clean), null guards on all 5 glance DOM refs (present), `max-md:` responsive classes not in CSS (replaced with plain `@media`), `windDir` correctly initialized/published for glance strip wind field
 - `npm test` → 127 passed, 0 failed ✅
 - `npm run lint` → zero errors ✅
-
----
 
 ## 1.3.2 — 2026-08-01 (weather station profile, precip breakdown, post-audit fixups)
 

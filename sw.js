@@ -281,3 +281,23 @@ self.addEventListener('fetch', (e) => {
         }
     })());
 });
+
+// Cache stats query: page sends {type:'CACHE_STATS'} and the SW replies
+// with {mapCacheBytes, max, tileCount} so the UI can render a compact
+// gauge ("23/50MB · 142 tiles"). The user can see whether offline tiles
+// are sufficient before driving into a dead zone.
+self.addEventListener('message', async (e) => {
+    if (e.data && e.data.type === 'CACHE_STATS') {
+        let tileCount = 0;
+        try {
+            const c = await caches.open(MAP_CACHE);
+            tileCount = (await c.keys()).length;
+        } catch (_err) { tileCount = -1; } // eslint-disable-line no-unused-vars
+        e.source.postMessage({
+            type: 'CACHE_STATS_REPLY',
+            mapCacheBytes: _mapCacheBytes,
+            mapCacheMax: MAP_CACHE_MAX_BYTES,
+            tileCount
+        });
+    }
+});
