@@ -4788,7 +4788,7 @@ function checkDependenciesAndRun() {
                         if (pct > 0.9) cls = 'text-brand-red';
                         else if (pct > 0.7) cls = 'text-brand-warning';
                         else if (bytes > 0) cls = 'text-brand-teal';
-                        el.textContent = `${mbUsed}/${mbFull}MB · ${tiles} tiles`;
+                        el.textContent = `${mbUsed}/${mbMax}MB · ${tiles} tiles`;
                         el.className = `font-mono text-[10px] bg-surface-800/50 px-2 py-1 rounded border border-surface-700/50 whitespace-nowrap ${cls}`;
                         el.classList.remove('hidden');
                     }
