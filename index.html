@@ -4801,7 +4801,6 @@ function checkDependenciesAndRun() {
                 if (!navigator.serviceWorker.controller) return;
                 navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATS' });
             };
-            }
             let deferredPrompt;
             const installBtn = document.getElementById('pwa-install-btn');
             if (window.matchMedia('(display-mode: standalone)').matches) {
