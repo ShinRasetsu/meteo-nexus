@@ -1030,8 +1030,8 @@
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: WeatherEnsemble.WET_LIKELY_PCT,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
-            cacheTTL: 300000,
-            cacheDistThresholdKm: 1.5,
+            cacheTTL: 120000,
+            cacheDistThresholdKm: 0,
             routingIntervalNodeDist: 5000
         };
 
@@ -2573,7 +2573,7 @@ let delta = heading - state.lastHeading;
                         initMap(lat, lon);
                     } else {
                         const distMovedKm = (prevLat === 0 && prevLon === 0) ? 999 : (fastDistance(lat, lon, prevLat, prevLon) / 1000);
-                        if ((distMovedKm > CONFIG.cacheDistThresholdKm || (now - state.telemetryCache.timestamp > CONFIG.cacheTTL)) && (now - state.lastFetchAttempt > 10000)) {
+                        if ((now - state.telemetryCache.timestamp > CONFIG.cacheTTL) && (now - state.lastFetchAttempt > 5000)) {
                             state.lastFetchAttempt = now; fetchData(lat, lon, false);
                         }
 
@@ -3986,7 +3986,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                          showers: (dCurr && dCurr.current && typeof dCurr.current.showers  === 'number') ? dCurr.current.showers  : null,
                          snowfall:(dCurr && dCurr.current && typeof dCurr.current.snowfall === 'number') ? dCurr.current.snowfall : null,
                      },
-cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'number') ? dCurr.current.cloud_cover : null,
+                     cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'number') ? dCurr.current.cloud_cover : null,
                      pressure:   (dCurr && dCurr.current && typeof dCurr.current.pressure_msl=== 'number') ? dCurr.current.pressure_msl : null,
                      visibility: (dCurr && dCurr.current && typeof dCurr.current.visibility === 'number') ? dCurr.current.visibility : null,
 
@@ -4419,6 +4419,16 @@ cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'num
             if (data && typeof data.temperatureTrend === 'number') {
                 window.__METEO_CORE_STATE.tempTrend = data.temperatureTrend;
             }
+            // When the offline/reconstruction path reassembled `curr` from hourly
+            // ensemble cells, the ensemble-blended temperature and apparent temp
+            // inside that reassembled `curr` (data.curr) are MORE accurate than
+            // the stale `dCurr.current` from the last online API fetch. Always
+            // prefer the normalized-data temps so the glance strip, telemetry card,
+            // and everything else read the same numbers from __METEO_CORE_STATE.
+            if (data && data.curr) {
+                if (typeof data.curr.temperature_2m === 'number')       window.__METEO_CORE_STATE.temperature   = data.curr.temperature_2m;
+                if (typeof data.curr.apparent_temperature === 'number') window.__METEO_CORE_STATE.apparentTemp = data.curr.apparent_temperature;
+            }
             // Also expose the active-rain verdict (boolean) for the HUD's tiny wxm chip
             // — avoids the Aero HUD having to import WMO_RAIN_CODES on the hot 60fps path.
             if (typeof window.__METEO_CORE_STATE.weatherCode === 'number') {
@@ -4484,8 +4494,21 @@ cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover === 'num
                 const [rCurr, rFore, rSolar] = await Promise.race([fetchBundle, budgetTimeout]);
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
-                await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
-                try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (e) { /* silent */ }
+                // Rate-limit localforage writes to every 60s — writing to disk on
+                // every 2-min fetch is unnecessary; the in-memory state is updated
+                // live. The cache only needs to survive a page reload, and 60s
+                // is tight enough that at most one fetch per pageload is missed.
+                if (!state._lastCacheWriteTs || (now - state._lastCacheWriteTs) > 60000) {
+                    state._lastCacheWriteTs = now;
+                    await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
+                }
+                // Rate-limit BrierScore to every 5 minutes to avoid excessive
+                // localforage writes (720 writes/day → ~288 writes/day max).
+                const now = Date.now();
+                if (!state._lastBrierTs || (now - state._lastBrierTs) > 300000) {
+                    state._lastBrierTs = now;
+                    try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (_) { /* silent */ }
+                }
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
                 weatherAbort.abort();
 
