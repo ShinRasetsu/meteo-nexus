@@ -4494,17 +4494,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const [rCurr, rFore, rSolar] = await Promise.race([fetchBundle, budgetTimeout]);
 
                 const dCurr = await rCurr.json(); const dFore = await rFore.json(); const dSolar = await rSolar.json();
+                const now = Date.now();
                 // Rate-limit localforage writes to every 60s — writing to disk on
                 // every 2-min fetch is unnecessary; the in-memory state is updated
                 // live. The cache only needs to survive a page reload, and 60s
                 // is tight enough that at most one fetch per pageload is missed.
                 if (!state._lastCacheWriteTs || (now - state._lastCacheWriteTs) > 60000) {
                     state._lastCacheWriteTs = now;
-                    await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: Date.now() });
+                    await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: now });
                 }
                 // Rate-limit BrierScore to every 5 minutes to avoid excessive
                 // localforage writes (720 writes/day → ~288 writes/day max).
-                const now = Date.now();
                 if (!state._lastBrierTs || (now - state._lastBrierTs) > 300000) {
                     state._lastBrierTs = now;
                     try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (_) { /* silent */ }
