@@ -6,16 +6,20 @@
 
 ---
 
-## Current state at session end (2026-08-01)
+## Current state at session end (2026-08-07)
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.3` |
-| `package.json` → version | `1.3.3` |
+| `VERSION` | `1.3.4` |
+| `package.json` → version | `1.3.4` |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.3` — create with `git tag v1.3.3` before push |
+| Git tag | `v1.3.4` — create with `git tag v1.3.4` before push |
 | Tests | `npm test` — 127 assertions, all passing |
+| Lint | `npm run lint` — zero errors |
+| Phase 1 audit | `npm run audit:extract` — extracts inline module + `node --check` (exits 0) |
+| Phase 2 audit | `npm run audit:tdz` — acorn AST scan for use-before-declare TDZ (0 violations) |
+| Phase 1+2 audit (combined) | `npm run audit` — runs extract+parse then TDZ scan, exits non-zero on violation |
 | Consent / audio | `audioEnabled` persists in `localforage` after first interactive gesture |
 
 ## How to bump version in a new session
@@ -98,6 +102,68 @@ After any change to `processTelemetryPayload`, `normalizeTelemetryData`, `fetchD
 6. Check the Console tab for any red errors (silent `catch {}` will hide them otherwise)
 
 If any of these fails, the change is broken — regardless of what `npm test` or `npm run lint` report. **Runtime truth > static checks.**
+
+---
+
+## 1.3.4 — 2026-08-07 (full codebase audit + perf pass; STM audit infrastructure added)
+
+### Bump rationale
+
+Patch bump from 1.3.3 → 1.3.4. Aggressive triage pass motivated by the 1.3.3 "use-before-declare + silent-catch" lesson: instead of waiting for the next feature, ran the **full 4-phase audit** (parse / TDZ / structural / behavioural) and applied 18 catalogue-confirmed fixes — 3 HIGH, 9 MEDIUM, 6 LOW. Also persisted the Phase 1 + Phase 2 audit pipeline as runnable `npm run audit` so future sessions can re-verify with one command instead of re-deriving the scanner every time. No new user-visible features; no breaking changes; tests count unchanged (127/127).
+
+### Audit infrastructure — NEW
+
+- `tests/extract-module.mjs` — extracts the inline `<script type="module">` block from `index.html` to `tests/_module_extract.mjs` using `indexOf` (browser-rule: scan to first `</script>`, not `lastIndexOf` — the 1.3.3 lesson). Wires PHASE 1.
+- `tests/ast-scan-tdz.mjs` — full AST walk via `acorn` (already a transitive dep) that records lexical bindings per scope-chain and flags any `Identifier` reference that precedes its `const`/`let`/`var` declaration *in the same scope*. Catches TDZ `ReferenceError`s that:
+  - `node --check` cannot catch (parse-time validation ≠ runtime TDZ),
+  - ESLint's `no-use-before-define` does NOT flag within the same block scope,
+  - silent `catch (e) {}` blocks can swallow at runtime (the actual 1.3.3 bug pattern).
+- `package.json` — new scripts: `audit:extract`, `audit:tdz`, `audit` (chains both). `npm run audit` exits non-zero if a TDZ violation is found, so it is CI-gateable.
+- `.gitignore` — added `tests/_module_extract.mjs` (generated artefact, never committed).
+- `eslint.config.js` — added `tests/_module_extract.mjs` to flat-config ignores (it's a browser-target extract, Node lint globals don't apply); broadened `tests/**/*.mjs` glob so the new audit `.mjs` helpers lint cleanly with node globals.
+
+### Findings + fixes (18 total)
+
+#### HIGH — 3 fixes
+
+1. **`index.html` `fetchRouteIntelligence` route-swap guard — `originalRouteNodes` went stale when fuel markers were on screen.** The `if (!state.fuelMarkers || state.fuelMarkers.length === 0)` guard skipped the `state.originalRouteNodes = state.routeNodes.map(...)` mirror whenever fuel markers existed. After a route swap with fuel markers visible, the next fuel re-search read stale nodes through `findAllAlongRoute`'s `state.originalRouteNodes || state.routeNodes` fallback, scanning the wrong (previous) route. Fix: always refresh `originalRouteNodes` after the route recomputes; cursor reset to 0 along with it.
+2. **`index.html` `processNodes` closure allocated per GPS fix.** The function was declared INSIDE the `watchPosition` success callback despite a comment claiming "hoisted"; every ~1 Hz fix re-allocated the closure. Hoisted the function definition ABOVE `startBackgroundTracking` (module scope). Reads only module-level identifiers (`state`, `fastDistance`, `fastDistanceSqMeters`, `updateText`) so the move is observability-equivalent.
+3. **`index.html` `DOM.navBtn.onclick` reassigned on every `routesfound` event.** Each router re-resolve (waypoint swap, fuel-pitstop add, navigation start) re-bound a fresh closure. The handler reads `state.routeCtrl.getWaypoints()` / `state.autoCoords` fresh on every click, so a single bound handler is observability-equivalent. Hoisted to `openNavInGMaps()` at module scope (right after the `DOM` cache build) and bound once via `if (DOM.navBtn) DOM.navBtn.onclick = openNavInGMaps;`. Removed the per-event rebinding block inside `updateRouteStatus`.
+
+#### MEDIUM — 9 fixes
+
+4. **`index.html` `renderRouteIntelTimeline` + `normalizeTelemetryData` per-node linear scan of the hourly `time` array** (~99 nodes × 168 entries ≈ 16k iterations per render). Open-Meteo guarantees `hourly.time` is sorted ascending in unix seconds, so a binary search is correct. Added module-scope `findHourIndexForUnixMs(times, unixMsTarget)` and replaced both call-sites. Pre-flight O(log n).
+5. **`index.html` `brierRecordForecast` + `brierRecordObservation` repeated O(n) scans of `h.time`** to locate `T+1/T+2/T+3` lead indices and the current-hour observation index (up to 3×168 ops/call). Replaced with the same `findHourIndexForUnixMs` helper — the sort is ascending so the same binary search works. Brier is rate-limited to one call per 5 min, savings are minor but the pattern is now consistent with the route-timeline path.
+6. **`index.html` `updateInterceptMarkersPool` `marker.getElement()` called unconditionally per waypoint per refresh.** `getElement()` is cheap (returns the cached `_icon` ref) but still a function-call + property-chain hit per waypoint, and most passes the `display` style is already correct. Added a per-marker `displayState` cache key (`'block'`/`'none'`/`'initial'`) that skips the lookup + DOM-write whenever state matches.
+7. **`index.html` `isCloudActive = true` set eagerly before `onAuthStateChanged` actually confirmed the user.** `await signInAnonymously()` resolves even after `.catch`-handled rejection, leaving `auth.currentUser` momentarily null mid-failure. Premature flip risked letting the firestore write paths at lines 4625/4637 fire before the auth subscriber had a chance to correct. Fix: register the `onAuthStateChanged` subscriber BEFORE kicking off `signInAnonymously`, and let the callback own the `isCloudActive` flip. Sync-seed `state.userAuth = auth.currentUser` for the head start; if `auth.currentUser` is null after `await`, `isCloudActive` stays at false until the callback repairs it.
+8. **`index.html` tile-download loop had an empty `catch (e) {}` that silently swallowed fetch/parse/cache failures.** A stuck batch URL (CORS / network / abort race) made invisible progress to the user. Replaced with `console.debug('tile fetch failed:', url, e && e.message)` (clipped from `console.` output so production is unaffected) and a per-batch `failedTiles` tally surfaced at the end via `console.warn('Map cache finished with N failed tile uploads.')` when N > 0.
+9. **`index.html` `pagehide` `wakeLock.release()` empty `catch (e) {}`.** `pagehide` is near-terminal so quiet logging is preferred, but a `console.debug` lets triage see why release rejected (browser already released, context lost, etc.). Replaced with `catch (e) { console.debug('wakeLock release on pagehide rejected:', e); }`.
+10. **`index.html` Brier persistence call wrapped in empty `catch (_) { /* silent */ }`.** An async ring-buffer/localforage crash was invisible. Replaced with `catch (e) { console.warn('Brier persistence failed:', e); }` so disk/full/race errors are observable in DevTools without flooding the console (one line per failure, rate-limited by the existing 5-min gate).
+11. **`index.html` `body.addEventListener('click', initSensors, { once: true })` — line 1850's `removeEventListener` is redundant.** The `{once:true}` option already auto-removes after first fire. Kept the redundant `removeEventListener` defensively (so a future edit dropping `{once:true}` does not regress) and added a comment explicitly stating the redundancy.
+12. **`index.html` `syncClock` recursion relied on its own 30s hidden-cycle `setTimeout` to resume after tab-resume.** Up to a 30s stale-clock window if `visibilitychange` happened just after a hidden-cycle timer was scheduled, since the other `visibilitychange` listener chain (GPS-watch + RAF restart at line ~2738) re-kicks those systems but NOT `syncClock`. Added an explicit `visibilitychange` listener that paddles `syncClock()` immediately when the tab becomes visible, short-circuiting the latency from "up to 30s" to "immediate".
+
+#### LOW — 6 fixes / no-changes
+
+13. **`index.html:2395` tilt-compensation rotation** — `wx`/`wy` recomputed into `cx`/`cy`; `cz` dropped (existing comment already reads `// cz dropped — only yaw matters`). No code change — existing comment already conveys intent; if a future refactor computes roll, the `cz` variable will need re-derivation, but for yaw-only output the current handling is correct.
+14. **`WeatherEnsemble.setActiveWeights` `_MI` allocation per regime boundary** — already memoized via `if (regime === this._activeRegime) return;` so most nodes pay nothing. Cross-regime routes (EU↔Asia) do reallocate on each crossing, but the per-call cost is tiny (`Object.entries(...).map(...)` produces a 4-element array) and caching `_MI` per regime would add memory + invalidation complexity for marginal benefit. No change.
+15. **`for (const _m of WeatherEnsemble.models)` patterns** — `WeatherEnsemble.models` is set ONCE at object-literal init (line 729) as `Object.keys(ENSEMBLE_WEIGHTS)`; member access on a stable hidden-class object is already fast. The for-of pattern at the 3 hot call-sites (lines 3468, 3967, 4407) does not allocate a per-iteration closure. No change — micro-opt negligible.
+16. **`WeatherEnsemble.models.map(...)` in telemetry render (line 4078)** — allocates a fresh 4-element array each telemetry fetch (every ~2 min). 2 allocs/min × tiny array = utterly negligible. No change.
+17. **`index.html` fuel-marker popup button re-binding** — closed over `popupopen` each time the popup re-opened, re-assigning `onclick` for the same buttons to the same closures (visible behavior unchanged, wasted work per re-open). Bound the `.set-pitstop-btn`/`.verify-official-btn`/`.verify-gmaps-btn` onclick handlers ONCE at marker creation time (after `marker.bindPopup(...)`); removed the `marker.on('popupopen', ...)` block entirely.
+18. **`index.html` Aero HUD altitude per-frame allocation** — the existing cache key `_uiCache.alt !== altStr` only stopped the `innerHTML` write when the prebuilt HTML string was unchanged; building the HTML string itself ran every frame regardless. Replaced the string-comparison cache with an `altKey` cache (`'alt:' + r` / `'topo:' + r` / `'2d'`) computed before the HTML string, so BOTH `Math.round()` and the template-string build are skipped when the rounded altitude hasn't changed.
+
+### Process notes (smallest details that matter for future audits)
+
+- The acorn AST scanner (`tests/ast-scan-tdz.mjs`) is the only reliable mechanism for catching use-before-declare TDZ bugs in this codebase. Specifically: `node --check` validates syntax but CANNOT detect TDZ (e.g. `if (cond) { useFoo(); const foo = 1; }` parses fine and throws only when `cond` is true at runtime); ESLint's `no-use-before-define` does NOT flag same-block-scope references; the text-substring tests can only assert presence of strings. Run `npm run audit` before declaring work done.
+- The "PowerShell-mangled-strings" failure mode (lots of `-e "JS code"` invocations broke because `\"` escapes survive the bash→PS transition but backquoted identifiers inside the `-e` arg got eaten) cost meaningful time this session. The new audit scripts are saved as `.mjs` files in `tests/` precisely so we never have to inline-via-string a parse walk again — `npm run audit` is the stable entry point.
+- `_module_extract.mjs` is now in `.gitignore` (it's a generated artefact) and in `eslint.config.js` `ignores` (browser globals would otherwise trip 500+ lint errors). Regenerate with `node tests/extract-module.mjs`.
+
+### Verification
+
+- `npm run audit:extract` → extracted module: 520→5569 (332_843 bytes); `node --check` exits 0 ✅
+- `npm run audit:tdz` → "TDZ (same-scope use-before-declare) violations: 0" ✅
+- `npm test` → 127 passed, 0 failed ✅
+- `npm run lint` → zero errors ✅
+- Brace-balance pass (manual): `Final depth: 0` ✅
 
 ---
 

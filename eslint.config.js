@@ -8,7 +8,7 @@ import globals from "globals";
 export default [
   js.configs.recommended,
   {
-    ignores: ["node_modules/**", ".git/**", "index.html", "deploy.bat", "manifest.json"],
+    ignores: ["node_modules/**", ".git/**", "index.html", "deploy.bat", "manifest.json", "tests/_module_extract.mjs"],
   },
   {
     // Standalone browser-worker files run in a Web Worker / ServiceWorker scope.
@@ -25,7 +25,8 @@ export default [
     },
   },
   {
-    files: ["tests/**/*.js", "eslint.config.js"],
+    // Node-side test/aux/config scripts (including audit helpers in .mjs form).
+    files: ["tests/**/*.js", "tests/**/*.mjs", "eslint.config.js"],
     languageOptions: {
       globals: {
         ...globals.node,

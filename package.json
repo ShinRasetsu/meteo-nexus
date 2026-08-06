@@ -1,6 +1,6 @@
 {
   "name": "meteonexus-tactical-hud",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "private": true,
   "type": "module",
   "description": "Active Telemetry HUD with real-time weather and routing intelligence.",
@@ -9,6 +9,9 @@
     "lint:fix": "eslint . --fix",
     "test": "node tests/sanity.test.js",
     "check": "npm run lint && npm run test",
+    "audit:extract": "node tests/extract-module.mjs && node --check tests/_module_extract.mjs",
+    "audit:tdz": "node tests/ast-scan-tdz.mjs",
+    "audit": "npm run audit:extract && npm run audit:tdz",
     "build:css": "npx @tailwindcss/cli --input src/tailwind.css --output tailwind.min.css --minify",
     "precheck": "npm run build:css"
   },

@@ -593,10 +593,26 @@
                     db = getFirestore(app);
                     firestoreOps = { doc, setDoc, getDoc };
                     appId = configSealed && typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                    await signInAnonymously(auth).catch(console.error);
+                    // Register the auth-state subscriber BEFORE attempting
+                    // sign-in so we don't miss the first auth event. We DO NOT
+                    // set isCloudActive=true eagerly here — signInAnonymously
+                    // can reject (network/CORS/etc) and `await` resolves even
+                    // after a rejections-only `.catch`, leaving
+                    // auth.currentUser momentarily null mid-failure. Setting
+                    // isCloudActive prematurely would let the firestore write
+                    // paths fire before onAuthStateChanged corrects the state.
+                    onAuthStateChanged(auth, (user) => {
+                        state.userAuth = user;
+                        isCloudActive = !!user;
+                    });
+                    // Kick off the anonymous sign-in. The auth-state subscriber
+                    // above will flip isCloudActive=true when the user lands.
+                    await signInAnonymously(auth).catch((e) => console.error('Anonymous sign-in failed:', e));
+                    // Head-start userAuth so the *first* render sees a user
+                    // without waiting for the microtask-delayed auth-callback
+                    // tick. After await signInAnonymously, currentUser is
+                    // synchronously populated on success and null on failure.
                     state.userAuth = auth.currentUser;
-                    isCloudActive = true;
-                    onAuthStateChanged(auth, (user) => { state.userAuth = user; isCloudActive = !!user; });
                 }
             } catch (e) { console.warn("MeteoNexus: Cloud Connection Blocked or Failed.", e); }
         }
@@ -1236,6 +1252,45 @@
             return dLat * dLat + dLon * dLon;
         }
 
+        // --- findHourIndexForUnixMs ---
+        // Returns the index `i` in a SORTED-ASCENDING array of unix-second
+        // timestamps (`times`) whose wall-clock is closest to `unixMsTarget`
+        // (a Unix millisecond value). O(log n) binary search — previously
+        // open-coded as a per-frame O(n) loop in `renderRouteIntelTimeline`
+        // (up to 99 nodes × 168 hourly entries = ~16k iterations per render)
+        // and again in `normalizeTelemetryData` (per telemetry fetch). Open-
+        // Meteo guarantees hourly.time is ascending in unix seconds.
+        function findHourIndexForUnixMs(times, unixMsTarget) {
+            const len = times.length;
+            if (len === 0) return 0;
+            // Convert target to seconds to compare apples to apples.
+            const targetSec = unixMsTarget / 1000;
+            // Upper-bound binary search: find first index whose time >= target.
+            let lo = 0, hi = len - 1, best = 0, bestAbs = Infinity;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const v = times[mid];
+                const a = Math.abs(v - targetSec);
+                if (a < bestAbs) { bestAbs = a; best = mid; }
+                if (v === targetSec) return mid;
+                if (v < targetSec) lo = mid + 1;
+                else hi = mid - 1;
+            }
+            // After the loop, `lo` may have moved past `hi` — verify against
+            // the neighbour on the off chance the true closest sits there.
+            // (best could be off by 1 for arrays with duplicate entries, but
+            // hourly.times are unique; we keep this for safety.)
+            if (lo < len && lo !== best) {
+                const a = Math.abs(times[lo] - targetSec);
+                if (a < bestAbs) best = lo;
+            }
+            if (best > 0) {
+                const a = Math.abs(times[best - 1] - targetSec);
+                if (a < bestAbs) best = best - 1;
+            }
+            return best;
+        }
+
         const sanitizeHTML = (str) => {
             const temp = document.createElement('div');
             temp.textContent = str;
@@ -1275,6 +1330,37 @@
             }
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
+
+        // One-time bind of the Google-Maps nav-button handler. Previously this
+        // handler was reassigned inside `updateRouteStatus()` on every
+        // `routesfound` event (every re-route from waypoint swap, fuel-pitstop
+        // add, or navigation start), re-allocating a fresh closure each time.
+        // The handler reads all consumers (state.routeCtrl / state.autoCoords)
+        // fresh on every click, so a single bound handler is observability-
+        // equivalent and avoids per-re-route closure allocation. Set up once
+        // right after the DOM cache is built.
+        function openNavInGMaps() {
+            if (!state.routeCtrl) return;
+            const wps = state.routeCtrl.getWaypoints();
+            if (!wps || wps.length < 2) return;
+            const conf = FuelManager.getConfig();
+            let avoidParams = [];
+            if (conf.avoidTolls) avoidParams.push('tolls');
+            if (conf.avoidHighways) avoidParams.push('highways');
+            if (conf.avoidFerries) avoidParams.push('ferries');
+            const avoidStr = avoidParams.length > 0 ? `&avoid=${avoidParams.join(',')}` : '';
+            const originStr = wps[0].latLng ? `${wps[0].latLng.lat},${wps[0].latLng.lng}` : (state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '');
+            const destLatLng = wps[wps.length - 1].latLng;
+            const destStr = destLatLng ? `${destLatLng.lat},${destLatLng.lng}` : '';
+            let waypointsStr = '';
+            if (wps.length > 2) {
+                const via = wps.slice(1, -1).filter(wp => wp.latLng).map(wp => `${wp.latLng.lat},${wp.latLng.lng}`).join('|');
+                if (via) waypointsStr = `&waypoints=${encodeURIComponent(via)}`;
+            }
+            const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&travelmode=driving${waypointsStr}${avoidStr}`;
+            window.open(url, '_blank');
+        }
+        if (DOM.navBtn) DOM.navBtn.onclick = openNavInGMaps;
 
         const updateText = (el, val) => { if (el && el.textContent !== String(val)) el.textContent = val; };
         const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
@@ -1672,18 +1758,37 @@ let delta = heading - state.lastHeading;
                 DOM.cacheMapBtn.classList.remove('bg-brand-teal/10', 'text-brand-teal');
                 const cache = await caches.open('meteonexus-map-cache');
                 let downloaded = 0;
+                let failedTiles = 0;  // Tally of tiles whose fetch/cache.put failed
                 const concurrency = 5;
                 for (let i = 0; i < urls.length; i += concurrency) {
                     if(signal.aborted) throw new Error("Aborted");
                     const batch = urls.slice(i, i + concurrency);
                     await Promise.all(batch.map(async (url) => {
-                        try { const res = await cache.match(url); if (!res) { const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit', signal }); if (fetchRes.ok || fetchRes.type === 'opaque') await cache.put(url, fetchRes.clone()); } } catch(e) {}
+                        // Surface silent fetch/parse/cache failures to the user's
+                        // progress UI — previously an empty `catch(e) {}` hid
+                        // stuck batches (network/CORS/abort race). We don't
+                        // block on individual tile errors but DO tally them so
+                        // the final chip count can be inspected/surfaced.
+                        try {
+                            const res = await cache.match(url);
+                            if (!res) {
+                                const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit', signal });
+                                if (fetchRes.ok || fetchRes.type === 'opaque') await cache.put(url, fetchRes.clone());
+                            }
+                        } catch (e) {
+                            // Suppress AbortError spam from intentional teardown,
+                            // log everything else at debug level so the dev can
+                            // see why tiles go missing in DevTools.
+                            if (e && e.name !== 'AbortError') console.debug('tile fetch failed:', url, e && e.message);
+                            failedTiles++;
+                        }
                         downloaded++;
                     }));
                     if (i % 20 === 0) { const pct = Math.round((downloaded / urls.length) * 100); updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-cloud-arrow-down fa-fade"></i><span class="hidden md:block">${pct}%</span>`); }
                     await new Promise(r => setTimeout(r, 50));
                 }
                 updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-check"></i><span class="hidden md:block">CACHED</span>`);
+                if (failedTiles > 0) console.warn('Map cache finished with', failedTiles, 'failed tile uploads.');
             } catch(err) {
                 if(err.message !== "Aborted") updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-triangle-exclamation"></i><span class="hidden md:block">FAILED</span>`);
             } finally {
@@ -1733,7 +1838,14 @@ let delta = heading - state.lastHeading;
             }
         });
         document.addEventListener('pagehide', async () => {
-            if (wakeLock !== null) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
+            // pagehide handlers should be silent & fast (the page is about to
+            // unload), but a console.debug lets triage see why a wakeLock
+            // release rejected (browser already released, context lost,
+            // etc) without making release failures truly invisible.
+            if (wakeLock !== null) {
+                try { await wakeLock.release(); } catch (e) { console.debug('wakeLock release on pagehide rejected:', e); }
+                wakeLock = null;
+            }
         });
 
         document.body.addEventListener('click', function initSensors() {
@@ -1742,6 +1854,11 @@ let delta = heading - state.lastHeading;
             }
             const ctx = getAudioContext();
             if (ctx.state === 'suspended') ctx.resume();
+            // NOTE: the { once: true } option above auto-removes this listener
+            // after first fire, so the removeEventListener below is redundant.
+            // Kept defensively so a future edit that drops the { once: true }
+            // option does not regress (the body would otherwise keep firing
+            // initSensors on every click for the session).
             document.body.removeEventListener('click', initSensors);
         }, { once: true });
 
@@ -2518,6 +2635,83 @@ let delta = heading - state.lastHeading;
             }
         };
 
+        // --- processNodes (hoisted out of watch callback) ---
+        // Originally declared inside `navigator.geolocation.watchPosition`'s
+        // success callback, which re-allocated a fresh function closure every
+        // GPS fix (~1 Hz). Hoisted here to module scope; the function reads
+        // only module-level identifiers (`state`, `fastDistance`,
+        // `fastDistanceSqMeters`, `updateText`) so the move is observability-
+        // equivalent. Closure-allocation-per-fix eliminated.
+        function processNodes(lat, lon, nodesToProcess, cursorKey) {
+            if (!nodesToProcess || nodesToProcess.length === 0) return;
+            let cursor = state[cursorKey] || 0;
+            // Defensive: clamp cursor to passed-region start (handles
+            // route swaps / list mutations between fixes).
+            if (cursor > 0 && cursor < nodesToProcess.length && nodesToProcess[cursor - 1] && !nodesToProcess[cursor - 1].passed) {
+                cursor = Math.max(0, cursor - 1);
+            } else {
+                while (cursor < nodesToProcess.length && nodesToProcess[cursor].passed) cursor++;
+            }
+            if (cursor >= nodesToProcess.length) return;
+            const activeNode = nodesToProcess[cursor];
+            // Fast squared-distance: 1.5km² = 2_250_000 m²
+            const dSq = fastDistanceSqMeters(lat, lon, activeNode.lat, activeNode.lon);
+            if (dSq > 36000000) {
+                // > 6km — definitely still ahead; only update labels of near-future nodes.
+                let count = 0;
+                for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
+                    let vn = nodesToProcess[v];
+                    if (vn.passed) continue;
+                    let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
+                    if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
+                    else {
+                        const distEl = document.getElementById(`node-dist-${vn.id}`);
+                        if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+                    }
+                    count++;
+                }
+                state[cursorKey] = cursor;
+                return;
+            }
+            // Bypass lookahead: up to 3 future nodes; if any is
+            // significantly closer (by >=1.5 km) the user has passed
+            // the current node. Use squared distances throughout:
+            // x < y - 1500 ⟺ x² < y² - 2·1500·y + 1500² (not a clean
+            // squared compare, so we keep one sqrt per endpoint).
+            // The previous code path used `Math.sqrt(dSq)` (a lower
+            // bound) and `fastDistance` (true haversine) together,
+            // which made the test harder to satisfy than intended and
+            // missed legit bypasses near the equator. Now both
+            // comparisons use the true haversine for symmetry.
+            let bypassed = false;
+            const lookaheadEnd = Math.min(cursor + 3, nodesToProcess.length);
+            const d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
+            for (let j = cursor + 1; j < lookaheadEnd; j++) {
+                const futureDist = fastDistance(lat, lon, nodesToProcess[j].lat, nodesToProcess[j].lon);
+                if (futureDist < d - 1500) { bypassed = true; break; }
+            }
+            if (d < 1500 || bypassed) {
+                nodesToProcess[cursor].passed = true;
+                state.lastIntelFetch = 0;
+                cursor++;
+                while (cursor < nodesToProcess.length && nodesToProcess[cursor].passed) cursor++;
+            }
+            // Always refresh labels of next-up nodes (cheap path).
+            let count = 0;
+            for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
+                let vn = nodesToProcess[v];
+                if (vn.passed) continue;
+                let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
+                if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
+                else {
+                    const distEl = document.getElementById(`node-dist-${vn.id}`);
+                    if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+                }
+                count++;
+            }
+            state[cursorKey] = cursor;
+        }
+
         // --- GPS TRACKING ENGINE ---
         // Visibility-gated: pauses geolocation when the tab is hidden to save
         // ~15-25% battery/hour. Resumes on visibilitychange → visible via
@@ -2610,77 +2804,13 @@ let delta = heading - state.lastHeading;
 state.routeNodesCursor = state.routeNodesCursor || 0;
                         state.originalRouteNodesCursor = state.originalRouteNodesCursor || 0;
 
-                        // Hoisted — prevents a new closure alloc every GPS fix (1Hz).
-                        // Now called outside the watch callback with explicit lat/lon.
-                        function processNodes(lat, lon, nodesToProcess, cursorKey) {
-                            if (!nodesToProcess || nodesToProcess.length === 0) return;
-                            let cursor = state[cursorKey] || 0;
-                            // Defensive: clamp cursor to passed-region start (handles
-                            // route swaps / list mutations between fixes).
-                            if (cursor > 0 && cursor < nodesToProcess.length && nodesToProcess[cursor - 1] && !nodesToProcess[cursor - 1].passed) {
-                                cursor = Math.max(0, cursor - 1);
-                            } else {
-                                while (cursor < nodesToProcess.length && nodesToProcess[cursor].passed) cursor++;
-                            }
-                            if (cursor >= nodesToProcess.length) return;
-                            const activeNode = nodesToProcess[cursor];
-                            // Fast squared-distance: 1.5km² = 2_250_000 m²
-                            const dSq = fastDistanceSqMeters(lat, lon, activeNode.lat, activeNode.lon);
-                            if (dSq > 36000000) {
-                                // > 6km — definitely still ahead; only update labels of near-future nodes.
-                                let count = 0;
-                                for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
-                                    let vn = nodesToProcess[v];
-                                    if (vn.passed) continue;
-                                    let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
-                                    if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
-                                    else {
-                                        const distEl = document.getElementById(`node-dist-${vn.id}`);
-                                        if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
-                                    }
-                                    count++;
-                                }
-                                state[cursorKey] = cursor;
-                                return;
-                            }
-                            // Bypass lookahead: up to 3 future nodes; if any is
-                            // significantly closer (by >=1.5 km) the user has passed
-                            // the current node. Use squared distances throughout:
-                            // x < y - 1500 ⟺ x² < y² - 2·1500·y + 1500² (not a clean
-                            // squared compare, so we keep one sqrt per endpoint).
-                            // The previous code path used `Math.sqrt(dSq)` (a lower
-                            // bound) and `fastDistance` (true haversine) together,
-                            // which made the test harder to satisfy than intended and
-                            // missed legit bypasses near the equator. Now both
-                            // comparisons use the true haversine for symmetry.
-                            let bypassed = false;
-                            const lookaheadEnd = Math.min(cursor + 3, nodesToProcess.length);
-                            const d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
-                            for (let j = cursor + 1; j < lookaheadEnd; j++) {
-                                const futureDist = fastDistance(lat, lon, nodesToProcess[j].lat, nodesToProcess[j].lon);
-                                if (futureDist < d - 1500) { bypassed = true; break; }
-                            }
-                            if (d < 1500 || bypassed) {
-                                nodesToProcess[cursor].passed = true;
-                                state.lastIntelFetch = 0;
-                                cursor++;
-                                while (cursor < nodesToProcess.length && nodesToProcess[cursor].passed) cursor++;
-                            }
-                            // Always refresh labels of next-up nodes (cheap path).
-                            let count = 0;
-                            for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
-                                let vn = nodesToProcess[v];
-                                if (vn.passed) continue;
-                                let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
-                                if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
-                                else {
-                                    const distEl = document.getElementById(`node-dist-${vn.id}`);
-                                    if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
-                                }
-                                count++;
-                            }
-                            state[cursorKey] = cursor;
-                        }
+                        // processNodes() is hoisted OUT of the watch callback to
+                        // module scope (just above startBackgroundTracking) — this
+                        // avoids re-allocating the function closure on every GPS
+                        // fix (~1 Hz). The function takes (lat, lon, nodes, cursorKey)
+                        // and reads only module-level helpers + `state`, so the move
+                        // is observability-equivalent.
+
                         if (state.currentWatch) navigator.geolocation.clearWatch(state.currentWatch);
 
                 processNodes(lat, lon, state.routeNodes, 'routeNodesCursor');
@@ -2881,7 +3011,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (!state.mapObj) return;
             while (state.interceptMarkers.length < waypoints.length) {
                 const marker = L.marker([0, 0], { icon: L.divIcon({ className: 'bg-transparent', html: '', iconSize: [0, 0] }), zIndexOffset: 500 }).addTo(state.mapObj);
-                state.interceptMarkers.push({ marker: marker, inUse: false });
+                state.interceptMarkers.push({ marker: marker, inUse: false, displayState: 'initial' });
             }
             for (let i = 0; i < waypoints.length; i++) {
                 const wp = waypoints[i];
@@ -2892,15 +3022,26 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     html: `<div class="relative flex items-center justify-center -ml-3 -mt-3"><div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div><div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div><div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${sanitizeHTML(wp.id)}</div></div>`,
                     iconSize: [0, 0]
                 }));
-                const el = pItem.marker.getElement();
-                if (el && el.style.display !== 'block') el.style.display = 'block';
+                // Skip the marker.getElement() lookup when display is already 'block'
+                // — getElement() is cheap (returns the cached _icon ref) but is
+                // still a property-chain fcall we don't need when most passes
+                // are stable. pItem.displayState tracks the last set value.
+                if (pItem.displayState !== 'block') {
+                    const el = pItem.marker.getElement();
+                    if (el && el.style.display !== 'block') el.style.display = 'block';
+                    pItem.displayState = 'block';
+                }
                 pItem.inUse = true;
             }
             for (let i = waypoints.length; i < state.interceptMarkers.length; i++) {
-                if (state.interceptMarkers[i].inUse) {
-                    const el = state.interceptMarkers[i].marker.getElement();
-                    if (el && el.style.display !== 'none') el.style.display = 'none';
-                    state.interceptMarkers[i].inUse = false;
+                const mi = state.interceptMarkers[i];
+                if (mi.inUse) {
+                    if (mi.displayState !== 'none') {
+                        const el = mi.marker.getElement();
+                        if (el && el.style.display !== 'none') el.style.display = 'none';
+                        mi.displayState = 'none';
+                    }
+                    mi.inUse = false;
                 }
             }
         }
@@ -3126,27 +3267,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 fetchRouteIntelligence(route, state.intelFetchAbortController.signal);
             }
 
-            DOM.navBtn.onclick = () => {
-                if (!state.routeCtrl) return;
-                const wps = state.routeCtrl.getWaypoints();
-                if (!wps || wps.length < 2) return;
-                    const conf = FuelManager.getConfig();
-                    let avoidParams = [];
-                    if (conf.avoidTolls) avoidParams.push('tolls');
-                    if (conf.avoidHighways) avoidParams.push('highways');
-                    if (conf.avoidFerries) avoidParams.push('ferries');
-                    const avoidStr = avoidParams.length > 0 ? `&avoid=${avoidParams.join(',')}` : '';
-                    const originStr = wps[0].latLng ? `${wps[0].latLng.lat},${wps[0].latLng.lng}` : (state.autoCoords ? `${state.autoCoords.lat},${state.autoCoords.lon}` : '');
-                    const destLatLng = wps[wps.length - 1].latLng;
-                    const destStr = destLatLng ? `${destLatLng.lat},${destLatLng.lng}` : '';
-                    let waypointsStr = '';
-                    if (wps.length > 2) {
-                        const via = wps.slice(1, -1).filter(wp => wp.latLng).map(wp => `${wp.latLng.lat},${wp.latLng.lng}`).join('|');
-                        if (via) waypointsStr = `&waypoints=${encodeURIComponent(via)}`;
-                    }
-                    const url = `https://www.google.com/maps/dir/?api=1&origin=${originStr}&destination=${destStr}&travelmode=driving${waypointsStr}${avoidStr}`;
-                    window.open(url, '_blank');
-            };
+            // Nav-button click handler bound once at init time (see
+            // openNavInGMaps near DOM cache). Removed per-routesfound rebinding.
         }
         // ======================== END OF PART 1 ========================
 
@@ -3185,9 +3307,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     } catch (e) { console.warn('Route node calculation failed:', e); state.routeNodes = []; }
                 } else { state.routeNodes = []; }
                 state.routeNodesCursor = 0;
-                if (!state.fuelMarkers || state.fuelMarkers.length === 0) {
-                    state.originalRouteNodes = state.routeNodes.map(node => ({ ...node }));
-                }
+                // Always refresh originalRouteNodes to mirror the freshly-computed
+                // routeNodes — the previous `fuelMarkers.length === 0` guard skipped
+                // this when fuel markers were on screen, which left originalRouteNodes
+                // pointing at the PREVIOUS route after a swap. The next fuel search
+                // then read stale nodes (line `findAllAlongRoute` consumes
+                // `originalRouteNodes || routeNodes`) and scanned the wrong path.
+                state.originalRouteNodes = state.routeNodes.map(node => ({ ...node }));
+                state.originalRouteNodesCursor = 0;
             }
 
             let unpassedNodes = [];
@@ -3324,12 +3451,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // one hour window for the ensemble wetness consensus per node.
                 let waypointNowIndex = 0;
                 if (p.hourly && p.hourly.time) {
-                    let minDiff = Infinity;
-                    const times = p.hourly.time;
-                    for (let i = 0; i < times.length; i++) {
-                        const diff = Math.abs((times[i] * 1000) - currentUnixMs);
-                        if (diff < minDiff) { minDiff = diff; waypointNowIndex = i; }
-                    }
+                    // O(log n) binary search replaces the prior per-node O(n)
+                    // loop; the hourly `time` array is sorted ascending.
+                    waypointNowIndex = findHourIndexForUnixMs(p.hourly.time, currentUnixMs);
                 }
                 if (wp) {
                     // leadHours=0 for every node — live current conditions, not arrival-time forecast.
@@ -3520,6 +3644,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             setTimeout(syncClock, 1000 - (now.getTime() % 1000));
         }
         syncClock();
+        // Paddle syncClock on tab-resume so the wall-clock updates
+        // immediately when the tab becomes visible again, instead of waiting
+        // up to 30s for the previously-scheduled hidden-cycle setTimeout to
+        // fire. The other `visibilitychange` listener chain (GPS-watch + RAF
+        // restart) covers a different state path and did NOT re-kick
+        // syncClock; if any of those listeners gets dropped or overridden in a
+        // future refactor, syncClock's own loop keeps it alive even when the
+        // tab starts hidden, but a paddle here short-circuits the latency.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') syncClock();
+        });
 
         const WIND_DIR_ARR = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
         function getWindDirection(deg) {
@@ -3767,14 +3902,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const hSol = dSolar ? dSolar.hourly : null;
 
             const currentUnixMs = isOffline && cachedTimestamp ? cachedTimestamp : Date.now();
-            let nowIndex = 0, minDiff = Infinity;
+            let nowIndex = 0;
             if (h && h.time) {
-                const times = h.time;
-                const len = times.length;
-                for (let i = 0; i < len; i++) {
-                    const diff = Math.abs((times[i] * 1000) - currentUnixMs);
-                    if (diff < minDiff) { minDiff = diff; nowIndex = i; }
-                }
+                // O(log n) binary search replaces the prior O(n) loop;
+                // the `h.time` array is sorted ascending in unix seconds.
+                nowIndex = findHourIndexForUnixMs(h.time, currentUnixMs);
             }
 
             // Extract every model's view of every variable in one pass.
@@ -4262,13 +4394,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const log = await _loadBrierLog();
             for (let leadHour = 1; leadHour <= 3; leadHour++) {
                 // Find the hour index in h.time closest to now + leadHour * 3600.
+                // Binary search the sorted-ascending h.time array; previously
+                // a per-lead O(n) linear scan ran ~3×168 iterations per call.
                 const target = nowMs / 1000 + leadHour * 3600;
-                let bestIdx = -1, bestDiff = Infinity;
-                for (let i = 0; i < h.time.length; i++) {
-                    const d = Math.abs(h.time[i] - target);
-                    if (d < bestDiff) { bestDiff = d; bestIdx = i; }
-                }
-                if (bestIdx < 0 || bestDiff > 1800) continue;   // out of API range or > 30 min off
+                const bestIdx = findHourIndexForUnixMs(h.time, target * 1000);
+                const d = Math.abs(h.time[bestIdx] - target);
+                if (d > 1800) continue;   // out of API range or > 30 min off
                 // Per-model forecast-vote contribution 0..1, using the same ramp as the
                 // live consensus. We *do not* apply regional weights here — the Brier
                 // score is per-model, weights would just dilute the comparison.
@@ -4306,12 +4437,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // by the same engine. With a real weather station pluggable later we'd
             // swap observation source here.
             const observedBestMatch = h.precipitation || null;
-            let nowIdx = -1, bestDiff = Infinity;
+            let nowIdx = -1;
             if (observedBestMatch) {
-                for (let i = 0; i < h.time.length; i++) {
-                    const d = Math.abs(h.time[i] - nowSec);
-                    if (d < bestDiff) { bestDiff = d; nowIdx = i; }
-                }
+                // O(log n) binary search of the sorted-ascending h.time array;
+                // previously an O(n) linear scan.
+                nowIdx = findHourIndexForUnixMs(h.time, nowSec * 1000);
+                const bestDiff = Math.abs(h.time[nowIdx] - nowSec);
                 if (bestDiff > 3600) nowIdx = -1;
             }
             if (nowIdx < 0) return;
@@ -4507,7 +4638,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // localforage writes (720 writes/day → ~288 writes/day max).
                 if (!state._lastBrierTs || (now - state._lastBrierTs) > 300000) {
                     state._lastBrierTs = now;
-                    try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (_) { /* silent */ }
+                    // Surface silent Brier-persistence failures (disk full,
+                    // localforage handler crash, ring-buffer corruption).
+                    // These don't break telemetry (we don't surface Brier in
+                    // the UI yet) but should be observable for diagnosis.
+                    try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (e) { console.warn('Brier persistence failed:', e); }
                 }
                 processTelemetryPayload(dCurr, dFore, dSolar, false);
                 weatherAbort.abort();
@@ -4661,14 +4796,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             </div>
                         `;
                         marker.bindPopup(popupContent, { className: 'custom-popup-dark', offset: [0, -10] });
-                        marker.on('popupopen', () => {
-                            const btn = popupContent.querySelector('.set-pitstop-btn');
-                            if (btn) btn.onclick = () => { marker.closePopup(); this.setPitstopRoute(station); };
-                            const offBtn = popupContent.querySelector('.verify-official-btn');
-                            if (offBtn) offBtn.onclick = () => { window.open(BRAND_LINKS[this.getConfig().brand] || "https://www.google.com/search?q=" + encodeURIComponent(this.getConfig().brand + " gas station locator"), '_blank'); };
-                            const gmapsBtn = popupContent.querySelector('.verify-gmaps-btn');
-                            if (gmapsBtn) gmapsBtn.onclick = () => { window.open(`https://www.google.com/maps/search/${encodeURIComponent(station.name)}+Gas+Station/@${station.lat},${station.lon},17z`, '_blank'); };
-                        });
+                        // Bind popup button handlers ONCE at marker creation
+                        // (previously re-assigned on every `popupopen` event —
+                        // redundant work on each re-open; the buttons were re-
+                        // assigned to the SAME closures so the visible behavior
+                        // was unchanged but the closure allocation repeated).
+                        const btn = popupContent.querySelector('.set-pitstop-btn');
+                        if (btn) btn.onclick = () => { marker.closePopup(); this.setPitstopRoute(station); };
+                        const offBtn = popupContent.querySelector('.verify-official-btn');
+                        if (offBtn) offBtn.onclick = () => { window.open(BRAND_LINKS[this.getConfig().brand] || "https://www.google.com/search?q=" + encodeURIComponent(this.getConfig().brand + " gas station locator"), '_blank'); };
+                        const gmapsBtn = popupContent.querySelector('.verify-gmaps-btn');
+                        if (gmapsBtn) gmapsBtn.onclick = () => { window.open(`https://www.google.com/maps/search/${encodeURIComponent(station.name)}+Gas+Station/@${station.lat},${station.lon},17z`, '_blank'); };
                         state.fuelMarkers.push(marker);
                     });
 
@@ -5104,15 +5242,30 @@ function checkDependenciesAndRun() {
 
                 // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
                 if (_el.altContainer) {
-                    let altStr;
+                    // Compute the rounded integer first and compare against the
+                    // cache key so we skip BOTH the Math.round and the HTML
+                    // string allocation per Aero frame (~60fps) when the
+                    // altitude hasn't changed between frames. Piecewise path
+                    // (alt/topo/2d-fix) is encoded into the same _uiCache.altKey
+                    // so a class-switch across paths also triggers a refresh.
+                    let altKey, altStr;
                     if (st.altitude !== null) {
-                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.altitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                        const r = Math.round(st.altitude);
+                        altKey = 'alt:' + r;
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${r}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
                     } else if (st.topoAltitude !== null) {
-                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${Math.round(st.topoAltitude)}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                        const r = Math.round(st.topoAltitude);
+                        altKey = 'topo:' + r;
+                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${r}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
                     } else {
+                        altKey = '2d';
                         altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
                     }
-                    if (_uiCache.alt !== altStr) { _el.altContainer.innerHTML = altStr; _uiCache.alt = altStr; }
+                    if (_uiCache.altKey !== altKey) {
+                        _el.altContainer.innerHTML = altStr;
+                        _uiCache.altKey = altKey;
+                        _uiCache.alt = altStr;
+                    }
                 }
 
                 // WIND SPEED
