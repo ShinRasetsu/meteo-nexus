@@ -23,7 +23,11 @@ function fastDistance(lat1, lon1, lat2, lon2) {
 // array allocation stays as a final pass. For long routes this halves total
 // decode memory pressure by avoiding a grow-by-one push every iteration.
 function decodeValhallaPolyline(str) {
-    let index = 0, lat = 0, lng = 0, shift = 0, result = 0, byte = 0;
+    // `shift`/`result`/`byte` are NOT initialized here — every iteration of
+    // the outer while loop reaches a `do { … } while (byte >= 0x20)` block
+    // that unconditionally reassigns them before any read. Initializing to
+    // 0 would be dead state (flagged by ESLint v10 `no-useless-assignment`).
+    let index = 0, lat = 0, lng = 0, shift, result, byte;
     const factor = 1e6;
     // Cap to avoid pathological input — Valhalla polylines rarely exceed 50k chars.
     const maxPairs = (str.length >> 1) + 1;
@@ -38,6 +42,13 @@ function decodeValhallaPolyline(str) {
     }
     let pairCount = 0;
     while (index < str.length) {
+        // Reset state at the top of each polyline pair. `byte`, `shift`,
+        // and `result` are all read inside the do/while below; their values
+        // from the PREVIOUS iteration's lng computation would otherwise leak
+        // into this iteration's lat decode. ESLint's `no-useless-assignment`
+        // rule may re-flag this — it's a false positive because the rule does
+        // not model do/while guarantees of "always writes before reads".
+        // eslint-disable-next-line no-useless-assignment
         byte = 0; shift = 0; result = 0;
         do {
             byte = str.charCodeAt(index++) - 63;
@@ -46,6 +57,12 @@ function decodeValhallaPolyline(str) {
         } while (byte >= 0x20);
         lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
 
+        // Reset between the lat and lng passes — `shift` accumulated during
+        // the lat loop (it ends at 5×N where N is # of 5-bit groups for that
+        // component) and `result` carries the decoded lat value; both must
+        // return to 0 before the lng loop's first iteration. These assignments
+        // ARE read by the next do/while (the lint rule's earlier flag was a
+        // false positive w.r.t. cross-loop dataflow).
         shift = 0; result = 0;
         do {
             byte = str.charCodeAt(index++) - 63;
