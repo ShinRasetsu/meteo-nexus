@@ -27,6 +27,78 @@
 5. Run `npm test && npm run lint` before declaring done
 6. (Optional) `git tag v1.4.0` for deployment tracking
 
+## How to audit changes like a developer
+
+> **Painful lesson from 1.3.3**: An audit that only *reads* the code (without executing it) missed a `const now` use-before-declaration bug that silently broke every weather fetch. Tests + lint passed. The app shipped broken. The fix was to actually run the JS through Node's V8 parser and a use-before-declare scanner.
+
+### The 4 mandatory audit phases
+
+**PHASE 1 — Syntax parse (NOT optional)**
+Static inspection is not enough. Run the JS through a real parser:
+```bash
+node --check file.mjs
+```
+To check the inline `<script type="module">` block in `index.html`:
+1. Extract from `<script type="module">` to the **next** `</script>` (NOT `lastIndexOf` — that catches the wrong closing tag if there are multiple `<script>` blocks).
+2. Strip HTML tag patterns inside template literals (`<div>` → `X`) so the parser sees valid JS.
+3. Save to `temp_module.mjs` and run `node --check`.
+4. Expected output: `PARSE OK`. Any other output = ship-blocker.
+
+**PHASE 2 — Use-before-declare scan (NOT optional)**
+Node's parser validates syntax, but `const x` used on the line *before* its declaration throws `ReferenceError` at runtime — not at parse time. ESLint's `no-use-before-define` rule does NOT catch this when the use and declaration are in the same block scope.
+
+The bug pattern: ```js
+if (!state._last && (now - state._last) > 60) { ... }    // uses `now`
+const now = Date.now();                                   // declares `now`
+```
+This throws `ReferenceError: now is not defined` — caught silently by a surrounding `try/catch`, which then takes the offline fallback path instead of failing loudly.
+
+To detect:
+- Walk every `{` / `}` to record block-scope boundaries (openIdx, closeIdx)
+- For each `const NAME =`, find the enclosing block scope
+- Scan backwards from the declaration to the block opener for bare `NAME` identifier usage
+- Flag any reference that appears before the declaration line
+
+**PHASE 3 — Static structural checks**
+- Count `{` vs `}` across the whole JS module (depth must end at 0)
+- Verify critical feature substrings are present (e.g. `'cacheTTL: 120000'`, `'body.night'`)
+- Verify OLD patterns are GONE (e.g. no `'cacheTTL: 300000'`, no `max-md:`, no `mbFull`)
+- Run `npm test` (127 assertions) + `npm run lint` (zero errors)
+
+**PHASE 4 — Lifecycle + behavioural reasoning**
+For each `const` you add inside a loop or fetch handler:
+- Is it declared **before** every branch that references it?
+- Is the surrounding `try/catch` swallowing what would otherwise be a loud failure? An empty `catch {}` block hides bugs — change to `catch (e) { console.warn(e) }` during dev.
+- Does the variable's value match across all consumer surfaces (telemetry card vs glance strip vs Aero HUD)?
+
+### Why `npm test` alone is insufficient
+The sanity test (`tests/sanity.test.js`) does **substring matching** on the file text. It verifies that critical strings are present, but it does not:
+- Parse the JS to validate syntax
+- Execute any function
+- Detect use-before-declare runtime errors
+- Detect silent `catch {}` swallowing of ReferenceErrors
+
+This is by design — the tests are **structural guards against accidental deletion**, not runtime verification. They are necessary but not sufficient.
+
+### Why `npm run lint` alone is insufficient
+ESLint's recommended config (`js.configs.recommended`) does NOT flag:
+- Use-before-declare for `const` in the same block scope
+- Empty `catch {}` blocks (only `no-empty` flags truly empty, not `_` named)
+- Logical bugs in fetch throttling logic
+
+The `eslint.config.js` also explicitly **ignores `index.html`** (line 11: `ignores: [..., "index.html"]`), so the inline `<script type="module">` block is never linted at all.
+
+### The minimum "did I break fetch?" smoke test
+After any change to `processTelemetryPayload`, `normalizeTelemetryData`, `fetchData`, or the fetch trigger guard:
+1. Open browser DevTools → Network tab
+2. Reload the app with GPS permitted
+3. Verify a request to `api.open-meteo.com/v1/forecast?current=temperature_2m,...` completes with HTTP 200
+4. Verify the telemetry card shows non-`--` values (a temperature, a wind speed, a status text)
+5. Verify the `#hud-glance-temp` element shows a number, not `--°C`
+6. Check the Console tab for any red errors (silent `catch {}` will hide them otherwise)
+
+If any of these fails, the change is broken — regardless of what `npm test` or `npm run lint` report. **Runtime truth > static checks.**
+
 ---
 
 ## 1.3.3 — 2026-08-02 (driving usability: night mode, haptic rain, glance strip, plus performance/portrait audit)
