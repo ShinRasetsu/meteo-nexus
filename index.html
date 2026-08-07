@@ -550,6 +550,10 @@
                     }
                 } catch (e) {
                     clearTimeout(id);
+                    // AbortError means the caller explicitly cancelled via AbortController
+                    // (weatherAbort / timeout) — retrying would waste 2×backoff cycles
+                    // on an intent-to-terminate condition.
+                    if (e && e.name === 'AbortError') throw e;
                     if (e.terminal || i === retries - 1) throw e;
                 } finally {
                     if (abortHandler && options.signal) options.signal.removeEventListener('abort', abortHandler);
@@ -1717,15 +1721,19 @@ let delta = heading - state.lastHeading;
             }
             DOM.modals.mapCache.classList.remove('hidden');
         };
-        DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 && e.type !== 'touchstart' && e.type !== 'pointerdown') return;
-            if (state.isCachingMap) return;
-            mapHoldTimer = setTimeout(() => { mapHoldTimer = null; DOM.modals.mapClear.classList.remove('hidden'); }, 800);
-        });
-        DOM.cacheMapBtn.addEventListener('pointerup', (e) => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; promptMapDownload(); } });
-        DOM.cacheMapBtn.addEventListener('pointerleave', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
-        DOM.cacheMapBtn.addEventListener('pointercancel', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
-        DOM.cacheMapBtn.addEventListener('contextmenu', e => e.preventDefault());
+        if (DOM.cacheMapBtn) {
+            DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0 && e.type !== 'touchstart' && e.type !== 'pointerdown') return;
+                if (state.isCachingMap) return;
+                mapHoldTimer = setTimeout(() => { mapHoldTimer = null; DOM.modals.mapClear.classList.remove('hidden'); }, 800);
+            });
+            DOM.cacheMapBtn.addEventListener('pointerup', (e) => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; promptMapDownload(); } });
+            DOM.cacheMapBtn.addEventListener('pointerleave', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
+            DOM.cacheMapBtn.addEventListener('pointercancel', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
+            DOM.cacheMapBtn.addEventListener('contextmenu', e => e.preventDefault());
+        } else {
+            console.warn('MeteoNexus: cache-map-btn DOM element missing — map-cache UI unavailable.');
+        }
 
         // --- MAP TILE PREFETCHER ---
         function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
@@ -2811,8 +2819,6 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         // and reads only module-level helpers + `state`, so the move
                         // is observability-equivalent.
 
-                        if (state.currentWatch) navigator.geolocation.clearWatch(state.currentWatch);
-
                 processNodes(lat, lon, state.routeNodes, 'routeNodesCursor');
                 processNodes(lat, lon, state.originalRouteNodes, 'originalRouteNodesCursor');
 
@@ -3416,11 +3422,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         //   without per-node lead-hour blending.
         function renderRouteIntelTimeline(waypoints, baseData, modelData, isOffline, scrollPos) {
             // Graceful partial-data: if one endpoint failed, still render what we have.
+            // The model endpoint (`results[1]`) provides per-model precipitation arrays
+            // for ensemble wetness consensus — if it fails we can still display the base
+            // weather (temp/wind/code/UV) from `results[0]` independently. Previously
+            // `N` was clamped by `modelPoints.length`, which zeroed the timeline
+            // silently on partial failure. Now N is driven by `waypoints` ∩
+            // `weatherPoints`; ensemble-dependent nodes get a null-safety gate below.
             const weatherPoints = (baseData && (Array.isArray(baseData) ? baseData : [baseData]))
                 .filter(Boolean);
             const modelPoints   = ((modelData && (Array.isArray(modelData) ? modelData : [modelData])) || [])
                 .filter(Boolean);
-            const N = Math.min(waypoints.length, weatherPoints.length || 0, modelPoints.length || 0);
+            const N = Math.min(waypoints.length, weatherPoints.length || 0);
 
             let htmlBuffer = '';
             if (isOffline) {
@@ -3435,7 +3447,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const currentUnixMs = Date.now();
             for (let k = 0; k < N; k++) {
                 const p = weatherPoints[k];
-                const m = modelPoints[k];
+                const m = (modelPoints.length > k) ? modelPoints[k] : null;
                 const wp = waypoints[k];
                 // Per-waypoint regional weighting — routes typically stay in one regime
                 // but long-haul (e.g. EU→JP) cross-buckets and each crossing needs a
@@ -3460,8 +3472,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     WeatherEnsemble.setActiveWeights(wp.lat, wp.lon);
                 }
                 const baseNowIndex = waypointNowIndex;
-                const mH = m.hourly || {};
-                const precipModels = WeatherEnsemble.extractModelArrays(mH, 'precipitation');
+                const mH = (m && m.hourly) ? m.hourly : null;
+                const precipModels = mH ? WeatherEnsemble.extractModelArrays(mH, 'precipitation') : [];
                 // Pre-filter sentinel-dead precip arrays (all-zero Open-Meteo out-of-region
                 // pattern) so the renormalisation math excludes them as nulls. Mirrors the
                 // dashboard consensus path.
@@ -3478,7 +3490,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // We also keep `wetPctShortWindow` for an extra tooltip — short-lived
                 // (~2h) post-rain wetness that may show on radar but already be over.
                 const winStart = Math.max(0, baseNowIndex - 1);
-                const winEnd = Math.min((mH.time || p.hourly?.time || []).length || 0, baseNowIndex + 2);
+                const winEnd = Math.min((mH?.time || p.hourly?.time || []).length || 0, baseNowIndex + 2);
                 const wetResult = WeatherEnsemble.weightedWetnessAll(precipModels, winStart, winEnd);
                 const wetArr = wetResult.wet;
                 const currentWetPct = wetArr.length >= (baseNowIndex - winStart) ? (wetArr[baseNowIndex - winStart] || 0) : (wetArr[0] || 0);
@@ -3702,6 +3714,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return;
             const ctx = getAudioContext();
+            if (ctx.state === 'suspended') {
+                // Do NOT set lastPing — we didn't actually fire. The ping scheduler
+                // will retry at the next opportunity (~5 seconds later). On the
+                // first user gesture the context will be resumed and the still-
+                // pending ping fires right then.
+                ctx.resume().catch(e => console.debug('AudioContext resume failed:', e));
+                return;
+            }
             const osc = ctx.createOscillator(); const gain = ctx.createGain();
             osc.connect(gain); gain.connect(ctx.destination);
             osc.frequency.setValueAtTime(1200, ctx.currentTime);
@@ -4964,6 +4984,7 @@ function checkDependenciesAndRun() {
             };
             let deferredPrompt;
             const installBtn = document.getElementById('pwa-install-btn');
+            if (!installBtn) return;
             if (window.matchMedia('(display-mode: standalone)').matches) {
                 installBtn.classList.add('hidden');
             }

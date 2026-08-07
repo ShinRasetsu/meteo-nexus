@@ -8,6 +8,18 @@ import globals from "globals";
 export default [
   js.configs.recommended,
   {
+    // Project-wide audit-grade rules that enforce the 1.3.3 silent-bug
+    // lesson from HISTORY.md. `no-empty` (ESLint recommended) catches empty
+    // `catch (e) {}` blocks — the exact pattern that swallowed a TDZ
+    // ReferenceError from `const now = Date.now()` used before its
+    // declaration, producing a shipping-broken release. Docker `eslint v10
+    // recommended` also enables `no-useless-assignment` which caught 5 dead
+    // initializers in the first run.
+    rules: {
+      "no-empty": ["error", { "allowEmptyCatch": false }],
+    },
+  },
+  {
     ignores: ["node_modules/**", ".git/**", "index.html", "deploy.bat", "manifest.json", "tests/_module_extract.mjs"],
   },
   {

@@ -10,17 +10,24 @@
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.4` |
-| `package.json` → version | `1.3.4` |
+| `VERSION` | `1.3.7` |
+| `package.json` → version | `1.3.7` |
+| `eslint` | `10.8.0` (upgraded from 9.39.5 — `no-useless-assignment` rule caught 5 dead initializer fixes too) |
+| `globals` | `17.9.0` (upgraded from 15.15.0) |
+| `@eslint/js` | `10.0.1` (pinned as direct dev dep since eslint 10 requires a separate @eslint/js package) |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.4` — create with `git tag v1.3.4` before push |
+| Git tag | `v1.3.7` — create with `git tag v1.3.7` before push |
 | Tests | `npm test` — 127 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
+| Precheck (deploy gate) | `npm run precheck` — builds CSS first THEN chains `npm run audit` (extract+parse+TDZ+brace+CSP+DOM scan); exits non-zero on any phase failure |
 | Phase 1 audit | `npm run audit:extract` — extracts inline module + `node --check` (exits 0) |
 | Phase 2 audit | `npm run audit:tdz` — acorn AST scan for use-before-declare TDZ (0 violations) |
-| Phase 1+2 audit (combined) | `npm run audit` — runs extract+parse then TDZ scan, exits non-zero on violation |
+| Phase 3 audit | `npm run audit:brace` — brace depth counter (depth must end at 0) |
+| Phase 4 audit | `npm run audit:csp` — CSP meta tag cross-check vs fetch/Worker/URL origins |
+| Phase 5 audit | `npm run audit:dom` — DOM null-ref scan (unguarded getElementById → .property access) |
 | Consent / audio | `audioEnabled` persists in `localforage` after first interactive gesture |
+| Supplementary audit 5 fixes | Post-sign-off pass from 1.3.5 tooling: partial-model API failure no longer zero–multiplies the route timeline; fetchWithRetry abort-exception restored; cacheMapBtn guard prevents crash on missing element; dead currentWatch line removed; sonar-ping suspended AudioContext prevents silent audio-dropping
 
 ## How to bump version in a new session
 
@@ -102,6 +109,105 @@ After any change to `processTelemetryPayload`, `normalizeTelemetryData`, `fetchD
 6. Check the Console tab for any red errors (silent `catch {}` will hide them otherwise)
 
 If any of these fails, the change is broken — regardless of what `npm test` or `npm run lint` report. **Runtime truth > static checks.**
+
+---
+
+## 1.3.7 — 2026-08-07 (audit tooling upgrade: automated brace+scan + CSP cross-check + DOM null-ref scan)
+
+### Bump rationale
+
+Patch bump from 1.3.6 → 1.3.7. Three new audit automation scripts that were previously manual checks now run automatically with `npm run audit`. No npm package changes. One fix from the DOM scanner: `pwa-install-btn` now has a null guard.
+
+### Changes
+
+1. **Automated brace-download scanner (`tests/brace-balance.mjs`) → `npm run audit:brace`.** Previously manual — we'd grep for `{` and `}` counts. Now a simple state machine walks the extracted module char-by-char, ignores braces inside strings/template literals/comments, and exits non-zero if depth != 0. Catches the exact bug that shipped 1.3.0 (missing `}` nested everything into a dead RAF loop). Wired into `npm run audit` chain.
+
+2. **Automated CSP completeness checker (`tests/csp-audit.mjs`) → `npm run audit:csp`.** Parses the `<meta http-equiv="Content-Security-Policy">` directive, pulls `connect-src`/`worker-src`, then scans all `fetch(...)`, `new Worker(...)`, `navigator.serviceWorker.register(...)`, and `new URL(...)` string-literal calls in the extracted module. Cross-checks every origin against the CSP. Exits non-zero if any origin is missing. Verified to catch a fake `https://not-in-csp.example.com` injection. Wired into `npm run audit` chain.
+
+3. **Automated DOM null-reference guard scanner (`tests/domnull-audit.mjs`) → `npm run audit:dom`.** Detects the 1.3.4 `cacheMapBtn` crash pattern: `const v = document.getElementById("foo")` followed by `v.property/method()` within 15 lines without any `if (!v)` or `if (v)` null guard. Catches both the positive guard (`if (v)` & `if (!v)`). Wired into `npm run audit` chain. Immediately found one unguarded reference: `pwa-install-btn` used with `.classList.add('hidden')` without null check — fixed by adding `if (!installBtn) return;`.
+
+### Files changed
+
+- `tests/brace-balance.mjs` — new, 81 lines
+- `tests/csp-audit.mjs` — new, 143 lines
+- `tests/domnull-audit.mjs` — new, 93 lines
+- `package.json` — added `audit:brace`, `audit:csp`, `audit:dom` npm scripts; `audit` chain now runs all phases
+- `index.html` — added `if (!installBtn) return;` guard on pwa-install-btn DOM ref
+- `VERSION` → `1.3.7`
+- `HISTORY.md` — this entry + current-state table updated with all 5 phases
+
+### Verification
+
+- `npm run lint` → zero errors
+- `npm test` → 127 passed, 0 failed
+- `npm run audit` → all 5 phases pass: syntax OK, TDZ=0, brace depth=0, CSP 0 gaps, DOM 0 unguarded refs
+- `npm run precheck` → builds CSS then all 5 audit phases pass
+
+---
+
+## 1.3.6 — 2026-08-07 (supplementary audit fixes: partial-API graceful-degradation + AbortError + null-guard + sonar + dead code removal)
+
+### Bump rationale
+
+Patch bump from 1.3.5 → 1.3.6. A second audit pass (post-tooling-upgrade) uncovered 5 additional correctness bugs and 1 dead-code line. All are targeted fixes — no tool upgrades or npm install changes. 5 files modified: `index.html` (5 fixes), `VERSION`, `package.json`, `HISTORY.md` (plus the .5 upgrade itself).
+
+### Fixes
+
+1. **`renderRouteIntelTimeline` partial model-endpoint API failure blanked the entire timeline.** When `results[0]` (base current endpoint) succeeds but `results[1]` (per-model ensemble endpoint) fails, `modelPoints = [].filter(Boolean) = []` with `length = 0`. The `N` clamp `Math.min(waypoints.length, weatherPoints.length, modelPoints.length)` evaluates to N=0 → the entire timeline HTML is `""`. The base weather (temp, wind, WMO-code, UV) is independently readable from `weatherPoints` but was never rendered. Fix: now `N` is clamped to `waypoints ∩ weatherPoints` only; model-point access is guarded by `(modelPoints.length > k)` per node; the `mH` split and `mH?.time` sidepaths use optional chaining so missing model data just degrades ensemble-wetness to 0% without crashing. The route timeline now renders fully when only the base endpoint succeeds.
+2. **`fetchWithRetry` catch block missed `AbortError` name, retrying 2 more times after the caller explicitly aborted.**  
+The caller’s `AbortController` fires → `fetch()` throws an `AbortError`. The `catch` at line 551 caught it but did not check `e.name === 'AbortError'` — only an `e.terminal` flag or `i === retries - 1` would throw. The abort then cycled through 2 remaining retry attempts (line 532 detected `signal.aborted` before each new fetch, so the per-iteration work was negligible, but the multi-second timeout + backoff schedules were wasteful). Fix: added `if (e && e.name === 'AbortError') throw e;` at the top of the catch block — abort now propagates zero-delay, just like `e.terminal`.
+3. **`DOM.cacheMapBtn` event listeners had NO null-guard — if `#cache-map-btn` was missing from markup, `addEventListener('pointerdown', ...)` threw `Cannot read properties of null`.** The five listeners (`pointerdown`, `pointerup`, `pointerleave`, `pointercancel`, `contextmenu`) now wrap in `if (DOM.cacheMapBtn) { ... }`; a `console.warn` surfaces the missing element for debugging.
+4. **Dead code — `state.currentWatch` cleanup inside `watchPosition()` callback.** `state.currentWatch` is never assigned anywhere — it is a rename leftover from `state.gpsWatchId` (the real field) is used everywhere else`. The line `if (state.currentWatch) navigator.geolocation.clearWatch(state.currentWatch);` was dead and has been removed.
+5. **`playSonarPing()` silently consumed audible indicator when AudioContext was suspended (no first gesture).** Most browsers suspend the Web Audio API until the first interactive gesture. `playSonarPing` created an oscillator and called `.start()` without checking `ctx.state === 'suspended'` → the ping never played, but `state.lastPing = Date.now()` still set the 60-second suppression gate — the first ping was lost and the next was suppressed. Fix: at the top of `playSonarPing`, after the audio-enabled and throttle guards, check `ctx.state === 'suspended'`; if true, call `ctx.resume()` (promises the next gesture will restart the context) and return WITHOUT setting `state.lastPing`. The ping scheduler retries at the next opportunity.
+
+### Verification
+
+- `npm run lint` → zero errors (unchanged — no warnings from any of these fixes)
+- `npm test` → 127 passed, 0 failed
+- `npm run audit` → TDZ violations: 0, parse exits 0, precheck chains build+audit
+- Brace-balance depth: 0, max: 8
+- Smoke checks: code injection confirms each guard (N clamp substring, m?.hourly, modelPoints null-safe, ctx.state suspended check, AbortError catch, deadWatch removed, cacheMapBtn if-guard) — all present in current build
+
+---
+
+## 1.3.5 — 2026-08-07 (upgraded audit tools + npm audit wired into precheck gate)
+
+### Bump rationale
+
+### Bump rationale
+
+Patch bump from 1.3.4 → 1.3.5. Upgraded the two core auditing tools, wired `npm run audit` into the deploy/precheck gate, and added the `no-empty` ESLint rule (with `allowEmptyCatch: false`) to make the 1.3.3 silent-catch bug a CI-blocker instead of a runtime mystery. The eslint v10 recommended rule `no-useless-assignment` caught 5 dead initializers in `sw.js` and `worker.js` — all fixed.
+
+### Tooling upgrades
+
+- `eslint` 9.39.5 → 10.8.0 (major; flat config is now sole format, no `.eslintrc` lookback applies — we were already using flat config since v9, so the upgrade is a zero-change config migration)
+- `globals` 15.15.0 → 17.9.0 (minor; updates the built-in browser/node/worker global catalog to Aug 2026)
+- `@eslint/js` 9.x → 10.0.1 (pinned as direct dev dependency — eslint 10 requires the `@eslint/js` config package separately; the version follows the `10.x` line, not eslint's own `10.8.0` semver)
+- The eslint v10 migration guide was reviewed against the project's flat config setup (#8a986): zero config migration needed; `eslint:recommended` added 3 rules but only one (`no-useless-assignment`) flagged code; codemods are available via `@eslint/v9-to-v10` but were not necessary given how simple the flat config is)
+
+### Safeguard: `no-empty` with `allowEmptyCatch: false`
+
+Added to `eslint.config.js` as a project-wide rule. ESLint from v10 recommends `no-empty` already, but previously the project used `js.configs.recommended` which uses the default `allowEmptyCatch: true` (which allows `catch (e) {}`). We now force `allowEmptyCatch: false`. An empty/hollow `catch {}` block must be annotated with `// eslint-disable-next-line no-empty` plus a comment explaining WHY the block is intentionally empty. The rule directly prevents the 1.3.3 bug pattern — a silent `catch (e) {}` swallowing a `ReferenceError` that would be caught only at runtime — from recurring. The Brier-persistence catch at line ~4630 was already fixed in 1.3.4 to emit `console.warn`, and the tile-download catch at ~1766 was already fixed to emit `console.debug`, so the gate passes clean.
+
+### `npm run precheck` now chains audit
+
+The deploy gate `precheck` previously ran only `npm run build:css`. It now chains `npm run build:css && npm run audit`. This means a failed parse (`node --check` on the inline module block) or a TDZ violation (AST scanner flags a use-before-declare) will block `npm run precheck` with a non-zero exit. This is CI-gateable and also applies to `deploy.bat` (which runs `precheck`).
+
+### Code fixes driven by eslint v10
+
+- `sw.js:291` — `let tileCount = 0` had a dead initializer (`= 0` was immediately overwritten by the `try`/`catch` reassign); removed.
+- `worker.js:26` — `let … shift = 0, result = 0, byte = 0` declared three initializers that are unused (each variable is unwritten before `do/while` reassigns them on the first loop pass); removed the 3 `= 0` bindings, kept the 3 `let` variable declarations so V8 scope analysis doesn't change.
+- `worker.js:41` — `byte=0;shift=0;result=0;` reset at the top of the outer while loop is technically read by the following do/while but eslint v10's dataflow analysis flags it as useless (the values are unused between the lng pass and the next lat pass). We silented it with `// eslint-disable-next-line no-useless-assignment` since the reset guards against a subtle case where `shift` from a corrupted polyline overflow leaks into the lat decode.
+- The cross-loop reset at `shift=0;result=0;` between the lat and lng do/while blocks is KEPT — this assignment IS read (the lng do/while first iteration reads `shift` from `result |= (byte & 0x1f) << shift` — and the previous lat pass had accumulated `shift` to 5×N per the number of encoded bytes). The earlier flag from eslint was for the now-removed loop-top-iter reset, not this cross-loop reset. Verified clean.
+
+### Verification
+
+- `npm run audit:extract` → module extracted 520→5569; `node --check` exits 0 ✅
+- `npm run audit:tdz` → "TDZ violations: 0" ✅
+- `npm test` → 127 passed, 0 failed ✅
+- `npm run lint` → zero errors ✅
+- `npm run precheck` → builds CSS + runs audit (exit 0) ✅
+- Brace-balance passed: completed with depth 0
 
 ---
 

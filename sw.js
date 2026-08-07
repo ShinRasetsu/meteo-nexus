@@ -288,7 +288,7 @@ self.addEventListener('fetch', (e) => {
 // are sufficient before driving into a dead zone.
 self.addEventListener('message', async (e) => {
     if (e.data && e.data.type === 'CACHE_STATS') {
-        let tileCount = 0;
+        let tileCount;
         try {
             const c = await caches.open(MAP_CACHE);
             tileCount = (await c.keys()).length;
