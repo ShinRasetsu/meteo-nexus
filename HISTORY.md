@@ -10,14 +10,14 @@
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.7` |
-| `package.json` → version | `1.3.7` |
+| `VERSION` | `1.3.8` |
+| `package.json` → version | `1.3.8` |
 | `eslint` | `10.8.0` (upgraded from 9.39.5 — `no-useless-assignment` rule caught 5 dead initializer fixes too) |
 | `globals` | `17.9.0` (upgraded from 15.15.0) |
 | `@eslint/js` | `10.0.1` (pinned as direct dev dep since eslint 10 requires a separate @eslint/js package) |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.7` — create with `git tag v1.3.7` before push |
+| Git tag | `v1.3.8` — create with `git tag v1.3.8` before push |
 | Tests | `npm test` — 127 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
 | Precheck (deploy gate) | `npm run precheck` — builds CSS first THEN chains `npm run audit` (extract+parse+TDZ+brace+CSP+DOM scan); exits non-zero on any phase failure |
@@ -112,7 +112,62 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
-## 1.3.7 — 2026-08-07 (audit tooling upgrade: automated brace+scan + CSP cross-check + DOM null-ref scan)
+## 1.3.8 — 2026-08-08 (scanner self-audit: TDZ + brace-balance fixed — both were silently no-op)
+
+### Bump rationale
+
+Patch bump 1.3.7 → 1.3.8. The session opened with the question "check if our audit scanners were already good". A new verification harness (`tests/verify-scanners.mjs`) injected each scanner's target bug class into the extract and ran the scanner — exactly the kind of self-test the scanners were built to perform. **Two of the five scanners were silently broken**: they reported PASS without actually scanning. This release fixes both and adds `npm run audit:verify` so any future regression in the scanners themselves is caught.
+
+### Findings
+
+A. **TDZ scanner (`tests/ast-scan-tdz.mjs`) was structurally broken — single-pass walker could never flag a real TDZ violation.** The old walker registered `const`/`let` bindings only when it REACHED the declaration in traversal order. Since AST traversal follows source order, any reference BEFORE the declaration was visited while the binding did not exist yet in the scope `Map` — the lookup returned `null` and no violation was flagged. The 1.3.3 `Date.now()` bug pattern would have shipped silently had we relied solely on this scanner. **Repro**: injecting `function tdzTest() { return [x, x*2]; const x = 1; }` into the extract and running the old scanner returned `TDZ violations: 0` (exit 0).
+
+   **Fix**: rewrote the walker as a hoisting-per-scope single pass. Each block scope pre-registers every VariableDeclaration / FunctionDeclaration / parameter in its own scope BEFORE walking the body in source order. References can now find the binding and compare line/char-offset ordering. Also tracks scope depth so references inside nested FUNCTION scopes (callbacks that run later) are correctly skipped — only block-scope chain walkers count.
+
+   **Tested**: scanner now flags both (a) same-line TDZ like `return [x, x*2]; const x = 1;` via char-offset tie-break, and (b) the original 1.3.3 multi-line pattern via try-block nesting (`function tdzTest() { try { if (now > state._last) {} } catch (e) {} const now = Date.now(); }` → flagged). Member expressions (`state.utcOffsetSec`), property keys (`{ foo: bar }`), function hoisting, parameters, and `var` all correctly excluded (verified against the codebase — 0 spurious hits).
+
+B. **Brace-balance scanner (`tests/brace-balance.mjs`) was a no-op on the live codebase.** The FSM entered a `STR` (string) state whenever it encountered `"` while reading line 50 (`/markers=([^"&>]+)/i` regex literal) because regex literals were not handled. From that line onward the FSM treated all braces, comments, and code as inside an enormous string — never counting any of them. Output `depth=0 max=0 min=0` even on the 5000-line extract that visibly has 8 levels of nesting.
+
+   **Fix**: added a `REGEX` state and a "previous significant character" heuristic. A `/` is treated as a regex-start (not division) iff the previous non-whitespace, non-comment token is one of `,`, `(`, `[`, `{`, `=`, `!`, `?`, `:`, `;`, `&`, `|`, `^`, `~`, `<`, `>`, `+`, `-`, `*`, `%`, `{`, `}`, `[`, newline. Once inside a regex, character classes `[...]` are tracked (so `/` inside `[...]` doesn't terminate the regex), `\\` escapes skip the next char, and a closing `/` (when not inClass) returns to NORMAL. Also fixes `\n` handling: previously reached via `continue` before the switch (so `//` single-line comments never terminated), now `case 'SL':` sees `\n` and resets state.
+
+   **Tested**: scanner now reports `depth=0 max=8 min=0` on the clean extract and `depth=1 max=8 min=0` (exit 2, "BRACE MISMATCH") after removing the last `}` of the module.
+
+### New guard: `npm run audit:verify`
+
+A new test harness `tests/verify-scanners.mjs` self-tests the scanners by injecting each scanner's target bug class into a copy of the extract and asserting the scanner exits non-zero with the expected message. Currently 8 cases (5 positive + 3 negative controls):
+
+- PHASE 1: `node --check` correctly exits non-zero on syntax-error injection
+- PHASE 2: TDZ scanner flags `return [x, x*2]; const x = 1;` AND the multi-line `try { if (now > ...) } catch {}; const now = ...` pattern
+- PHASE 3: brace-balance flags removal of the final `}`
+- PHASE 4: csp-audit flags injection of `fetch('https://not-in-csp.example.com/data.json')`
+- PHASE 5: domnull-audit flags `el.classList.add('x')` after unguarded `getElementById('foo')`
+- Negative controls 1-3: TDZ scanner does NOT flag `const y = 1; return y;`; domnull scanner does NOT flag `if (el) el.classList.add('x')`
+
+This guards against future regressions in the scanner code itself — the same class of failure we just lived through.
+
+### Files changed
+
+- `tests/ast-scan-tdz.mjs` — full rewrite (~250 lines): hoisting-per-scope walker, scope-depth-aware callback exclusion, char-offset tie-break for same-line TDZ, MemberExpression / OptionalMemberExpression property exclusion
+- `tests/brace-balance.mjs` — added REGEX state with character-class support and prev-char heuristic for division vs regex disambiguation
+- `tests/verify-scanners.mjs` — new, 113 lines, runs 8 bug-injection tests
+- `package.json` — added `audit:verify` script
+- `VERSION` → `1.3.8`, `HISTORY.md` — this entry
+
+### Verification
+
+- `npm run audit:verify` → **8 passed, 0 failed**
+- `npm run audit` → all 5 phases pass (extract, TDZ=0, brace `depth=0 max=8 min=0`, CSP 0 gaps, DOM 0 unguarded)
+- `npm run lint` → zero errors
+- `npm test` → 127 passed, 0 failed
+- `npm run precheck` → CSS built, audit chain green
+
+### Lesson
+
+Scanners must self-verify. The 1.3.3 lesson was "static inspection missed a runtime TDZ bug". This release's lesson is "static inspection missed a self-test of the static inspection tool itself". The verify-scanners harness prevents the next iteration of the same trap — a scanner that reports PASS without performing the scan.
+
+---
+
+## 1.3.7 — 2026-08-07 (audit tooling upgrade: automated brace-scan + CSP cross-check + DOM null-ref scan)
 
 ### Bump rationale
 
