@@ -111,7 +111,7 @@ async function swrFetch(request, cacheName, maxAgeMs) {
                         const headers = new Headers(clone.headers);
                         headers.set('X-SW-Cached-At', String(Date.now()));
                         const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
-                        bgCache.put(request, tagged).catch(() => {});
+                        bgCache.put(request, tagged).catch((e) => { console.debug('SW bg cache.put failed (intentional silencer):', e && e.message); });
                     }).catch(() => {}));
                 }
             }).catch(() => { _bgRefreshRequests.delete(bgUrl); });
@@ -126,7 +126,7 @@ async function swrFetch(request, cacheName, maxAgeMs) {
             const headers = new Headers(clone.headers);
             headers.set('X-SW-Cached-At', String(Date.now()));
             const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
-            cache.put(request, tagged).catch(() => {});
+            cache.put(request, tagged).catch((e) => { console.debug('SW cache.put failed (intentional silencer):', e && e.message); });
             return netRes;
         }
     } catch { /* network unreachable — fall through to cached or 503 */ }
@@ -257,7 +257,7 @@ self.addEventListener('fetch', (e) => {
                 if (cType.includes('text/html') || cType.includes('text/css') ||
                     cType.includes('application/javascript') || cType.includes('image/')) {
                     const cache = await caches.open(APP_CACHE);
-                    cache.put(e.request, response.clone()).catch(() => {});
+                    cache.put(e.request, response.clone()).catch((err) => { console.debug('SW app cache.put failed (intentional silencer):', err && err.message); });
                 }
                 return response;
             } catch {

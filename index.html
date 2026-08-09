@@ -27,16 +27,19 @@
     <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js" integrity="sha384-4945sCngUQDV87Ya/YMj0C/CtNaGKMyhUP6ilixT6PaLNU/Wfb64r91sLpw+uD/q" crossorigin="anonymous">
 
     <link rel="stylesheet" href="./tailwind.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4" crossorigin="anonymous" defer></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <!-- Google Fonts CSS is intentionally SRI-less: the response is dynamically
+         generated per browser (different woff2 URLs / @font-face rules based on
+         the User-Agent), so a single sha384 would break for non-matching UAs. -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous" defer></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" integrity="sha384-n6BdBD4Ahcb9IGZDgjgv0hV2a/y2WOCf1n0kEMZDpZySy/Hv1QMAtLIrC3y9oIZD" crossorigin="anonymous" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" integrity="sha384-Le/Ab4WG5Ezkdf4RS5P5eZrpmvNgcZ4QcTozVDXGoOsTxGroBLM4e9OSqeh6V26n" crossorigin="anonymous" defer></script>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" integrity="sha384-MTDrIlFOzEqpmOxY6UIA/1Zkh0a64UlmJ6R0UrZXqXCPx99siPGi8EmtQjIeCcTH" crossorigin="anonymous" defer></script>
     
     <script>
         const THEME_COLORS = { 
@@ -1970,7 +1973,7 @@ let delta = heading - state.lastHeading;
             } catch(e) { console.warn('MagCal save failed:', e); }
         }
         async function clearMagCalibrationStored() {
-            try { if (window.localforage) await localforage.removeItem(MAGCAL_KEY); } catch(e) {}
+            try { if (window.localforage) await localforage.removeItem(MAGCAL_KEY); } catch(e) { console.debug('MAGCAL_KEY removeItem failed (intentional silencer):', e && e.message); }
             magCalState.bias = [0, 0, 0];
             magCalState.scale = [1, 1, 1];
             magCalState.quality = 0;
@@ -2192,7 +2195,8 @@ let delta = heading - state.lastHeading;
             if (!magCalState.capturing) return;
             magCalState.capturing = false;
             if (magCalState.magSensor) {
-                try { magCalState.magSensor.stop(); } catch(e) {}
+                // Sensor API stop() can throw if already stopped / sensor context gone.
+                try { magCalState.magSensor.stop(); } catch(e) { console.debug('magSensor.stop failed (intentional silencer):', e && e.message); }
                 magCalState.magSensor = null;
             }
             window.removeEventListener('deviceorientation', magCalDevOrientHandler, true);
@@ -3080,9 +3084,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const payloadData = await res.json();
                 if (payloadData.error) throw new Error(payloadData.error);
                 let rawUrl = payloadData.url || "";
-                try { rawUrl = decodeURIComponent(rawUrl); } catch(e) {}
+                // GMaps payloads may be already-decoded or single-encoded; both
+                // shapes must pass through, so a decode failure is the "still
+                // encoded once" path.
+                try { rawUrl = decodeURIComponent(rawUrl); } catch(e) { console.debug('rawUrl decodeURIComponent skipped (intentional silencer):', e && e.message); }
                 let rawHtml = payloadData.html || "";
-                try { rawHtml = decodeURIComponent(rawHtml); } catch(e) {}
+                try { rawHtml = decodeURIComponent(rawHtml); } catch(e) { console.debug('rawHtml decodeURIComponent skipped (intentional silencer):', e && e.message); }
                 let cleanPayload = (rawUrl + " \n" + rawHtml).replace(/%2C/gi, ',').replace(/,\s+/g, ',');
                 let cleanUrl = rawUrl.replace(/%2C/gi, ',').replace(/,\s+/g, ',');
                 let lat = null, lon = null, originLat = null, originLon = null, explicitWaypoints = [];
@@ -3214,7 +3221,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             } catch(e) { console.warn('Nav target restore failed:', e); return null; }
         }
         function clearPersistedNavTarget() {
-            try { if (window.localforage) localforage.removeItem(NAV_STORAGE_KEY).catch(()=>{}); } catch(e) {}
+            // Storage failure here is non-fatal — clearing is best-effort.
+            try { if (window.localforage) localforage.removeItem(NAV_STORAGE_KEY).catch(()=>{}); } catch(e) { console.debug('NAV_STORAGE_KEY removeItem failed (intentional silencer):', e && e.message); }
         }
 
         window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false, customWaypoints = null) {
@@ -3651,7 +3659,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 try {
                     const timeStr = now.toLocaleTimeString('en-US', { timeZone: state.targetTimezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
                     requestAnimationFrame(() => updateText(DOM.localTimeText, timeStr));
-                } catch(e) {}
+                } catch(e) { console.debug('syncClock toLocaleTimeString failed for tz=' + state.targetTimezone + ' (intentional silencer):', e && e.message); }
             }
             setTimeout(syncClock, 1000 - (now.getTime() % 1000));
         }
@@ -4397,7 +4405,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             catch (e) { _brierCache = []; }
             return _brierCache;
         }
-        async function _saveBrierLog(arr) { _brierCache = arr; try { await localforage.setItem(BRIER_KEY, arr); } catch (e) {} }
+        async function _saveBrierLog(arr) { _brierCache = arr; try { await localforage.setItem(BRIER_KEY, arr); } catch (e) { console.debug('Brier log save failed (intentional silencer):', e && e.message); } }
 
         // Append up to 3 future hours of per-model votes (hour-aligned to the
         // response's hourly.time array so we can match later observations).
@@ -4734,7 +4742,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 for(let i=0; i<upcoming.length; i+=step) sampled.push(upcoming[i]);
                 if(sampled[sampled.length-1] !== upcoming[upcoming.length-1]) sampled.push(upcoming[upcoming.length-1]);
                 const cacheKey = `fuel_route_all_${conf.brand}_${sampled[0].lat.toFixed(2)}_${sampled[0].lon.toFixed(2)}_${sampled[sampled.length - 1].lat.toFixed(2)}_${sampled[sampled.length - 1].lon.toFixed(2)}`;
-                try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 3600000)) return cached.data; } catch(e) {}
+                try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 3600000)) return cached.data; } catch(e) { console.debug('fuel findAllAlong cache read failed (intentional silencer):', e && e.message); }
                 let queryParts = [];
                 sampled.forEach(node => {
                     queryParts.push(`node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:3500,${node.lat},${node.lon});`);
@@ -4753,7 +4761,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             findAllNearest: async function(lat, lon) {
                 const conf = this.getConfig();
                 const cacheKey = `fuel_nearest_all_${conf.brand}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
-                try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 86400000)) return cached.data; } catch(e) {}
+                try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 86400000)) return cached.data; } catch(e) { console.debug('fuel findAllNearest cache read failed (intentional silencer):', e && e.message); }
                 const query = `[out:json][timeout:15];(node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon});way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon}););out center;`;
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 try {
