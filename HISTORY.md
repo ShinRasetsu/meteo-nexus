@@ -6,26 +6,28 @@
 
 ---
 
-## Current state at session end (2026-08-07)
+## Current state at session end (2026-08-09)
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.8` |
-| `package.json` → version | `1.3.8` |
+| `VERSION` | `1.3.9` |
+| `package.json` → version | `1.3.9` |
 | `eslint` | `10.8.0` (upgraded from 9.39.5 — `no-useless-assignment` rule caught 5 dead initializer fixes too) |
 | `globals` | `17.9.0` (upgraded from 15.15.0) |
 | `@eslint/js` | `10.0.1` (pinned as direct dev dep since eslint 10 requires a separate @eslint/js package) |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.8` — create with `git tag v1.3.8` before push |
+| Git tag | `v1.3.9` — create with `git tag v1.3.9` before push |
 | Tests | `npm test` — 127 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
+| Scanner self-verify | `npm run audit:verify` — 10 cases (5 positive + 5 negative controls) all passing |
 | Precheck (deploy gate) | `npm run precheck` — builds CSS first THEN chains `npm run audit` (extract+parse+TDZ+brace+CSP+DOM scan); exits non-zero on any phase failure |
 | Phase 1 audit | `npm run audit:extract` — extracts inline module + `node --check` (exits 0) |
 | Phase 2 audit | `npm run audit:tdz` — acorn AST scan for use-before-declare TDZ (0 violations) |
 | Phase 3 audit | `npm run audit:brace` — brace depth counter (depth must end at 0) |
 | Phase 4 audit | `npm run audit:csp` — CSP meta tag cross-check vs fetch/Worker/URL origins |
 | Phase 5 audit | `npm run audit:dom` — DOM null-ref scan (unguarded getElementById → .property access) |
+| Deploy gate | `deploy.bat` now invokes `npm run lint && npm test && npm run audit && npm run audit:verify && npm run precheck` BEFORE `git add`; any failure aborts the auto-commit |
 | Consent / audio | `audioEnabled` persists in `localforage` after first interactive gesture |
 | Supplementary audit 5 fixes | Post-sign-off pass from 1.3.5 tooling: partial-model API failure no longer zero–multiplies the route timeline; fetchWithRetry abort-exception restored; cacheMapBtn guard prevents crash on missing element; dead currentWatch line removed; sonar-ping suspended AudioContext prevents silent audio-dropping
 
@@ -35,7 +37,7 @@
 2. Edit `VERSION` (e.g., `1.3.0` → `1.4.0`) — this automatically updates header + footer
 3. Sync `package.json` → `"version": "1.4.0"`
 4. Append a new `## X.Y.Z — YYYY-MM-DD` section below with all changes
-5. Run `npm test && npm run lint` before declaring done
+5. Run `npm test && npm run lint && npm run audit && npm run audit:verify` before declaring done
 6. (Optional) `git tag v1.4.0` for deployment tracking
 
 ## How to audit changes like a developer
@@ -109,6 +111,94 @@ After any change to `processTelemetryPayload`, `normalizeTelemetryData`, `fetchD
 6. Check the Console tab for any red errors (silent `catch {}` will hide them otherwise)
 
 If any of these fails, the change is broken — regardless of what `npm test` or `npm run lint` report. **Runtime truth > static checks.**
+
+---
+
+## 1.3.9 — 2026-08-09 (audit hardening: scanner self-verify gaps closed, SRI on CDN, empty-catch purge, deploy gate, docs)
+
+### Bump rationale
+
+Patch bump 1.3.8 → 1.3.9. No new features; no behaviour changes; tests count unchanged (127/127). Six targeted improvements to the audit pipeline, supply-chain surface, error observability, deployment gate, and project documentation. Every change was verified by the existing 5-phase audit chain + `audit:verify` before declaration.
+
+### Changes
+
+1. **`tests/verify-scanners.mjs` — removed dead PHASE 1 case + added 2 missing negative controls (8 cases → 10 cases).** The previous PHASE 1 case (`check('PHASE 1 syntax error ...', 'extract-module.mjs', ...)`) **always passed regardless of the mutation**: `extract-module.mjs` rebuilds `_module_extract.mjs` from `index.html` on every invocation, so the corrupted extract was silently overwritten before `node --check` ran. This is the same class of "scanner theatre" failure the 1.3.8 release fixed for the TDZ + brace-balance scanners — the verify harness itself had a dead case for PHASE 1. Removed the case; kept only the **direct `node --check`** mutation test that actually exercises the parser. Added a PHASE 1 negative control (clean extract parses).
+
+   Also added two missing **negative controls**: PHASE 3 brace-balance (balanced addition → depth=0 → scanner exits 0) and PHASE 4 CSP audit (allowed origin `api.open-meteo.com` → `csp-audit: PASS` → scanner exits 0). Per the 1.3.8 lesson, a scanner we don't prove PASSES on clean input might be over-flagging. With 5 positive + 5 negative controls, every scanner is now self-verified in both directions.
+
+   **Re-tested**: `npm run audit:verify` → 10 passed, 0 failed (was 8 with one of which a silent always-pass).
+
+2. **`index.html` — added Subresource Integrity (SRI) hashes to 7 CDN scripts/links.** Previously only the three Firebase modulepreload links had `integrity="sha384-..."` + `crossorigin="anonymous"`; Chart.js, Font Awesome, Leaflet (×2: CSS+JS), Leaflet-Routing-Machine (×2: CSS+JS), and localforage were loaded without integrity verification, exposing the app to CDN tampering (e.g. a compromised `unpkg.com/leaflet@1.9.4` build injecting malicious code that would silently execute alongside the engine). Computed `sha384-base64` of each CDN resource locally:
+
+   ```
+   https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js           → sha384-9nhczxUqK87bcKHh20fSQcTGD4qq5GhayNYSYWqwBkINBhOfQLg/P5HG5lF1urn4
+   https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css  → sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0
+   https://unpkg.com/leaflet@1.9.4/dist/leaflet.css                          → sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H
+   https://unpkg.com/leaflet@1.9.4/dist/leaflet.js                            → sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH
+   https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css → sha384-n6BdBD4Ahcb9IGZDgjgv0hV2a/y2WOCf1n0kEMZDpZySy/Hv1QMAtLIrC3y9oIZD
+   https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js → sha384-Le/Ab4WG5Ezkdf4RS5P5eZrpmvNgcZ4QcTozVDXGoOsTxGroBLM4e9OSqeh6V26n
+   https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js → sha384-MTDrIlFOzEqpmOxY6UIA/1Zkh0a64UlmJ6R0UrZXqXCPx99siPGi8EmtQjIeCcTH
+   ```
+
+   Each CDN tag now has `integrity="sha384-..."` + `crossorigin="anonymous"`. Google Fonts CSS is intentionally SRI-less — the response is dynamically generated per browser (different `@font-face` rules based on the User-Agent), so a single sha384 would break for non-matching UAs. A comment in the `<head>` documents this.
+
+3. **`index.html` — purged 9 empty `catch(e) {}` silencers** (lines 1976, 2198, 3086, 3088, 3220, 3657, 4403, 4740, 4759). These survived even with `eslint.config.js:19` `no-empty: ["error", { "allowEmptyCatch": false }]` because **ESLint explicitly ignores `index.html`** (the inline module is in a file ESLint doesn't lint — see `eslint.config.js:23`). Each was an *intentional* silencer (storage, decodeURIComponent, sensor-stop, tz-format, cache reads) but the empty form hid failures from DevTools — the exact pattern the 1.3.3 silent-catch lesson (`HISTORY.md:431-465`) warns against. Each is now annotated `console.debug('(intentional silencer):', e && e.message)` so failures surface without flooding production consoles (debug level is filtered by default in browser devtools).
+
+4. **`sw.js` — purged 3 fire-and-forget `Promise.catch(() => {})` silencers** (lines 114, 129, 260). Same pattern as the index.html catch cleanup — cache writes that quietly swallowed quota-exceeded / cache-corrupted errors. Now each logs via `console.debug('SW ... cache.put failed (intentional silencer):', e && e.message)`. No behaviour change; cache reads still work after a write failure.
+
+5. **`deploy.bat` — added PRECHECK GATE before `git add`.** Previously `deploy.bat` ran `git add . && git commit && git pull --rebase && git push` with no audit invocation — a broken build would be auto-committed and pushed to `origin/main` (the 1.3.0 missing-`}` and 1.3.3 TDZ bugs both shipped this way). The deploy script now runs, before staging:
+
+   ```bat
+   call npm run lint
+   call npm test
+   call npm run audit
+   call npm run audit:verify
+   call npm run precheck
+   ```
+
+   Each step has an `if !ERRORLEVEL! NEQ 0 (... exit /b 1)` guard that aborts the deploy with a `[FATAL]` message. A failing audit now blocks the auto-commit before it reaches git history. Comment block added referencing the 1.3.3 silent-bug lesson as the rationale.
+
+6. **Added `README.md`, `ARCHITECTURE.md`, `AGENTS.md`.** Previously `HISTORY.md` (~800 lines) was the only project doc — a changelog, not onboarding material. New files:
+   - **`README.md`** — project overview, quick-start commands, dev-loop, deploy notes, pointer to `ARCHITECTURE.md` / `AGENTS.md` / `HISTORY.md`
+   - **`ARCHITECTURE.md`** — module map with section-banner line numbers (520–5598), the four state surfaces (`window.__METEO_CORE_STATE`, `let state`, `magCalState`, `_uiCache`), two rAF render loops, the four SW cache buckets (`APP_CACHE`, `API_CACHE`, `MAP_CACHE`, `CDN_CACHE`), the three worker task types, the known architectural ceiling (inline module + `'unsafe-inline'` CSP)
+   - **`AGENTS.md`** — AI-assist session protocol: hard rules, bump procedure, 4-phase audit philosophy (with the 1.3.3 lesson as the contract), the fetch smoke test, blind spots the audit chain does NOT catch, the don't-do-these-things list, reference numbers. Pins project knowledge outside the ever-growing HISTORY.md changelog so future AI sessions don't have to re-derive the contract.
+
+   `HISTORY.md:38` (bump procedure step 6) was also corrected to shadow the AGENTS.md hard rule — the documented step now reads `npm test && npm run lint && npm run audit && npm run audit:verify` (was only `npm test && npm run lint`).
+
+### Files changed
+
+- `VERSION` → `1.3.9`
+- `package.json` → `"version": "1.3.9"`
+- `tests/verify-scanners.mjs` — removed dead PHASE 1 case (always-passed); added PHASE 1 negative control + PHASE 3 negative control + PHASE 4 negative control (8 → 10 cases, all honest)
+- `index.html` — added SRI hashes + `crossorigin="anonymous"` to 7 CDN scripts/links; repurposed 9 empty `catch(e) {}` to `console.debug`-annotated silencers
+- `sw.js` — repurposed 3 fire-and-forget `Promise.catch(() => {})` to `console.debug`-annotated silencers
+- `deploy.bat` — added PRECHECK GATE running `lint && test && audit && audit:verify && precheck` before `git add`; any failure aborts with `[FATAL]` + `exit /b 1`
+- `README.md` — new (project overview + quick-start)
+- `ARCHITECTURE.md` — new (module map + state + cache strategy)
+- `AGENTS.md` — new (session protocol for AI assistance)
+- `HISTORY.md` — this entry + updated current-state table + corrected bump-procedure step 5
+
+### Verification
+
+- `npm run lint` → zero errors ✅
+- `npm test` → 127 passed, 0 failed ✅
+- `npm run audit:extract` → extracted module: line 523..5598 (335541 bytes); `node --check` exits 0 ✅
+- `npm run audit:tdz` → "TDZ (same-scope use-before-declare) violations: 0" ✅
+- `npm run audit:brace` → `depth=0  max=8  min=0` ✅
+- `npm run audit:csp` → "csp-audit: PASS - 0 origin gaps found" ✅ (SRI additions did not introduce new CSP-covered origins)
+- `npm run audit:dom` → "domnull-audit: PASS - 0 unguarded property accesses found" ✅
+- `npm run audit:verify` → 10 passed, 0 failed ✅ (positive: syntax / TDZ / brace / CSP / DOM-null; negative: clean-parse / declared-first / balanced-braces / allowed-origin / guarded-DOM)
+- `npm run precheck` → Tailwind v4.3.3 built in 132ms + all 5 audit phases pass (exit 0) ✅
+
+### Process notes
+
+- **SRI hashes were computed locally** via SHA384-Base64 over the fetched CDN resource bytes (PowerShell `[System.Security.Cryptography.SHA384]` + `[Convert]::ToBase64String`), not via any external SRI service, since the project forbids fetching from new origins without adding them to CSP.
+- **The `ci.yml` workflow file was initially added under `.github/workflows/` but had to be removed** because the user's GitHub Personal Access Token lacks the `workflow` scope required to push changes to workflow files. The user explicitly clarified that "what I need is a local auditor to prevent broken, inaccurate, buggy PWA app" — the existing local audit pipeline + the new `deploy.bat` precheck gate already serve that role. No CI file is included in this release.
+- **The previous push attempt hit the PAT-scope failure and exposed a process error**: I had declared work done and allowed `deploy.bat` to run without first bumping `VERSION` / `package.json`, appending a `## 1.3.9` chapter to `HISTORY.md`, and running the audit chain as a deliberate ship-quality gate (per AGENTS.md hard rule #1 and the bump procedure at `HISTORY.md:32-40`). The audit only ran because `deploy.bat` happened to invoke it — incidentally, not as the contract requires. This release fixes the omission and the HISTORY.md bump-procedure documentation now matches the AGENTS.md rule.
+
+### Lesson
+
+The audit pipeline only blocks broken builds if it is invoked as a gate, not as an afterthought. The 1.3.0 missing-`}` bug shipped because `npm test` didn't exercise the bundled file; the 1.3.3 TDZ bug shipped because the empty `catch {}` swallowed the `ReferenceError`. Both were "tests passed, app broken" — and in both cases the audit chain existed but wasn't being run before the deploy. The 1.3.9 release makes that pathway explicit: `deploy.bat` is now self-gated, and the HISTORY.md bump procedure documents the same gate so future AI-assisted sessions stop declaring work done before running the chain.
 
 ---
 

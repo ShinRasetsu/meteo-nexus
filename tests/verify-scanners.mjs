@@ -127,6 +127,63 @@ check('PHASE 4 negative control (allowed origin) -> csp-audit 0',
     writeMutation(original + "\nfetch('https://api.open-meteo.com/v1/forecast?test=1').then(r => r.json());\n");
   });
 
+// ---------- Phase 2b: floating-promise scanner ----------
+// A `.then(...)` without `.catch` and without `await` must be flagged. This is
+// the new Phase 2b scanner introduced to close AGENTS.md blind spot #4.
+check('PHASE 2b floating .then -> floating-promise-audit nonzero',
+  'floating-promise-audit.mjs', 2, 'floating-promise findings', () => {
+    writeMutation(original + "\nfunction fpPos() { fetch('https://api.open-meteo.com/x').then(r => r.json()); }\n");
+  });
+
+// ---------- Phase 2b negative control: .then().catch() chain ----------
+// A pair of `.then(...).catch(...)` must NOT be flagged.
+check('PHASE 2b negative control (.catch present) -> floating-promise-audit 0',
+  'floating-promise-audit.mjs', 0, 'findings: 0', () => {
+    writeMutation(original + "\nfunction fpNegCatch() { fetch('https://api.open-meteo.com/x').then(r => r.json()).catch(e => console.error(e)); }\n");
+  });
+
+// ---------- Phase 2b negative control: await'd .then ----------
+// `await fetch(...).then(...)` is guarded — the rejection surfaces to the
+// caller, so the scanner must NOT flag it.
+check('PHASE 2b negative control (await) -> floating-promise-audit 0',
+  'floating-promise-audit.mjs', 0, 'findings: 0', () => {
+    writeMutation(original + "\nasync function fpNegAwait() { await fetch('https://api.open-meteo.com/x').then(r => r.json()); }\n");
+  });
+
+// ---------- Phase 5b: optional-chaining DOM guard ----------
+// `el?.foo` after `getElementById` is now treated as a guard (domnull extension).
+// Previously this would have been flagged. Per AGENTS.md blind spot #6.
+check('PHASE 5b optional-chaining guard -> domnull-audit 0',
+  'domnull-audit.mjs', 0, 'PASS', () => {
+    writeMutation(original + "\nfunction domOpt() { const el = document.getElementById('missing-opt'); el?.classList.add('x'); }\n");
+  });
+
+// ---------- Phase 5b negative control: plain access still flagged ----------
+// Even with the optional-chaining extension in place, a plain `el.foo`
+// (no `?.`) must still be flagged. Confirms the new code did not weaken
+// the original `if (el)` / `if (!el)` behaviour.
+check('PHASE 5b plain access still flagged -> domnull-audit nonzero',
+  'domnull-audit.mjs', 2, 'FAIL', () => {
+    writeMutation(original + "\nfunction domPlain() { const el = document.getElementById('missing-plain'); el.classList.add('x'); }\n");
+  });
+
+// ---------- Phase 4b: dynamic import() CSP gap ----------
+// A dynamic `import('https://not-in-csp.example.com/m.js')` must be flagged
+// as a script-src gap. Previously dynamic import() was not scanned at all
+// (AGENTS.md blind spot #5).
+check('PHASE 4b dynamic import() missing origin -> csp-audit nonzero',
+  'csp-audit.mjs', 2, 'FAIL', () => {
+    writeMutation(original + "\nimport('https://not-in-csp.example.com/m.js');\n");
+  });
+
+// ---------- Phase 4b negative control: dynamic import() allowed origin ----------
+// `import('https://cdn.jsdelivr.net/...')` is in script-src, so it must NOT
+// be flagged.
+check('PHASE 4b negative control (allowed script-src) -> csp-audit 0',
+  'csp-audit.mjs', 0, 'PASS', () => {
+    writeMutation(original + "\nimport('https://cdn.jsdelivr.net/npm/foo.js');\n");
+  });
+
 restore();
 console.log('Scanner verification results:');
 console.log(results.join('\n'));

@@ -49,15 +49,34 @@ for (const c of calls) {
   let firstAccessLine = -1
 
   const keyEsc = c.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const accessRe = new RegExp('\\b' + keyEsc + '\\.')
+
+  // Optional-chaining guard: treat `el?.foo` as a null-safe property
+  // access, per AGENTS.md blind spot #6. Previously only `if (el)` and
+  // `if (!el)` shapes counted, so code like
+  //   const el = document.getElementById('x'); el?.addEventListener(...)
+  // was flagged as unguarded even though it is null-safe. The `?.`
+  // short-circuits the entire member-expression chain including any
+  // subsequent `.foo` reads on the same chain.
+  const optChainRe = new RegExp('\\b' + keyEsc + '\\s*\\?\\.[-a-zA-Z0-9_$]')
+  // Plain property access on the root variable (NOT optional-chained):
+  // matches `el.foo` but NOT `el?.foo` (the `\?` would have to be missing).
+  const plainAccessRe = new RegExp('\\b' + keyEsc + '\\.[a-zA-Z_$]')
 
   for (let i = 0; i < Math.min(winLines.length, 15); i++) {
     const wl = winLines[i]
     // match both:  if (key)   and   if (!key)
     if (new RegExp('\\bif\\s*\\(\\s*!?\\s*' + keyEsc + '\\b').test(wl)) { guardFound = true; break }
     if (new RegExp('\\bif\\s*\\(\\s*' + keyEsc + '\\?').test(wl)) { guardFound = true; break }
+    // optional-chaining: `key?.foo` is itself a guard, so the access on
+    // this line is null-safe AND any subsequent access is fine — we treat
+    // both findings and the line itself as guarded.
+    if (optChainRe.test(wl)) { guardFound = true; break }
 
-    if (accessRe.test(wl) && !guardFound && firstAccessLine === -1) {
+    // Only flag a PLAIN access (`el.foo`) — `el?.foo` matched above never
+    // reaches here. Use the stricter plain-access regex instead of the
+    // generic `\bkey\.` from `accessRe` so we do not false-positive on
+    // optional-chained lines we already handled.
+    if (plainAccessRe.test(wl) && !guardFound && firstAccessLine === -1) {
       firstAccessLine = c.line + i + 1
     }
   }

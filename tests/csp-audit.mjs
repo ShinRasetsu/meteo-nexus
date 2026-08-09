@@ -120,6 +120,18 @@ function scan(src, label) {
     var uer = m[1].slice(1, -1);
     if (uer.indexOf('://') >= 0) check(m.index, uer, label, 'connect-src');
   }
+  // 5) dynamic import('...') — AGENTS.md blind spot #5. A dynamic
+  // `import('https://...')` is gated by the `script-src` directive, not
+  // `connect-src`, and was previously not scanned here. Lowering the bar
+  // to add a new dynamic import would otherwise silently break in CSP-
+  // enforcing browsers with no console error in some cases.
+  // Static `import x from 'https://...'` is blocked by the spec for HTTP(S)
+  // anyway, so we only need to handle the dynamic `ImportExpression` form.
+  var ire = /\bimport\s*\(\s*(`[^`]*`|"[^"]*"|'[^']*')/g;
+  while ((m = ire.exec(src)) !== null) {
+    var iarg = m[1].slice(1, -1);
+    if (iarg.indexOf('://') >= 0) check(m.index, iarg, label, 'script-src');
+  }
 }
 
 scan(htmlSrc, 'html');

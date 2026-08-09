@@ -1999,7 +1999,7 @@ let delta = heading - state.lastHeading;
             clearMagCalibrationStored().then(() => {
                 updateMagCalUI();
                 drawMagCalCanvas();
-            });
+            }).catch(err => console.error('clearMagCalibration failed:', err));
         };
 
         function updateMagCalUI() {
@@ -3709,7 +3709,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
                 updateText(DOM.audio.text, "SONAR ACTIVE");
                 if (ctx.state === 'suspended') ctx.resume();
-                ctx.resume().then(() => playSonarPing());
+                ctx.resume().then(() => playSonarPing()).catch(err => console.error('AudioContext resume failed:', err));
             } else {
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-xmark text-xl');
