@@ -112,7 +112,7 @@
             --user-heading: 0deg;
         }
         /* Smear the rotation unlock/relock over 250ms so the map doesn't snap
-           130°+ in a single rAF frame when the user touches the map mid-tactical-
+           130°+ in a single rAF frame when the user drags the map mid-tactical-
            mode. Only applied transiently: dragstart adds it for the unlock-to-0,
            the re-lock path adds it right before applyTacticalMode, then both
            remove it before the live heading-follow drive resumes. */
@@ -2944,14 +2944,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             state.mapObj.on('dragstart', () => {
                 if (state._recenterTimer) { clearTimeout(state._recenterTimer); state._recenterTimer = null; }
                 state.isMapLocked = false;
-                // Smear the unlock rotation from heading-aligned back to north-up
-                // over 250ms instead of snapping 130°+ in one frame under the
-                // user's finger. Stale lastCssHeading is cleared so the live
-                // heading-follow block can't fire on the old value mid-drag.
+                // Dragging must NOT rotate the map. The map's rotation is purely
+                // heading-driven (smoothVisualsLoop writes rotate(-heading) when
+                // isMapLocked && tacticalMode>=1). During a drag isMapLocked=false,
+                // so the heading-follow block is dormant — the existing rotation
+                // stays frozen at whatever heading it last wrote, regardless of
+                // the pan gesture. No rotate(0deg) reset, no hud-rotating smear.
+                // lastCssHeading is cleared so that on re-lock the heading-follow
+                // loop re-seeds the transform from the current visual heading
+                // instead of trusting a stale value from before the drag.
                 state.lastCssHeading = null;
-                DOM.hudMap.classList.add('hud-rotating');
-                DOM.hudMap.style.transform = `rotate(0deg)`;
-                setTimeout(() => { if (!state.isMapLocked) DOM.hudMap.classList.remove('hud-rotating'); }, 280);
                 updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });
@@ -2964,16 +2966,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 0.5 });
                             setTimeout(() => {
                                 state.isMapLocked = true;
-                                // Re-lock: smear the rotation from north-up back to
-                                // heading-aligned over 250ms, then drop the transition
-                                // class so the live heading-follow drive resumes
-                                // frame-by-frame without lag. lastCssHeading is null
-                                // (cleared at dragstart) so the smoothVisualsLoop
-                                // rotation block will write the new transform once
-                                // and trigger the transition.
-                                DOM.hudMap.classList.add('hud-rotating');
+                                // Re-lock: no rotation smear here either. The
+                                // heading-follow loop (smoothVisualsLoop) drives
+                                // rotation frame-by-frame as the visual heading
+                                // EMA catches up — exactly proportional to the
+                                // real heading change, never to the drag. Since
+                                // lastCssHeading was cleared at dragstart, the
+                                // first write after re-lock seeds the transform
+                                // from the current visual.heading cleanly.
                                 window.applyTacticalMode();
-                                setTimeout(() => DOM.hudMap.classList.remove('hud-rotating'), 280);
                             }, 600);
                         }
                     }, 5000);

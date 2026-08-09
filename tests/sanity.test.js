@@ -237,13 +237,16 @@ assertIncludes(html, "WMO_RAIN_CODES.has(curr.weather_code)", "index.html gates 
 assertIncludes(html, "if (isRainingNow) {", "index.html elevates RAIN NOW above ensemble-forecast status tiers");
 assertIncludes(html, "\"RAIN NOW\"", "index.html surfaces RAIN NOW status text");
 
-// Map rotation unlock/relock: dragstart must not snap the rotated tactical-mode
-// map by 130°+ in a single rAF frame. The fix uses a transient CSS transition
-// class + clear of lastCssHeading so the live heading-follow drive can't fire
-// on stale values mid-drag.
-assertIncludes(html, "#hud-map.hud-rotating", "index.html defines .hud-rotating transition CSS for unlocked state");
-assertIncludes(html, "classList.add('hud-rotating')", "index.html applies hud-rotating class on unlock/relock");
-assertIncludes(html, "state.lastCssHeading = null;", "index.html clears lastCssHeading on dragstart to prevent stale rotation writes mid-drag");
+// Map rotation is heading-driven only: dragging/panning the map must NOT cause
+// any rotation change. The map stays at whatever heading rotation it currently
+// has throughout the drag (no rotate(0deg) reset, no hud-rotating smear). The
+// heading-follow drive in smoothVisualsLoop is gated behind state.isMapLocked,
+// so during a drag (isMapLocked=false) it is dormant — only real heading changes
+// rotate the map, never the pan gesture. lastCssHeading is cleared on dragstart
+// so the post-drag re-seed reads the live visual heading cleanly.
+assertIncludes(html, "#hud-map.hud-rotating", "index.html defines .hud-rotating transition CSS (retained for future use / module-toggle path)");
+assertIncludes(html, "// Dragging must NOT rotate the map.", "index.html documents that drag must not rotate the map (heading-only rotation contract)");
+assertIncludes(html, "state.lastCssHeading = null;", "index.html clears lastCssHeading on dragstart to let the heading-follow loop re-seed cleanly after drag");
 
 // Route timeline nodes: observed weather_code must drive wetness status, not
 // the ensemble forecast vote — same "RAIN NOW" override as the dashboard applies.
