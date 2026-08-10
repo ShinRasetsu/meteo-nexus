@@ -1224,6 +1224,10 @@
             autoCoords: null, targetCoords: null,
             visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0,
+            // Idempotency flag for the rotated-drag predrag hook. Leaflet's Drag
+            // handler creates _draggable lazily on first interaction, so the hook
+            // must be installed the first time dragstart fires — not at initMap().
+            _panRotateHookInstalled: false,
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
@@ -2954,6 +2958,43 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // loop re-seeds the transform from the current visual heading
                 // instead of trusting a stale value from before the drag.
                 state.lastCssHeading = null;
+                // ROTATED-FRAME DRAG COMPENSATION
+                // When tactical mode rotates #hud-map by rotate(-heading), Leaflet's
+                // Draggable applies finger deltas (dx, dy) verbatim as
+                // setPosition(pane, _startPos + (dx, dy)). Because the parent is
+                // rotated, the on-screen shift becomes R_css(-heading) * (dx, dy) —
+                // i.e. the visible motion is rotated AWAY from the finger direction
+                // by the heading angle (drag-right shows as drag-down at h=90°, etc).
+                // To make the on-screen motion follow the finger exactly, we rotate
+                // the inner delta by +heading *before* Leaflet calls setPosition,
+                // so the parent's R_css(-heading) and our R_css(+heading) cancel and
+                // the on-screen delta equals the finger delta. This only touches the
+                // *pan delta*, never the rotation transform — rotation stays purely
+                // heading-driven. No-op when tacticalMode==0 (north-up): visual
+                // heading rotation is skipped, identity transform, finger=screen.
+                //
+                // Hooked on the Draggable's `predrag` event — the same official
+                // extension point Leaflet itself uses for worldCopyJump
+                // (_onPreDragWrap). _draggable is created lazily on first
+                // interaction, so we install the hook here on first dragstart.
+                if (!state._panRotateHookInstalled && state.mapObj.dragging && state.mapObj.dragging._draggable) {
+                    state.mapObj.dragging._draggable.on('predrag', (e) => {
+                        const h = state.visual.heading;
+                        if (state.tacticalMode < 1 || h === null || h === 0) return;
+                        const d = state.mapObj.dragging._draggable;
+                        // _newPos = _startPos + (finger delta). Recompute the delta,
+                        // rotate it by +h, re-add _startPos so Leaflet still owns
+                        // the value but the on-screen motion tracks the finger.
+                        const dx = d._newPos.x - d._startPos.x;
+                        const dy = d._newPos.y - d._startPos.y;
+                        const rad = h * (Math.PI / 180);
+                        const cos = Math.cos(rad), sin = Math.sin(rad);
+                        // CSS rotate matrix (y-down): (x', y') = (x cos − y sin, x sin + y cos).
+                        d._newPos.x = d._startPos.x + (dx * cos - dy * sin);
+                        d._newPos.y = d._startPos.y + (dx * sin + dy * cos);
+                    });
+                    state._panRotateHookInstalled = true;
+                }
                 updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-location-crosshairs text-xl md:text-2xl opacity-70 hover:opacity-100 transition-opacity"></i>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-surface-600 text-gray-400 w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all font-mono");
             });

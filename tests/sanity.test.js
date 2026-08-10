@@ -248,6 +248,18 @@ assertIncludes(html, "#hud-map.hud-rotating", "index.html defines .hud-rotating 
 assertIncludes(html, "// Dragging must NOT rotate the map.", "index.html documents that drag must not rotate the map (heading-only rotation contract)");
 assertIncludes(html, "state.lastCssHeading = null;", "index.html clears lastCssHeading on dragstart to let the heading-follow loop re-seed cleanly after drag");
 
+// Rotated-frame drag compensation: when the map is CSS-rotated by rotate(-heading)
+// under tactical mode, Leaflet's Draggable applies finger deltas (dx, dy) verbatim
+// so the on-screen motion becomes R_css(-h) * (dx, dy) — i.e. rotated away from the
+// finger direction. A predrag hook rotates _newPos around _startPos by +heading so
+// the parent rotation cancels and the on-screen motion equals the finger delta.
+// Rotation remains heading-only (the hook touches the pan delta, never the rotation
+// transform). No-op when tacticalMode<1 or heading is null/0 (north-up).
+assertIncludes(html, "_panRotateHookInstalled", "index.html guards one-shot install of the rotated-drag predrag hook");
+assertIncludes(html, "predrag', (e) => {", "index.html hooks Draggable's predrag event to compensate for the parent's CSS rotation");
+assertIncludes(html, "d._newPos.x = d._startPos.x + (dx * cos - dy * sin);", "index.html rotates pan delta by +heading before Leaflet applies setPosition");
+assertIncludes(html, "d._newPos.y = d._startPos.y + (dx * sin + dy * cos);", "index.html completes the 2D rotation of the pan delta (y component)");
+
 // Route timeline nodes: observed weather_code must drive wetness status, not
 // the ensemble forecast vote — same "RAIN NOW" override as the dashboard applies.
 assertIncludes(html, "const isRainingNowNode = WMO_RAIN_CODES.has(code);", "index.html route nodes override ensemble wetness with observed weather_code");
