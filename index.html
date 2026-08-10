@@ -2970,10 +2970,23 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 // heading-follow loop (smoothVisualsLoop) drives
                                 // rotation frame-by-frame as the visual heading
                                 // EMA catches up — exactly proportional to the
-                                // real heading change, never to the drag. Since
-                                // lastCssHeading was cleared at dragstart, the
-                                // first write after re-lock seeds the transform
-                                // from the current visual.heading cleanly.
+                                // real heading change, never the drag.
+                                //
+                                // Re-seed lastCssHeading to the current transform
+                                // so the deadband check (|heading - lastCssHeading|
+                                // > 0.1) in the loop is consistent on the first
+                                // post-lock frame. Without this, lastCssHeading is
+                                // still null (cleared at dragstart) and the deadband
+                                // path falls back to `|| 0` — if the device happens
+                                // to be stationary at heading≈0 while the map was
+                                // rotated mid-drag, the write is skipped and the
+                                // stale rotation would persist until the next real
+                                // heading change. Seeding from the live visual
+                                // heading forces one honest write up-front.
+                                if (state.visual.heading !== null) {
+                                    DOM.hudMap.style.transform = `rotate(${-state.visual.heading}deg)`;
+                                    state.lastCssHeading = state.visual.heading;
+                                }
                                 window.applyTacticalMode();
                             }, 600);
                         }
