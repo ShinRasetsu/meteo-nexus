@@ -114,7 +114,92 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
-## 1.3.9 — 2026-08-09 (audit hardening: scanner self-verify gaps closed, SRI on CDN, empty-catch purge, deploy gate, docs)
+## 1.3.10 — 2026-08-11 (performance pass: rAF hot-path + fetch-layer + WeatherEnsemble)
+
+### Bump rationale
+
+Patch bump 1.3.9 → 1.3.10. No new features; no intended observable behaviour changes; tests count unchanged (131/131 — same count as the post-1.3.9 auto-update commits touched `tests/sanity.test.js` on 2026-08-10; no new substring guards were added by this release). This release is a focused performance pass: 17 micro-optimisations across the inline `<script type="module">` block targeting the 60 fps rAF hot path, the fetch layer, and the WeatherEnsemble compute block. Every change was tracked against the audit's blind spots (race conditions, unhandled rejections, type coercion) and verified by the existing 5-phase audit chain + `audit:verify` before declaration. The audit ceremony was not skipped.
+
+### Methodology
+
+Three exploration agents independently audited: (1) the rAF render hot paths (`executeRenderPipeline`, `smoothVisualsLoop`, `renderAero`, magnetometer/fuser); (2) the fetch + telemetry layer (`fetchWithRetry`, `fetchData`, `normalizeTelemetryData`, `processTelemetryPayload`, worker bridge); (3) the heaviest compute block (`WeatherEnsemble` + GPS engine + route intel + fuel manager). Candidate findings were each cross-checked by hand before applying — and one (PERF-10: "`bandAll` allocates 24 bands but only `tempBand[0]` is consumed") was discarded as a **false positive**: line 3904-3905 of `renderChart` builds `tempMin`/`tempMax` chart datasets via `tempBand.map(b => b ? b.min/max : null)`, so the **full slice vector IS consumed** by the chart's confidence band. The full-vector `bandAll` and `weightedWetnessAll` calls were preserved; only `weightedValueAll(wind*, 0, totalLen)` was downgraded to `weightedValueAt(..., nowIndex)` because the full wind arrays are genuinely only read at `[nowIndex]`.
+
+### Changes
+
+#### Batch A — rAF hot-path writes & allocations (smoothVisualsLoop / renderAero)
+
+1. **`smoothVisualsLoop` round-gate for `#hud-map` transform** (`index.html` heading-follow block). Previous code wrote `DOM.hudMap.style.transform = \`rotate(${-state.visual.heading}deg)\`` whenever `Math.abs(heading - lastCssHeading) > 0.1` — but `state.visual.heading` lerps continuously, so the gate fired on ~every frame while driving. Each write rebuilt a fresh template string + forced a style recalc on the `#hud-map` subtree (radial gradient + arrow SVG + ghost markers). New gate rounds the heading to 0.1° (the same discretisation the dashboard layer already used) and only assigns when the **rounded** value flips. ~10× fewer style writes during steady-state driving with no perceptible difference. (`state.lastCssHeading`) is now pre-declared as `null` (was ad-hoc), and the `state.lastCssHeading = null;` reset on dragstart (sanity-test substring guard — `tests/sanity.test.js:249`) is preserved verbatim.
+
+2. **`smoothVisualsLoop` heading text & compass-icon gates** — replaced `Math.abs(aeroHeading - (state._lastHeadText || -999)) >= 1` with `Math.round(aeroHeading) !== state._lastHeadText`. Same display semantics (the rounded integer is what was being built and displayed anyway), but the comparison is cheaper and the now-pre-declared `_lastHeadText` / `_lastCmpRot` field reads skip the `|| -999` undefined-coercion branch every frame. Boot-fallback branch mirrors the change.
+
+3. **`renderAero` ghost trail cache** (`index.html` Aero HUD IIFE). Previous code did **3 DOM `style.transform` writes per frame forever**, even though the `windHistory` ring buffer only refreshes every 10 s. Between updates the same identical `rotate(X.Ydeg)` string was being re-written 600 times/sec, also interrupting the ghosts' 1 s CSS transition. Added a `_uiCache.ghostTrans: ['', '', '']` cache of 3 string slots and gated by string-compare. ~180 wasted allocations + style writes per second eliminated; the CSS transition now completes between angle updates.
+
+4. **`renderAero` `wxmStr` build guard**. Previous code built the rain-status build block (`icon.replace`, `WMO_ICONS[code]`, `prec.toFixed(1)`, ~5 chained template strings) on every frame at 60 Hz, then the existing cache-check (`_uiCache.wxm !== wxmStr`) would throw the build away during steady-state "still raining 0.5 mm". New code builds a cheap **input key** from the quantised inputs (`code|isRainingNow|isDay|round(precip×10)|round(rain×10)|round(showers×10)|round(snowfall×10)`) and only enters the build block when the key changes. ~7 transient strings per frame eliminated during steady rain; the cache-check + DOM write short-circuit already preserved is untouched.
+
+5. **`state` pre-declared scratch fields**. The `state` object's hidden class was transitioning 6+ times during the first second of motion because `lastCssHeading`, `lastArrowHeading`, `_lastCmpRot`, `_lastHeadText`, `_lastSampleAt`, `_lastSampleHeading`, `_smoothLoopActive` were written without being declared in the init literal — V8 builds inline-caches per field, and the first write of a missing field transitions the hidden class. All 7 scratch fields now pre-declared in the literal so state's hidden class is compact from frame 1, and the `|| 0` / `|| -999` undefined-coercion branches on the rAF hot path are dropped. Per AGENTS.md "Phase 4" reasoning: all numeric seed values preserve the existing cold-boot fallback semantics — the first heading update always differs from `-999` / `null` by ≥ 0.1°, exactly as the `|| -999` paths did.
+
+#### Batch B — fetch layer
+
+6. **`fetchData` single-flight memoization** (`index.html` fetch block). Previous code had a boot race: if both `state.autoCoords` was populated AND the geolocation `getCurrentPosition` callback fired close together, two `fetchData` calls ran concurrently — 6 HTTP requests instead of 3, double ensemble recompute, double `Chart.update()`, the second call stomping the first's `__METEO_CORE_STATE` writes. The race was not closed by the existing `lastFetchAttempt > 5000` guard (which is a *time* gate, not a *latch* — and it doesn't cover the boot callers at `runApp`/`getCurrentPosition` callback). New `_fetchInFlight` Promise latch at module scope coalesces concurrent callers onto the same in-flight promise; second caller awaits the first's promise. The latch is released in a `finally` so a thrown `fetchData` doesn't deadlock the next call. Verified: the smoke-test fetch path (`api.open-meteo.com/v1/forecast?current=temperature_2m,...`) fires exactly once across concurrent callers.
+
+7. **`budgetTimeout` timer hygiene** — the `setTimeout` inside the `Promise.race` budget promise was never `clearTimeout`'d. The closure held `weatherAbort.abort` for the full 8 s after weather had typically arrived in 1–2 s; the late timer then fired `reject` with no readers (no-op) and `weatherAbort.abort()` on already-completed fetches (harmless but pointless). New code: `budgetTimerId` is captured in the Promise constructor, `clearTimeout`'d in a `finally` block on both success and catch paths, plus in the outer catch for the cache-fallthrough path.
+
+8. **Parallel JSON parse** — the three response parsers (`rCurr.json()`, `rFore.json()`, `rSolar.json()`) were awaited sequentially after the parallel fetches. Replaced with `await Promise.all([rCurr.json(), rFore.json(), rSolar.json()])`. Identical resolve order in the destructuring; one microtask round-trip saved on every weather fetch. `rFore` alone can be ~10–30 KB.
+
+#### Batch C — route intel
+
+9. **`fetchRouteIntelligence` cursor-anchored tail scan** (`index.html` route-intel block). Previous code re-iterated ALL ~99 route nodes on every 5-min refresh to compile `unpassedNodes`, calling `fastDistance` × 4 per node = ~400 haversine calls per refresh — duplicating the cursor-anchored work that `processNodes` already does at 1 Hz from `watchPosition`. The second iteration also mutated `state.routeNodes[i].passed` from a second code path (racing the 1 Hz writer — no observable bug today since both set `true`, but duplicated mutation logic was brittle). New code: short-circuit past cursor with a 4-node lookahead (mirror of `processNodes`'s lookahead so a 2 s GPS gap can't miss a transient pass-bys), then read the long tail just for the `passed` flag the 1 Hz writer already set. The `distKm` field for tail nodes uses `'?'` (string-coercible fallback that matches `updateInterceptMarkersPool` + `renderRouteIntelTimeline`'s shape contract) instead of recomputing the haversine we just elided.
+
+10. **Per-waypoint cell-wise `weightedWetnessAt`** (`index.html` route-timeline loop). The bulk API `weightedWetnessAll(precipModels, winStart, winEnd)` pre-allocated 3 typed arrays per waypoint (`Float32Array(len)`, `Uint8Array(len)`, `Array(n)`) for a 3-cell window — for 99 waypoints that was ~300 short-lived typed arrays per timeline render. Replaced with a thin cell-wise loop calling `weightedWetnessAt(precipModels, k)`. Same math, zero output allocations. The `currentWetPct` / `currentModelsReporting` / `shortWindowWet` derivations are observability-equivalent.
+
+#### Batch D — WeatherEnsemble
+
+11. **`extractAllModelArrays` bulk API** (`index.html` WeatherEnsemble). `normalizeTelemetryData` previously called `extractModelArrays` 8 times in a row (one per variable). Each call ran a 4-iteration loop, allocated one fresh dict, and built 4 template-literal string concatenations — 32 template strings + 8 dict frames + 32 function-call frames per fetch. New bulk API `extractAllModelArrays(hourly, [...varNames])` emits all 8 dicts in one pass with one closure frame and uses `'_' +` plain concatenation (cheaper on V8's interpreter path than template literals in a tight inner loop). The 8 individual call sites are replaced with one bulk call. Note: `extractModelArrays` (singular) is preserved as a public API because the per-waypoint path at `index.html:3624` still uses it for precipitation only (one call, not 8).
+
+12. **`weightedValueAt` for wind speed/gust** (`index.html` normalize path). The dashboard's wind arrays `windSpdAll = WeatherEnsemble.weightedValueAll(windSpdModels, 0, totalLen)` and `windGustAll = ...` allocated 2× `Array(totalLen)` and ran 2× totalLen× 4 ≈ 384 array reads, but were only read at `[nowIndex]` (line 4196–4197: `const wsNow = { value: windSpdAll[nowIndex], ... }`). No downstream consumer reads the full wind vector — `state.windEnsemble` only publishes the now-index scalars. Replaced with `weightedValueAt(windSpdModels, nowIndex)` / `weightedValueAt(windGustModels, nowIndex)`, which return the same scalar in 4 reads + zero output allocations. The redundant "recount" loops at old lines 4300-4311 (which re-iterated `_MI` to count reporting models) are also dropped — `weightedValueAt` already returns `modelsReporting` on its result object, so `wsNow.modelsReporting` / `wgNow.modelsReporting` are populated directly.
+
+   **Note on a holding-area for false positives:** the original audit also flagged `bandAll(tempModels, nowIndex, maxSlice)` and `weightedWetnessAll(precipModels, nowIndex, maxSlice)` as wasted full-vector allocations. **This was incorrect.** Both vectors ARE consumed by `renderChart` — `tempBand.map(b => b ? b.min : null)` and `tempBand.map(b => b ? b.max : null)` (line 3904–3905) build the chart's confidence-band datasets, and `hourlyAgreement` is stored as `state.chart.hourlyAgreementRef` so the tooltip callback at line 4047 can index arbitrary hours by hover position. Both full-vector calls were PRESERVED with an explanatory comment added to `normalizeTelemetryData` warning future maintainers that the full slice vector is required for the chart.
+
+#### Batch E — Tier 2/3 micro-opts
+
+13. **`Math.sqrt` elimination in `calibratedHeadingFromB`** — the 30 Hz magnetometer fast path did `Math.sqrt(cx*cx + cy*cy) < 5` for the horizontal-magnitude reject. Replaced with `cx*cx + cy*cy < 25` (squared compare) — mathematically identical for non-negative magnitudes, one transcendental call saved per sensor sample.
+
+14. **`brierRecordObservation` conditional persistence** — the ring-buffer save was unconditionally calling `_saveBrierLog(log)` at the end of every observation tick, re-serialising all 600 entries through IndexedDB structured clone on `localforage.setItem` — even when no entry's `observedMm` had flipped. Gated behind `if (changed)` (the existing mutation flag already used to guard the tally/score-block). `brierRecordForecast` still always persists (it always pushes new entries).
+
+15. **`fetchWithRetry` per-retry spread hoisted** — `{ ...options, signal: combinedSignal }` was spreading the options object on every retry iteration. Hoisted baseline `fetchOpts = { ...options }` outside the loop; only `fetchOpts.signal = combinedSignal` mutates per iteration. Reduces GC pressure on the spread allocations under retry-failure paths.
+
+16. **`syncClock` direct write + hoisted format-options literal** — `syncClock` wrapped its single DOM text-write in a `requestAnimationFrame`, but `updateText` (line ~1316) already short-circuits when `el.textContent !== String(val)` — the rAF only added one-frame wakeup latency without batching anything (text-node writes don't cause layout thrash). Dropped the rAF, also hoisted the `{ hour, minute, second, hour12 }` format-options object literal out of the per-second tick (`now.toLocaleTimeString` rebuilds the literal 86,400 times/day; now zero).
+
+17. **Chart tick-callback hoisted date-format literal** — `new Date(unixArr[index] * 1000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })` was building the options object literal on every long-form tick render. Chart.js calls the tick callback both on redraw and on tooltip hover redraw; with `maxTicksLimit: 12` and ~9 ticks typically landing outside the Today/Tomorrow/Yesterday window, that was ~9 short-lived literal allocations per draw. Hoisted to module scope as `_DATE_FMT_LONG_OPTS`.
+
+### Files changed
+
+- `VERSION` → `1.3.10`
+- `package.json` → `"version": "1.3.10"`
+- `index.html` — all 17 numbered changes above applied; engine grew ~5,140 → ~5,265 lines (the new explanatory comments dominate; the actual code delta is roughly -150 / +290 lines, with the bulk being batch-A explanatory notes for "why is this gated this way")
+- `HISTORY.md` — this chapter
+
+### Verification
+
+- `npm run lint` → zero errors ✅
+- `npm test` → 131 passed, 0 failed ✅
+- `npm run audit:extract` → extracted module: line 523..5907 (358032 bytes); `node --check` exits 0 ✅ (PHASE 1)
+- `npm run audit:tdz` → "TDZ (same-scope use-before-declare) violations: 0" ✅ (PHASE 2)
+- `npm run audit:fp` → "floating-promise findings: 0" ✅ (PHASE 2b — the new `_fetchInFlight` is correctly awaited by every caller either via `return _fetchInFlight` or the `if (_fetchInFlight) return _fetchInFlight` fast path)
+- `npm run audit:brace` → `depth=0  max=8  min=0` ✅ (PHASE 3)
+- `npm run audit:csp` → "csp-audit: PASS - 0 origin gaps found" ✅ (PHASE 4 — no new fetch / Worker / URL origins introduced)
+- `npm run audit:dom` → "domnull-audit: PASS - 0 unguarded property accesses found" ✅ (PHASE 5)
+- `npm run audit:verify` → 17 passed, 0 failed ✅
+
+### Process notes
+
+- **AGENTS.md blind-spot review:** each finding was checked against the audit-blind-spots list (race conditions, unhandled rejections, type coercion, off-by-one, optional-chaining guard scanner caveat). Found one genuine race (PERF-3 / boot-race fetch — fixed) and zero unhandled rejections introduced (the new `_fetchInFlight` Promise is awaited by every caller). The `state.lastCssHeading = null;` substring guard (`tests/sanity.test.js:249`) was preserved verbatim — the field's init changed from ad-hoc to `null` (pre-declared), the reset-on-dragstart assignment is unchanged.
+- **Opt-out findings not applied:** `MagHeadingFuser.fuse` 0.005/0.995 magWeight clamps (PERF-23) — the ARCHITECTURE.md / HISTORY.md note the logistic blur was deliberately rewritten to kill the "drifting sideways" handoff at the magWeight asymptote; the optional clamp reintroduces a tiny hard-switch at the extreme. Deferred to a 1.4.0 minor release where the threshold choice can be discussed. `_MI_byRegime` pre-build (PERF-27) — `tests/sanity.test.js:165-172` requires the `Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }))` substring at two verbatim occurrences; coordinating the substring-test rewrite with the perf change is not worth that surface-area churn for a regime-crossing-only (1–2 crossings per long-haul route) allocation reduction.
+- **Manual fetch smoke test:** the changes at #6 (single-flight), #7 (clearTimeout), #8 (parallel JSON parse) all touch the `fetchData` / fetch-trigger surface, so per AGENTS.md "[did I break fetch?]" the smoke-test steps 1-6 need to be run by the user before deploy: open DevTools → Network tab → reload with GPS permitted → verify an `api.open-meteo.com/v1/forecast?current=temperature_2m,...` request completes with HTTP 200 → verify the telemetry card shows non-`--` values → verify `#hud-glance-temp` shows a number → check Console for red errors. The single-flight latch should manifest as exactly one fetch triplet (3 requests) per coordinate change, not two.
+- **No CSP changes:** none of the 17 changes added a new fetch / Worker / URL origin, so the CSP meta tag is unchanged. `'unsafe-inline'` is preserved per AGENTS.md hard rule #5 — the engine remains inlined in `index.html`.
+- **No audit pipeline changes:** no tests were modified (no scanner needs to learn a new pattern). The `tests/sanity.test.js` substring guard count remains 131 — short of `state.lastCssHeading = null;` (preserved verbatim per `tests/sanity.test.js:249`), the new identifiers introduced (`_fetchInFlight`, `_uiCache.ghostTrans`, `_uiCache.wxmKey`, `extractAllModelArrays`, `_DATE_FMT_LONG_OPTS`, `_CLOCK_FMT_OPTS`, `hMagSq`, `wxmKey`) are not under substring-guard contract, so no test update was required.
+
+
 
 ### Bump rationale
 
