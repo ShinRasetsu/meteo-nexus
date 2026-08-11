@@ -1643,6 +1643,18 @@ let delta = heading - state.lastHeading;
         let lastVisualFrameTime = performance.now();
         const VISUAL_DEADBAND_SQ = 1e-13;
         let visualLastMarkerTX = 0, visualLastMarkerTY = 0;
+        // PERF-PAN — hoist the panTo() options + LatLng array out of the 60 Hz
+        // smoothVisualsLoop tactical-mode branch. The previous call site
+        // `state.mapObj.panTo([lat, lon], { animate: false, duration: 0 })`
+        // allocated BOTH a fresh 2-element array AND a fresh options object on
+        // every frame while driving in tactical mode (>=1) — ~120 short-lived
+        // objects/sec just to pan the map by sub-meter deltas. The array is
+        // reused by mutating its two slots; Leaflet's panTo reads the coords
+        // out of the array synchronously, so reuse is safe (no async retention).
+        // Options object is immutable so a single shared instance is canonical
+        // for all panTo calls in this codebase.
+        const _PAN_TO_OPTS = { animate: false, duration: 0 };
+        const _PAN_TO_LATLON = [0, 0];
 
         function smoothVisualsLoop(time) {
             // Do not reschedule when hidden — idle ~15% battery/hour saved.
@@ -1730,7 +1742,9 @@ let delta = heading - state.lastHeading;
                 // the frame-by-frame accumulation IS the smooth motion, exactly
                 // proportional to movement speed. The tile streamer preloads edges.
                 // Pinch-zoom works freely without breaking lock — panTo doesn't touch zoom.
-                state.mapObj.panTo([state.visual.lat, state.visual.lon], { animate: false, duration: 0 });
+                _PAN_TO_LATLON[0] = state.visual.lat;
+                _PAN_TO_LATLON[1] = state.visual.lon;
+                state.mapObj.panTo(_PAN_TO_LATLON, _PAN_TO_OPTS);
                 // Modes 1 & 2 rotate map to heading
                 if (state.tacticalMode >= 1) {
                     // PERF-4: gate on the *rounded* heading (0.1 deg discretization).
@@ -5518,7 +5532,31 @@ function checkDependenciesAndRun() {
                 // *forever*, and the writes also interrupted the ghosts' 1 s CSS
                 // transition. The cache slots short-circuit the write when the
                 // discretized angle string is unchanged.
-                ghostTrans: ['', '', '']
+                ghostTrans: ['', '', ''],
+                // PERF-AERO-KEYS: numeric cache keys for the remaining transform /
+                // innerHTML sites. The existing string-compare gates (`_uiCache.X !== str`)
+                // skipped the DOM write but still built the template literal on every
+                // frame — ~300 transient strings / sec during steady-state driving.
+                // Following the altKey/wxmKey precedent (PERF-7 at index.html:5605),
+                // these keys quantise the inputs BEFORE the template literal is
+                // built; the string is only allocated when the rounded numeric
+                // input actually changes. Each key is a single Number; comparing
+                // two Numbers is one of the cheapest V8 operations (no hashing,
+                // no flattening), and the keys are written back to _uiCache on miss.
+                // Ring rotation is 0.1 deg resolution (already the displayed res).
+                ringKey: -Infinity,
+                // Wind-vector rotation, 0.1 deg resolution.
+                windKey: -Infinity,
+                // relAngle chip: integer angle + cardinal-str index (wDir quantised
+                // to 16-point compass so 22.5 deg wobble doesn't thrash).
+                relKey: -Infinity,
+                // Headwind/tailwind chip: 1-bit head/tail + integer m/s.
+                headKey: -Infinity,
+                // Crosswind + lateral-g chip: 1-bit direction + crosswind m/s +
+                // discretised lateral-g (the gLabel threshold is 0.02).
+                crossKey: -Infinity,
+                // Ghost trail rotation per slot, 0.1 deg resolution.
+                ghostKey: [-Infinity, -Infinity, -Infinity]
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -5803,8 +5841,21 @@ function checkDependenciesAndRun() {
                         const lerpA = 1 - Math.exp(-dt / 120);
                         visualHeading = (visualHeading + hdiff * lerpA + 360) % 360;
                     }
-                    const ringT = `rotate(${(-visualHeading).toFixed(1)}deg)`;
-                    if (_uiCache.ringTrans !== ringT) { _el.ring.style.transform = ringT; _uiCache.ringTrans = ringT; }
+                    // PERF-AERO-KEYS — gate the ring rotation on the rounded
+                    // 0.1-deg numeric (already the displayed resolution) BEFORE
+                    // building the template-literal. The previous gate ran
+                    // `(-visualHeading).toFixed(1)` then compared the resulting
+                    // string against _uiCache.ringTrans — the template-literal
+                    // allocation + .toFixed() ran every frame regardless, ~60
+                    // transient strings/sec during steady-state (the rounded
+                    // value flips only a handful of times per minute of driving).
+                    const ringKey = Math.round(-visualHeading * 10);
+                    if (_uiCache.ringKey !== ringKey) {
+                        const ringT = `rotate(${(ringKey / 10).toFixed(1)}deg)`;
+                        _el.ring.style.transform = ringT;
+                        _uiCache.ringTrans = ringT;
+                        _uiCache.ringKey = ringKey;
+                    }
                     // Expose polished heading for tracking-card consumption
                     window.__METEO_CORE_STATE.smoothedHeading = visualHeading;
                 }
@@ -5816,8 +5867,18 @@ function checkDependenciesAndRun() {
                     const relAngle = (wDir - activeHeading + 360) % 360;
 
                     if (_el.relAngle) {
-                        const relStr = `${relAngle.toFixed(0)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
-                        if (_uiCache.relAngle !== relStr) { _el.relAngle.innerHTML = relStr; _uiCache.relAngle = relStr; }
+                        // PERF-AERO-KEYS — quantise angle + cardinal to a single
+                        // Number. wDir is folded through 16-point compass (22.5 deg
+                        // buckets) so a 5 deg wind-direction wobble doesn't thrash
+                        // the relAngle chip's innerHTML 60x/sec. The integer angle
+                        // is already the displayed resolution.
+                        const relKey = (Math.round(relAngle) * 100) + Math.round(wDir / 22.5);
+                        if (_uiCache.relKey !== relKey) {
+                            const relStr = `${Math.round(relAngle)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
+                            _el.relAngle.innerHTML = relStr;
+                            _uiCache.relAngle = relStr;
+                            _uiCache.relKey = relKey;
+                        }
                     }
 
                     // Wind vector EMA — TC=300ms (meteorological, slower than compass)
@@ -5832,8 +5893,15 @@ function checkDependenciesAndRun() {
                     }
 
                     if (_el.wind) {
-                        const wT = `rotate(${visualWindAngle.toFixed(1)}deg)`;
-                        if (_uiCache.windTrans !== wT) { _el.wind.style.transform = wT; _uiCache.windTrans = wT; }
+                        // PERF-AERO-KEYS — gate wind-vector rotation on the rounded
+                        // 0.1-deg numeric BEFORE building the template-literal.
+                        const windKey = Math.round(visualWindAngle * 10);
+                        if (_uiCache.windKey !== windKey) {
+                            const wT = `rotate(${(windKey / 10).toFixed(1)}deg)`;
+                            _el.wind.style.transform = wT;
+                            _uiCache.windTrans = wT;
+                            _uiCache.windKey = windKey;
+                        }
                     }
 
                     // VECTOR DECOMPOSITION — kinematic force isolation
@@ -5842,17 +5910,42 @@ function checkDependenciesAndRun() {
                     const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
 
                     if (_el.head) {
-                        const hStr = `<span class="${headForce > 0 ? 'text-brand-orange' : 'text-brand-success'}">${headForce > 0 ? 'HWD' : 'TAL'}: ${Math.abs(headForce).toFixed(0)}</span>`;
-                        if (_uiCache.head !== hStr) { _el.head.innerHTML = hStr; _uiCache.head = hStr; }
+                        // PERF-AERO-KEYS — 1-bit head/tail sign + integer m/s force.
+                        // The chip displays integer km/h; windSpeed itself updates ~1 Hz
+                        // so the previous build-then-compare path was allocating 60
+                        // transient template strings per second between wind updates.
+                        const headSign = headForce > 0 ? 1 : 0;
+                        const headMag  = Math.abs(Math.round(headForce));
+                        const headKey  = (headSign * 100000) + headMag;
+                        if (_uiCache.headKey !== headKey) {
+                            const hStr = `<span class="${headSign ? 'text-brand-orange' : 'text-brand-success'}">${headSign ? 'HWD' : 'TAL'}: ${headMag}</span>`;
+                            _el.head.innerHTML = hStr;
+                            _uiCache.head = hStr;
+                            _uiCache.headKey = headKey;
+                        }
                     }
 
                     if (_el.cross) {
                         const absCross = Math.abs(crossForce);
                         const latMps    = absCross / 3.6;             // km/h → m/s
                         const latG      = latMps / 9.81;          // lateral force in g
-                        const gLabel    = latG >= 0.02 ? `&#160;${latG.toFixed(2)}g` : '';
-                        const cStr      = `CRS: ${absCross.toFixed(0)}${gLabel} <i class="fa-solid fa-arrow-${crossForce > 0 ? 'left' : 'right'}"></i>`;
-                        if (_uiCache.cross !== cStr) { _el.cross.innerHTML = cStr; _uiCache.cross = cStr; }
+                        // PERF-AERO-KEYS — 1-bit crosswind direction + integer crosswind
+                        // + quantised lateral-g (the gLabel threshold is 0.02; below
+                        // threshold the gLabel is empty, above it's two-decimal so we
+                        // round latG to 0.01 = 100 buckets). The build allocates the
+                        // nested gLabel template + the outer cStr template per frame
+                        // in the old path; both are skipped when the key is stable.
+                        const crossSign = crossForce > 0 ? 1 : 0;
+                        const crossMag  = Math.round(absCross);
+                        const gQuant    = latG >= 0.02 ? Math.round(latG * 100) : -1;
+                        const crossKey  = (crossSign * 100000000) + (crossMag * 1000) + gQuant;
+                        if (_uiCache.crossKey !== crossKey) {
+                            const gLabel = gQuant >= 0 ? `&#160;${(gQuant / 100).toFixed(2)}g` : '';
+                            const cStr   = `CRS: ${crossMag}${gLabel} <i class="fa-solid fa-arrow-${crossSign ? 'left' : 'right'}"></i>`;
+                            _el.cross.innerHTML = cStr;
+                            _uiCache.cross = cStr;
+                            _uiCache.crossKey = crossKey;
+                        }
                     }
 
                     // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
@@ -5866,13 +5959,17 @@ function checkDependenciesAndRun() {
                         const age = (historyIdx - 1 - i + 3) % 3;
                         const histAngle = windHistory[age];
                         if (histAngle !== -1 && !isNaN(histAngle) && _el.ghost[i]) {
-                            // PERF-2: cache the discretized rotation string so we
-                            // only write to .style.transform when the rounded
-                            // angle actually flips — 600 -> ~6 writes per minute.
-                            const gT = `rotate(${histAngle.toFixed(1)}deg)`;
-                            if (_uiCache.ghostTrans[i] !== gT) {
+                            // PERF-2 + PERF-AERO-KEYS: gate on the discretized 0.1-deg
+                            // numeric BEFORE building the rotation template-literal.
+                            // The windHistory ring only refreshes every 10 s, so the
+                            // 600 intermediate frames previously rebuilt the identical
+                            // `rotate(X.Ydeg)` string just to compare it away.
+                            const ghostKey = Math.round(histAngle * 10);
+                            if (_uiCache.ghostKey[i] !== ghostKey) {
+                                const gT = `rotate(${(ghostKey / 10).toFixed(1)}deg)`;
                                 _el.ghost[i].style.transform = gT;
                                 _uiCache.ghostTrans[i] = gT;
+                                _uiCache.ghostKey[i] = ghostKey;
                             }
                         }
                     }
