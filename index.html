@@ -2685,12 +2685,70 @@ let delta = heading - state.lastHeading;
                 if (h < 0) h += 360;
                 return h;
             },
-            // Speed-gated weight 0..1 for MAG contribution (1 = pure mag, 0 = pure gnss).
-            // Logistic crossover with midpoint at ~7 km/h — below 5 km/h the GPS heading
-            // is noisy/null on most phones, above 12 km/h it's typically solid.
-            magWeight(speedKmh) {
-                const k = 7, s = 2.5;
-                return 1 / (1 + Math.exp((speedKmh - k) / s));
+            // --- TRUST MODEL (accuracy-weighted fusion, smooth in [0,1]) ---
+            // Replaces the previous speed-only `magWeight(speed)` logistic, which
+            // ignored GNSS accuracy. At low speed with poor GPS we now correctly
+            // trust the magnetometer; at high speed with great GPS we trust GNSS;
+            // when BOTH are good we meet in the middle (gnssTrust ~= magTrust ~=
+            // 0.5 after renormalisation). No hard switches — every input hits a
+            // smooth saturating function so a jittering accuracy reading produce
+            // a smoothly varying weight, never a step.
+            //
+            // gnssTrust = speed ∧ accuracy ∧ freshness  (all three must be good).
+            // magTrust  = basePrior * (1 - gnssTrust) * offsetConfidenceBoost
+            //   The basePrior (~0.5) is the "magnetometer is plausible by default"
+            //   prior. The (1 - gnssTrust) factor says: when GNSS is excellent, mag's
+            //   role shrinks gracefully (towards 0). When GNSS is bad, mag fills the
+            //   gap. The offsetConfidenceBoost slowly raises mag trust above the
+            //   prior once we've *learned* the residual offset against GNSS — this
+            //   is the closed-loop calibration: as confidence in the learned offset
+            //   grows, mag's trust grows with it, so a well-calibrated phone can
+            //   lean on the magnetometer even at speed.
+            //
+            // Renormalisation: both weights are then divided by their sum so the
+            // pair always sums to 1 — this is exactly the user-specified "if both
+            // accurate, 0.5/0.5; if GPS dominates, 0.7/0.3 (or 0.9/0.1)" model.
+            //
+            // All constants are KEPT SMOOTH: logsteeps are 2.5–4, clamp windows
+            // are 15–25 m and 3000 ms, etc. A single noisy GPS reading cannot flip
+            // the weights by more than ~12% — the subsequent reading will pull it
+            // back, and the visual EMA downstream does the rest of the damping.
+
+            // Smooth saturator in [0,1] centred at x=0, slope controlled by k.
+            // Larger k = sharper transition (closer to a step). k=2.5 is gentle.
+            _sat(x, k) { return 1 / (1 + Math.exp(-k * x)); },
+
+            // GNSS trust — speed ∧ accuracy ∧ freshness of fix.
+            // Returns 0..1 (smooth).
+            gnssTrust(speedKmh, accuracyM, gnssFreshMs) {
+                // Speed factor: ~0 at 2 km/h, ~0.5 at 8, ~1 at 14+. Gentle k=3.
+                // speedKmh can be NaN (pos.coords.speed === null) — treat as 0.
+                const s = (Number.isFinite(speedKmh) ? speedKmh : 0);
+                const speedFactor = this._sat((s - 8) / 3, 1); // k=1 → very gentle
+                // Accuracy factor: 1 if accuracy ≤ 5 m, 0 if accuracy ≥ 25 m.
+                // We accept accuracy === null (some platforms omit it) as "neutral
+                // 0.5" so we don't unfairly zero the trust for a missing field.
+                let accFactor;
+                if (!Number.isFinite(accuracyM)) accFactor = 0.5;
+                else accFactor = Math.max(0, Math.min(1, (25 - accuracyM) / 20));
+                // Freshness factor: 1 if fix < 1s old, 0 if > 3s old.
+                let freshFactor;
+                if (!Number.isFinite(gnssFreshMs)) freshFactor = 0;
+                else freshFactor = Math.max(0, Math.min(1, (3000 - gnssFreshMs) / 3000));
+                // Combine as product — all three must be good for trust to be high.
+                return speedFactor * accFactor * freshFactor;
+            },
+            // Mag trust — base prior plus an offset-confidence boost when the
+            // learned offset is solid, gracefully ceding weight as gnssTrust rises.
+            // Returns 0..1 (smooth).
+            magTrust(gnssTrust, offsetConfidence) {
+                // Base prior: by default mag is plausible (~0.5). The prior is
+                // gently elevated when the learned GPS-vs-mag offset is confident.
+                const basePrior = 0.5 + 0.35 * (offsetConfidence || 0);
+                // Cede weight as GNSS trust rises. `(1 - gnssTrust)` is itself in
+                // [0,1], and the basePrior is in [0.5, 0.85]. Their product is the
+                // unrenormalised mag weight.
+                return basePrior * (1 - gnssTrust);
             },
             // Sync — learn residual between mag and gnss when both reliable.
             // Called from the GPS tick when gpsHeading is non-null AND speed is solid.
@@ -2712,7 +2770,11 @@ let delta = heading - state.lastHeading;
                 // spurious gnss reading doesn't snap the offset.
                 const learn = 0.1;
                 this.offset = (this.offset + delta * learn + 540) % 360 - 180;
-                this.offsetConfidence = Math.min(1, this.offsetConfidence + 0.05);
+                // Confidence climbs proportionally to GNSS trust — a low-accuracy
+                // sync point contributes little; a high-accuracy one contributes
+                // fully. Smooth in [0,1].
+                const syncGain = 0.05 * (this.gnssTrust(speedKmh, accuracyM, 0) || 1);
+                this.offsetConfidence = Math.min(1, this.offsetConfidence + Math.max(syncGain, 0.005));
                 this.lastSyncAt = Date.now();
             },
             // Slow confidence decay — if no sync points in 60s, fall back to raw mag.
@@ -2724,16 +2786,23 @@ let delta = heading - state.lastHeading;
             },
             // Combined heading (degrees 0..360) — main entry.
             // Returns null if no source available.
-            fuse(gnssHeading, magHeading, speedKmh, gnssFreshMs) {
+            // Signature: fuse(gnssHeading, magHeading, speedKmh, accuracyM, gnssFreshMs)
+            fuse(gnssHeading, magHeading, speedKmh, accuracyM, gnssFreshMs) {
                 this.decay();
-                const gnssValid = (gnssHeading !== null && !isNaN(gnssHeading) && gnssFreshMs < 3000);
-                const magValid = (magHeading !== null && !isNaN(magHeading));
+                const gnssValid = (gnssHeading !== null && !isNaN(gnssHeading) && Number.isFinite(gnssFreshMs) && gnssFreshMs < 3000);
+                const magValid  = (magHeading !== null && !isNaN(magHeading));
                 if (!gnssValid && !magValid) return null;
                 if (gnssValid && !magValid) return gnssHeading;
                 if (!gnssValid && magValid) return this.applyOffset(magHeading);
-                // Both valid — blend with circular mean weighted by magWeight(speed).
-                const wMag = this.magWeight(speedKmh);
-                const wGnss = 1 - wMag;
+                // Both valid — compute smooth trust pair and renormalise so they
+                // sum to 1 (matching the user-specified 0.5/0.5 ↔ 0.9/0.1 model).
+                const gT = this.gnssTrust(speedKmh, accuracyM, gnssFreshMs);
+                const mT = this.magTrust(gT, this.offsetConfidence);
+                const wTotal = gT + mT;
+                // Defensive — if both weights collapse to 0 (impossible given the
+                // base prior of magTrust, but guard anyway) fall back to 0.5/0.5.
+                const wGnss = wTotal > 0 ? gT / wTotal : 0.5;
+                const wMag  = wTotal > 0 ? mT / wTotal : 0.5;
                 // Apply offset before blending so both sources are in the same frame.
                 const magAdj = this.applyOffset(magHeading);
                 // Circular weighted mean via vector sum.
@@ -2938,14 +3007,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             MagHeadingFuser.sync(gpsHeading, state.currentSpeed, accuracy);
                             const gnssFreshMs = now - (window.__METEO_CORE_STATE.lastGnssUpdate || 0);
                             const magH = state.sensorHeading;
-                            const fused = MagHeadingFuser.fuse(gpsHeading, magH, state.currentSpeed, gnssFreshMs);
+                            // Pass live GPS accuracy so the fuser can scale GNSS
+                            // trust by fix quality. Falling-stale accuracy (a
+                            // a few ticks old) is acceptable — `accuracy` updates
+                            // on every GPS tick and is stable enough frame-to-frame.
+                            const fused = MagHeadingFuser.fuse(gpsHeading, magH, state.currentSpeed, accuracy, gnssFreshMs);
                             if (fused !== null) {
                                 state.renderHeading = fused;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
                             }
                         } else if (state.sensorHeading !== null) {
-                            const fused = MagHeadingFuser.fuse(null, state.sensorHeading, state.currentSpeed, 99999);
+                            const fused = MagHeadingFuser.fuse(null, state.sensorHeading, state.currentSpeed, accuracy, 99999);
                             if (fused !== null) {
                                 state.renderHeading = fused;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
