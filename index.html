@@ -141,7 +141,15 @@
 
         /* Portrait phones (width < 768px): slide the quick-glance strip down below
            the top-left speed/compass cluster so they don't overlap. The strip sits
-           just above the bottom-right tactical/mcalibration buttons. */
+           just above the bottom-right tactical/mcalibration buttons. The inner
+           chip is allowed to flex-wrap so the 5 fields + 4 separators land on two
+           rows when the natural content width exceeds the available strip width —
+           the previous `whitespace-nowrap + overflow-hidden` pair silently clipped
+           the | separators mid-glyph on 360-414px viewports as soon as real values
+           ("RAIN 0.5mm", "VIS 10.0km", "WIND 23@145°") pushed the line past the
+           viewport. Wrapping on its own looks odd with the | chars sitting at row
+           edges, so we hide them on portrait and let the gap-* between chips do
+           all the visual separation — each row reads as a clean cluster. */
         @media (max-width: 767px) {
             #hud-glance-strip {
                 top: auto !important;
@@ -151,6 +159,14 @@
                 max-width: none !important;
                 transform: none !important;
             }
+            /* Hide the | separators on portrait so the wrap reads as clean chips
+               rather than rows starting/ending with a stray divider glyph. The
+               gap-1 between items carries the visual separation cleanly. */
+            #hud-glance-strip .hud-glance-sep { display: none !important; }
+            /* Cap the chip height growth so a 2-row wrap doesn't approach the
+               tactical buttons cluster just above. 3 lines max = 5 + 4 fields
+               worst case (~46px), well clear of the 80px bottom-offset. */
+            #hud-glance-strip-inner { max-height: 56px; overflow: hidden; }
         }
 
         .section-hidden { display: none !important; }
@@ -348,18 +364,36 @@
 
                  Responsive: top-center on md+ where there's room beside the left pills;
                  bottom-narrow on portrait where top-left and top-center overlap.
-                 Position switched by @media (max-width: 767px) in the CSS block. -->
+                 Position switched by @media (max-width: 767px) in the CSS block.
+
+                 Layout: the inner chip uses flex-wrap so on portrait phones the
+                 5 fields + 4 separators wrap onto a second row instead of being
+                 clipped by overflow-hidden (the previous single-line + nowrap combo
+                 cut the | separators mid-glyph on 360-414px viewports when actual
+                 content like "RAIN 0.5mm" / "VIS 10.0km" pushed the natural line
+                 width past the available space). On md+ where there's room the
+                 flex-wrap degrades to a single line — same look as before.
+
+                 Class choice: only utilities present in the precompiled
+                 tailwind.min.css are used here (flex-wrap, gap-*, text-[9px], etc.).
+                 The portrait-specific separator hiding is driven by the
+                 @media (max-width: 767px) block in the inline CSS, NOT by
+                 `hidden md:inline`-style Tailwind variant utilities, because the
+                 precompiled Tailwind v4 build doesn't ship every variant (per
+                 HISTORY.md v1.3.x portrait-overlap fixup note). -->
             <div id="hud-glance-strip" class="absolute z-[1000] pointer-events-none
                         top-4 left-1/2 -translate-x-1/2 max-w-[90%] md:max-w-[60%]">
-                <div class="bg-surface-900/90 border border-surface-700 px-2 md:px-3 py-1 rounded-lg shadow-lg backdrop-blur-md flex items-center gap-2 md:gap-3 text-[10px] md:text-sm font-mono font-bold whitespace-nowrap overflow-hidden justify-center">
+                <div id="hud-glance-strip-inner" class="bg-surface-900/90 border border-surface-700 px-2 md:px-3 py-1 rounded-lg shadow-lg backdrop-blur-md
+                            flex flex-wrap items-center justify-center gap-1 md:gap-3
+                            text-[9px] md:text-sm font-mono font-bold">
                     <span id="hud-glance-rain" class="text-gray-400 transition-colors">RAIN --</span>
-                    <span class="text-surface-600">|</span>
+                    <span class="hud-glance-sep text-surface-600">|</span>
                     <span id="hud-glance-wind" class="text-brand-blue">WIND --</span>
-                    <span class="text-surface-600">|</span>
+                    <span class="hud-glance-sep text-surface-600">|</span>
                     <span id="hud-glance-vis" class="text-gray-300">VIS --</span>
-                    <span class="text-surface-600">|</span>
+                    <span class="hud-glance-sep text-surface-600">|</span>
                     <span id="hud-glance-temp" class="text-brand-orange">--&deg;C</span>
-                    <span class="text-surface-600">|</span>
+                    <span class="hud-glance-sep text-surface-600">|</span>
                     <span id="hud-glance-trend" class="text-brand-purple">TREND --</span>
                 </div>
             </div>
