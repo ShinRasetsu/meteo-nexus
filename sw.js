@@ -1,4 +1,4 @@
-const APP_CACHE = 'meteonexus-app-v6';
+const APP_CACHE = 'meteonexus-app-v7';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
