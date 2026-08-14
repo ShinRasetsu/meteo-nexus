@@ -6,18 +6,22 @@
 
 ---
 
-## Current state at session end (2026-08-09)
+## Current state at session end (2026-08-15)
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.3.9` |
-| `package.json` → version | `1.3.9` |
-| `eslint` | `10.8.0` (upgraded from 9.39.5 — `no-useless-assignment` rule caught 5 dead initializer fixes too) |
-| `globals` | `17.9.0` (upgraded from 15.15.0) |
-| `@eslint/js` | `10.0.1` (pinned as direct dev dep since eslint 10 requires a separate @eslint/js package) |
+| `VERSION` | `1.4.0` |
+| `package.json` → version | `1.4.0` |
+| `eslint` | `10.8.0` |
+| `globals` | `17.9.0` |
+| `@eslint/js` | `10.0.1` |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.3.9` — create with `git tag v1.3.9` before push |
+| Git tag | `v1.4.0` — create with `git tag v1.4.0` before push |
+| Tests | `npm test` — 131+ assertions, all passing |
+| Lint | `npm run lint` — zero errors |
+| Scanner self-verify | `npm run audit:verify` — 17 cases (positive + negative controls) all passing |
+| Precheck (deploy gate) | `npm run precheck` — builds CSS first THEN chains `npm run audit` (extract+parse+TDZ+brace+CSP+DOM scan); exits non-zero on any phase failure |
 | Tests | `npm test` — 127 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
 | Scanner self-verify | `npm run audit:verify` — 10 cases (5 positive + 5 negative controls) all passing |
@@ -500,6 +504,55 @@ Patch bump from 1.3.3 → 1.3.4. Aggressive triage pass motivated by the 1.3.3 "
 - `npm test` → 127 passed, 0 failed ✅
 - `npm run lint` → zero errors ✅
 - Brace-balance pass (manual): `Final depth: 0` ✅
+
+---
+
+## 1.4.0 — 2026-08-15 (pit stop overhaul: local stations, EV/H2, amenities, hours, offline)
+
+### Bump rationale
+
+Minor bump from 1.3.10 → 1.4.0. Complete redesign of the Pit Stop (formerly Fuel Parameters) system:
+- Local station datasets (Shell 2.8 MB, Caltex 0.65 MB) replace Overpass API as primary source
+- EV Charging & Hydrogen added as first-class fuel types per brand capability
+- Amenity filters (Toilets, Shop, ATM, EV, Car Wash, Bakery) with per-brand field mapping
+- Opening hours modes: All / Open Now / 24/7 with brand-specific logic
+- Offline-first: lazy-load on first use, cache in IndexedDB, one-tap download all
+- Mobile-first accordion UI replaces tabbed modal
+- Overpass retained as fallback with source badge in results
+
+### Full changelog
+
+- `index.html`:
+  - **Pit Stop Parameters modal** — renamed from "Fuel Parameters", restructured as native `<details>` accordion (Fuels, Amenities, Hours, Offline, Routing)
+  - **FUEL_CATALOG extended** — per-brand `ev`, `hydrogen`, `amenities` flags; Shell & Caltex EV/H2 enabled
+  - **AMENITY_CATALOG added** — 7 amenities with per-brand field keys (Shell: native fields; Caltex: reverse-engineered `amenityid_XXXX`/`filter_ids`)
+  - **OPENING_MODES added** — `all`, `open_now`, `24_7` with brand-specific `isOpenNow()` logic
+  - **FuelManager config** — new fields: `amenities[]`, `openingMode`, `useLocalData`, `ev`, `h2`
+  - **Offline tab** — per-brand download buttons, freshness status, progress UI, cached in IndexedDB via localforage
+
+- `fuel-stations.js` (new):
+  - **StationLoader** — lazy `fetch('./brand_stations.json')` → `localforage` cache (7-day TTL), freshness API
+  - **BrandAdapters** — normalize Shell/Caltex schemas to common `{id, name, lat, lon, fuels[], amenities{}, hours{}, is24_7}`
+  - **SearchEngine.findNearby()** — haversine radius filter + variant + amenity + openingMode filters, returns sorted by distance
+  - **Caltex amenity parser** — decodes `filter_ids`/`amenity_ids` tokens (e.g., `amenityid_3001` → toilet)
+
+- `FuelManager` integration:
+  - `triggerIntercept()` / `findAllAlongRoute()` / `findAllNearest()` now prefer local search, fallback to Overpass
+  - Results badge shows source: `LOCAL ✅` vs `OSM ⚠`
+
+- `sw.js`:
+  - Bumped `APP_CACHE` to `v7` (forces index.html re-cache with new modal)
+
+- `VERSION` → `1.4.0`
+- `package.json` → `"version": "1.4.0"`
+
+### Verification
+
+- `npm run lint` → zero errors
+- `npm test` → 131+ assertions pass (new substring checks for modal sections, amenity keys, opening modes)
+- `npm run audit` → 6 phases PASS
+- `npm run audit:verify` → 17/17 self-tests PASS
+- Manual: modal renders on 360px viewport, accordion sections expand/collapse, brand switch updates variant/amenity lists, local search returns Shell/Caltex stations within radius, opening filter works, offline download caches and shows freshness
 
 ---
 

@@ -447,54 +447,131 @@
     </div>
 
     <div id="fuel-settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-        <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
-            <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Fuel Parameters</h3>
-            <div class="space-y-4 font-mono">
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Target Brand</label>
-                    <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
-                    <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
-                </div>
-                <div class="mt-4 pt-4 border-t border-surface-700 space-y-3">
-                    <span class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Routing Options</span>
-                    <label class="flex items-center gap-3 cursor-pointer group">
-                        <div class="relative">
-                            <input type="checkbox" id="pref-toll" class="peer sr-only">
-                            <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
-                            <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
-                        </div>
-                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Tolls</span>
-                    </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
-                        <div class="relative">
-                            <input type="checkbox" id="pref-highway" class="peer sr-only">
-                            <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
-                            <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
-                        </div>
-                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Highways</span>
-                    </label>
-                    <label class="flex items-center gap-3 cursor-pointer group">
-                        <div class="relative">
-                            <input type="checkbox" id="pref-ferry" class="peer sr-only">
-                            <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
-                            <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
-                        </div>
-                        <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Ferries</span>
-                    </label>
-                </div>
-                <div class="mt-4 pt-4 border-t border-surface-700">
-                    <div class="flex justify-between items-center bg-surface-800 p-3 rounded-lg border border-surface-600">
+        <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)] max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Pit Stop Parameters</h3>
+            <div class="space-y-3 font-mono" id="fuel-modal-accordion">
+                <!-- FUELS SECTION -->
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-orange/50" open>
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-orange uppercase tracking-widest">
+                            <i class="fa-solid fa-gas-pump"></i> Fuels
+                        </span>
+                        <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
+                    </summary>
+                    <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
                         <div>
-                            <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Verify 24/7 & Stock</span>
-                            <span class="block text-xs font-black text-brand-orange uppercase tracking-widest mt-0.5">Official Source</span>
+                            <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Target Brand</label>
+                            <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                         </div>
-                        <button id="btn-official-locator" aria-label="Open Official Locator" class="bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
-                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Open
-                        </button>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
+                            <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 pt-2">
+                            <label class="flex items-center gap-2 cursor-pointer group" id="pref-ev-wrap">
+                                <input type="checkbox" id="pref-ev" class="peer sr-only">
+                                <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange flex items-center justify-center"></div>
+                                <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
+                                <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">EV Charging</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer group" id="pref-h2-wrap">
+                                <input type="checkbox" id="pref-h2" class="peer sr-only">
+                                <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange flex items-center justify-center"></div>
+                                <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
+                                <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">Hydrogen</span>
+                            </label>
+                        </div>
                     </div>
+                </details>
+
+                <!-- AMENITIES SECTION -->
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-green/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-green uppercase tracking-widest">
+                            <i class="fa-solid fa-concierge-bell"></i> Amenities
+                        </span>
+                        <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
+                    </summary>
+                    <div class="px-3 pb-3 space-y-2 border-t border-surface-700" id="pref-amenities-list"></div>
+                </details>
+
+                <!-- HOURS SECTION -->
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-blue/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-blue uppercase tracking-widest">
+                            <i class="fa-solid fa-clock"></i> Hours
+                        </span>
+                        <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
+                    </summary>
+                    <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
+                        <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Search Mode</label>
+                        <select id="pref-opening-mode" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-blue outline-none transition-colors"></select>
+                    </div>
+                </details>
+
+                <!-- OFFLINE SECTION -->
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-purple/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-purple uppercase tracking-widest">
+                            <i class="fa-solid fa-download"></i> Offline
+                        </span>
+                        <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
+                    </summary>
+                    <div class="px-3 pb-3 space-y-3 border-t border-surface-700" id="pref-offline-content">
+                        <div class="space-y-2" id="offline-brand-list"></div>
+                        <div class="pt-2">
+                            <button id="download-all-btn" class="w-full bg-brand-purple/20 text-brand-purple hover:bg-brand-purple hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-download"></i> Download All Brands
+                            </button>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- ROUTING SECTION -->
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-surface-600/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                        <span class="flex items-center gap-2 text-sm font-bold text-gray-300 uppercase tracking-widest">
+                            <i class="fa-solid fa-route"></i> Routing
+                        </span>
+                        <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
+                    </summary>
+                    <div class="px-3 pb-3 space-y-2 border-t border-surface-700">
+                        <label class="flex items-center gap-3 cursor-pointer group">
+                            <div class="relative">
+                                <input type="checkbox" id="pref-toll" class="peer sr-only">
+                                <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
+                                <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                            </div>
+                            <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Tolls</span>
+                        </label>
+                        <label class="flex items-center gap-3 cursor-pointer group">
+                            <div class="relative">
+                                <input type="checkbox" id="pref-highway" class="peer sr-only">
+                                <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
+                                <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                            </div>
+                            <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Highways</span>
+                        </label>
+                        <label class="flex items-center gap-3 cursor-pointer group">
+                            <div class="relative">
+                                <input type="checkbox" id="pref-ferry" class="peer sr-only">
+                                <div class="w-10 h-6 bg-surface-800 rounded-full border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange"></div>
+                                <div class="absolute left-1 top-1 bg-gray-400 w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4 peer-checked:bg-black"></div>
+                            </div>
+                            <span class="text-sm font-bold text-gray-300 uppercase tracking-widest">Avoid Ferries</span>
+                        </label>
+                    </div>
+                </details>
+
+                <!-- OFFICIAL SOURCE -->
+                <div class="flex justify-between items-center bg-surface-800 p-3 rounded-lg border border-surface-600">
+                    <div>
+                        <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest">Verify 24/7 & Stock</span>
+                        <span class="block text-xs font-black text-brand-orange uppercase tracking-widest mt-0.5">Official Source</span>
+                    </div>
+                    <button id="btn-official-locator" aria-label="Open Official Locator" class="bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2">
+                        <i class="fa-solid fa-arrow-up-right-from-square"></i> Open
+                    </button>
                 </div>
             </div>
             <div class="flex gap-3 justify-end mt-6">
@@ -1262,18 +1339,23 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
-        // --- FUEL CATALOG ---
+        // --- FUEL CATALOG (extended with EV/H2 + amenity capabilities per brand) ---
         const FUEL_CATALOG = {
-            "Shell": ["V-Power Racing", "V-Power Gasoline", "V-Power Diesel", "FuelSave Gasoline", "FuelSave Diesel"],
-            "Petron": ["Blaze 100", "XCS", "Xtra Advance", "Turbo Diesel", "Diesel Max"],
-            "Caltex": ["Platinum with Techron", "Silver with Techron", "Diesel with Techron D"],
-            "Seaoil": ["Extreme 97", "Extreme 95", "Extreme U", "Exceed Diesel"],
-            "Unioil": ["Euro 5 Premium 97", "Euro 5 Premium 95", "Euro 5 Unleaded 91", "Euro 5 Diesel"],
-            "Cleanfuel": ["Premium 95", "Clean91", "Diesel", "AutoLPG"],
-            "Flying V": ["Thunder Plus", "Thunder", "Unleaded", "Diesel"],
-            "PTT": ["Blue Innovation 97", "Blue Innovation 95", "Blue Innovation 91", "Blue Diesel"],
-            "Phoenix": ["Premium 98", "Premium 95", "Super Unleaded", "Diesel"]
+            "Shell": { fuels: ["V-Power Racing", "V-Power Gasoline", "V-Power Diesel", "FuelSave Gasoline", "FuelSave Diesel"], ev: true, hydrogen: true, amenities: ["toilet", "shop", "atm", "ev", "hydrogen", "carwash", "bakery"] },
+            "Caltex": { fuels: ["Platinum with Techron", "Silver with Techron", "Diesel with Techron D"], ev: true, hydrogen: false, amenities: ["toilet", "shop", "atm", "ev", "carwash"] },
+            "Petron": { fuels: ["Blaze 100", "XCS", "Xtra Advance", "Turbo Diesel", "Diesel Max"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "Seaoil": { fuels: ["Extreme 97", "Extreme 95", "Extreme U", "Exceed Diesel"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "Unioil": { fuels: ["Euro 5 Premium 97", "Euro 5 Premium 95", "Euro 5 Unleaded 91", "Euro 5 Diesel"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "Cleanfuel": { fuels: ["Premium 95", "Clean91", "Diesel", "AutoLPG"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "Flying V": { fuels: ["Thunder Plus", "Thunder", "Unleaded", "Diesel"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "PTT": { fuels: ["Blue Innovation 97", "Blue Innovation 95", "Blue Innovation 91", "Blue Diesel"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "Phoenix": { fuels: ["Premium 98", "Premium 95", "Super Unleaded", "Diesel"], ev: false, hydrogen: false, amenities: ["toilet", "shop"] },
+            "EV Networks": { fuels: ["EV Charging"], ev: true, hydrogen: false, amenities: ["ev"] },
+            "Hydrogen": { fuels: ["Hydrogen"], ev: false, hydrogen: true, amenities: ["hydrogen"] }
         };
+
+        // Helper to get fuel array for a brand (backward compat)
+        function getBrandFuels(brand) { return FUEL_CATALOG[brand]?.fuels || []; }
 
         const BRAND_LINKS = {
             "Shell": "https://find.shell.com/ph/fuel/locations/en_PH",
@@ -1301,6 +1383,24 @@
             "Blue Innovation 97": "fuel:octane_97", "Blue Innovation 95": "fuel:octane_95",
             "Blue Innovation 91": "fuel:octane_91", "Blue Diesel": "fuel:diesel",
             "Premium 98": "fuel:octane_98", "Super Unleaded": "fuel:octane_91"
+        };
+
+        // --- AMENITY CATALOG (per-brand field mapping for Shell/Caltex local data) ---
+        const AMENITY_CATALOG = {
+            toilet:    { label: "Toilets", icon: "fa-toilet" },
+            shop:      { label: "Convenience Store", icon: "fa-store" },
+            atm:       { label: "ATM", icon: "fa-credit-card" },
+            ev:        { label: "EV Charging", icon: "fa-bolt" },
+            hydrogen:  { label: "Hydrogen", icon: "fa-droplet" },
+            carwash:   { label: "Car Wash", icon: "fa-car-wash" },
+            bakery:    { label: "Bakery / Cafe", icon: "fa-bread-slice" }
+        };
+
+        // --- OPENING MODES ---
+        const OPENING_MODES = {
+            all:       { key: "all", label: "All Stations", icon: "fa-list" },
+            open_now:  { key: "open_now", label: "Open Now", icon: "fa-clock" },
+            "24_7":    { key: "24_7", label: "24/7 Only", icon: "fa-infinity" }
         };
 
         // --- STATE STORE ---
@@ -1347,6 +1447,15 @@
         // an in-flight promise exists, second callers await it instead of
         // duplicating the network + render work (boot-race fix).
         let _fetchInFlight = null;
+
+        // Lazy-loaded fuel stations module
+        let _fuelStationsModule = null;
+        async function getFuelStationsModule() {
+            if (!_fuelStationsModule) {
+                _fuelStationsModule = await import('./fuel-stations.js');
+            }
+            return _fuelStationsModule;
+        }
 
         function fastDistance(lat1, lon1, lat2, lon2) {
             const p = 0.017453292519943295;
@@ -1438,7 +1547,7 @@
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
             modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
-            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry') },
+            fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry'), ev: document.getElementById('pref-ev'), h2: document.getElementById('pref-h2'), openingMode: document.getElementById('pref-opening-mode'), amenitiesList: document.getElementById('pref-amenities-list'), offlineContent: document.getElementById('pref-offline-content'), offlineBrandList: document.getElementById('offline-brand-list'), downloadAllBtn: document.getElementById('download-all-btn') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn'),
             statNodes: {
@@ -5116,10 +5225,77 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             window.applyTacticalMode();
         };
 
+        // Render offline brand list with freshness status
+        async function renderOfflineBrandList() {
+            const list = DOM.fuel.offlineBrandList;
+            if (!list) return;
+            list.innerHTML = '';
+            
+            const mod = await getFuelStationsModule();
+            const brands = ['shell', 'caltex'];
+            
+            for (const brand of brands) {
+                const freshness = await mod.StationLoader.getFreshness(brand);
+                const brandName = brand.charAt(0).toUpperCase() + brand.slice(1);
+                const sizeMB = (freshness.size / (1024 * 1024)).toFixed(1);
+                let statusHtml, btnHtml;
+                
+                if (freshness.status === 'never') {
+                    statusHtml = `<span class="text-brand-red">❌ Never downloaded</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-download mr-1"></i>${brandName} (${sizeMB} MB)</button>`;
+                } else if (freshness.status === 'fresh') {
+                    const hoursAgo = (freshness.ageMs / (1000 * 60 * 60)).toFixed(1);
+                    statusHtml = `<span class="text-brand-success">✅ Cached ${hoursAgo}h ago</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-teal/20 text-brand-teal hover:bg-brand-teal hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-sync mr-1"></i>Refresh ${brandName}</button>`;
+                } else if (freshness.status === 'stale') {
+                    const daysAgo = (freshness.ageMs / (1000 * 60 * 60 * 24)).toFixed(1);
+                    statusHtml = `<span class="text-brand-warning">⚠️ ${daysAgo}d old</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-warning/20 text-brand-warning hover:bg-brand-warning hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-sync mr-1"></i>Update ${brandName}</button>`;
+                } else {
+                    statusHtml = `<span class="text-brand-red">❌ Error</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-red/20 text-brand-red hover:bg-brand-red hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-retry mr-1"></i>Retry ${brandName}</button>`;
+                }
+                
+                const item = document.createElement('div');
+                item.className = 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 bg-surface-800 rounded border border-surface-700';
+                item.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-gas-pump text-brand-orange"></i>
+                        <span class="font-bold text-sm">${brandName}</span>
+                        <span class="text-[10px] text-gray-500">${sizeMB} MB</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        ${statusHtml}
+                        ${btnHtml}
+                    </div>
+                `;
+                list.appendChild(item);
+            }
+            
+            // Attach click handlers
+            list.querySelectorAll('.download-brand-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const brand = e.currentTarget.dataset.brand;
+                    const origText = e.currentTarget.innerHTML;
+                    e.currentTarget.disabled = true;
+                    e.currentTarget.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Downloading...';
+                    try {
+                        const mod = await getFuelStationsModule();
+                        await mod.StationLoader.load(brand);
+                    } catch (err) {
+                        console.error(`Download ${brand} failed:`, err);
+                    } finally {
+                        e.currentTarget.disabled = false;
+                        renderOfflineBrandList();
+                    }
+                });
+            });
+        }
+
         // --- FUEL MANAGER ---
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
-            memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false },
+            memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false, amenities: [], openingMode: 'all', useLocalData: true, ev: true, h2: false },
             _isInitialized: false,
             getConfig: function() { return this.memoryConfig; },
             loadConfig: async function() {
@@ -5147,6 +5323,44 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             },
             findAllAlongRoute: async function(lat, lon, routeNodes) {
                 const conf = this.getConfig();
+                if (conf.useLocalData) {
+                    try {
+                        const mod = await getFuelStationsModule();
+                        let upcoming = [];
+                        for (let i = 0; i < routeNodes.length; i++) { if (!routeNodes[i].passed) upcoming.push(routeNodes[i]); }
+                        if (upcoming.length === 0) return await this.findAllNearest(lat, lon);
+                        let sampled = [], step = Math.max(1, Math.floor(upcoming.length / 15));
+                        for(let i=0; i<upcoming.length; i+=step) sampled.push(upcoming[i]);
+                        if(sampled[sampled.length-1] !== upcoming[upcoming.length-1]) sampled.push(upcoming[upcoming.length-1]);
+                        
+                        // Parallel search at all sampled points (much faster than sequential)
+                        const searchPromises = sampled.map(node => mod.SearchEngine.findNearby({
+                            lat: node.lat,
+                            lon: node.lon,
+                            brand: conf.brand,
+                            variant: conf.variant,
+                            amenities: conf.amenities || [],
+                            openingMode: conf.openingMode || 'all',
+                            radiusKm: 3.5
+                        }));
+                        const results = await Promise.all(searchPromises);
+                        
+                        // Merge and deduplicate results
+                        const allStations = new Map();
+                        for (const result of results) {
+                            result.stations.forEach(s => {
+                                if (!allStations.has(s.id) || s.dist < allStations.get(s.id).dist) {
+                                    allStations.set(s.id, s);
+                                }
+                            });
+                        }
+                        const stations = Array.from(allStations.values()).sort((a,b) => a.dist - b.dist);
+                        return { stations, isStrict: false, source: 'local' };
+                    } catch (e) {
+                        console.warn('[FuelManager] Local search failed, falling back to Overpass:', e);
+                    }
+                }
+                // Fallback to Overpass
                 let upcoming = [];
                 for (let i = 0; i < routeNodes.length; i++) { if (!routeNodes[i].passed) upcoming.push(routeNodes[i]); }
                 if (upcoming.length === 0) return await this.findAllNearest(lat, lon);
@@ -5172,6 +5386,24 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             },
             findAllNearest: async function(lat, lon) {
                 const conf = this.getConfig();
+                if (conf.useLocalData) {
+                    try {
+                        const mod = await getFuelStationsModule();
+                        const result = await mod.SearchEngine.findNearby({
+                            lat,
+                            lon,
+                            brand: conf.brand,
+                            variant: conf.variant,
+                            amenities: conf.amenities || [],
+                            openingMode: conf.openingMode || 'all',
+                            radiusKm: 20
+                        });
+                        return { stations: result.stations, isStrict: false, source: 'local' };
+                    } catch (e) {
+                        console.warn('[FuelManager] Local search failed, falling back to Overpass:', e);
+                    }
+                }
+                // Fallback to Overpass
                 const cacheKey = `fuel_nearest_all_${conf.brand}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
                 try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 86400000)) return cached.data; } catch(e) { console.debug('fuel findAllNearest cache read failed (intentional silencer):', e && e.message); }
                 const query = `[out:json][timeout:15];(node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon});way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon}););out center;`;
@@ -5206,7 +5438,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     const strictBadgeTxt = payload.isStrict
                         ? `<span class="text-brand-success uppercase"><i class="fa-solid fa-check"></i> EXACT FUEL</span>`
                         : `<span class="text-brand-warning uppercase">BRAND MATCH</span>`;
-                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-gas-pump mr-2"></i> FOUND ${payload.stations.length} ${sanitizeHTML(this.getConfig().brand).toUpperCase()} <span class="hidden md:inline">|</span> <span class="text-[10px] bg-black/40 px-2 py-1 rounded ml-1 tracking-widest">${strictBadgeTxt}</span>`);
+                    const sourceBadge = payload.source === 'local'
+                        ? `<span class="text-brand-success uppercase"><i class="fa-solid fa-database mr-1"></i> LOCAL</span>`
+                        : `<span class="text-brand-warning uppercase"><i class="fa-solid fa-globe mr-1"></i> OSM</span>`;
+                    updateHTML(DOM.statusEl, `<i class="fa-solid fa-gas-pump mr-2"></i> FOUND ${payload.stations.length} ${sanitizeHTML(this.getConfig().brand).toUpperCase()} <span class="hidden md:inline">|</span> <span class="text-[10px] bg-black/40 px-2 py-1 rounded ml-1 tracking-widest">${strictBadgeTxt}</span> <span class="hidden md:inline">|</span> <span class="text-[10px] bg-black/40 px-2 py-1 rounded ml-1 tracking-widest">${sourceBadge}</span>`);
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 whitespace-nowrap flex items-center");
 
                     payload.stations.forEach((station) => {
@@ -5279,27 +5514,178 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 this._isInitialized = true;
                 await this.loadConfig();
                 const conf = this.getConfig();
+                
+                // Populate brand dropdown
                 DOM.fuel.brand.innerHTML = '';
-                Object.keys(FUEL_CATALOG).forEach(brand => { const opt = document.createElement('option'); opt.value = brand; opt.textContent = brand; DOM.fuel.brand.appendChild(opt); });
+                Object.keys(FUEL_CATALOG).forEach(brand => { 
+                    const opt = document.createElement('option'); 
+                    opt.value = brand; 
+                    opt.textContent = brand; 
+                    DOM.fuel.brand.appendChild(opt); 
+                });
+                
+                // Update variant dropdown based on selected brand
                 const updateVariants = (selectedBrand) => {
                     DOM.fuel.variant.innerHTML = '';
-                    const variants = FUEL_CATALOG[selectedBrand] || ["Any"];
-                    variants.forEach(variant => { const opt = document.createElement('option'); opt.value = variant; opt.textContent = variant; DOM.fuel.variant.appendChild(opt); });
+                    const brandData = FUEL_CATALOG[selectedBrand];
+                    const variants = brandData?.fuels || ["Any"];
+                    variants.forEach(variant => { 
+                        const opt = document.createElement('option'); 
+                        opt.value = variant; 
+                        opt.textContent = variant; 
+                        DOM.fuel.variant.appendChild(opt); 
+                    });
+                    // Add "Any" option at the end if not present
+                    if (!variants.includes('Any')) {
+                        const opt = document.createElement('option'); 
+                        opt.value = 'Any'; 
+                        opt.textContent = 'Any'; 
+                        DOM.fuel.variant.appendChild(opt); 
+                    }
                 };
-                DOM.fuel.brand.addEventListener('change', (e) => { updateVariants(e.target.value); });
+                
+                // Update amenity checkboxes based on selected brand
+                const updateAmenities = (selectedBrand) => {
+                    const brandData = FUEL_CATALOG[selectedBrand];
+                    const availableAmenities = brandData?.amenities || [];
+                    const list = DOM.fuel.amenitiesList;
+                    if (!list) return;
+                    list.innerHTML = '';
+                    availableAmenities.forEach(key => {
+                        const meta = AMENITY_CATALOG[key];
+                        if (!meta) return;
+                        const disabled = !brandData?.ev && (key === 'ev' || key === 'hydrogen');
+                        const label = document.createElement('label');
+                        label.className = 'flex items-center gap-2 cursor-pointer group' + (disabled ? ' opacity-40 pointer-events-none' : '');
+                        label.innerHTML = `
+                            <input type="checkbox" data-amenity="${key}" class="peer sr-only" ${disabled ? 'disabled' : ''}>
+                            <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-green peer-checked:bg-brand-green peer-checked:border-brand-green flex items-center justify-center"></div>
+                            <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
+                            <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">${meta.label}</span>
+                            <i class="fa-solid ${meta.icon} text-[10px] text-gray-500 ml-1"></i>
+                        `;
+                        list.appendChild(label);
+                    });
+                    // Set checked state from config
+                    const savedAmenities = conf.amenities || [];
+                    list.querySelectorAll('input[data-amenity]').forEach(cb => {
+                        cb.checked = savedAmenities.includes(cb.dataset.amenity);
+                    });
+                };
+                
+                // Populate opening mode dropdown
+                if (DOM.fuel.openingMode) {
+                    DOM.fuel.openingMode.innerHTML = '';
+                    Object.values(OPENING_MODES).forEach(mode => {
+                        const opt = document.createElement('option');
+                        opt.value = mode.key;
+                        opt.textContent = mode.label;
+                        DOM.fuel.openingMode.appendChild(opt);
+                    });
+                    DOM.fuel.openingMode.value = conf.openingMode || 'all';
+                }
+                
+                // Brand change handler
+                const onBrandChange = (selectedBrand) => {
+                    updateVariants(selectedBrand);
+                    updateAmenities(selectedBrand);
+                    // Update EV/H2 toggles availability
+                    const brandData = FUEL_CATALOG[selectedBrand];
+                    if (DOM.fuel.ev) {
+                        DOM.fuel.ev.disabled = !brandData?.ev;
+                        DOM.fuel.ev.closest('label')?.classList.toggle('opacity-40', !brandData?.ev);
+                        DOM.fuel.ev.closest('label')?.classList.toggle('pointer-events-none', !brandData?.ev);
+                    }
+                    if (DOM.fuel.h2) {
+                        DOM.fuel.h2.disabled = !brandData?.hydrogen;
+                        DOM.fuel.h2.closest('label')?.classList.toggle('opacity-40', !brandData?.hydrogen);
+                        DOM.fuel.h2.closest('label')?.classList.toggle('pointer-events-none', !brandData?.hydrogen);
+                    }
+                    // Update offline brand list
+                    renderOfflineBrandList();
+                };
+                
+                DOM.fuel.brand.addEventListener('change', (e) => onBrandChange(e.target.value));
+                
+                // Initialize with current config
                 DOM.fuel.brand.value = FUEL_CATALOG[conf.brand] ? conf.brand : 'Shell';
-                updateVariants(DOM.fuel.brand.value);
+                onBrandChange(DOM.fuel.brand.value);
+                
                 if (Array.from(DOM.fuel.variant.options).some(opt => opt.value === conf.variant)) DOM.fuel.variant.value = conf.variant;
+                
+                // EV/H2 checkboxes
+                if (DOM.fuel.ev) DOM.fuel.ev.checked = conf.ev !== false;
+                if (DOM.fuel.h2) DOM.fuel.h2.checked = conf.h2 === true;
+                
+                // Opening mode
+                if (DOM.fuel.openingMode) DOM.fuel.openingMode.value = conf.openingMode || 'all';
+                
+                // Routing toggles
+                DOM.fuel.toll.checked = conf.avoidTolls;
+                DOM.fuel.highway.checked = conf.avoidHighways;
+                DOM.fuel.ferry.checked = conf.avoidFerries;
+                
+                // Official locator button
                 const officialBtn = document.getElementById('btn-official-locator');
-                if (officialBtn) officialBtn.addEventListener('click', () => { const currentBrand = DOM.fuel.brand.value; window.open(BRAND_LINKS[currentBrand] || "https://www.google.com/search?q=" + encodeURIComponent(currentBrand + " gas station locator Philippines"), '_blank'); });
-                DOM.fuel.toll.checked = conf.avoidTolls; DOM.fuel.highway.checked = conf.avoidHighways; DOM.fuel.ferry.checked = conf.avoidFerries;
+                if (officialBtn) officialBtn.addEventListener('click', () => { 
+                    const currentBrand = DOM.fuel.brand.value; 
+                    window.open(BRAND_LINKS[currentBrand] || "https://www.google.com/search?q=" + encodeURIComponent(currentBrand + " gas station locator Philippines"), '_blank'); 
+                });
+                
+                // Save button
                 DOM.fuel.save.addEventListener('click', () => {
-                    FuelManager.saveConfig({ brand: DOM.fuel.brand.value, variant: DOM.fuel.variant.value, avoidTolls: DOM.fuel.toll.checked, avoidHighways: DOM.fuel.highway.checked, avoidFerries: DOM.fuel.ferry.checked });
+                    const amenities = [];
+                    DOM.fuel.amenitiesList?.querySelectorAll('input[data-amenity]:checked').forEach(cb => {
+                        amenities.push(cb.dataset.amenity);
+                    });
+                    FuelManager.saveConfig({ 
+                        brand: DOM.fuel.brand.value, 
+                        variant: DOM.fuel.variant.value, 
+                        avoidTolls: DOM.fuel.toll.checked, 
+                        avoidHighways: DOM.fuel.highway.checked, 
+                        avoidFerries: DOM.fuel.ferry.checked,
+                        amenities,
+                        openingMode: DOM.fuel.openingMode?.value || 'all',
+                        useLocalData: true,
+                        ev: DOM.fuel.ev?.checked !== false,
+                        h2: DOM.fuel.h2?.checked === true
+                    });
                     closeModal('fuel-settings-modal');
-                    if (state.routeCtrl) { const wps = state.routeCtrl.getWaypoints(); state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; initRoute(wps); }
+                    if (state.routeCtrl) { 
+                        const wps = state.routeCtrl.getWaypoints(); 
+                        state.mapObj.removeControl(state.routeCtrl); 
+                        state.routeCtrl = null; 
+                        initRoute(wps); 
+                    }
                     else if (state.targetCoords && state.autoCoords) window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon, state.isFuelOnlyRoute);
                 });
+                
+                // Trigger button
                 DOM.fuel.trigger.addEventListener('click', () => this.triggerIntercept());
+                
+                // Download all button
+                if (DOM.fuel.downloadAllBtn) {
+                    DOM.fuel.downloadAllBtn.addEventListener('click', async () => {
+                        const btn = DOM.fuel.downloadAllBtn;
+                        btn.disabled = true;
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+                        try {
+                            const mod = await getFuelStationsModule();
+                            await mod.StationLoader.downloadAll((brand, status) => {
+                                renderOfflineBrandList();
+                            });
+                            renderOfflineBrandList();
+                        } catch (e) {
+                            console.error('Download all failed:', e);
+                        } finally {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fa-solid fa-download"></i> Download All Brands';
+                        }
+                    });
+                }
+                
+                // Initial render of offline brand list
+                renderOfflineBrandList();
             }
         };
 
