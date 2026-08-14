@@ -49,6 +49,14 @@
 
         window.__METEO_CORE_STATE = {
             gnssHeading: null,
+            // Live GPS accuracy (metres) from the last watchPosition fix.
+            // Consumed by MagHeadingFuser.fuse() via executeRenderPipeline
+            // at mag rate (30-60 Hz) so the trust model can scale GNSS weight
+            // by recent fix quality between GPS ticks — without this the
+            // fusion would lean on stale accuracy readings during mag-rate
+            // re-fuses, re-introducing the rate-mismatch jitter fixed in this
+            // pass. Published on every GPS tick alongside gnssHeading.
+            gnssAcc: null,
             speed: 0,
             altitude: null,
             topoAltitude: null,
@@ -149,11 +157,19 @@
            ("RAIN 0.5mm", "VIS 10.0km", "WIND 23@145°") pushed the line past the
            viewport. Wrapping on its own looks odd with the | chars sitting at row
            edges, so we hide them on portrait and let the gap-* between chips do
-           all the visual separation — each row reads as a clean cluster. */
+           all the visual separation — each row reads as a clean cluster.
+
+           bottom offset: 8.5rem (136px), NOT 5rem (80px). The strip's containing
+           block is the map wrapper (450px tall on mobile). At 80px the strip's
+           vertical band (80-104px) overlapped the bottom-right tactical/magcal
+           button stack (24px + 48px + 12px + 40px ≈ 124px tall) and the full-width
+           strip slid behind the buttons — readable content was pushed left, and
+           the strip read as "mid-bottom of the map". 136px clears the button
+           stack with a 12px breathing gap. */
         @media (max-width: 767px) {
             #hud-glance-strip {
                 top: auto !important;
-                bottom: 5rem !important;
+                bottom: 8.5rem !important;
                 left: 0.75rem !important;
                 right: 0.75rem !important;
                 max-width: none !important;
@@ -364,7 +380,10 @@
 
                  Responsive: top-center on md+ where there's room beside the left pills;
                  bottom-narrow on portrait where top-left and top-center overlap.
-                 Position switched by @media (max-width: 767px) in the CSS block.
+                 Position switched by @media (max-width: 767px) in the CSS block;
+                 the portrait bottom offset (8.5rem) clears the bottom-right
+                 tactical/magcal button stack (~124px tall) so the full-width
+                 strip never slides behind the buttons.
 
                  Layout: the inner chip uses flex-wrap so on portrait phones the
                  5 fields + 4 separators wrap onto a second row instead of being
