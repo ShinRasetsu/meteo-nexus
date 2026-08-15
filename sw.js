@@ -11,7 +11,15 @@ const STATIC_ASSETS = [
     './sw.js',
     './tailwind.min.css',
     './icon-192.png',
-    './icon-512.png'
+    './icon-512.png',
+    './icon-180.png',
+    // FIX-1.4.1c (A-2): the offline fuel-station datasets (2.8 MB Shell +
+    // 0.65 MB Caltex) are the core of the fuel-intercept feature but were
+    // never precached — a fresh offline install had zero fuel data and the
+    // feature silently degraded to Overpass-network. Precache them like the
+    // app shell; the 7-day localforage freshness layer is unchanged.
+    './shell_stations.json',
+    './caltex_stations.json'
 ];
 
 // CDN assets that ship the app shell. Pre-caching them on install lets the app
@@ -49,6 +57,24 @@ self.addEventListener('install', (e) => {
     })());
 });
 
+// Seed the in-memory MAP_CACHE byte counter from on-disk entries. Shared by
+// activate (so the LRU budget survives SW restarts) and the CACHE_STATS
+// resync path (so offline tile downloads / map-cache clears — which the SW
+// never sees via fetch — are reflected in the counter and gauge immediately).
+async function seedMapCacheBytes() {
+    try {
+        const mapCache = await caches.open(MAP_CACHE);
+        const tileReqs = await mapCache.keys();
+        for (const req of tileReqs) {
+            const res = await mapCache.match(req);
+            if (res) {
+                const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+                _mapCacheBytes += cl;
+            }
+        }
+    } catch { /* seed fails silently — counter starts at 0, self-heals over time */ }
+}
+
 self.addEventListener('activate', (e) => {
     e.waitUntil((async () => {
         const keys = await caches.keys();
@@ -59,14 +85,17 @@ self.addEventListener('activate', (e) => {
         // LRU budget survives SW restarts and version bumps. Without this,
         // the counter resets to 0 and the cache grows unbounded until the
         // eviction logic catches up from scratch.
+        await seedMapCacheBytes();
+        // Same seeding for the API byte counter (entries carry content-length
+        // headers, so no body cloning is needed).
         try {
-            const mapCache = await caches.open(MAP_CACHE);
-            const tileReqs = await mapCache.keys();
-            for (const req of tileReqs) {
-                const res = await mapCache.match(req);
+            const apiCache = await caches.open(API_CACHE);
+            const apiReqs = await apiCache.keys();
+            for (const req of apiReqs) {
+                const res = await apiCache.match(req);
                 if (res) {
                     const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
-                    _mapCacheBytes += cl;
+                    _apiCacheBytes += cl;
                 }
             }
         } catch { /* seed fails silently — counter starts at 0, self-heals over time */ }
@@ -111,8 +140,15 @@ async function swrFetch(request, cacheName, maxAgeMs) {
                         const headers = new Headers(clone.headers);
                         headers.set('X-SW-Cached-At', String(Date.now()));
                         const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
-                        bgCache.put(request, tagged).catch((e) => { console.debug('SW bg cache.put failed (intentional silencer):', e && e.message); });
-                    }).catch(() => {}));
+                        bgCache.put(request, tagged)
+                            .then(() => trackApiCachePut(bgCache, tagged))
+                            .catch((e) => { console.debug('SW bg cache.put failed (intentional silencer):', e && e.message); });
+                    }).catch(() => {}))
+                    // FIX-1.4.1 (B10): caches.open itself can reject (quota /
+                    // CacheStorage failure) — previously the rejection escaped
+                    // this chain with no handler and surfaced as an unhandled
+                    // promise rejection inside the service worker.
+                    .catch(() => {});
                 }
             }).catch(() => { _bgRefreshRequests.delete(bgUrl); });
         }
@@ -126,7 +162,9 @@ async function swrFetch(request, cacheName, maxAgeMs) {
             const headers = new Headers(clone.headers);
             headers.set('X-SW-Cached-At', String(Date.now()));
             const tagged = new Response(clone.body, { status: clone.status, statusText: clone.statusText, headers });
-            cache.put(request, tagged).catch((e) => { console.debug('SW cache.put failed (intentional silencer):', e && e.message); });
+            cache.put(request, tagged)
+                .then(() => trackApiCachePut(cache, tagged))
+                .catch((e) => { console.debug('SW cache.put failed (intentional silencer):', e && e.message); });
             return netRes;
         }
     } catch { /* network unreachable — fall through to cached or 503 */ }
@@ -144,10 +182,65 @@ let _isEvicting = false;
 const MAP_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 let _bgRefreshRequests = null;  // Map<url, boolean> — SWR background fetch dedup
 
+// API_CACHE byte-budget tracking — same running-total scheme as the tile
+// cache, evicting oldest-first by X-SW-Cached-At tag (URL sort is meaningless
+// for telemetry/route-intel responses). Unbounded before: telemetry URLs embed
+// float-precision coords and never repeat, so the cache grew ~11-18 MB/day on
+// the move and ~100-150 MB/day while navigating. 25 MB keeps the origin well
+// under quota while covering a multi-day offline horizon.
+let _apiCacheBytes = 0;
+let _apiEvicting = null;  // in-flight eviction promise (latch) — see FIX-1.4.1 (B12)
+const API_CACHE_MAX_BYTES = 25 * 1024 * 1024;
+
+async function trackApiCachePut(cache, response) {
+    const cl = parseInt(response.headers.get('content-length'), 10);
+    _apiCacheBytes += cl > 0 ? cl : 15000;  // consistent fallback for insert and evict
+    if (_apiCacheBytes > API_CACHE_MAX_BYTES) await evictOldestApiEntries(cache);
+}
+async function evictOldestApiEntries(cache) {
+    // FIX-1.4.1 (B12): promise latch instead of boolean — the old
+    // `if (_isApiEvicting) return;` let a second concurrent caller skip
+    // eviction entirely, leaving _apiCacheBytes over budget until the next
+    // put happened to trigger eviction again. Callers now await the in-flight
+    // eviction and re-check the budget after it settles.
+    if (_apiEvicting) {
+        await _apiEvicting;
+        if (_apiCacheBytes <= API_CACHE_MAX_BYTES) return;
+    }
+    const task = (async () => {
+        const keys = await cache.keys();
+        const entries = [];
+        for (const req of keys) {
+            const res = await cache.match(req);
+            if (!res) continue;
+            const tsStr = res.headers.get('X-SW-Cached-At');
+            const ts = tsStr ? parseInt(tsStr, 10) : 0;
+            const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+            entries.push({ req, cl, ts });
+        }
+        entries.sort((a, b) => a.ts - b.ts); // oldest first
+        for (const ent of entries) {
+            if (_apiCacheBytes <= API_CACHE_MAX_BYTES) break;
+            await cache.delete(ent.req);
+            _apiCacheBytes = Math.max(0, _apiCacheBytes - ent.cl);
+        }
+    })();
+    _apiEvicting = task;
+    try { await task; } finally { if (_apiEvicting === task) _apiEvicting = null; }
+}
+
 async function putTileInCache(cache, req, fetchRes) {
     const cl = parseInt(fetchRes.headers.get('content-length'), 10);
     _mapCacheBytes += cl > 0 ? cl : 15000;  // consistent fallback for insert and evict
-    await cache.put(req, fetchRes.clone());
+    try {
+        await cache.put(req, fetchRes.clone());
+    } catch (e) {
+        // FIX-1.4.1 (B11): a failed put (quota exceeded, etc.) must not leave
+        // the byte budget inflated — the phantom bytes would trigger premature
+        // evictions of perfectly good tiles on the next insert.
+        _mapCacheBytes = Math.max(0, _mapCacheBytes - (cl > 0 ? cl : 15000));
+        throw e;
+    }
     if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) await evictOldestTiles(cache);
 }
 async function evictOldestTiles(cache) {
@@ -286,8 +379,17 @@ self.addEventListener('fetch', (e) => {
 // with {mapCacheBytes, max, tileCount} so the UI can render a compact
 // gauge ("23/50MB · 142 tiles"). The user can see whether offline tiles
 // are sufficient before driving into a dead zone.
+// FIX-1.4.1b (H1/H2): the page can pass {resync:true} after it has written
+// or deleted map-cache entries directly (downloadMapCache / executeMapClear
+// mutate the on-disk cache the SW never sees via fetch) — the counter is
+// re-seeded from disk before the reply so the gauge and LRU budget never
+// drift from reality.
 self.addEventListener('message', async (e) => {
     if (e.data && e.data.type === 'CACHE_STATS') {
+        if (e.data.resync) {
+            _mapCacheBytes = 0;
+            await seedMapCacheBytes();
+        }
         let tileCount;
         try {
             const c = await caches.open(MAP_CACHE);

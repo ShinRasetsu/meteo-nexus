@@ -10,15 +10,15 @@
 
 | Key | Value |
 |---|---|
-| `VERSION` | `1.4.0` |
-| `package.json` → version | `1.4.0` |
+| `VERSION` | `1.4.1` |
+| `package.json` → version | `1.4.1` |
 | `eslint` | `10.8.0` |
 | `globals` | `17.9.0` |
 | `@eslint/js` | `10.0.1` |
 | Header badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
 | Footer badge element | `<span data-version-badge>` — hydrated from `./VERSION` at runtime |
-| Git tag | `v1.4.0` — create with `git tag v1.4.0` before push |
-| Tests | `npm test` — 131+ assertions, all passing |
+| Git tag | `v1.4.1` — create with `git tag v1.4.1` before push |
+| Tests | `npm test` — 135 assertions, all passing |
 | Lint | `npm run lint` — zero errors |
 | Scanner self-verify | `npm run audit:verify` — 17 cases (positive + negative controls) all passing |
 | Precheck (deploy gate) | `npm run precheck` — builds CSS first THEN chains `npm run audit` (extract+parse+TDZ+brace+CSP+DOM scan); exits non-zero on any phase failure |
@@ -553,6 +553,109 @@ Minor bump from 1.3.10 → 1.4.0. Complete redesign of the Pit Stop (formerly Fu
 - `npm run audit` → 6 phases PASS
 - `npm run audit:verify` → 17/17 self-tests PASS
 - Manual: modal renders on 360px viewport, accordion sections expand/collapse, brand switch updates variant/amenity lists, local search returns Shell/Caltex stations within radius, opening filter works, offline download caches and shows freshness
+
+---
+
+## 1.4.1 — 2026-08-15 (two-deep audit pass: 27 fixes — runtime correctness + chart-path + cache-integrity)
+
+### Bump rationale
+
+Patch bump from 1.4.0 → 1.4.1. Two independent audit rounds (agent-driven deep code review with hand-verified findings) produced 27 applied fixes across `index.html`, `sw.js`, `worker.js`, and `fuel-stations.js`. No new features. Classification:
+
+- **Round 1 (17 fixes)** — rAF render hot paths, fetch/telemetry layer, GPS/route/fuel lifecycle, worker/SW correctness
+- **Round 2 (10 fixes)** — telemetry/chart pipeline, GPS/lifecycle/memory, fuel/SW cache-integrity
+
+### Round 1 changelog (FIX-1.4.1)
+
+- `index.html`:
+  - **temperatureTrend NaN** — `weightedValueAt()` returns `{value, modelsReporting, lowConfidence}`, not a bare number; subtracting the objects yielded NaN and the glance strip always rendered the grey "0°" fallback. Fixed with `.value` extraction (HUD glow badge was also silent — live only in Aero HUD).
+  - **payloadSig completeness** — signature now includes `apparent_temperature`, `relative_humidity_2m`, `pressure_msl`, `visibility`, `rain`, `showers`, `snowfall`, `cloud_cover`, `wind_gusts_10m`, `elevation` (all were missing → UI updates silently skipped on some real payload changes).
+  - **chartSig completeness** — probes all 4 models (previously 3), so ECMWF-only forecast shifts now re-render the chart.
+  - **weatherAbort hoisted** — declared before the first early-return; `abort()` added in `fetchData`'s catch (was a silent leak of an aborted controller into the next fetch's dedupe path).
+  - **telemetryCache.timestamp** — stamped only AFTER a successful render (previously stamped before, so an offline render with a stale payload could be mis-flagged fresh).
+  - **P6 render-before-disk-writes** — `localforage.setItem` calls moved after the DOM render, each wrapped in its own try/catch + `console.error` (a storage quota failure can no longer abort the whole telemetry update mid-render).
+  - **processNodes nodeRef re-link** — node references re-linked after timeline `updateHTML` (children were silently dropped from hover state after a route timeline swap).
+  - **Overpass setItem try/catch** — both the route + nearest fuel-station write sites (`QuotaExceededError` was an unhandled rejection path).
+  - **originalRouteNodes cleared** — now nulled in `activateLiveNavigation` + `setPitstopRoute` (stale route nodes were triggering false "you've arrived" state on route swap).
+  - **Reverse-geocode gate** — `1e-7` → `1e-4` (sub-centimeter drift was retriggering full reverse-geocode fetches every GPS tick).
+  - **rAF string builds** — altimeter / visibility / glance-vis templates built only inside their numeric gates (was per-frame work, discarded).
+  - **Ghost-trail ring index** — advances only on valid samples (duplicate valid fixes no longer corrupt the trail ring).
+- `sw.js`:
+  - **bg-refresh `caches.open` catch** — outer `.catch` restored after a mangled edit (was an unhandled rejection when the SW cache was being evicted mid-refresh).
+  - **Tile counter decrement** — on failed `cache.put` (LRU budget no longer assumes a put that never happened).
+  - **Eviction promise-latch** — `_isApiEvicting` → `_apiEvicting`; callers now `await` + re-check budget (parallel evictions can no longer run concurrently and over-evict).
+- `worker.js`:
+  - **Station object built only on insert** — top-K insertion no longer allocates an unused object per candidate (both branches).
+- `index.html` (perf):
+  - **P7 maxUV single-pass** — track max index in loop, dropped second `indexOf()` scan.
+  - **P5 wind-dir** — inline per-frame loop replaced by the dead `weightedCircularMeanAt()` API call; stale comment updated.
+
+### Round 2 changelog (FIX-1.4.1b)
+
+- `index.html`:
+  - **Duplicate `processTelemetryPayload`** — second call removed (was firing a full re-normalize per fetch, guaranteed no-op via payloadSig).
+  - **F1 `needsChart` chart-gate** — `normalizeTelemetryData` now takes `needsChart` (computed at the caller as `chartSig !== _lastChartSig`, exactly mirroring the post-render gate). When the chart is not re-rendering: full-vector `bandAll`/`weightedWetnessAll` and the 4×Float64 rain arrays are skipped; UI-only consumers (`hourlyAgreement[0..3]`, `tempBand[0]`, `times[maxUvIdx]`) are served per-index. Full-vector path is byte-identical when the chart renders. Correctness note: prior audits REJECTED this as a false positive (renderChart consumes the full vectors) — valid only because the chart-skip is now provably a no-render.
+  - **F3 offline dupes** — `codeBlend` aliased to `codeAgreement` (identical vote, re-run per fetch); `blendNow` hoisted and shared by the offline branch + temperatureTrend (was computed 3×/fetch).
+  - **F4 re-lock timer leak** — inner 600ms re-lock timer inside the 5s recenter chain was never tracked; a drag starting in the 5.0–5.6s window got re-locked MID-DRAG. Now tracked on `state._recenterLockTimer`, cleared at `dragstart` alongside the outer, self-cleared on fire.
+  - **F5 cache-gauge hoist** — `#cache-gauge` lookup moved into the DOM map (was `getElementById` on every SW stats reply).
+  - **F6 tempBand single loop** — `tempMin`/`tempMax` built in one pass (was two `.map()`).
+  - **F7 bIcon lazy build** — WMO icon lookup + sun→moon rewrite moved into the STABLE branch (only consumer); rain/alert branches no longer build it.
+  - **gnssAcc dead field removed** — field + comment claimed consumption by `MagHeadingFuser.fuse()`, but `fuse()` receives accuracy as a direct parameter; the field had zero writers and zero readers. Removing a lying contract beats keeping it.
+- `sw.js`:
+  - **H1/H2 map-cache counter resync** — offline tile downloads (`downloadMapCache`) use opaque no-cors fetches that bypass the SW fetch handler, so `_mapCacheBytes` (driving LRU eviction + the gauge) stayed near zero; `executeMapClear` never reset it. `seedMapCacheBytes()` extracted from `activate` and shared; `CACHE_STATS` accepts `resync:true` (zero + re-seed from disk before reply). Page posts `requestCacheStats(true)` after download completes and after clear.
+- `fuel-stations.js`:
+  - **H3 freshness meta key** — `getFreshness()` decoded the ENTIRE 2.8 MB dataset on every poll just to read ts/size. Now writes a ~200-byte `fuel_stations_<brand>_meta` entry alongside the data; `getFreshness` reads only the meta (full-read fallback for legacy entries).
+
+### Decisions explicitly NOT applied (rationale)
+
+- intelSig rework (hypersensitivity defensible), WXM key math / wind trig per frame (negligible CPU), processNodes duplicate haversines (complex/subtle), isSentinelDead+checkHealth merge (ordering risk), Brier full-ring rewrite (bounded by 5-min gate, by design), SWR TOCTOU (rare, self-corrects), GPS error watch-restart (platform risk > value), write-only `speed`/`apparentTemp`/`rawMagHeading` (documented state surface, free writes), renderTelemetryUI fetch-rate string builds (negligible at 30/h).
+
+### Round 3 changelog (FIX-1.4.1c) — map/UI lifecycle, audio/PWA/storage hygiene, Aero/chart/worker
+
+Round 3 dispatched three parallel exploration agents over the territories rounds 1-2 never swept: (1) Leaflet map + routing-machine + timeline + modal lifecycle; (2) audio/wake-lock/PWA/storage/timer/listener hygiene; (3) Aero HUD IIFE + Chart.js + worker bridge + constants. Every finding was hand-verified against source before applying.
+
+- `index.html`:
+  - **A-3 `toggleAudio` double resume** — when the context was suspended, `ctx.resume()` fired twice and the first promise had no rejection handler (an unhandled-rejection class the audit chain cannot see). Single `resume().then(...).catch(...)` now.
+  - **L1 `syncClock` timer-chain accumulation** — the tab-resume paddle started a NEW 1s chain without cancelling the pending hidden-cycle 30s timer; every hide/show added +1 permanent chain of `new Date()` + `toLocaleTimeString` per second. Timer id now tracked in `_clockTimer`, cleared before every reschedule — exactly one chain exists at any time.
+  - **A-4 wake-lock adoption race** — two rapid visible-transitions could resolve two `request()`s out of order; the second overwrote `wakeLock`, orphaning lock A whose release listener then nulled the variable while lock B was still held (B never released on hide). Now adopts only the first lock and releases the surplus.
+  - **M1 Valhalla double-decode** — both Valhalla requests decoded every leg in the worker at fetch-time, then only the faster route (by `summary.totalTime`, which needs no decode) was used: the loser's full decode chain was 100% wasted per route request. Split into `fetchValhallaMeta` (fetch+validate+totals) + decode-after-winner. **Note: both endpoints are currently the SAME URL (`valhalla1.openstreetmap.de` twice) — a latent config smell flagged, not changed (network/product decision).**
+  - **MED-1 magcal per-frame getElementById** — `updateMagCalUI()` ran 5 `getElementById` calls per rAF tick during capture (~3600 DOM lookups per 12s session). Refs hoisted into `magCalState` at `openMagCalModal`.
+  - **M2 dead `CONFIG.cacheDistThresholdKm`** — declared, never read (grep: 1 match total). Deleted.
+  - **LOW-2 `closeModal` lookup** — raw per-close `getElementById` replaced by a boot-time `MODAL_BY_ID` reverse map (callers pass kebab ids; `DOM.modals` is camelKeyed); now also no-ops on unknown ids instead of throwing.
+  - **LOW-3 `toggleFocus` churn** — the sections array + `icon-${sec.id}` lookups were re-allocated/re-queried per toggle; hoisted to module-scope `SECTION_DESCRIPTORS`.
+  - **LOW-5 inline fuel-settings opener** — the only modal opener not routed through the DOM cache (raw inline `getElementById` that threw on id change); now `window.openFuelSettings()`.
+  - **B-3 Aero rAF guard order** — the `_el.ring` guard ran AFTER the rAF re-schedule, so a failed mount left a no-op 60 fps loop spinning all session. Guard first.
+  - **B-1 dead rAF argument** — stray `, 1000` second arg on the Aero mount `requestAnimationFrame` (ignored by rAF, read as a failed setTimeout conversion). Removed.
+  - **L4 per-frame `Math.PI / 180`** — reused the existing module-scope `_DEG2RAD` in the Aero wind-vector decomposition.
+- `sw.js`:
+  - **A-2 offline fuel datasets not precached** — `shell_stations.json` (2.8 MB) + `caltex_stations.json` (0.65 MB) are the core of the fuel-intercept feature but a fresh offline install had zero fuel data (feature silently degraded to Overpass-network). Added to `STATIC_ASSETS`; the 7-day localforage freshness layer is unchanged.
+  - **B-4 `icon-180.png` missing from precache** — iOS add-to-homescreen flow 404'd it on first offline load. Added to `STATIC_ASSETS`.
+- `fuel-stations.js`:
+  - **A-5 double 2.8 MB `JSON.stringify`** — the data row and meta row each stringified the full dataset; `size` computed once and shared.
+
+### Round 3 decisions explicitly NOT applied (rationale)
+
+- LOW-1 hidden-section timeline rebuild (re-render-on-focus hook needed; ~99-node build per 5-min refresh is bounded and cheap), LOW-4 scroll-track ref (element is rebuilt inside the render buffer every refresh — a boot-time ref would be null; two lookups per 5 min is already minimal), LOW-6 modal a11y (Escape/backdrop/scroll-lock — feature territory, a11y scanner is planned per AGENTS.md), LOW-7 tile-layer config (`keepBuffer:8`/`detectRetina` coherent with follow-mode design; hidden map verified to NOT stream tiles), LOW-8 nodeRef fallback (self-healing, bounded), A-1 download visibility pacing (user-initiated explicit action; browser throttles background timers anyway), B-2 suspend-audio-on-hide (Chrome auto-suspends), B-5 fonts/Firebase precache (UA-dependent font CSS; cloud is optional), L3 wxm triple-split (fetch-rate, join/split is bounded and gated), L5 fmtHour string table (fetch-rate, and the verbatim `localSec` sanity line constrains the closure).
+
+### Verified-clean round 3 results (do not re-audit)
+
+- Aero HUD hot loop: zero per-frame allocs, zero `getElementById` per frame, all 21 state reads have live writers, rAF latch correct, every string build behind a numeric pre-key.
+- Chart.js: `animation: false`, `update('none')`, chartSig gate verified end-to-end.
+- Worker bridge: `workerPending` lifecycle complete (reply/error/timeout/abort all clean); one worker, no listener accumulation; no repeated posting for unchanged input.
+- worker.js: `fastDistance` byte-identical to main-thread sibling; polyline decode zero per-pair allocation; no drift.
+- Leaflet: exactly ONE map; routing-machine teardown verified against LRM 3.2.12 source (no leaked controls/lines/markers); fuelMarker pool cleared per search; no zoom/moveend/click listener accumulation.
+- Timers: zero `setInterval` anywhere; all 16 setTimeout sites cleared or bounded (syncClock was the only accumulation — fixed).
+- Event listeners: 40 in index.html module (30 one-time / 10 per-action, all removed or GC-bounded), 5 one-time in sw.js.
+- localforage: 30/30 guarded, no key collisions, no setItem in hot paths.
+- Implicit globals: acorn scan of full module — 0 undeclared assignment targets.
+
+### Verification
+
+- `npm run lint` → zero errors
+- `npm test` → 135 assertions pass (sanity suite grew 131 → 135)
+- `npm run audit` → 6 phases PASS (extract/parse OK, TDZ 0, floating-promise 0, brace balanced, CSP 0 gaps, DOM 0 unguarded)
+- `npm run audit:verify` → 17/17 self-tests PASS
+- Smoke checklist for this release: telemetry card shows non-`--` values, `#hud-glance-temp` shows a number, no red console errors, cache gauge reflects real tile usage after download/clear
 
 ---
 

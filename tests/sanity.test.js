@@ -275,6 +275,18 @@ assertIncludes(html, "__METEO_CORE_STATE.isRainingNow = WMO_RAIN_CODES.has(windo
 assertIncludes(html, "id=\"ui-radar-wxm-icon\"", "index.html declares Aero HUD weather-icon element");
 assertIncludes(html, "id=\"ui-radar-wxm-text\"", "index.html declares Aero HUD weather-text element");
 
+// Aero HUD mount anchor: the HUD card must mount into the explicit #main-grid
+// layout container. The previous class heuristic (first .grid with grid-cols-*
+// + gap) matched the Pit Stop modal's "grid grid-cols-2 gap-2" Fuels row — the
+// last matching element in document order — and silently mounted the card
+// inside the hidden #fuel-settings-modal (display:none keeps it in the DOM, so
+// querySelectorAll found it). These guards pin the anchor + forbid the
+// heuristic from returning.
+assertIncludes(html, "id=\"main-grid\"", "index.html declares the explicit #main-grid layout anchor for the Aero HUD card");
+assertIncludes(html, "document.getElementById('main-grid')", "index.html mounts the Aero HUD card into #main-grid by ID (no class heuristic)");
+assert(!/querySelectorAll\('\.grid'\)/.test(html), "Aero HUD class-heuristic grid discovery removed (was mounting into the hidden Pit Stop modal)");
+assertIncludes(html, "closest('.hidden')", "index.html guards the Aero HUD mount target against hidden ancestors (loud warn instead of silent modal mount)");
+
 // Telemetry chart hour-strip: ALL THREE of (1) local-hour conversion from UTC
 // unix seconds, (2) Today/Tomorrow day label row via tick callback, (3) raw
 // unix-second sidecar on state.chart so the callback can recover the actual

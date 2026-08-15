@@ -23,38 +23,78 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 // ─── StationLoader ───
+// PERF: single-flight latch. findAllAlongRoute fans ~15 parallel findNearby
+// calls at the same brand; every miss cascaded into a full 2.8 MB JSON fetch
+// + 2.8 MB IndexedDB write per concurrent caller (17 concurrent downloads on
+// first route search). The latch collapses concurrent loads of the same brand
+// into one network/disk pass — losers await the winner's promise.
+const _loadInFlight = new Map(); // brandKey -> Promise<raw>
 export const StationLoader = {
   async load(brand) {
     const key = `fuel_stations_${brand.toLowerCase()}`;
     const mem = _stationCache.get(brand.toLowerCase());
     if (mem && Date.now() - mem.ts < CACHE_TTL_MS) return mem.raw;
-    
-    try {
-      const cached = await localforage.getItem(key);
-      if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-        _stationCache.set(brand.toLowerCase(), { raw: cached.data, adapted: null, ts: cached.ts });
-        return cached.data;
-      }
-    } catch { /* ignore cache read errors */ }
+    const inflight = _loadInFlight.get(brand.toLowerCase());
+    if (inflight) return inflight;
 
-    const res = await fetch(`./${brand.toLowerCase()}_stations.json`);
-    if (!res.ok) throw new Error(`Failed to load ${brand} stations: ${res.status}`);
-    const data = await res.json();
-    try { await localforage.setItem(key, { data, ts: Date.now() }); } catch { /* ignore write errors */ }
-    _stationCache.set(brand.toLowerCase(), { raw: data, adapted: null, ts: Date.now() });
-    return data;
+    const p = (async () => {
+      try {
+        const cached = await localforage.getItem(key);
+        if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+          _stationCache.set(brand.toLowerCase(), { raw: cached.data, adapted: null, ts: cached.ts });
+          return cached.data;
+        }
+      } catch { /* ignore cache read errors */ }
+
+      const res = await fetch(`./${brand.toLowerCase()}_stations.json`);
+      if (!res.ok) throw new Error(`Failed to load ${brand} stations: ${res.status}`);
+      const data = await res.json();
+      const ts = Date.now();
+      // FIX-1.4.1b (H3): getFreshness() must not decode the whole dataset to
+      // read ts/size — localforage deserialises the ENTIRE stored value on
+      // getItem (2.8MB JSON per poll). A 200-byte meta entry carries the same
+      // freshness facts; the data entry itself stays untouched.
+      // FIX-1.4.1c (A-5): the two 2.8 MB JSON.stringify calls were redundant —
+      // size is computed once and shared by the data row and the meta row.
+      const size = JSON.stringify(data).length;
+      try {
+        await localforage.setItem(key, { data, ts, size });
+        await localforage.setItem(`${key}_meta`, { ts, size });
+      } catch { /* ignore write errors */ }
+      _stationCache.set(brand.toLowerCase(), { raw: data, adapted: null, ts: Date.now() });
+      return data;
+    })().finally(() => { _loadInFlight.delete(brand.toLowerCase()); });
+    _loadInFlight.set(brand.toLowerCase(), p);
+    return p;
   },
 
   async getFreshness(brand) {
     const key = `fuel_stations_${brand.toLowerCase()}`;
+    // FIX-1.4.1b (H3): read the 200-byte meta entry instead of the full
+    // dataset — localforage decodes the whole stored value on getItem, and
+    // the old code deserialised 2.8MB of stations per freshness poll.
+    // Fall back to the legacy full read only for entries written before
+    // this fix (no meta key present).
     try {
+      const meta = await localforage.getItem(`${key}_meta`);
+      if (meta && typeof meta.ts === 'number') {
+        const ageMs = Date.now() - meta.ts;
+        return {
+          status: ageMs < CACHE_TTL_MS ? 'fresh' : 'stale',
+          ageMs,
+          size: typeof meta.size === 'number' ? meta.size : 0
+        };
+      }
       const cached = await localforage.getItem(key);
       if (!cached) return { status: 'never', ageMs: null, size: 0 };
       const ageMs = Date.now() - cached.ts;
       return {
         status: ageMs < CACHE_TTL_MS ? 'fresh' : 'stale',
         ageMs,
-        size: JSON.stringify(cached.data).length
+        // PERF: size was computed once at fetch time (the 2.8 MB JSON.stringify
+        // per freshness poll was pure waste — same bytes every time). Legacy
+        // entries without the stored size fall back to one-time stringify.
+        size: typeof cached.size === 'number' ? cached.size : JSON.stringify(cached.data).length
       };
     } catch (err) { return { status: 'error', ageMs: null, size: 0, error: err.message }; }
   },

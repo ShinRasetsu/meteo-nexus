@@ -49,14 +49,14 @@
 
         window.__METEO_CORE_STATE = {
             gnssHeading: null,
-            // Live GPS accuracy (metres) from the last watchPosition fix.
-            // Consumed by MagHeadingFuser.fuse() via executeRenderPipeline
-            // at mag rate (30-60 Hz) so the trust model can scale GNSS weight
-            // by recent fix quality between GPS ticks — without this the
-            // fusion would lean on stale accuracy readings during mag-rate
-            // re-fuses, re-introducing the rate-mismatch jitter fixed in this
-            // pass. Published on every GPS tick alongside gnssHeading.
-            gnssAcc: null,
+            // FIX-1.4.1b: removed dead `gnssAcc` field — the comment claimed it was
+            // "consumed by MagHeadingFuser.fuse() via executeRenderPipeline", but
+            // fuse() receives accuracy as a direct parameter (called from the GPS
+            // tick with pos.coords.accuracy); the field had zero writers and zero
+            // readers anywhere in the repo. Keeping a field whose doc lies invites
+            // exactly the silent-contract-drift class of bug this audit chain exists
+            // to prevent. If fusion ever needs per-tick accuracy in state, add the
+            // field back WITH the write site.
             speed: 0,
             altitude: null,
             topoAltitude: null,
@@ -330,7 +330,7 @@
                 <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
                     <i class="fa-solid fa-gas-pump"></i> <span class="hidden sm:inline">Pit Stop</span>
                 </button>
-                <button onclick="document.getElementById('fuel-settings-modal').classList.remove('hidden')" aria-label="Fuel Settings" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
+                <button onclick="window.openFuelSettings()" aria-label="Fuel Settings" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
                     <i class="fa-solid fa-gear"></i>
                 </button>
                 <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
@@ -1014,6 +1014,28 @@
                 return { healthy, coveragePct: sentinelDead ? 0 : coveragePct, sentinelDead };
             },
 
+            // Early-exit sentinel check for the route-timeline prefilter. The full
+            // checkHealth() costs a whole-array pass (168 cells x 4 models x 99
+            // waypoints per render); the timeline prefilter only consumes the
+            // boolean. Real forecast arrays almost always contain a positive cell
+            // within the first few slots, so the scan terminates after a handful
+            // of reads. Semantics mirror checkHealth() exactly:
+            // sentinelDead = (sumAbs < 1e-9 && valid > 0).
+            isSentinelDead(arr) {
+                if (!arr || !Array.isArray(arr) || arr.length === 0) return false;
+                let valid = 0, sumAbs = 0;
+                const len = arr.length;
+                for (let i = 0; i < len; i++) {
+                    const v = arr[i];
+                    if (v !== null && v !== undefined) {
+                        valid++;
+                        sumAbs += Math.abs(v);
+                        if (sumAbs >= 1e-9) return false;
+                    }
+                }
+                return valid > 0;
+            },
+
             // Continuous wetness contribution for one precip value. Returns 0..1.
             // Linear ramp from PRECIP_MIN_MM to PRECIP_FULL_MM — Brier-style fractional
             // vote keeps a 0.08mm/0.05mm model divergence from being a binary flip.
@@ -1215,7 +1237,6 @@
             sonarThreshold: WeatherEnsemble.WET_LIKELY_PCT,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
             cacheTTL: 120000,
-            cacheDistThresholdKm: 0,
             routingIntervalNodeDist: 5000
         };
 
@@ -1270,8 +1291,14 @@
             if (signal && signal.aborted) return Promise.reject(new Error(`Worker task "${type}" aborted before dispatch`));
             return new Promise((resolve, reject) => {
                 let timer = setTimeout(() => {
-                    if (workerPending.has(messageId)) {
+                    // PERF: onComplete() removes the abort listener — the timeout
+                    // branch previously skipped it, leaving the closure (holding
+                    // reject/timer) attached to the signal until the controller was
+                    // replaced.
+                    const p = workerPending.get(messageId);
+                    if (p) {
                         workerPending.delete(messageId);
+                        p.onComplete?.();
                         reject(new Error(`Worker task "${type}" timed out after ${timeoutMs}ms`));
                     }
                 }, timeoutMs);
@@ -1281,9 +1308,11 @@
                 let abortHandler = null;
                 if (signal) {
                     abortHandler = () => {
-                        if (workerPending.has(messageId)) {
+                        const p = workerPending.get(messageId);
+                        if (p) {
                             workerPending.delete(messageId);
                             clearTimeout(timer);
+                            p.onComplete?.();
                             reject(new Error(`Worker task "${type}" aborted`));
                         }
                     };
@@ -1550,6 +1579,9 @@
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry'), ev: document.getElementById('pref-ev'), h2: document.getElementById('pref-h2'), openingMode: document.getElementById('pref-opening-mode'), amenitiesList: document.getElementById('pref-amenities-list'), offlineContent: document.getElementById('pref-offline-content'), offlineBrandList: document.getElementById('offline-brand-list'), downloadAllBtn: document.getElementById('download-all-btn') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
             cacheMapBtn: document.getElementById('cache-map-btn'),
+            // FIX-1.4.1b (F5): hoisted — the CACHE_STATS_REPLY listener re-ran
+            // getElementById('cache-gauge') on every SW reply (~every fetch).
+            cacheGauge: document.getElementById('cache-gauge'),
             statNodes: {
                 eu: document.getElementById('stat-eu'),
                 us: document.getElementById('stat-us'),
@@ -1558,6 +1590,19 @@
             }
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
+
+        // FIX-1.4.1c (LOW-2): id→element reverse map for the modals, built once
+        // at DOM-cache time. closeModal() callers pass the kebab-case element
+        // ids ('map-cache-modal', ...) while DOM.modals is keyed by camelCase
+        // ('mapCache', ...) — the previous per-close getElementById was
+        // redundant work for a lookup this map answers in one property read.
+        const MODAL_BY_ID = {
+            'custom-modal': DOM.modals.custom,
+            'map-cache-modal': DOM.modals.mapCache,
+            'map-clear-modal': DOM.modals.mapClear,
+            'fuel-settings-modal': DOM.modals.fuelSettings,
+            'magcal-modal': DOM.modals.magCal
+        };
 
         // One-time bind of the Google-Maps nav-button handler. Previously this
         // handler was reassigned inside `updateRouteStatus()` on every
@@ -1698,7 +1743,14 @@
                     }}
                 });
 
-                const fetchValhalla = async (endpoint) => {
+                // FIX-1.4.1c (M1): fetch+validate only — the decode is deferred
+                // until after the winner is chosen (below). Both Valhalla
+                // requests previously decoded every leg in the worker at
+                // fetch-time, then only the faster route was used: the loser's
+                // full decode chain (worker round-trip + coords concat) was 100%
+                // wasted on every route request. Winning is decided by
+                // summary.totalTime, which needs no decoding.
+                const fetchValhallaMeta = async (endpoint) => {
                     const req = getValhallaPayload();
                     const res = await fetchWithRetry(endpoint, {
                         method: 'POST',
@@ -1708,15 +1760,13 @@
                     if (!res.ok) throw new Error(`Valhalla HTTP ${res.status}`);
                     const data = await res.json();
                     if (!data.trip || !Array.isArray(data.trip.legs) || data.trip.legs.length === 0) throw new Error('Valhalla response missing trip.legs');
-                    let totalDist = 0, totalTime = 0, coords = [];
+                    let totalDist = 0, totalTime = 0;
                     for (const leg of data.trip.legs) {
                         if (!leg.summary || !leg.shape) throw new Error('Valhalla leg missing summary or shape');
                         totalDist += leg.summary.length * 1000;
                         totalTime += leg.summary.time;
-                        const rawCoords = await workerTask('DECODE_VALHALLA', { shape: leg.shape });
-                        coords = coords.concat(rawCoords.map(c => L.latLng(c.lat, c.lng)));
                     }
-                    return { name: `Valhalla Tactical Route (auto)`, engine: 'VALHALLA', mode: 'FAST', coordinates: coords, instructions: [], summary: { totalDistance: totalDist, totalTime: totalTime }, inputWaypoints: waypoints, waypoints: waypoints };
+                    return { data, totalDist, totalTime };
                 };
 
                 if (!hasExclusions) {
@@ -1728,13 +1778,25 @@
                     } catch (e) { console.warn("OSRM Primary Engine Failed. Attempting Valhalla fallback.", e); }
                 }
 
-                try {
-                    const promises = [fetchValhalla('https://valhalla1.openstreetmap.de/route'), fetchValhalla('https://valhalla.openstreetmap.de/route')];
+try {
+                    const promises = [fetchValhallaMeta('https://valhalla1.openstreetmap.de/route'), fetchValhallaMeta('https://valhalla1.openstreetmap.de/route')];
                     const results = await Promise.allSettled(promises);
                     const successfulRoutes = results.filter(r => r.status === 'fulfilled').map(r => r.value);
                     if (successfulRoutes.length === 0) throw new Error("All Valhalla routing requests failed.");
-                    successfulRoutes.sort((a, b) => a.summary.totalTime - b.summary.totalTime);
-                    const optimalRoute = successfulRoutes[0];
+                    successfulRoutes.sort((a, b) => a.totalTime - b.totalTime);
+                    const optimal = successfulRoutes[0];
+                    // FIX-1.4.1c (M1): decode only the winning route's legs now.
+                    let coords = [];
+                    for (const leg of optimal.data.trip.legs) {
+                        const rawCoords = await workerTask('DECODE_VALHALLA', { shape: leg.shape });
+                        coords = coords.concat(rawCoords.map(c => L.latLng(c.lat, c.lng)));
+                    }
+                    const optimalRoute = {
+                        name: `Valhalla Tactical Route (auto)`, engine: 'VALHALLA', mode: 'FAST',
+                        coordinates: coords, instructions: [],
+                        summary: { totalDistance: optimal.totalDist, totalTime: optimal.totalTime },
+                        inputWaypoints: waypoints, waypoints: waypoints
+                    };
                     window.lastWinningEngine = `${optimalRoute.engine}-${optimalRoute.mode}`;
                     callback.call(context, null, [optimalRoute]);
                 } catch(e) {
@@ -1817,6 +1879,12 @@ let delta = heading - state.lastHeading;
         // for all panTo calls in this codebase.
         const _PAN_TO_OPTS = { animate: false, duration: 0 };
         const _PAN_TO_LATLON = [0, 0];
+        // PERF: hoisted LatLng buffer for the user-marker redraw (same reuse
+        // rationale as _PAN_TO_LATLON — setLatLng reads the array synchronously).
+        const _MARKER_LATLON = [0, 0];
+        // PERF: last-pan position cache for the panTo deadband (OPT-1.4.1) — the
+        // last lat/lon we actually panned to, so stationary frames skip panTo.
+        let _lastPanLat = 0, _lastPanLon = 0;
 
         function smoothVisualsLoop(time) {
             // Do not reschedule when hidden — idle ~15% battery/hour saved.
@@ -1883,7 +1951,9 @@ let delta = heading - state.lastHeading;
                 const dLatT = state.visual.lat - visualLastMarkerTX;
                 const dLonT = state.visual.lon - visualLastMarkerTY;
                 if ((dLatT * dLatT + dLonT * dLonT) > VISUAL_DEADBAND_SQ) {
-                    state.userMarker.setLatLng([state.visual.lat, state.visual.lon]);
+                    _MARKER_LATLON[0] = state.visual.lat;
+                    _MARKER_LATLON[1] = state.visual.lon;
+                    state.userMarker.setLatLng(_MARKER_LATLON);
                     visualLastMarkerTX = state.visual.lat; visualLastMarkerTY = state.visual.lon;
                 }
             }
@@ -1898,15 +1968,27 @@ let delta = heading - state.lastHeading;
                 }
             }
             if (state.isMapLocked && state.tacticalMode > 0) {
-                // Continuous pan-to-center every frame — the visual lerp produces
+                // Continuous pan-to-center — the visual lerp produces
                 // microscopic deltas per frame (~0.28m at 60 km/h) so each panTo is a
-                // tiny CSS translate. No deadband, no rate limiter, no animation —
-                // the frame-by-frame accumulation IS the smooth motion, exactly
-                // proportional to movement speed. The tile streamer preloads edges.
+                // tiny CSS translate. No rate limiter, no animation — the frame-by-frame
+                // accumulation IS the smooth motion, exactly proportional to movement
+                // speed. The tile streamer preloads edges.
+                // PERF (OPT-1.4.1): panTo deadband — while stationary the distSq gate
+                // above freezes state.visual, so panTo received byte-identical coords
+                // 60x/s; Leaflet re-projects + re-lays the world transform on every
+                // call even with animate:false. Gated on the same VISUAL_DEADBAND_SQ
+                // the marker uses: while moving (delta per frame ~0.28m >> band) it
+                // fires every frame; when stopped it fires once then skips until the
+                // accumulated delta crosses the band again (~7cm of resumed motion).
+                const dPanLat = state.visual.lat - _lastPanLat;
+                const dPanLon = state.visual.lon - _lastPanLon;
+                if ((dPanLat * dPanLat + dPanLon * dPanLon) > VISUAL_DEADBAND_SQ) {
+                    _PAN_TO_LATLON[0] = state.visual.lat;
+                    _PAN_TO_LATLON[1] = state.visual.lon;
+                    state.mapObj.panTo(_PAN_TO_LATLON, _PAN_TO_OPTS);
+                    _lastPanLat = state.visual.lat; _lastPanLon = state.visual.lon;
+                }
                 // Pinch-zoom works freely without breaking lock — panTo doesn't touch zoom.
-                _PAN_TO_LATLON[0] = state.visual.lat;
-                _PAN_TO_LATLON[1] = state.visual.lon;
-                state.mapObj.panTo(_PAN_TO_LATLON, _PAN_TO_OPTS);
                 // Modes 1 & 2 rotate map to heading
                 if (state.tacticalMode >= 1) {
                     // PERF-4: gate on the *rounded* heading (0.1 deg discretization).
@@ -2058,6 +2140,12 @@ let delta = heading - state.lastHeading;
                 }
                 updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-check"></i><span class="hidden md:block">CACHED</span>`);
                 if (failedTiles > 0) console.warn('Map cache finished with', failedTiles, 'failed tile uploads.');
+                // FIX-1.4.1b (H1): the SW never sees these tile puts (opaque,
+                // no-cors fetches bypass the fetch handler), so its in-memory byte
+                // counter — which drives both the LRU eviction budget and the
+                // #cache-gauge pill — would stay near zero after a large download.
+                // Re-seed it from disk so eviction and the gauge reflect reality.
+                if (typeof window.requestCacheStats === 'function') window.requestCacheStats(true);
             } catch(err) {
                 if(err.message !== "Aborted") updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-triangle-exclamation"></i><span class="hidden md:block">FAILED</span>`);
             } finally {
@@ -2077,6 +2165,11 @@ let delta = heading - state.lastHeading;
                 closeModal('map-clear-modal');
                 updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-trash"></i><span class="hidden md:block">CLEARED</span>`);
                 setTimeout(() => { updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>`); }, 2000);
+                // FIX-1.4.1b (H2): the counter was never reset here — after a
+                // clear the SW still believed the old bytes existed, so the gauge
+                // kept showing the stale usage and the LRU budget stayed consumed.
+                // Resync from the (now empty) cache.
+                if (typeof window.requestCacheStats === 'function') window.requestCacheStats(true);
             } catch(e) { console.error("Map cache clear failed:", e); }
         };
 
@@ -2092,8 +2185,19 @@ let delta = heading - state.lastHeading;
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    wakeLock.addEventListener('release', () => { wakeLock = null; });
+                    const l = await navigator.wakeLock.request('screen');
+                    // FIX-1.4.1c (A-4): two rapid visible-transitions can resolve
+                    // two requests out of order — the second assignment used to
+                    // overwrite `wakeLock`, orphaning lock A, whose release
+                    // listener then nulled the variable while lock B was still
+                    // held (so B was never released on hide). Adopt only the
+                    // first; release the surplus immediately.
+                    if (!wakeLock) {
+                        wakeLock = l;
+                        wakeLock.addEventListener('release', () => { wakeLock = null; });
+                    } else {
+                        l.release().catch(() => {});
+                    }
                 }
             } catch (err) { console.warn('Wake Lock request failed:', err); }
         }
@@ -2132,18 +2236,21 @@ let delta = heading - state.lastHeading;
         }, { once: true });
 
         // --- FOCUS ENGINE ---
+        // FIX-1.4.1c (LOW-3): section descriptors hoisted once — the previous
+        // code re-allocated the array and re-queried `icon-${sec.id}` on every
+        // focus toggle. Static markup, static ids: build once, read forever.
+        const SECTION_DESCRIPTORS = [
+            {id: 'sec-telemetry', el: DOM.secTelemetry, icon: document.getElementById('icon-sec-telemetry')},
+            {id: 'sec-map', el: DOM.secMap, icon: document.getElementById('icon-sec-map')},
+            {id: 'sec-intel', el: DOM.secIntel, icon: document.getElementById('icon-sec-intel')},
+            {id: 'sec-plot', el: DOM.secPlot, icon: document.getElementById('icon-sec-plot')}
+        ];
         window.toggleFocus = function(secId) {
-            const sections = [
-                {id: 'sec-telemetry', el: DOM.secTelemetry},
-                {id: 'sec-map', el: DOM.secMap},
-                {id: 'sec-intel', el: DOM.secIntel},
-                {id: 'sec-plot', el: DOM.secPlot}
-            ];
             const isCurrentlyFocused = state.focusedSection === secId;
             state.focusedSection = isCurrentlyFocused ? null : secId;
-            sections.forEach(sec => {
+            SECTION_DESCRIPTORS.forEach(sec => {
                 const el = sec.el;
-                const iconDesktop = document.getElementById(`icon-${sec.id}`);
+                const iconDesktop = sec.icon;
                 if (!el) return;
                 if (state.focusedSection === null) {
                     el.classList.remove('section-hidden', 'section-fullscreen');
@@ -2200,7 +2307,17 @@ let delta = heading - state.lastHeading;
             bias: [0, 0, 0],          // hard-iron offset per axis (µT)
             scale: [1, 1, 1],         // soft-iron scale per axis
             quality: 0,               // 0..1 — coverage across axes
-            timestamp: 0
+            timestamp: 0,
+            // Scratch fields written at capture start — pre-declared so the
+            // shape never transitions at runtime (hidden-class doctrine).
+            _countEl: null,
+            // FIX-1.4.1c (MED-1): hoisted magcal UI refs. updateMagCalUI() ran
+            // 5 getElementById calls per rAF tick during capture (~3600 DOM
+            // lookups per 12s capture session) even though the five elements
+            // change at most a handful of times per capture. Populated once in
+            // openMagCalModal.
+            _qEl: null, _rxEl: null, _ryEl: null, _rzEl: null, _statusEl: null, _goBtnEl: null,
+            autoStopTimer: null
         };
 
         // Approximate geomagnetic field magnitude for sanity checks. World Magnetic
@@ -2241,6 +2358,16 @@ let delta = heading - state.lastHeading;
         // UI entry point (invoked by the compass button)
         window.openMagCalModal = function() {
             DOM.modals.magCal.classList.remove('hidden');
+            // FIX-1.4.1c (MED-1): cache the five UI refs once here — updateMagCalUI
+            // reads them per rAF tick during capture.
+            if (!magCalState._qEl) {
+                magCalState._qEl = document.getElementById('magcal-quality');
+                magCalState._rxEl = document.getElementById('magcal-x-range');
+                magCalState._ryEl = document.getElementById('magcal-y-range');
+                magCalState._rzEl = document.getElementById('magcal-z-range');
+                magCalState._statusEl = document.getElementById('magcal-status');
+                magCalState._goBtnEl = document.getElementById('magcal-go-btn');
+            }
             // Wire canvas context once.
             const canvas = document.getElementById('magcal-canvas');
             if (canvas && !magCalState.canvasCtx) {
@@ -2265,7 +2392,7 @@ let delta = heading - state.lastHeading;
                        : magCalState.quality >= 0.4 ? 'PARTIAL'
                        : magCalState.quality >  0   ? 'LOW'
                        :                              'UNCALIBRATED';
-            const qEl = document.getElementById('magcal-quality');
+            const qEl = magCalState._qEl;
             if (qEl) {
                 qEl.textContent = qStr;
                 qEl.className = 'text-[10px] font-mono font-bold uppercase tracking-widest pt-2 border-t border-surface-700 ' +
@@ -2278,19 +2405,17 @@ let delta = heading - state.lastHeading;
                 if (magCalState.quality === 0) return '--';
                 return `bias ${b.toFixed(1)} • scale ${(1/s).toFixed(2)}`;
             };
-            const rx = document.getElementById('magcal-x-range');
-            const ry = document.getElementById('magcal-y-range');
-            const rz = document.getElementById('magcal-z-range');
+            const rx = magCalState._rxEl, ry = magCalState._ryEl, rz = magCalState._rzEl;
             if (rx) rx.textContent = fmtRange(0);
             if (ry) ry.textContent = fmtRange(1);
             if (rz) rz.textContent = fmtRange(2);
             // Status
-            const statusEl = document.getElementById('magcal-status');
+            const statusEl = magCalState._statusEl;
             if (statusEl) {
                 const span = statusEl.querySelector('span');
                 if (span) span.textContent = magCalState.capturing ? 'CAPTURING…' : (magCalState.quality >= 0.8 ? 'READY' : 'NEEDS CAL');
             }
-            const goBtn = document.getElementById('magcal-go-btn');
+            const goBtn = magCalState._goBtnEl;
             if (goBtn) {
                 goBtn.textContent = magCalState.capturing ? 'Finish' : 'Start';
                 goBtn.classList.toggle('bg-brand-red', magCalState.capturing);
@@ -2689,16 +2814,26 @@ let delta = heading - state.lastHeading;
         // apply this as a scalar correction to the OS-provided heading so the
         // figure-8 calibration still improves tracking-card accuracy.
         // Returns the calibrated heading.
+        // PERF (OPT-1.4.1): bias constants cache — the hard-iron bias only changes when
+        // the user re-runs the 8-pattern calibration, but applyCalOffset ran
+        // sqrt + atan2 on EVERY deviceorientation / deviceorientationabsolute event
+        // (~60-120 Hz on iOS). Keyed on the bias components; recomputed only when
+        // they change. `_calBiasMagSq < 1` is exactly equivalent to the old
+        // `Math.sqrt(...) < 1` (both non-negative), so behaviour is unchanged.
+        let _calBiasBx = null, _calBiasBy = null, _calBiasMagSq = 0, _calBiasAngleDeg = 0;
         function applyCalOffset(alphaOrHeading) {
             if (magCalState.quality === 0) return alphaOrHeading;
             if (rawMagHeading !== null) return alphaOrHeading; // raw-path already calibrated
             const bx = magCalState.bias[0], by = magCalState.bias[1];
-            const bMag = Math.sqrt(bx * bx + by * by);
-            if (bMag < 1) return alphaOrHeading; // bias too weak
+            if (bx !== _calBiasBx || by !== _calBiasBy) {
+                _calBiasBx = bx; _calBiasBy = by;
+                _calBiasMagSq = bx * bx + by * by;
+                _calBiasAngleDeg = (_calBiasMagSq >= 1) ? Math.atan2(bx, by) * _RAD2DEG : 0;
+            }
+            if (_calBiasMagSq < 1) return alphaOrHeading; // bias too weak
             // bias angle in the body frame — the heading correction is the
             // negative of this angle (we remove the distortion, not add it)
-            const biasAngle = Math.atan2(bx, by) * _RAD2DEG;
-            return (alphaOrHeading - biasAngle + 720) % 360;
+            return (alphaOrHeading - _calBiasAngleDeg + 720) % 360;
         }
 
         // Forward raw-bias calibration offset to MagHeadingFuser.applyOffset
@@ -2984,7 +3119,7 @@ let delta = heading - state.lastHeading;
         // only module-level identifiers (`state`, `fastDistance`,
         // `fastDistanceSqMeters`, `updateText`) so the move is observability-
         // equivalent. Closure-allocation-per-fix eliminated.
-        function processNodes(lat, lon, nodesToProcess, cursorKey) {
+        function processNodes(lat, lon, nodesToProcess, cursorKey, withLabels = true) {
             if (!nodesToProcess || nodesToProcess.length === 0) return;
             let cursor = state[cursorKey] || 0;
             // Defensive: clamp cursor to passed-region start (handles
@@ -3000,17 +3135,22 @@ let delta = heading - state.lastHeading;
             const dSq = fastDistanceSqMeters(lat, lon, activeNode.lat, activeNode.lon);
             if (dSq > 36000000) {
                 // > 6km — definitely still ahead; only update labels of near-future nodes.
-                let count = 0;
-                for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
-                    let vn = nodesToProcess[v];
-                    if (vn.passed) continue;
-                    let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
-                    if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
-                    else {
-                        const distEl = document.getElementById(`node-dist-${vn.id}`);
-                        if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+                // PERF: withLabels=false (the originalRouteNodes clone) skips this —
+                // the clone shares ids/coords with routeNodes, so its labels would be
+                // byte-identical strings the routeNodes pass already wrote.
+                if (withLabels) {
+                    let count = 0;
+                    for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
+                        let vn = nodesToProcess[v];
+                        if (vn.passed) continue;
+                        let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
+                        if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
+                        else {
+                            const distEl = document.getElementById(`node-dist-${vn.id}`);
+                            if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+                        }
+                        count++;
                     }
-                    count++;
                 }
                 state[cursorKey] = cursor;
                 return;
@@ -3039,17 +3179,23 @@ let delta = heading - state.lastHeading;
                 while (cursor < nodesToProcess.length && nodesToProcess[cursor].passed) cursor++;
             }
             // Always refresh labels of next-up nodes (cheap path).
-            let count = 0;
-            for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
-                let vn = nodesToProcess[v];
-                if (vn.passed) continue;
-                let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
-                if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
-                else {
-                    const distEl = document.getElementById(`node-dist-${vn.id}`);
-                    if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+            // PERF: withLabels=false skips this for the originalRouteNodes clone —
+            // identical coords/ids mean byte-identical strings already written by
+            // the routeNodes pass; the cursor advance + passed-flags above still run
+            // so the fuel search reads fresh state.
+            if (withLabels) {
+                let count = 0;
+                for (let v = cursor; v < nodesToProcess.length && count < 15; v++) {
+                    let vn = nodesToProcess[v];
+                    if (vn.passed) continue;
+                    let vnD = fastDistance(lat, lon, vn.lat, vn.lon);
+                    if (vn.nodeRef) updateText(vn.nodeRef, (vnD/1000).toFixed(1) + ' KM');
+                    else {
+                        const distEl = document.getElementById(`node-dist-${vn.id}`);
+                        if (distEl) { vn.nodeRef = distEl; updateText(distEl, (vnD/1000).toFixed(1) + ' KM'); }
+                    }
+                    count++;
                 }
-                count++;
             }
             state[cursorKey] = cursor;
         }
@@ -3083,9 +3229,6 @@ let delta = heading - state.lastHeading;
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
                         if (impliedSpeedKmh > 350 && accuracy > 10) return;
                     }
-                    // Save previous coords before overwriting so the distance check
-                    // below compares against the actual previous fix, not the current one.
-                    const prevLat = state.lastHudLat, prevLon = state.lastHudLon;
                     state.lastHudLat = lat; state.lastHudLon = lon;
                     state.lastLocationTimestamp = now;
 
@@ -3108,7 +3251,10 @@ let delta = heading - state.lastHeading;
                     if (!state.mapObj) {
                         initMap(lat, lon);
                     } else {
-                        const distMovedKm = (prevLat === 0 && prevLon === 0) ? 999 : (fastDistance(lat, lon, prevLat, prevLon) / 1000);
+                        // PERF: `distMovedKm` (a third haversine per fix — the same
+                        // coordinate pair as distMovedM above, reversed) was dead:
+                        // zero consumers anywhere. Removed; the glitch check at the
+                        // top of this callback already covers movement distance.
                         if ((now - state.telemetryCache.timestamp > CONFIG.cacheTTL) && (now - state.lastFetchAttempt > 5000)) {
                             state.lastFetchAttempt = now; fetchData(lat, lon, false);
                         }
@@ -3154,7 +3300,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         // is observability-equivalent.
 
                 processNodes(lat, lon, state.routeNodes, 'routeNodesCursor');
-                processNodes(lat, lon, state.originalRouteNodes, 'originalRouteNodesCursor');
+                // PERF: originalRouteNodes is a coordinate clone consumed only by the
+                // fuel search (passed flags + coords). It shares ids/coords with
+                // routeNodes, so its distance labels would be byte-identical strings
+                // the routeNodes pass already wrote — skip the label loops (the
+                // cursor advance + passed-flags still run on both lists).
+                processNodes(lat, lon, state.originalRouteNodes, 'originalRouteNodesCursor', false);
 
                         const isMoving = state.currentSpeed >= 2;
                         // --- Heading pipeline (was: hard override) ---
@@ -3277,6 +3428,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
             state.mapObj.on('dragstart', () => {
                 if (state._recenterTimer) { clearTimeout(state._recenterTimer); state._recenterTimer = null; }
+                // FIX-1.4.1b (F4): the inner re-lock timer (600ms inside the 5s
+                // recenter chain) was never tracked — a drag started in the
+                // 5.0-5.6s window after a previous dragend left it orphaned, and
+                // it re-locked the map MID-DRAG (pan + heading-follow re-engaging
+                // under the user's finger). Track + clear it alongside the outer.
+                if (state._recenterLockTimer) { clearTimeout(state._recenterLockTimer); state._recenterLockTimer = null; }
                 state.isMapLocked = false;
                 // Dragging must NOT rotate the map. The map's rotation is purely
                 // heading-driven (smoothVisualsLoop writes rotate(-heading) when
@@ -3335,7 +3492,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             const lat = state.visual.lat || state.autoCoords.lat;
                             const lon = state.visual.lon || state.autoCoords.lon;
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 0.5 });
-                            setTimeout(() => {
+                            state._recenterLockTimer = setTimeout(() => {
                                 state.isMapLocked = true;
                                 // Re-lock: no rotation smear here either. The
                                 // heading-follow loop (smoothVisualsLoop) drives
@@ -3359,6 +3516,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     state.lastCssHeading = state.visual.heading;
                                 }
                                 window.applyTacticalMode();
+                                // FIX-1.4.1b (F4): self-clear the tracked id on fire —
+                                // a stale id here would make a later dragstart clear a
+                                // dead timer (harmless) but also mask the real state.
+                                state._recenterLockTimer = null;
                             }, 600);
                         }
                     }, 5000);
@@ -3411,12 +3572,23 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             for (let i = 0; i < waypoints.length; i++) {
                 const wp = waypoints[i];
                 const pItem = state.interceptMarkers[i];
-                pItem.marker.setLatLng([wp.lat, wp.lon]);
-                pItem.marker.setIcon(L.divIcon({
-                    className: 'bg-transparent',
-                    html: `<div class="relative flex items-center justify-center -ml-3 -mt-3"><div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div><div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div><div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${sanitizeHTML(wp.id)}</div></div>`,
-                    iconSize: [0, 0]
-                }));
+                // PERF: per-item write cache — the 5-min intel refresh re-runs this
+                // with byte-identical waypoints; setLatLng + setIcon (a fresh
+                // L.divIcon whose createIcon re-parses the HTML template) were
+                // applied unconditionally every refresh. Skipped when the id /
+                // coords didn't change (ids only change on route recompute).
+                if (pItem._cLat !== wp.lat || pItem._cLon !== wp.lon) {
+                    pItem.marker.setLatLng([wp.lat, wp.lon]);
+                    pItem._cLat = wp.lat; pItem._cLon = wp.lon;
+                }
+                if (pItem._cId !== wp.id) {
+                    pItem.marker.setIcon(L.divIcon({
+                        className: 'bg-transparent',
+                        html: `<div class="relative flex items-center justify-center -ml-3 -mt-3"><div class="absolute w-4 h-4 bg-brand-teal rounded-full animate-ping opacity-60"></div><div class="relative z-10 w-2 h-2 bg-brand-teal rounded-full border border-black shadow-[0_0_8px_rgba(20,184,166,1)]"></div><div class="node-label absolute top-4 bg-surface-900 border border-brand-teal text-brand-teal text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap opacity-90">N-${sanitizeHTML(wp.id)}</div></div>`,
+                        iconSize: [0, 0]
+                    }));
+                    pItem._cId = wp.id;
+                }
                 // Skip the marker.getElement() lookup when display is already 'block'
                 // — getElement() is cheap (returns the cached _icon ref) but is
                 // still a property-chain fcall we don't need when most passes
@@ -3613,8 +3785,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false, customWaypoints = null) {
             state.targetCoords = { lat: destLat, lon: destLon };
             state.customRouteWaypoints = customWaypoints;
-            state.routeNodes = null;
-            state.routeNodesCursor = 0;
+            // FIX-1.4.1 (B8): clear originalRouteNodes too — the fuel search's
+            // findAllAlongRoute falls back to `originalRouteNodes || routeNodes`;
+            // a stale pre-swap copy made the new route search against the OLD
+            // waypoints while routeNodes was null, returning stations off-path.
+            state.routeNodes = null; state.originalRouteNodes = null;
+            state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0;
             state.isFuelOnlyRoute = isFuelOnly;
             persistNavTarget();
             DOM.navBtn.classList.remove('hidden');
@@ -3680,6 +3856,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // the live reading at every node's location (not an estimated future hour).
         //
         // Caches by destination key (stable for the whole nav session) — same as before.
+        // PERF: last-write signature per destination key — while stationary the SW
+        // serves the identical cached response, so the 0.3-0.5 MB localforage write
+        // fired every 5 min for byte-identical data (no change gate existed).
+        let _lastIntelWriteSig = null;
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
 
@@ -3801,13 +3981,38 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (results.every(r => r.status === 'rejected')) throw new Error('Both route intel fetches failed');
                 const baseResOk = results[0].status === 'fulfilled';
                 const modelResOk = results[1].status === 'fulfilled';
-                const baseData = baseResOk ? await results[0].value.json() : null;
-                const modelData = modelResOk ? await results[1].value.json() : null;
+                // PERF: parallel JSON parse — the telemetry path got this treatment
+                // (PERF-16); these two intel responses were still parsed serially.
+                const [baseData, modelData] = await Promise.all([
+                    baseResOk ? results[0].value.json() : Promise.resolve(null),
+                    modelResOk ? results[1].value.json() : Promise.resolve(null)
+                ]);
 
                 // Write to cache before rendering — if offline fallback fires later, this is what it reads.
+                // PERF: gated on a payload signature so byte-identical SW-cached refreshes skip the
+                // ~0.3-0.5 MB structured-clone write. FIX-1.4.1: multi-location / multi-model
+                // responses arrive as ARRAYS — indexing into [0] mirrors the renderer's
+                // `Array.isArray(x) ? x : [x]` normalization at line 3937, so the signature no
+                // longer degenerates to waypoint-ids alone (which skipped the cache write for the
+                // whole session, leaving the offline fallback stale).
                 if (routeIntelCacheKey) {
-                    localforage.setItem(routeIntelCacheKey, { waypoints, baseData, modelData, timestamp: Date.now() })
-                        .catch(e => console.warn('Route intel cache write failed:', e));
+                    const baseArr = Array.isArray(baseData) ? baseData : [baseData];
+                    const modelArr = Array.isArray(modelData) ? modelData : [modelData];
+                    const b0 = baseArr[0] || null;
+                    const m0 = modelArr[0] || null;
+                    const m0h = m0 && m0.hourly ? m0.hourly : null;
+                    const m0t = m0h && m0h.time ? m0h.time : null;
+                    const m0p = m0h ? (m0h['precipitation_' + WeatherEnsemble.models[0]] || null) : null;
+                    const intelSig = waypoints.map(w => w.id).join(',') + '|' +
+                        (b0 && b0.current ? (b0.current.time || '') + '|' + (b0.current.temperature_2m ?? '') : '') + '|' +
+                        (m0t ? m0t[0] + '|' + m0t[m0t.length - 1] : '') + '|' +
+                        (m0p ? m0p[0] + '|' + m0p[m0p.length - 1] : '');
+                    const prevSig = _lastIntelWriteSig && _lastIntelWriteSig.key === routeIntelCacheKey ? _lastIntelWriteSig.sig : null;
+                    if (intelSig !== prevSig) {
+                        _lastIntelWriteSig = { key: routeIntelCacheKey, sig: intelSig };
+                        localforage.setItem(routeIntelCacheKey, { waypoints, baseData, modelData, timestamp: Date.now() })
+                            .catch(e => console.warn('Route intel cache write failed:', e));
+                    }
                 }
 
                 renderRouteIntelTimeline(waypoints, baseData, modelData, false, scrollPos);
@@ -3903,9 +4108,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const precipModels = mH ? WeatherEnsemble.extractModelArrays(mH, 'precipitation') : [];
                 // Pre-filter sentinel-dead precip arrays (all-zero Open-Meteo out-of-region
                 // pattern) so the renormalisation math excludes them as nulls. Mirrors the
-                // dashboard consensus path.
+                // dashboard consensus path. PERF: uses the early-exit isSentinelDead
+                // (boolean-only consumer) instead of checkHealth's full-array pass.
                 for (const _m of WeatherEnsemble.models) {
-                    if (precipModels[_m] && WeatherEnsemble.checkHealth(precipModels[_m]).sentinelDead) precipModels[_m] = null;
+                    if (precipModels[_m] && WeatherEnsemble.isSentinelDead(precipModels[_m])) precipModels[_m] = null;
                 }
                 // Wetness verdict — current-hour only, matching the dashboard's
                 // `hourlyAgreement[0]` instead of a 3-hour rolling average. The rolling
@@ -4067,6 +4273,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             htmlBuffer += '</div>';
             updateHTML(DOM.timelineContainer, htmlBuffer);
+            // FIX-1.4.1 (B6): updateHTML rebuilds the timeline DOM whenever the
+            // buffer differs; nodeRefs cached in processNodes (getElementById at
+            // construction) then point at DETACHED spans and every subsequent
+            // updateText writes to dead nodes — distance labels freeze on screen
+            // while the cursor keeps advancing. Re-link by id after any rebuild.
+            // Same ids exist in the originalRouteNodes clone, so a single pass
+            // over routeNodes covers both arrays.
+            if (state.routeNodes) {
+                for (const _rn of state.routeNodes) {
+                    _rn.nodeRef = document.getElementById(`node-dist-${_rn.id}`) || null;
+                }
+            }
             if (scrollPos > 0) {
                 // Defer the scrollTop write so the browser has a full frame to parse
                 // the new innerHTML before we force a synchronous layout read.
@@ -4087,17 +4305,33 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // Intl.DateTimeFormat cache probe. Hoisting drops to a single shared
         // options object that the V8_PROPERTY_BOX stays warm on.
         const _CLOCK_FMT_OPTS = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+        // PERF: the per-tick `{ timeZone, ..._CLOCK_FMT_OPTS }` spread re-allocated
+        // the merged options object 86,400 times/day even though the timezone
+        // changes at most a handful of times per session — the 1.3.10 hoist was
+        // defeated by the spread. Cache the last merged literal instead.
+        let _lastClockTz = null, _lastClockOpts = null;
+        // FIX-1.4.1c (L1): the paddle call from visibilitychange (below) started
+        // a NEW 1s timer chain without cancelling the pending hidden-cycle timer
+        // (30s), so every hide/show added +1 permanent chain of new Date() +
+        // toLocaleTimeString per second, forever. Track the id and clear before
+        // every reschedule so exactly one chain exists at any time.
+        let _clockTimer = null;
         function syncClock() {
             // Bail in background to avoid 3600 wakeups/hour. Drop to a slow
             // 30s keep-alive so the clock is correct when the tab resumes.
             if (document.visibilityState === 'hidden') {
-                setTimeout(syncClock, 30000);
+                clearTimeout(_clockTimer);
+                _clockTimer = setTimeout(syncClock, 30000);
                 return;
             }
             const now = new Date();
             if (state.targetTimezone) {
                 try {
-                    const timeStr = now.toLocaleTimeString('en-US', { timeZone: state.targetTimezone, ..._CLOCK_FMT_OPTS });
+                    if (state.targetTimezone !== _lastClockTz) {
+                        _lastClockTz = state.targetTimezone;
+                        _lastClockOpts = { timeZone: state.targetTimezone, ..._CLOCK_FMT_OPTS };
+                    }
+                    const timeStr = now.toLocaleTimeString('en-US', _lastClockOpts);
                     // PERF-18: direct `updateText` instead of wrapping in rAF.
                     // `updateText` already short-circuits the DOM write when
                     // the new string equals the current textContent (its
@@ -4108,7 +4342,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     updateText(DOM.localTimeText, timeStr);
                 } catch(e) { console.debug('syncClock toLocaleTimeString failed for tz=' + state.targetTimezone + ' (intentional silencer):', e && e.message); }
             }
-            setTimeout(syncClock, 1000 - (now.getTime() % 1000));
+            clearTimeout(_clockTimer);
+            _clockTimer = setTimeout(syncClock, 1000 - (now.getTime() % 1000));
         }
         syncClock();
         // Paddle syncClock on tab-resume so the wall-clock updates
@@ -4131,7 +4366,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         }
 
         window.purgeSystem = function() { DOM.modals.custom.classList.remove('hidden'); };
-        window.closeModal = function(modalId) { document.getElementById(modalId).classList.add('hidden'); };
+        window.closeModal = function(modalId) {
+            // FIX-1.4.1c (LOW-2): MODAL_BY_ID answers the lookup in one property
+            // read; getElementById remains only as a degraded fallback for ids
+            // that are not in the map. Also no longer throws on unknown ids.
+            const el = MODAL_BY_ID[modalId] || document.getElementById(modalId);
+            if (el) el.classList.add('hidden');
+        };
+        // FIX-1.4.1c (LOW-5): dedicated opener for the inline fuel-settings
+        // button — the raw inline getElementById was the only modal opener not
+        // routed through the cached DOM.modals map, and it threw if the markup
+        // ever changed the id.
+        window.openFuelSettings = function() {
+            const el = MODAL_BY_ID['fuel-settings-modal'] || DOM.modals.fuelSettings;
+            if (el) el.classList.remove('hidden');
+        };
 
         window.executePurge = async function() {
             try {
@@ -4155,7 +4404,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-brand-red bg-brand-red/20 text-brand-red text-sm md:text-base font-bold tracking-widest transition-all');
                 updateClass(DOM.audio.icon, 'fa-solid fa-volume-high fa-beat-fade text-xl');
                 updateText(DOM.audio.text, "SONAR ACTIVE");
-                if (ctx.state === 'suspended') ctx.resume();
+                // FIX-1.4.1c (A-3): single resume — the previous branch called
+                // ctx.resume() twice when suspended, and the first promise was
+                // discarded without a rejection handler (an unhandled-rejection
+                // class the audit chain cannot detect).
                 ctx.resume().then(() => playSonarPing()).catch(err => console.error('AudioContext resume failed:', err));
             } else {
                 updateClass(DOM.audio.btn, 'flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-gray-100 text-sm md:text-base font-bold tracking-widest transition-all');
@@ -4201,8 +4453,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         const _DATE_FMT_LONG_OPTS = { weekday: 'short', month: 'short', day: 'numeric' };
         function renderChart(labels, timesUnix, rainData, solarData, uvData, hourlyAgreement, tempBand) {
             const tc = THEME_COLORS;
-            const tempMin = tempBand.map(b => b ? b.min : null);
-            const tempMax = tempBand.map(b => b ? b.max : null);
+            // FIX-1.4.1b (F6): two .map() passes over the band became one loop —
+            // both datasets read the same source array, so the second map was
+            // re-walking it for identical traversal cost.
+            const tempMin = new Array(tempBand.length);
+            const tempMax = new Array(tempBand.length);
+            for (let i = 0; i < tempBand.length; i++) {
+                const b = tempBand[i];
+                tempMin[i] = b ? b.min : null;
+                tempMax[i] = b ? b.max : null;
+            }
 
             if (state.chart) {
                 const L = labels.length;
@@ -4369,7 +4629,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         //   • Accurate low-confidence flag: if global model weight contribution drops
         //     below ACK baseline, curr is tagged lowConfidence and UI can show a more
         //     conservative rounded value (e.g. "+" half-degree uncertainty badge).
-        function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null) {
+        function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null, needsChart = true) {
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             // Cache the API-reported UTC offset (seconds) so the hour-strip in the chart
             // can render LOCAL hours instead of UTC hours. Without this fix the chart
@@ -4419,16 +4679,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const maxSlice = Math.min(nowIndex + 24, totalLen);
             const sliceLen = maxSlice - nowIndex;
 
-            // Pre-allocate single output arrays used by both chart and aeroHUD cache.
+            // FIX-1.4.1b (F1): the full chart-only pipeline (times strings, timesUnix,
+            // solarData, rainData Float64Arrays, bandAll, weightedWetnessAll) was
+            // rebuilt on EVERY fetch even when chartSig proved the chart content
+            // byte-identical — ~150 allocs + ~400 numeric ops per fetch with zero
+            // consumer. The caller now passes needsChart = (chartSig changed);
+            // when false, only the UI-consumed cells are computed (see below).
+            const needsChartArg = (typeof needsChart === 'boolean') ? needsChart : true;
             const times      = new Array(sliceLen);
-            // Raw unix-second timestamps for each chart hour. Rendered tick labels
-            // (local HH:MM) are cosmetic, but computing Today/Tomorrow day rows below
-            // the hour strip needs the actual epoch bucket — the formatted strings
-            // alone are ambiguous around midnight (only the first 00:00 gets (+1d),
-            // so a 24h slice spanning two midnights has no human-readable day hint).
-            const timesUnix  = new Array(sliceLen);
+            const timesUnix  = needsChartArg ? new Array(sliceLen) : null;
             const uvData = new Array(sliceLen);
-            const solarData = new Array(sliceLen);
+            const solarData = needsChartArg ? new Array(sliceLen) : null;
             const uvArr = (hSol && hSol.uv_index) ? hSol.uv_index : new Array(totalLen).fill(0);
             const solArr = (hSol && hSol.shortwave_radiation) ? hSol.shortwave_radiation : new Array(totalLen).fill(0);
             // BUG FIX: Open-Meteo with timezone=auto returns hourly timestamps in unix
@@ -4440,17 +4701,29 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // the user's wall clock + status text rendered local time — producing the
             // "I am at 06:47 local but the chart says 23:00" confusion.
             const utcOffsetSec = (typeof state.utcOffsetSec === 'number') ? state.utcOffsetSec : 0;
-            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
-                const t = h.time[j]; // unix seconds (UTC instant)
-                timesUnix[i] = t;
+            const fmtHour = (t) => {
                 const localSec = ((t + utcOffsetSec) % 86400 + 86400) % 86400;
                 const hh = String(Math.floor(localSec / 3600)).padStart(2, '0');
                 const mm = String(Math.floor((localSec % 3600) / 60)).padStart(2, '0');
-                times[i] = `${hh}:${mm}`;
+                return `${hh}:${mm}`;
+            };
+            let uvMaxVal = -1, uvMaxIdx = -1;
+            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
+                const t = h.time[j]; // unix seconds (UTC instant)
+                if (needsChartArg) {
+                    timesUnix[i] = t;
+                    times[i] = fmtHour(t);
+                    const so = solArr[j];
+                    solarData[i] = (so === null || so === undefined) ? 0 : so;
+                }
                 const uv = uvArr[j];
                 uvData[i] = (uv === null || uv === undefined) ? 0 : uv;
-                const so = solArr[j];
-                solarData[i] = (so === null || so === undefined) ? 0 : so;
+                if (uvData[i] > uvMaxVal) { uvMaxVal = uvData[i]; uvMaxIdx = i; }
+            }
+            // The UV metric's "@ HH:MM" label reads times[maxUvIdx] — when the chart
+            // is skipped, format only that single cell instead of the full strip.
+            if (!needsChartArg && uvMaxIdx >= 0) {
+                times[uvMaxIdx] = fmtHour(h.time[nowIndex + uvMaxIdx]);
             }
 
             // Bulk wetness / band / wind over the full hour vector via single-pass loops.
@@ -4461,36 +4734,58 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // silently toward "STABLE" even when the actually-live models agreed on rain.
             for (const _m of WeatherEnsemble.models) {
                 const a = precipModels[_m];
-                if (a && WeatherEnsemble.checkHealth(a).sentinelDead) precipModels[_m] = null;
+                // OPT-1.4.1: isSentinelDead is the exact sentinelDead probe extracted
+                // from checkHealth (sumAbs < 1e-9 && valid > 0) without building the
+                // full health record — checkHealth was allocating a coveragePct
+                // computation + object per dead-model check per render pass.
+                if (a && WeatherEnsemble.isSentinelDead(a)) precipModels[_m] = null;
             }
             // Full-vector blended wetness band over the slice — consumed by
             // renderChart (which uses .map() over the full vector to build the
             // chart's wetness datasets) and by `incomingRain` lookahead (which
             // reads indices 1..3). Also `hourlyAgreementRef` is stored on the
             // chart instance so the tooltip callback at 4047 can index it by
-            // arbitrary hour. Cannot be per-index — the full chart spans the
-            // 24h slice and any cell may be looked up on hover.
-            const wetResult       = WeatherEnsemble.weightedWetnessAll(precipModels, nowIndex, maxSlice);
-            const hourlyAgreement = wetResult.wet;
-            // Full min/max confidence band — renderChart's tempMin/tempMax
-            // datasets come from `tempBand.map(b => b ? b.min/max : null)`,
-            // so the full slice vector is required.
-            const tempBand        = WeatherEnsemble.bandAll(tempModels, nowIndex, maxSlice);
+            // arbitrary hour. Cannot be per-index when the chart renders — the
+            // full chart spans the 24h slice and any cell may be looked up on
+            // hover. FIX-1.4.1b (F1): when the chart is skipped (chartSig
+            // unchanged), only cells 0..3 are consumed (currentAgreement +
+            // incomingRain), so the per-index API replaces the bulk allocation.
+            let hourlyAgreement, tempBand;
+            if (needsChartArg) {
+                const wetResult       = WeatherEnsemble.weightedWetnessAll(precipModels, nowIndex, maxSlice);
+                hourlyAgreement       = wetResult.wet;
+                // Full min/max confidence band — renderChart's tempMin/tempMax
+                // datasets come from `tempBand.map(b => b ? b.min/max : null)`,
+                // so the full slice vector is required.
+                tempBand              = WeatherEnsemble.bandAll(tempModels, nowIndex, maxSlice);
+            } else {
+                hourlyAgreement = new Float32Array(4);
+                for (let k = 0; k < 4; k++) {
+                    const w = WeatherEnsemble.weightedWetnessAt(precipModels, nowIndex + k);
+                    hourlyAgreement[k] = w.pct;
+                }
+                const b0 = WeatherEnsemble.bandAt(tempModels, nowIndex);
+                tempBand = b0 ? [b0] : null;
+            }
 
             // Clean (zero-fill nulls) each model's precip range for chart lines — done inline
             // so we avoid both the old `clean(arr).slice(...)` chain and a duplicate pass.
-            // Float64Array: zero-GC fixed memory, tight numeric access, 8x faster in TurboFan
-            const rEUNull = precipModels.ecmwf_ifs025, rUSNull = precipModels.gfs_seamless,
-                  rDENull = precipModels.icon_seamless, rJPNull = precipModels.jma_seamless;
-            const rEU = new Float64Array(sliceLen), rUS = new Float64Array(sliceLen),
-                  rDE = new Float64Array(sliceLen), rJP = new Float64Array(sliceLen);
-            for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
-                rEU[i] = !rEUNull ? 0 : (rEUNull[j] === null || rEUNull[j] === undefined ? 0 : rEUNull[j]);
-                rUS[i] = !rUSNull ? 0 : (rUSNull[j] === null || rUSNull[j] === undefined ? 0 : rUSNull[j]);
-                rDE[i] = !rDENull ? 0 : (rDENull[j] === null || rDENull[j] === undefined ? 0 : rDENull[j]);
-                rJP[i] = !rJPNull ? 0 : (rJPNull[j] === null || rJPNull[j] === undefined ? 0 : rJPNull[j]);
+            // Float64Array: zero-GC fixed memory, tight numeric access, 8x faster in TurboFan.
+            // FIX-1.4.1b (F1): chart-only — skipped entirely when the chart is not re-rendered.
+            let rainData = null, rEU = null, rUS = null, rDE = null, rJP = null;
+            if (needsChartArg) {
+                const rEUNull = precipModels.ecmwf_ifs025, rUSNull = precipModels.gfs_seamless,
+                      rDENull = precipModels.icon_seamless, rJPNull = precipModels.jma_seamless;
+                rEU = new Float64Array(sliceLen); rUS = new Float64Array(sliceLen);
+                rDE = new Float64Array(sliceLen); rJP = new Float64Array(sliceLen);
+                for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
+                    rEU[i] = !rEUNull ? 0 : (rEUNull[j] === null || rEUNull[j] === undefined ? 0 : rEUNull[j]);
+                    rUS[i] = !rUSNull ? 0 : (rUSNull[j] === null || rUSNull[j] === undefined ? 0 : rUSNull[j]);
+                    rDE[i] = !rDENull ? 0 : (rDENull[j] === null || rDENull[j] === undefined ? 0 : rDENull[j]);
+                    rJP[i] = !rJPNull ? 0 : (rJPNull[j] === null || rJPNull[j] === undefined ? 0 : rJPNull[j]);
+                }
+                rainData = { eu: rEU, us: rUS, de: rDE, jp: rJP };
             }
-            const rainData = { eu: rEU, us: rUS, de: rDE, jp: rJP };
 
             // PERF-9: only `windSpdAll[nowIndex]` / `windGustAll[nowIndex]` are
             // actually consumed (line ~4308 below, where wsNow/wgNow are built).
@@ -4505,25 +4800,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // no consumer reads a full vector.)
             const wsNow = WeatherEnsemble.weightedValueAt(windSpdModels, nowIndex);
             const wgNow = WeatherEnsemble.weightedValueAt(windGustModels, nowIndex);
-            // Wind direction at now — circular mean can't be batched, keep the
-            // inline tight loop (no bulk API exists).
-            let sx = 0, sy = 0, wsSum = 0;
-            const n = WeatherEnsemble._MI.length;
-            for (let i = 0; i < n; i++) {
-                const { m, w } = WeatherEnsemble._MI[i];
-                const arr = windDirModels[m];
-                if (!arr) continue;
-                const v = arr[nowIndex];
-                if (v === null || v === undefined) continue;
-                const rad = v * (Math.PI / 180);
-                sx += Math.cos(rad) * w; sy += Math.sin(rad) * w; wsSum += w;
-            }
-            let wdBlend = null;
-            if (wsSum > 0) {
-                let deg = Math.atan2(sy / wsSum, sx / wsSum) * (180 / Math.PI);
-                if (deg < 0) deg += 360;
-                wdBlend = deg;
-            }
+            // Wind direction at now — circular mean via the shared API (P5).
+            // PERF-1.4.1 (P5): the inline circular-mean loop below was an exact
+            // duplicate of the dead `weightedCircularMeanAt` API (zero callers,
+            // same math, same null exclusion) — dead code drifting separately
+            // from its twin. Single source of truth now: if the mean math ever
+            // changes (e.g. axis wrap), only the API needs touching.
+            const wdBlend = WeatherEnsemble.weightedCircularMeanAt(windDirModels, nowIndex);
 
             const windEnsemble = (wsNow.value !== null || wdBlend !== null || wgNow.value !== null)
                 ? { speed: wsNow.value, dir: wdBlend, gust: wgNow.value, modelsReporting: wsNow.modelsReporting }
@@ -4532,11 +4815,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // WMO code majority vote at "now" — feeds code-agreement badge.
             const codeAgreement = WeatherEnsemble.weightedMajorityAt(codeModels, nowIndex);
 
+            // FIX-1.4.1b (F3): hoisted blend-now — previously the offline branch
+            // recomputed weightedValueAt(tempModels, nowIndex) (as tBlend) and
+            // temperatureTrend's IIFE below recomputed it AGAIN (as blendNow).
+            // Same inputs, same index — one call, three consumers.
+            const blendNow = WeatherEnsemble.weightedValueAt(tempModels, nowIndex);
+
             if (isOffline || !curr) {
-                const tBlend   = WeatherEnsemble.weightedValueAt(tempModels, nowIndex);
                 const fBlend   = WeatherEnsemble.weightedValueAt(feelsModels, nowIndex);
                 const hBlend   = WeatherEnsemble.weightedValueAt(humidModels, nowIndex);
-                const codeBlend = WeatherEnsemble.weightedMajorityAt(codeModels, nowIndex);
+                // FIX-1.4.1b (F3): codeBlend is byte-identical to codeAgreement
+                // (same arrays, same index, same Map tally) — alias it instead of
+                // re-running the vote.
+                const codeBlend = codeAgreement;
                 // In OFFLINE mode the ensembles' hourly cells are the only live hours
                 // we have (no freshly-fetched current.weather_code). But when !curr
                 // happens while *online* (rare, e.g. empty API response payload),
@@ -4548,8 +4839,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const codeObs = (origCurr && typeof origCurr.weather_code === 'number') ? origCurr.weather_code : null;
                 const isDayObs = (origCurr && typeof origCurr.is_day === 'number') ? origCurr.is_day : null;
                 curr = {
-                    temperature_2m:     tBlend.value  !== null ? tBlend.value  : 0,
-                    apparent_temperature: fBlend.value !== null ? fBlend.value  : (tBlend.value !== null ? tBlend.value : 0),
+                    temperature_2m:     blendNow.value !== null ? blendNow.value : 0,
+                    apparent_temperature: fBlend.value !== null ? fBlend.value  : (blendNow.value !== null ? blendNow.value : 0),
                     relative_humidity_2m: hBlend.value !== null ? hBlend.value  : 50,
                     weather_code:        codeBlend.code !== null ? codeBlend.code : 0,
                     wind_speed_10m:      wsNow.value !== null ? wsNow.value : 0,
@@ -4626,10 +4917,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                      // compact trend badge (+3° in 1h / --°).
                      temperatureTrend: (() => {
                          if (!h || !h.temperature_2m || nowIndex + 1 >= Math.min(maxSlice, h.temperature_2m.length)) return null;
-                         const blendNow  = WeatherEnsemble.weightedValueAt(tempModels, nowIndex);
+                         // FIX-1.4.1b (F3): blendNow is the hoisted call above — the
+                         // IIFE previously re-ran weightedValueAt(tempModels, nowIndex).
                          const blendNext = WeatherEnsemble.weightedValueAt(tempModels, nowIndex + 1);
-                         if (blendNow == null || blendNext == null) return null;
-                         return Math.round(blendNext - blendNow);
+                         // FIX-1.4.1: weightedValueAt returns {value, modelsReporting, lowConfidence},
+                         // not a bare number — subtracting the objects yielded NaN and the glance
+                         // strip always rendered the grey "0°" fallback.
+                         if (blendNow.value == null || blendNext.value == null) return null;
+                         return Math.round(blendNext.value - blendNow.value);
                      })()
                     };
         }
@@ -4729,14 +5024,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateText(DOM.metricVisibility, '-- km');
             }
 
-            let maxUV = 0;
-            for (let i = 0; i < uvData.length; i++) { if (uvData[i] > maxUV) maxUV = uvData[i]; }
+            // PERF-1.4.1 (P7): single pass — track the max index in the loop instead
+            // of a second indexOf() scan over the whole array.
+            let maxUV = 0, maxUvIdx = -1;
+            for (let i = 0; i < uvData.length; i++) { if (uvData[i] > maxUV) { maxUV = uvData[i]; maxUvIdx = i; } }
             updateText(DOM.metricUvVal, maxUV.toFixed(1));
-            const uvIdx = uvData.indexOf(maxUV);
-            updateText(DOM.metricUvTime, (uvIdx >= 0 && times[uvIdx]) ? "@ " + times[uvIdx].replace(" (+1d)", "") : "--");
-
-            let bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
-            if (curr.is_day === 0) bIcon = bIcon.replace('sun', 'moon');
+            updateText(DOM.metricUvTime, (maxUvIdx >= 0 && times[maxUvIdx]) ? "@ " + times[maxUvIdx].replace(" (+1d)", "") : "--");
 
             updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[200px] md:min-h-[250px] relative overflow-hidden ");
 
@@ -4784,8 +5077,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-warning uppercase');
                 updateText(DOM.statusText, "RAIN POSSIBLE");
             } else {
+                // FIX-1.4.1b (F7): bIcon (WMO icon lookup + sun→moon rewrite) was
+                // built unconditionally, but only the STABLE branch consumes it —
+                // every rain/alert branch discarded the work. Build it lazily here.
+                const bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
+                const bIconFinal = (curr.is_day === 0) ? bIcon.replace('sun', 'moon') : bIcon;
                 DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50');
-                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIcon} text-brand-success`);
+                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIconFinal} text-brand-success`);
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-success uppercase');
                 updateText(DOM.statusText, "STABLE");
             }
@@ -4998,12 +5296,78 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // Expose a small getter for future UI usage.
         window.getMeteoBrierScores = function() { return window.__METEO_CORE_STATE.brierScores || null; };
 
+        // PERF: last-payload signature gate. While stationary, the SW serves the
+        // byte-identical cached response every 5 min; the full normalize + render
+        // pass (thousands of DOM writes across telemetry card / glance strip /
+        // timeline) ran for a payload that changed nothing. Keyed on the only
+        // fields that can change between SW-cached copies: the observation time,
+        // the forecast window, offline state, and the cache timestamp. Brier
+        // observation recording (brierRecordObservation) lives in fetchData, NOT
+        // here, so a skipped pass never loses scoring data.
+        // FIX-1.4.1: the signature also carries the rendered current values
+        // (temperature, weather code, precip, wind speed/dir, is_day), the
+        // attempted fetch location (state.telemetryCache lat/lon, set in fetchData
+        // before this call), and the chart-content fingerprint below. Without
+        // these, driving around in the same 15-min observation slot with an
+        // SW-served byte-identical body skipped the pass — leaving the telemetry
+        // card / chart / HUD showing the OLD location's weather until the
+        // observation time rolled over.
+        // PERF: chart-content fingerprint — hourly window bounds plus first/mid/last
+        // cells of the renderer's probe arrays (temperature + precipitation from the
+        // first model, solar radiation, UV index). Feeds BOTH the pass gate here
+        // (chart-only revisions must still re-normalize) and the renderChart gate at
+        // the bottom of the pass (a 15-min observation roll with unchanged hourly
+        // content must NOT rebuild the chart). Per-fetch cost: ~14 array reads.
+        let _lastPayloadSig = null;
+        let _lastChartSig = null;
         async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false, cachedTimestamp = null) {
             if (dCurr && dCurr.elevation !== undefined) {
                 window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation;
             }
+            const probeCells = (a) => (Array.isArray(a) && a.length > 0)
+                ? a[0] + '|' + a[Math.floor(a.length / 2)] + '|' + a[a.length - 1]
+                : '||';
+            const _hC = dFore && dFore.hourly ? dFore.hourly : null;
+            const _hS = dSolar && dSolar.hourly ? dSolar.hourly : null;
+            // FIX-1.4.1: chartSig only probed models[0] while the chart datasets
+            // blend all 4 models — a changed model 2+ array (or its temperature
+            // crossing a probe cell) slipped past the sig and the chart kept stale
+            // data. Probe every model's arrays now (2 probes x N models).
+            const chartSig = (_hC && _hC.time ? _hC.time[0] + '|' + _hC.time[_hC.time.length - 1] : '') + '|' +
+                             WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null)).join('|') + '|' +
+                             probeCells(_hS ? _hS.shortwave_radiation : null) + '|' +
+                             probeCells(_hS ? _hS.uv_index : null);
+            const payloadSig = String(dCurr?.current?.time ?? '') + '|' +
+                               String(dCurr?.current?.temperature_2m ?? '') + '|' +
+                               String(dCurr?.current?.apparent_temperature ?? '') + '|' +
+                               String(dCurr?.current?.weather_code ?? '') + '|' +
+                               String(dCurr?.current?.precipitation ?? '') + '|' +
+                               String(dCurr?.current?.rain ?? '') + '|' +
+                               String(dCurr?.current?.showers ?? '') + '|' +
+                               String(dCurr?.current?.snowfall ?? '') + '|' +
+                               String(dCurr?.current?.relative_humidity_2m ?? '') + '|' +
+                               String(dCurr?.current?.pressure_msl ?? '') + '|' +
+                               String(dCurr?.current?.visibility ?? '') + '|' +
+                               String(dCurr?.current?.cloud_cover ?? '') + '|' +
+                               String(dCurr?.current?.wind_speed_10m ?? '') + '|' +
+                               String(dCurr?.current?.wind_gusts_10m ?? '') + '|' +
+                               String(dCurr?.current?.wind_direction_10m ?? '') + '|' +
+                               String(dCurr?.current?.is_day ?? '') + '|' +
+                               (dCurr?.elevation ?? '') + '|' +
+                               (isOffline ? 1 : 0) + '|' +
+                               (cachedTimestamp ?? '') + '|' +
+                               (state.telemetryCache ? state.telemetryCache.lat : '') + '|' +
+                               (state.telemetryCache ? state.telemetryCache.lon : '') + '|' +
+                               chartSig;
+            if (payloadSig === _lastPayloadSig) return;
+            _lastPayloadSig = payloadSig;
 
-            const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp);
+            // FIX-1.4.1b (F1): compute the chart-need decision BEFORE normalize so
+            // the chart-only pipeline inside it can be skipped when chartSig is
+            // unchanged. Mirrors the post-render gate below exactly (nothing
+            // mutates _lastChartSig between here and there).
+            const needsChart = chartSig !== _lastChartSig;
+            const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp, needsChart);
 
             // FIX: Aero-Vector HUD wind/gust previously sourced from single best_match (dCurr.current).
             // Now uses the weighted 4-model ensemble. Nothing in initActiveAeroTelemetry changes —
@@ -5073,7 +5437,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
 
             renderTelemetryUI(data, isOffline);
-            renderChart(data.times, data.timesUnix, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
+            // PERF: chart-level signature gate — the payload gate above passes on a
+            // 15-min observation roll even when the hourly chart content is
+            // byte-identical; renderChart rebuilds 8 datasets + forces a full
+            // Chart.js redraw for data that changed nothing visible. Gated on the
+            // same fingerprint (window bounds + first/mid/last probe cells); only a
+            // real content change rebuilds the chart. The tooltip refs
+            // (labelsRef / timesUnixRef / hourlyAgreementRef) are refreshed inside
+            // renderChart, so a skipped rebuild keeps refs that still match the
+            // unchanged window.
+            if (chartSig !== _lastChartSig) {
+                _lastChartSig = chartSig;
+                renderChart(data.times, data.timesUnix, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
+            }
             // Refresh tile-cache gauge — SW reply renders the #cache-gauge pill
             // asynchronously. Fire-and-forget; no delay introduced.
             if (typeof window.requestCacheStats === 'function') window.requestCacheStats();
@@ -5096,14 +5472,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             _fetchInFlight = (async () => {
                 try {
                     state.lastHudLat = lat; state.lastHudLon = lon;
-                    state.telemetryCache.timestamp = Date.now();
+                    // FIX-1.4.1: lat/lon stamp at fetch start (payloadSig consumes them),
+                    // but the timestamp must stamp ONLY on success — a failed fetch
+                    // previously left a fresh timestamp and the GPS freshness gate
+                    // (fetchData entry check) suppressed the next fetch for the whole
+                    // cacheTTL even though the user never got fresh data.
                     state.telemetryCache.lat = lat; state.telemetryCache.lon = lon;
 
                     // Reverse-geocode only when the user has moved >1km² from the last
                     // successful lookup. Eliminates ~80% of redundant BigDataCloud calls.
                     if (!skipReverseGeo && navigator.onLine) {
                         const dLat = lat - _lastGeoLat, dLon = lon - _lastGeoLon;
-                        if ((dLat * dLat + dLon * dLon) > 1e-7 || !_lastGeoName) { // ~1 km²
+                        // FIX-1.4.1: 1e-7 was ~35 m (sqrt ≈ 3.16e-4 deg), not "~1 km²" —
+                        // the gate fired on every small GPS jitter, defeating the
+                        // 80%-reduction intent. 1e-4 ≈ 0.01 deg per axis ≈ 1.1 km.
+                        if ((dLat * dLat + dLon * dLon) > 1e-4 || !_lastGeoName) { // ~1 km²
                             fetchWithRetry(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 }, 2, 500)
                                 .then(r => r.json())
                                 .then(d => {
@@ -5116,6 +5499,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 });
                         }
                     }
+                    // FIX-1.4.1: hoist the AbortController out of the try block —
+                    // the catch below must be able to abort the two siblings that
+                    // may still be mid-retry (fetchWithRetry backoff runs ~7s after
+                    // the first failure), otherwise orphaned retries keep hammering
+                    // the API for the whole backoff window with no reader.
+                    let weatherAbort = null;
                     try {
                         if (!navigator.onLine) throw new Error("Browser is offline.");
 
@@ -5130,7 +5519,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         // to localforage cache immediately so UI shows last-known telemetry
                         // (clearly marked offline), rather than a frozen spin.
                         const WEATHER_FETCH_BUDGET_MS = 8000;
-                        const weatherAbort = new AbortController();
+                        weatherAbort = new AbortController();
                         const fetchBundle = Promise.all([
                             fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
                             fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
@@ -5162,13 +5551,28 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 rCurr.json(), rFore.json(), rSolar.json()
                             ]);
                             const now = Date.now();
+                            // FIX-1.4.1 (P6): render BEFORE the awaited disk writes.
+                            // Previously localforage.setItem was awaited first; a
+                            // rejection (disk full / handler crash) landed in the
+                            // network catch below, mislabeled "Network Error", and
+                            // the user was served STALE cached telemetry despite
+                            // fresh bytes already in hand.
+                            try {
+                                processTelemetryPayload(dCurr, dFore, dSolar, false);
+                            } catch (renderErr) { console.error('Telemetry render failed:', renderErr); }
+                            // FIX-1.4.1 (B5): stamp success only NOW — the GPS freshness
+                            // gate reads telemetryCache.timestamp; stamping at fetch
+                            // start meant a failed fetch still looked "fresh" and
+                            // suppressed the next attempt for the whole cacheTTL.
+                            state.telemetryCache.timestamp = now;
                             // Rate-limit localforage writes to every 60s — writing to disk on
                             // every 2-min fetch is unnecessary; the in-memory state is updated
                             // live. The cache only needs to survive a page reload, and 60s
                             // is tight enough that at most one fetch per pageload is missed.
                             if (!state._lastCacheWriteTs || (now - state._lastCacheWriteTs) > 60000) {
                                 state._lastCacheWriteTs = now;
-                                await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: now });
+                                try { await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: now }); }
+                                catch (e) { console.warn('Telemetry cache persist failed:', e); }
                             }
                             // Rate-limit BrierScore to every 5 minutes to avoid excessive
                             // localforage writes (720 writes/day → ~288 writes/day max).
@@ -5180,7 +5584,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 // the UI yet) but should be observable for diagnosis.
                                 try { await brierRecordForecast(dFore); await brierRecordObservation(dFore); } catch (e) { console.warn('Brier persistence failed:', e); }
                             }
-                            processTelemetryPayload(dCurr, dFore, dSolar, false);
+                            // FIX-1.4.1b: duplicate processTelemetryPayload call removed —
+                            // the 5400 call above already stamped _lastPayloadSig with
+                            // identical inputs, so this second call was a guaranteed
+                            // no-op that re-ran the whole ensemble math first (it
+                            // computed payloadSig → early-returned at the sig gate,
+                            // but only after the full string sig + chartSig build).
                             weatherAbort.abort();
                         } finally {
                             // PERF-1: clear the budget timer whether the race
@@ -5191,6 +5600,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             clearTimeout(budgetTimerId);
                         }
                     } catch (e) {
+                        // FIX-1.4.1 (B4): abort the two sibling fetches that may still
+                        // be mid-retry — without this, fetchWithRetry's backoff kept
+                        // firing ~7 s of orphaned requests after the first failure
+                        // with no consumer.
+                        if (weatherAbort) weatherAbort.abort();
                         console.warn("Network Error. Failing over to IndexedDB LocalForage cache.", e);
                         try {
                             const cached = await localforage.getItem('telemetry_payload');
@@ -5294,6 +5708,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         }
 
         // --- FUEL MANAGER ---
+        // PERF: single-flight latch for Overpass fallback fetches — findAllAlongRoute
+        // fires on every fix while the route fuel panel is open; without a latch, a
+        // route through 15 sampled nodes hammered the public Overpass mirror with
+        // concurrent identical queries (same cacheKey) on every position update.
+        // Concurrent identical requests now share one in-flight promise instead.
+        const _overpassInFlight = new Map();
         const FuelManager = {
             storageKey: 'meteo_fuel_prefs',
             memoryConfig: { brand: 'Shell', variant: 'V-Power Racing', avoidTolls: false, avoidHighways: false, avoidFerries: false, amenities: [], openingMode: 'all', useLocalData: true, ev: true, h2: false },
@@ -5378,12 +5798,30 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const query = `[out:json][timeout:25];(${queryParts.join('')});out center;`;
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 try {
-                    const res = await fetchWithRetry(url, { timeout: 25000 }, 2, 500);
-                    const data = await res.json();
-                    const processedData = await workerTask('PROCESS_OVERPASS', { data, lat, lon, targetBrand: conf.brand, targetVariant: conf.variant, variantMap: VARIANT_OSM_MAP });
-                    await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() });
-                    return processedData;
-                } catch(e) { return { stations: [], isStrict: false }; }
+                    // Single-flight: identical concurrent queries (same cacheKey)
+                    // share one fetch+worker pass instead of N overlapping ones.
+                    let inFlight = _overpassInFlight.get(cacheKey);
+                    if (!inFlight) {
+                        inFlight = (async () => {
+                            const res = await fetchWithRetry(url, { timeout: 25000 }, 2, 500);
+                            const data = await res.json();
+                            const processedData = await workerTask('PROCESS_OVERPASS', { data, lat, lon, targetBrand: conf.brand, targetVariant: conf.variant, reqOsmTag: VARIANT_OSM_MAP[conf.variant] || null });
+                            // FIX-1.4.1 (B7): a setItem rejection (quota, handler crash)
+                            // must not discard a successful Overpass query — previously
+                            // the throw rejected the single-flight promise and the
+                            // caller's catch returned {stations: [], isStrict: false},
+                            // blanking the fuel list despite fresh data in hand.
+                            try { await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() }); }
+                            catch (e) { console.warn('[FuelManager] cache persist failed (ignored, results returned):', e && e.message); }
+                            return processedData;
+                        })().finally(() => { _overpassInFlight.delete(cacheKey); });
+                        _overpassInFlight.set(cacheKey, inFlight);
+                    }
+                    return await inFlight;
+                } catch(e) {
+                    console.warn('[FuelManager] Overpass route search failed:', e && e.message);
+                    return { stations: [], isStrict: false };
+                }
             },
             findAllNearest: async function(lat, lon) {
                 const conf = this.getConfig();
@@ -5410,12 +5848,26 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const query = `[out:json][timeout:15];(node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon});way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon}););out center;`;
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
                 try {
-                    const res = await fetchWithRetry(url, { timeout: 15000 }, 2, 500);
-                    const data = await res.json();
-                    const processedData = await workerTask('PROCESS_OVERPASS', { data, lat, lon, targetBrand: conf.brand, targetVariant: conf.variant, variantMap: VARIANT_OSM_MAP });
-                    await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() });
-                    return processedData;
-                } catch(e) { return { stations: [], isStrict: false }; }
+                    // Single-flight — see findAllAlongRoute above.
+                    let inFlight = _overpassInFlight.get(cacheKey);
+                    if (!inFlight) {
+                        inFlight = (async () => {
+                            const res = await fetchWithRetry(url, { timeout: 15000 }, 2, 500);
+                            const data = await res.json();
+                            const processedData = await workerTask('PROCESS_OVERPASS', { data, lat, lon, targetBrand: conf.brand, targetVariant: conf.variant, reqOsmTag: VARIANT_OSM_MAP[conf.variant] || null });
+                            // FIX-1.4.1 (B7): same pattern as findAllAlongRoute — a cache
+                            // persist failure must not blank a valid search result.
+                            try { await localforage.setItem(cacheKey, { data: processedData, timestamp: Date.now() }); }
+                            catch (e) { console.warn('[FuelManager] cache persist failed (ignored, results returned):', e && e.message); }
+                            return processedData;
+                        })().finally(() => { _overpassInFlight.delete(cacheKey); });
+                        _overpassInFlight.set(cacheKey, inFlight);
+                    }
+                    return await inFlight;
+                } catch(e) {
+                    console.warn('[FuelManager] Overpass nearest search failed:', e && e.message);
+                    return { stations: [], isStrict: false };
+                }
             },
             triggerIntercept: async function() {
                 if (!state.autoCoords) {
@@ -5504,7 +5956,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         let wps = state.routeCtrl.getWaypoints();
                         const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
                         const dest = wps[wps.length - 1].latLng;
-                        state.routeNodes = null; state.lastIntelFetch = 0;
+                        state.routeNodes = null; state.originalRouteNodes = null; state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0; state.lastIntelFetch = 0;
                         if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
                         state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
                     }
@@ -5687,6 +6139,24 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 
                 // Initial render of offline brand list
                 renderOfflineBrandList();
+
+                // PERF: prune stale fuel/route-intel cache keys. The read paths
+                // carry TTLs (1h route / 24h nearest) but nothing ever deleted
+                // superseded keys — each route recompute OR'd a new
+                // fuel_route_all_*/route_intel_* key onto the previous ones,
+                // accumulating gigabytes of dead localforage rows. One fire-and-
+                // forget sweep per boot. TTLs are deliberately generous relative
+                // to the read-side TTLs: route_intel_ has NO read TTL, so
+                // 7 days of history stays available for restored nav sessions.
+                localforage.iterate((val, key) => {
+                    if (key.startsWith('fuel_route_all_')) {
+                        if (val && val.timestamp && (Date.now() - val.timestamp > 3600000)) localforage.removeItem(key).catch(() => {});
+                    } else if (key.startsWith('fuel_nearest_all_')) {
+                        if (val && val.timestamp && (Date.now() - val.timestamp > 86400000)) localforage.removeItem(key).catch(() => {});
+                    } else if (key.startsWith('route_intel_')) {
+                        if (val && val.timestamp && (Date.now() - val.timestamp > 604800000)) localforage.removeItem(key).catch(() => {});
+                    }
+                }).catch(e => console.warn('Fuel cache sweep failed (non-fatal):', e && e.message));
             }
         };
 
@@ -5769,7 +6239,7 @@ function checkDependenciesAndRun() {
                         const tiles = e.data.tileCount || 0;
                         const mbUsed = (bytes / (1024 * 1024)).toFixed(1);
                         const mbMax  = (maxBytes / (1024 * 1024)).toFixed(0);
-                        const el = document.getElementById('cache-gauge');
+                        const el = DOM.cacheGauge;
                         if (!el) return;
                         const pct = Math.min(1.0, bytes / maxBytes);
                         let cls = 'text-gray-500';
@@ -5785,9 +6255,13 @@ function checkDependenciesAndRun() {
             // Send a cache-stats query to the SW. Reply arrives via the message
             // listener above and renders the #cache-gauge pill. Called once at
             // telemetry refresh + after map-cache-tap confirms.
-            window.requestCacheStats = () => {
+            // FIX-1.4.1b (H1/H2): resync=true asks the SW to re-seed its in-memory
+            // byte counter from disk before replying — used after downloadMapCache
+            // and executeMapClear, which mutate the on-disk cache directly while
+            // the SW (and its LRU/eviction bookkeeping) never sees the writes.
+            window.requestCacheStats = (resync = false) => {
                 if (!navigator.serviceWorker.controller) return;
-                navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATS' });
+                navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATS', resync: !!resync });
             };
             let deferredPrompt;
             const installBtn = document.getElementById('pwa-install-btn');
@@ -5853,21 +6327,16 @@ function checkDependenciesAndRun() {
         } catch (e) { console.warn('AeroHUD: AbsoluteOrientationSensor unavailable:', e); }
     })();
 
-    // PITCH/ROLL BLOCK ONLY — heading is sourced from the calibrated pipeline
-    // (state.rawSensorHeading → executeRenderPipeline → __METEO_CORE_STATE.fusedHeading).
-    // The Aero HUD readchain at line ~3798 already prefers fusedHeading, so to
-    // avoid a redundant second-EMA pass we skip the heading assignment entirely
-    // when the main pipeline is producing data.
+    // PITCH/ROLL BLOCK — the roll/pitch math was dead: st.roll/st.pitch have
+    // ZERO consumers anywhere in the app (the real tilt-compensation reads
+    // _tiltPitchDeg/_tiltRollDeg from the main module's deviceorientation path,
+    // a completely independent channel). At 30-60 Hz this was ~5 transcendental
+    // calls per sensor event, 100% wasted. The null-check gate is kept as a
+    // no-op so event handling is unchanged. Re-add the trig if a roll/pitch
+    // consumer ever appears (the fields stay pre-declared for API-shape
+    // stability).
     function aeroApplyTilt(e) {
-        if (e.beta !== null && e.gamma !== null) {
-            const rad = Math.PI / 180;
-            const b = e.beta * rad, g = e.gamma * rad;
-            const gx = Math.cos(b) * Math.sin(g);
-            const gy = Math.sin(b);
-            const gz = Math.cos(b) * Math.cos(g);
-            st.roll  = Math.atan2(gx, gy) * (180 / Math.PI);
-            st.pitch = Math.asin(Math.max(-1, Math.min(1, gz))) * (180 / Math.PI);
-        }
+        if (e.beta !== null && e.gamma !== null) { /* roll/pitch deliberately not computed — no consumers */ }
     }
 
     window.addEventListener('deviceorientation', (e) => {
@@ -5896,6 +6365,13 @@ function checkDependenciesAndRun() {
             const targetGrid = document.getElementById('main-grid');
             if (!targetGrid) {
                 console.warn('[AeroHUD] No #main-grid container found — radar card not mounted');
+                return;
+            }
+            // Belt-and-braces: never mount into a hidden ancestor (the old class
+            // heuristic silently mounted the card inside the display:none Pit Stop
+            // modal). A hidden target means the anchor regressed — fail loudly.
+            if (targetGrid.closest('.hidden')) {
+                console.error('[AeroHUD] #main-grid is inside a hidden container — refusing to mount radar card inside the Pit Stop modal');
                 return;
             }
 
@@ -6074,7 +6550,24 @@ function checkDependenciesAndRun() {
                 // discretised lateral-g (the gLabel threshold is 0.02).
                 crossKey: -Infinity,
                 // Ghost trail rotation per slot, 0.1 deg resolution.
-                ghostKey: [-Infinity, -Infinity, -Infinity]
+                ghostKey: [-Infinity, -Infinity, -Infinity],
+                // PERF-AERO-KEYS-2: numeric pre-keys for the remaining text/HTML
+                // sites that still built their display strings every frame before
+                // comparing (wind speed, gust, visibility, glance strip x5, wxm
+                // chip, altimeter). Each key quantises the raw inputs to exactly
+                // the displayed resolution, so the toFixed / template-literal
+                // build only runs when the rendered text can actually change.
+                // -Infinity seeds force a first-frame build for every site.
+                altKey: -Infinity,
+                wxmKeyHi: -Infinity, wxmKeyLo: -Infinity,
+                wsKey: -Infinity,
+                gustKey: -Infinity,
+                visKey: -Infinity,
+                glRainKey: -Infinity,
+                glWindKey: -Infinity,
+                glVisKey: -Infinity,
+                glTempKey: -Infinity,
+                glTrendKey: -Infinity
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -6099,8 +6592,11 @@ function checkDependenciesAndRun() {
                 const dt = Math.min(frameNow - lastRenderTime, 100); // clamp: prevents explosion on tab resume
                 lastRenderTime = frameNow;
 
-                requestAnimationFrame(renderAero);
+                // FIX-1.4.1c (B-3): the ring guard ran AFTER the rAF was
+                // re-scheduled — a failed mount (missing #main-grid) left a
+                // no-op 60 fps loop spinning for the whole session. Guard first.
                 if (!_el.ring) return;
+                requestAnimationFrame(renderAero);
 
                 const now = Date.now();
                 let activeHeading = 0;
@@ -6108,47 +6604,70 @@ function checkDependenciesAndRun() {
 
                 // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
                 if (_el.altContainer) {
-                    // Compute the rounded integer first and compare against the
-                    // cache key so we skip BOTH the Math.round and the HTML
-                    // string allocation per Aero frame (~60fps) when the
-                    // altitude hasn't changed between frames. Piecewise path
-                    // (alt/topo/2d-fix) is encoded into the same _uiCache.altKey
-                    // so a class-switch across paths also triggers a refresh.
-                    let altKey, altStr;
+                    // Numeric key = path code (0=alt / 1=topo / 2=2d-fix) shifted
+                    // above the rounded altitude. Comparing two Numbers is
+                    // allocation-free — the Math.round and template-string build
+                    // only run when the key actually changes (fetch-rate, not
+                    // frame-rate). Piecewise path is encoded in the same key so a
+                    // class-switch across paths also triggers a refresh.
+                    let altPath, altR;
                     if (st.altitude !== null) {
-                        const r = Math.round(st.altitude);
-                        altKey = 'alt:' + r;
-                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${r}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`;
+                        altPath = 0;
+                        altR = Math.round(st.altitude);
                     } else if (st.topoAltitude !== null) {
-                        const r = Math.round(st.topoAltitude);
-                        altKey = 'topo:' + r;
-                        altStr = `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${r}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`;
+                        altPath = 1;
+                        altR = Math.round(st.topoAltitude);
                     } else {
-                        altKey = '2d';
-                        altStr = `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
+                        altPath = 2;
+                        altR = 0;
                     }
+                    const altKey = altPath * 100000 + altR;
+                    // FIX-1.4.1 (P1): the template-string build moved inside the gate —
+                    // three template allocations ran every frame even when the key
+                    // (fetch-rate) hadn't changed.
                     if (_uiCache.altKey !== altKey) {
+                        const altStr = altPath === 0
+                            ? `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${altR}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`
+                            : altPath === 1
+                            ? `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${altR}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`
+                            : `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
                         _el.altContainer.innerHTML = altStr;
                         _uiCache.altKey = altKey;
                         _uiCache.alt = altStr;
                     }
                 }
 
-                // WIND SPEED
+                // WIND SPEED — numeric pre-key: the toString build only runs when
+                // the rounded value actually changes (fetch-rate, not frame-rate).
                 if (_el.windSpeed) {
-                    const wsStr = st.windSpeed !== null ? Math.round(st.windSpeed).toString() : '--';
-                    if (_uiCache.windSpeed !== wsStr) { _el.windSpeed.textContent = wsStr; _uiCache.windSpeed = wsStr; }
+                    const wsKey = (typeof st.windSpeed === 'number') ? Math.round(st.windSpeed) : -999;
+                    if (_uiCache.wsKey !== wsKey) {
+                        const wsStr = (wsKey !== -999) ? String(wsKey) : '--';
+                        _el.windSpeed.textContent = wsStr;
+                        _uiCache.windSpeed = wsStr; _uiCache.wsKey = wsKey;
+                    }
                 }
 
-                // GUST BOUNDARY
+                // GUST BOUNDARY — keyed on the rounded gust-delta; -1 encodes the
+                // hidden state (gustDiff >= 5 implies round(diff) >= 5, no clash).
                 if (_el.gust) {
+                    let gustKey = -1;
                     if (st.windGust > 0) {
                         const gustDiff = st.windGust - st.windSpeed;
-                        if (gustDiff >= 5) {
-                            const gStr = `GUST +${Math.round(gustDiff)}`;
-                            if (_uiCache.gust !== gStr) { _el.gust.classList.remove('opacity-0'); _el.gust.textContent = gStr; _uiCache.gust = gStr; }
-                        } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
-                    } else if (_uiCache.gust !== 'hidden') { _el.gust.classList.add('opacity-0'); _uiCache.gust = 'hidden'; }
+                        if (gustDiff >= 5) gustKey = Math.round(gustDiff);
+                    }
+                    if (_uiCache.gustKey !== gustKey) {
+                        _uiCache.gustKey = gustKey;
+                        if (gustKey >= 0) {
+                            const gStr = `GUST +${gustKey}`;
+                            _el.gust.classList.remove('opacity-0');
+                            _el.gust.textContent = gStr;
+                            _uiCache.gust = gStr;
+                        } else {
+                            _el.gust.classList.add('opacity-0');
+                            _uiCache.gust = 'hidden';
+                        }
+                    }
                 }
 
                 // WEATHER NOW (observed) — chip rendered below the "Aero-Vector HUD" title.
@@ -6169,14 +6688,32 @@ function checkDependenciesAndRun() {
                     // build (code, isDay, isRainingNow, precip, rain, showers,
                     // snowfall). Quantized to 0.1 mm so a 0.50 -> 0.51 mm drift
                     // doesn't thrash (the display only renders 1 decimal anyway).
-                    const wxmKey = (typeof code === 'number' ? code : -1) + '|' +
-                                   (st.isRainingNow ? 1 : 0) + '|' +
-                                   (st.isDay === 0 ? 1 : 0) + '|' +
-                                   (typeof st.precipitation === 'number' ? Math.round(st.precipitation * 10) : -1) + '|' +
-                                   (typeof st.rain       === 'number' ? Math.round(st.rain       * 10) : -1) + '|' +
-                                   (typeof st.showers    === 'number' ? Math.round(st.showers    * 10) : -1) + '|' +
-                                   (typeof st.snowfall   === 'number' ? Math.round(st.snowfall   * 10) : -1);
-                    if (_uiCache.wxmKey !== wxmKey) {
+                    // PERF-AERO-KEYS-2: the key is two Numbers now — the old
+                    // '|'-joined 7-segment string rebuilt 5-6 strings per frame
+                    // even in steady-state rain; Number compare is allocation-free.
+                    // 0 = input missing; 1+ = present (quantised value + 1) so the
+                    // missing-vs-0.0mm distinction survives the packing.
+                    // FIX-1.4.1: the old single-Number packing was non-injective —
+                    // pQ (round(precip*10)+1) is unbounded and its low digits
+                    // carried into the isDay slot at 0.9 mm and the isRainingNow
+                    // slot at 9.9 mm (e.g. isDay=1 + 0.9 mm collided with
+                    // isDay=0 + 1.9 mm), leaving a stale wxm chip on digit-carry.
+                    // Now each Q field owns a fixed 4-digit slot (clamped at 9999 =
+                    // 999.9 mm, beyond any real hourly precipitation), disjoint
+                    // from the code/flags digits:
+                    //   wxmKeyHi = (code+1)*1e6 + isRainingNow*1e5 + (isDay===0)*1e4 + pQ
+                    //   wxmKeyLo = rQ*1e8 + sQ*1e4 + nQ
+                    // Max values 100,119,999 and ~1.0000e12 — far below 2^53.
+                    const pQ = (typeof st.precipitation === 'number') ? Math.min(Math.round(st.precipitation * 10) + 1, 9999) : 0;
+                    const rQ = (typeof st.rain       === 'number') ? Math.min(Math.round(st.rain       * 10) + 1, 9999) : 0;
+                    const sQ = (typeof st.showers    === 'number') ? Math.min(Math.round(st.showers    * 10) + 1, 9999) : 0;
+                    const nQ = (typeof st.snowfall   === 'number') ? Math.min(Math.round(st.snowfall   * 10) + 1, 9999) : 0;
+                    const wxmKeyHi = ((typeof code === 'number' ? code : -1) + 1) * 1000000 +
+                                     (st.isRainingNow ? 1 : 0) * 100000 +
+                                     (st.isDay === 0 ? 1 : 0) * 10000 +
+                                     pQ;
+                    const wxmKeyLo = rQ * 100000000 + sQ * 10000 + nQ;
+                    if (_uiCache.wxmKeyHi !== wxmKeyHi || _uiCache.wxmKeyLo !== wxmKeyLo) {
                         let wxmStr = '';
                         let wxmIconClass = 'fa-circle-notch fa-spin text-gray-400';
                         let wxmTextClass = 'text-gray-300';
@@ -6223,7 +6760,7 @@ function checkDependenciesAndRun() {
                             _el.wxmText.textContent = wxmStr ? wxmStr.split('\u0001')[2] : '--';
                             _uiCache.wxm = wxmStr;
                         }
-                        _uiCache.wxmKey = wxmKey;
+                        _uiCache.wxmKeyHi = wxmKeyHi; _uiCache.wxmKeyLo = wxmKeyLo;
                     }
                 }
 
@@ -6233,26 +6770,38 @@ function checkDependenciesAndRun() {
                 // for scanability. The element starts opacity-0 and becomes visible
                 // only when a real value arrives from __METEO_CORE_STATE.
                 if (_el.visibility) {
-                    const visRaw = st.visibility;
-                    let visStr = '';
-                    let visClass = '';
-                    if (typeof visRaw === 'number') {
-                        const km = visRaw / 1000;
-                        const label = km < 1.0 ? km.toFixed(2) : km.toFixed(1);
-                        const whole = km < 10 ? `${label} km` : `${Math.round(km)} km`;
-                        visStr = `VIS ${whole}`;
-                        if (km < 1.0)       visClass = 'text-brand-red';
-                        else if (km < 5.0)   visClass = 'text-brand-warning';
-                        else                 visClass = 'text-gray-400';
+                    let visKey = -1;
+                    if (typeof st.visibility === 'number') {
+                        const km = st.visibility / 1000;
+                        // Key = class bucket (0 red <1km, 1 warning <5km, 2 gray) shifted
+                        // above the displayed-resolution quantisation. The bucket is in
+                        // the key because km=4.99 vs km=5.01 render the same "5.0 km"
+                        // text but different colours — text-only gating would miss the
+                        // class switch. Quantisation matches each bucket's rendered
+                        // precision (2/1/0 decimals), so a key change ⟺ a display change.
+                        const vBucket = km < 1.0 ? 0 : km < 5.0 ? 1 : 2;
+                        visKey = vBucket * 1000000 + (km < 1.0 ? Math.round(km * 100) : km < 10 ? Math.round(km * 10) : Math.round(km));
                     }
-                    if (_uiCache.vis !== visStr) {
+                    // FIX-1.4.1 (P1): the toFixed + template builds moved inside the
+                    // gate — four allocations ran every frame regardless of change.
+                    if (_uiCache.visKey !== visKey) {
+                        let visStr = '', visClass = '';
+                        if (visKey >= 0) {
+                            const km = st.visibility / 1000;
+                            const label = km < 1.0 ? km.toFixed(2) : km.toFixed(1);
+                            const whole = km < 10 ? `${label} km` : `${Math.round(km)} km`;
+                            visStr = `VIS ${whole}`;
+                            if (km < 1.0)       visClass = 'text-brand-red';
+                            else if (km < 5.0)   visClass = 'text-brand-warning';
+                            else                 visClass = 'text-gray-400';
+                        }
                         if (visStr) {
                             _el.visibility.textContent = visStr;
                             _el.visibility.className = `text-[9px] font-mono font-bold uppercase tracking-widest mt-1 block opacity-100 transition-opacity ${visClass}`;
                         } else {
                             _el.visibility.classList.add('opacity-0');
                         }
-                        _uiCache.vis = visStr;
+                        _uiCache.vis = visStr; _uiCache.visKey = visKey;
                     }
                 }
 
@@ -6261,17 +6810,23 @@ function checkDependenciesAndRun() {
                 // Each field only writes to DOM when its compact string changes,
                 // so the 60fps loop stays cheap.
                 if (_el.glanceRain) {
-                    let rainStr = '';
-                    let rainClass = 'text-gray-400';
-                    if (st.isRainingNow) {
-                        const prec = (typeof st.precipitation === 'number') ? st.precipitation : null;
-                        rainStr = prec !== null ? `RAIN ${prec.toFixed(1)}mm` : 'RAIN NOW';
-                        rainClass = 'text-brand-red';
-                    } else {
-                        rainStr = 'DRY';
-                        rainClass = 'text-brand-success';
-                    }
-                    if (_uiCache.glanceRain !== rainStr) {
+                    // -1 = DRY, -2 = RAIN NOW (no precip value yet), >=0 = RAIN x.xmm
+                    // (quantised to 0.1 mm — the display's precision). Numeric key
+                    // means the toFixed + template build only runs on change.
+                    const glRainKey = st.isRainingNow
+                        ? ((typeof st.precipitation === 'number') ? Math.round(st.precipitation * 10) : -2)
+                        : -1;
+                    if (_uiCache.glRainKey !== glRainKey) {
+                        _uiCache.glRainKey = glRainKey;
+                        let rainStr, rainClass;
+                        if (st.isRainingNow) {
+                            const prec = (typeof st.precipitation === 'number') ? st.precipitation : null;
+                            rainStr = prec !== null ? `RAIN ${prec.toFixed(1)}mm` : 'RAIN NOW';
+                            rainClass = 'text-brand-red';
+                        } else {
+                            rainStr = 'DRY';
+                            rainClass = 'text-brand-success';
+                        }
                         _el.glanceRain.textContent = rainStr;
                         _el.glanceRain.className = `transition-colors ${rainClass}`;
                         _uiCache.glanceRain = rainStr;
@@ -6280,24 +6835,35 @@ function checkDependenciesAndRun() {
                 if (_el.glanceWind) {
                     const ws = (typeof st.windSpeed === 'number') ? Math.round(st.windSpeed) : null;
                     const wd = (typeof st.windDir === 'number') ? Math.round(st.windDir) : null;
-                    let wStr = '--';
-                    if (ws !== null) wStr = (wd !== null) ? `WIND ${ws}@${wd}°` : `WIND ${ws}`;
-                    if (_uiCache.glanceWind !== wStr) {
+                    // Numeric key: (ws+1)*1000+wd distinguishes all three display
+                    // forms ('--', 'WIND ws', 'WIND ws@wd°') with no collisions.
+                    const glWindKey = (ws !== null) ? (ws + 1) * 1000 + (wd !== null ? wd : 999) : -1;
+                    if (_uiCache.glWindKey !== glWindKey) {
+                        _uiCache.glWindKey = glWindKey;
+                        const wStr = (ws !== null) ? (wd !== null) ? `WIND ${ws}@${wd}°` : `WIND ${ws}` : '--';
                         _el.glanceWind.textContent = wStr;
                         _uiCache.glanceWind = wStr;
                     }
                 }
                 if (_el.glanceVis) {
-                    let vStr = 'VIS --';
-                    let vClass = 'text-gray-300';
+                    let glVisKey = -1;
                     if (typeof st.visibility === 'number') {
                         const km = st.visibility / 1000;
-                        const label = km < 1.0 ? km.toFixed(2) : km < 10 ? km.toFixed(1) : `${Math.round(km)}`;
-                        vStr = `VIS ${label}km`;
-                        if (km < 1.0)    vClass = 'text-brand-red';
-                        else if (km < 5)  vClass = 'text-brand-warning';
+                        // Same bucket+quantisation scheme as the VIS meter above.
+                        const vBucket = km < 1.0 ? 0 : km < 5 ? 1 : 2;
+                        glVisKey = vBucket * 1000000 + (km < 1.0 ? Math.round(km * 100) : km < 10 ? Math.round(km * 10) : Math.round(km));
                     }
-                    if (_uiCache.glanceVis !== vStr) {
+                    // FIX-1.4.1 (P1): toFixed/template builds moved inside the gate.
+                    if (_uiCache.glVisKey !== glVisKey) {
+                        _uiCache.glVisKey = glVisKey;
+                        let vStr = 'VIS --', vClass = 'text-gray-300';
+                        if (glVisKey >= 0) {
+                            const km = st.visibility / 1000;
+                            const label = km < 1.0 ? km.toFixed(2) : km < 10 ? km.toFixed(1) : `${Math.round(km)}`;
+                            vStr = `VIS ${label}km`;
+                            if (km < 1.0)    vClass = 'text-brand-red';
+                            else if (km < 5)  vClass = 'text-brand-warning';
+                        }
                         _el.glanceVis.textContent = vStr;
                         _el.glanceVis.className = `transition-colors ${vClass}`;
                         _uiCache.glanceVis = vStr;
@@ -6305,21 +6871,27 @@ function checkDependenciesAndRun() {
                 }
                 if (_el.glanceTemp) {
                     const t = (typeof st.temperature === 'number') ? Math.round(st.temperature) : null;
-                    const tStr = (t !== null) ? `${t}°C` : '--°C';
-                    if (_uiCache.glanceTemp !== tStr) {
+                    const glTempKey = (t !== null) ? t : -999;
+                    if (_uiCache.glTempKey !== glTempKey) {
+                        _uiCache.glTempKey = glTempKey;
+                        const tStr = (t !== null) ? `${t}°C` : '--°C';
                         _el.glanceTemp.textContent = tStr;
                         _uiCache.glanceTemp = tStr;
                     }
                 }
                 if (_el.glanceTrend) {
+                    // Raw float key — tempTrend renders unquantised (e.g. "+2.7°"),
+                    // so only a raw-value compare can gate the build exactly.
                     const trend = (typeof st.tempTrend === 'number') ? st.tempTrend : null;
-                    let trStr = '--', trClass = 'text-gray-400';
-                    if (trend !== null) {
-                        if (trend > 0) { trStr = `+${trend}°`; trClass = 'text-brand-red'; }
-                        else if (trend < 0) { trStr = `${trend}°`; trClass = 'text-brand-blue'; }
-                        else { trStr = '0°'; trClass = 'text-gray-400'; }
-                    }
-                    if (_uiCache.glanceTrend !== trStr) {
+                    const glTrendKey = (trend !== null) ? trend : -999;
+                    if (_uiCache.glTrendKey !== glTrendKey) {
+                        _uiCache.glTrendKey = glTrendKey;
+                        let trStr = '--', trClass = 'text-gray-400';
+                        if (trend !== null) {
+                            if (trend > 0) { trStr = `+${trend}°`; trClass = 'text-brand-red'; }
+                            else if (trend < 0) { trStr = `${trend}°`; trClass = 'text-brand-blue'; }
+                            else { trStr = '0°'; trClass = 'text-gray-400'; }
+                        }
                         _el.glanceTrend.textContent = trStr;
                         _el.glanceTrend.className = `transition-colors ${trClass}`;
                         _uiCache.glanceTrend = trStr;
@@ -6423,7 +6995,10 @@ function checkDependenciesAndRun() {
                     }
 
                     // VECTOR DECOMPOSITION — kinematic force isolation
-                    const rad        = relAngle * (Math.PI / 180);
+                    // FIX-1.4.1c (L4): reuse the module-level _DEG2RAD — Math.PI / 180 was
+                    // recomputed every frame here (division is free-ish, but
+                    // the constant already exists at module scope).
+                    const rad        = relAngle * _DEG2RAD;
                     const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
                     const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
 
@@ -6468,8 +7043,14 @@ function checkDependenciesAndRun() {
 
                     // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
                     if (now - lastHistoryTime > 10000) {
-                        if (!isNaN(relAngle)) windHistory[historyIdx] = relAngle;
-                        historyIdx = (historyIdx + 1) % 3;
+                        // FIX-1.4.1 (B12): the ring index advanced even when the
+                        // sample was discarded (relAngle NaN) — a bad sample silently
+                        // "eats" a ring slot, aging the trail one step faster and
+                        // letting a stale angle display one slot longer.
+                        if (!isNaN(relAngle)) {
+                            windHistory[historyIdx] = relAngle;
+                            historyIdx = (historyIdx + 1) % 3;
+                        }
                         lastHistoryTime = now;
                     }
 
@@ -6508,7 +7089,11 @@ function checkDependenciesAndRun() {
                     requestAnimationFrame(renderAero);
                 }
             });
-        }, 1000);
+        // FIX-1.4.1c (B-1): removed the stray `, 1000` second argument —
+        // requestAnimationFrame ignores extra args, so this read as a failed
+        // setTimeout conversion; the mount-anchor + hidden-ancestor guards
+        // below are the real readiness checks.
+        });
     }
 
     if (document.readyState === 'loading') {

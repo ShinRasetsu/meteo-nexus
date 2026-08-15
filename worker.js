@@ -156,7 +156,7 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
 //     up to the public-facing return; stations[].dist stays string for UI
 //     compatibility, but a numeric distMeters is also returned so the main
 //     thread can refill tiles / sort again cheaply without reparsing.
-function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, variantMap) {
+function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, reqOsmTag) {
     if (!data.elements || data.elements.length === 0) return { stations: [], isStrict: false };
 
     // Bounded insertion-sort top-K
@@ -165,7 +165,8 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
     let topCount = 0;
     let exactInTopK = 0;
     const seenIds = new Set();
-    const reqOsmTag = variantMap[targetVariant];
+    // reqOsmTag arrives pre-resolved from the main thread (the 34-entry
+    // VARIANT_OSM_MAP was previously shipped wholesale in every task payload).
 
     for (let i = 0; i < data.elements.length; i++) {
         const el = data.elements[i];
@@ -184,16 +185,18 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
         let isExact = false;
         if (reqOsmTag && el.tags && el.tags[reqOsmTag] === 'yes') { isExact = true; }
 
-        const station = {
-            lat: tLat, lon: tLon,
-            name: (el.tags && el.tags.name) ? el.tags.name : targetBrand,
-            dist: dKm.toFixed(1),
-            distMeters: d,
-            isExact: isExact
-        };
-
         // Insert into bounded top-K by ascending distance.
         if (topCount < TOP_K) {
+            // PERF-1.4.1 (P3): the station object + toFixed were previously
+            // allocated for EVERY element, then discarded by the top-K filter —
+            // a full response is ~600 elements, ~80% rejected. Build only on insert.
+            const station = {
+                lat: tLat, lon: tLon,
+                name: (el.tags && el.tags.name) ? el.tags.name : targetBrand,
+                dist: dKm.toFixed(1),
+                distMeters: d,
+                isExact: isExact
+            };
             // Linear insert scan — small K, O(K) per insertion is fine.
             let p = topCount - 1;
             while (p >= 0 && top[p].distMeters > d) { top[p + 1] = top[p]; p--; }
@@ -201,10 +204,17 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, vari
             topCount++;
             if (isExact) exactInTopK++;
         } else if (top[topCount - 1].distMeters >= d) {
+            // Same on the replacement branch — only the survivor is materialized.
             if (top[topCount - 1].isExact) exactInTopK--;
             let p = topCount - 1;
             while (p > 0 && top[p - 1].distMeters >= d) { top[p] = top[p - 1]; p--; }
-            top[p] = station;
+            top[p] = {
+                lat: tLat, lon: tLon,
+                name: (el.tags && el.tags.name) ? el.tags.name : targetBrand,
+                dist: dKm.toFixed(1),
+                distMeters: d,
+                isExact: isExact
+            };
             if (isExact) exactInTopK++;
         }
     }
@@ -246,7 +256,7 @@ self.onmessage = function(e) {
             case 'PROCESS_OVERPASS':
                 result = processOverpassPayload(
                     payload.data, payload.lat, payload.lon,
-                    payload.targetBrand, payload.targetVariant, payload.variantMap
+                    payload.targetBrand, payload.targetVariant, payload.reqOsmTag
                 );
                 break;
             default:
