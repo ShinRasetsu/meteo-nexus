@@ -5887,15 +5887,28 @@ function checkDependenciesAndRun() {
     });
 
     function mountActiveAeroUI() {
-        setTimeout(() => {
+        // Use requestAnimationFrame to ensure DOM is fully settled after hydration
+        requestAnimationFrame(() => {
             const grids = document.querySelectorAll('.grid');
             let targetGrid = null;
-            grids.forEach(g => { if (g.className.includes('grid-cols') && g.className.includes('gap')) targetGrid = g; });
+            grids.forEach(g => {
+                const cls = g.classList;
+                if (Array.from(cls).some(c => c.startsWith('grid-cols-')) && cls.contains('gap')) targetGrid = g;
+            });
+            // Fallback: first grid with grid-cols, then first grid
+            if (!targetGrid) {
+                grids.forEach(g => {
+                    if (Array.from(g.classList).some(c => c.startsWith('grid-cols-'))) targetGrid = g;
+                });
+            }
             if (!targetGrid && grids.length > 0) targetGrid = grids[0];
-            if (!targetGrid) return;
+            if (!targetGrid) {
+                console.warn('[AeroHUD] No grid container found — radar card not mounted');
+                return;
+            }
 
             const aeroContainer = document.createElement('div');
-            aeroContainer.className = "lg:col-span-12 w-full mt-2";
+            aeroContainer.className = "col-span-1 lg:col-span-12 w-full mt-2";
 
             const radarCard = document.createElement('div');
             radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
