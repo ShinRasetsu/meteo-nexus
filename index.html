@@ -239,7 +239,7 @@
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
             <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div id="main-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
             <!-- CHANGED: added code-agreement-badge div after weather-desc -->
             <div id="main-status-card" class="hud-card lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-surface-800 bg-surface-900 min-h-[200px] md:min-h-[250px] relative overflow-hidden">
@@ -5889,21 +5889,13 @@ function checkDependenciesAndRun() {
     function mountActiveAeroUI() {
         // Use requestAnimationFrame to ensure DOM is fully settled after hydration
         requestAnimationFrame(() => {
-            const grids = document.querySelectorAll('.grid');
-            let targetGrid = null;
-            grids.forEach(g => {
-                const cls = g.classList;
-                if (Array.from(cls).some(c => c.startsWith('grid-cols-')) && cls.contains('gap')) targetGrid = g;
-            });
-            // Fallback: first grid with grid-cols, then first grid
+            // Explicit anchor: the main layout grid. The old class heuristic
+            // (first .grid with grid-cols-* + gap) matched the Pit Stop modal's
+            // "grid grid-cols-2 gap-2" Fuels row and mounted the HUD card inside
+            // the hidden modal.
+            const targetGrid = document.getElementById('main-grid');
             if (!targetGrid) {
-                grids.forEach(g => {
-                    if (Array.from(g.classList).some(c => c.startsWith('grid-cols-'))) targetGrid = g;
-                });
-            }
-            if (!targetGrid && grids.length > 0) targetGrid = grids[0];
-            if (!targetGrid) {
-                console.warn('[AeroHUD] No grid container found — radar card not mounted');
+                console.warn('[AeroHUD] No #main-grid container found — radar card not mounted');
                 return;
             }
 
