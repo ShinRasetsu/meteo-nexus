@@ -127,7 +127,10 @@ async function swrFetch(request, cacheName, maxAgeMs) {
         const bgUrl = request.url;
         if (!_bgRefreshRequests.has(bgUrl)) {
             _bgRefreshRequests.set(bgUrl, true);
-            fetch(request).then(netRes => {
+            const bgController = new AbortController();
+            const bgTimeout = setTimeout(() => bgController.abort(), 10000);
+            fetch(request, { signal: bgController.signal }).then(netRes => {
+                clearTimeout(bgTimeout);
                 _bgRefreshRequests.delete(bgUrl);
                 if (netRes && netRes.ok) {
                     caches.open(cacheName).then(bgCache => bgCache.match(request).then(existing => {
@@ -144,10 +147,6 @@ async function swrFetch(request, cacheName, maxAgeMs) {
                             .then(() => trackApiCachePut(bgCache, tagged))
                             .catch((e) => { console.debug('SW bg cache.put failed (intentional silencer):', e && e.message); });
                     }).catch(() => {}))
-                    // FIX-1.4.1 (B10): caches.open itself can reject (quota /
-                    // CacheStorage failure) — previously the rejection escaped
-                    // this chain with no handler and surfaced as an unhandled
-                    // promise rejection inside the service worker.
                     .catch(() => {});
                 }
             }).catch(() => { _bgRefreshRequests.delete(bgUrl); });
@@ -178,7 +177,7 @@ async function swrFetch(request, cacheName, maxAgeMs) {
 // from the fetch response; each cache.delete decrements the counter.
 // Soft cap at 50 MB keeps the origin well under the shared Cache-Storage quota.
 let _mapCacheBytes = 0;
-let _isEvicting = false;
+let _tileEvicting = null;
 const MAP_CACHE_MAX_BYTES = 50 * 1024 * 1024;
 let _bgRefreshRequests = null;  // Map<url, boolean> — SWR background fetch dedup
 
@@ -244,9 +243,11 @@ async function putTileInCache(cache, req, fetchRes) {
     if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) await evictOldestTiles(cache);
 }
 async function evictOldestTiles(cache) {
-    if (_isEvicting) return;
-    _isEvicting = true;
-    try {
+    if (_tileEvicting) {
+        await _tileEvicting;
+        if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) return;
+    }
+    const task = (async () => {
         const keys = await cache.keys();
         keys.sort(); // by URL string — evicts lower z/x/y tiles first (larger-scale, coarser detail)
         for (const req of keys) {
@@ -257,7 +258,9 @@ async function evictOldestTiles(cache) {
             await cache.delete(req);
             _mapCacheBytes = Math.max(0, _mapCacheBytes - cl);
         }
-    } finally { _isEvicting = false; }
+    })();
+    _tileEvicting = task;
+    try { await task; } finally { if (_tileEvicting === task) _tileEvicting = null; }
 }
 
 self.addEventListener('fetch', (e) => {

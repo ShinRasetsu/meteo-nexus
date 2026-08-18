@@ -9,6 +9,7 @@
 //      arrays in V8's TurboFan).
 function fastDistance(lat1, lon1, lat2, lon2) {
     const p = 0.017453292519943295;
+    if (!Number.isFinite(lat1) || !Number.isFinite(lon1) || !Number.isFinite(lat2) || !Number.isFinite(lon2)) return NaN;
     const c = Math.cos;
     const a = 0.5 - c((lat2 - lat1) * p)/2 +
               c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
@@ -205,7 +206,7 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, reqO
             if (isExact) exactInTopK++;
         } else if (top[topCount - 1].distMeters >= d) {
             // Same on the replacement branch — only the survivor is materialized.
-            if (top[topCount - 1].isExact) exactInTopK--;
+            if (top[topCount - 1].isExact && exactInTopK > 0) exactInTopK--;
             let p = topCount - 1;
             while (p > 0 && top[p - 1].distMeters >= d) { top[p] = top[p - 1]; p--; }
             top[p] = {

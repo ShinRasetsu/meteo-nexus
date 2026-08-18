@@ -293,7 +293,8 @@ assertIncludes(html, "closest('.hidden')", "index.html guards the Aero HUD mount
 // local date bucket per tick. Without (1) the chart showed UTC hours while
 // the user's wall clock showed local — the "23:00 at 6:47 AM" confusion.
 assertIncludes(html, "if (typeof dCurr.utc_offset_seconds === 'number') state.utcOffsetSec = dCurr.utc_offset_seconds;", "index.html caches Open-Meteo utc_offset_seconds for local-hour decoding");
-assertIncludes(html, "const localSec = ((t + utcOffsetSec) % 86400 + 86400) % 86400;", "index.html chart hour-label uses local time (UTC+offset), not raw UTC");
+assertIncludes(html, "function fmtHour(unixSec, utcOffsetSec = 0)", "index.html hoisted fmtHour function for local-hour formatting");
+assertIncludes(html, "fmtHour(t, utcOffsetSec)", "index.html chart hour-label uses local time (UTC+offset) via hoisted fmtHour");
 assertIncludes(html, "timesUnix[i] = t;", "index.html thread raw unix timestamps through to chart for day-label computation");
 assertIncludes(html, "state.chart.timesUnixRef = timesUnix", "index.html stores raw unix timestamps on chart for tick callback");
 assertIncludes(html, "callback: function(value, index)", "index.html x-axis uses custom tick callback for day labels");

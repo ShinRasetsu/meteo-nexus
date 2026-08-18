@@ -1553,16 +1553,6 @@
             return best;
         }
 
-        // Format unix seconds to local HH:MM using cached utcOffsetSec.
-        // Hoisted to module scope to avoid per-fetch closure allocation.
-        // Takes explicit offset so callers can pass the cached value directly.
-        function fmtHour(unixSec, utcOffsetSec = 0) {
-            const localSec = ((unixSec + utcOffsetSec) % 86400 + 86400) % 86400;
-            const hh = String(Math.floor(localSec / 3600)).padStart(2, '0');
-            const mm = String(Math.floor((localSec % 3600) / 60)).padStart(2, '0');
-            return `${hh}:${mm}`;
-        }
-
         const sanitizeHTML = (str) => {
             const temp = document.createElement('div');
             temp.textContent = str;
@@ -1877,11 +1867,11 @@ let delta = heading - state.lastHeading;
         //     checks even when nothing had moved — now most idle frames exit early.
         //   • Marker redraw gated by a small deadband (~7cm²) — Leaflet.setLatLng
         //     triggers an internal layer transform recalculation; calling it
-//     unconditionally translates to ~60 recalc/s of pure wasted work when
-    //     the user is stopped or moving below noise floor.
-    let lastVisualFrameTime = performance.now();
-    const VISUAL_DEADBAND_SQ = 1e-10;
-    let visualLastMarkerTX = 0, visualLastMarkerTY = 0;
+        //     unconditionally translates to ~60 recalc/s of pure wasted work when
+        //     the user is stopped or moving below noise floor.
+        let lastVisualFrameTime = performance.now();
+        const VISUAL_DEADBAND_SQ = 1e-13;
+        let visualLastMarkerTX = 0, visualLastMarkerTY = 0;
         // PERF-PAN — hoist the panTo() options + LatLng array out of the 60 Hz
         // smoothVisualsLoop tactical-mode branch. The previous call site
         // `state.mapObj.panTo([lat, lon], { animate: false, duration: 0 })`
@@ -4370,7 +4360,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // future refactor, syncClock's own loop keeps it alive even when the
         // tab starts hidden, but a paddle here short-circuits the latency.
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') { clearTimeout(_clockTimer); syncClock(); }
+            if (document.visibilityState === 'visible') syncClock();
         });
 
         const WIND_DIR_ARR = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
@@ -4548,7 +4538,6 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     return l;
                                 },
                                 footer: function(t) {
-                                    if (!state.chart) return '';
                                     const i = t[0].dataIndex;
                                     const uv    = state.chart.data.datasets[1].data[i];
                                     const solar = state.chart.data.datasets[0].data[i];
@@ -4717,12 +4706,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // the user's wall clock + status text rendered local time — producing the
             // "I am at 06:47 local but the chart says 23:00" confusion.
             const utcOffsetSec = (typeof state.utcOffsetSec === 'number') ? state.utcOffsetSec : 0;
+            const fmtHour = (t) => {
+                const localSec = ((t + utcOffsetSec) % 86400 + 86400) % 86400;
+                const hh = String(Math.floor(localSec / 3600)).padStart(2, '0');
+                const mm = String(Math.floor((localSec % 3600) / 60)).padStart(2, '0');
+                return `${hh}:${mm}`;
+            };
             let uvMaxVal = -1, uvMaxIdx = -1;
             for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
                 const t = h.time[j]; // unix seconds (UTC instant)
                 if (needsChartArg) {
                     timesUnix[i] = t;
-                    times[i] = fmtHour(t, utcOffsetSec);
+                    times[i] = fmtHour(t);
                     const so = solArr[j];
                     solarData[i] = (so === null || so === undefined) ? 0 : so;
                 }
@@ -4733,7 +4728,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // The UV metric's "@ HH:MM" label reads times[maxUvIdx] — when the chart
             // is skipped, format only that single cell instead of the full strip.
             if (!needsChartArg && uvMaxIdx >= 0) {
-                times[uvMaxIdx] = fmtHour(h.time[nowIndex + uvMaxIdx], utcOffsetSec);
+                times[uvMaxIdx] = fmtHour(h.time[nowIndex + uvMaxIdx]);
             }
 
             // Bulk wetness / band / wind over the full hour vector via single-pass loops.
@@ -4769,9 +4764,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // so the full slice vector is required.
                 tempBand              = WeatherEnsemble.bandAll(tempModels, nowIndex, maxSlice);
             } else {
-                const maxK = Math.min(4, totalLen - nowIndex);
-                hourlyAgreement = new Float32Array(maxK);
-                for (let k = 0; k < maxK; k++) {
+                hourlyAgreement = new Float32Array(4);
+                for (let k = 0; k < 4; k++) {
                     const w = WeatherEnsemble.weightedWetnessAt(precipModels, nowIndex + k);
                     hourlyAgreement[k] = w.pct;
                 }
@@ -5505,10 +5499,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     _lastGeoLat = lat; _lastGeoLon = lon; _lastGeoName = city;
                                     updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`);
                                 })
-.catch(e => {
-                                     if (e && e.name === 'AbortError') return;
-                                     updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)},${lon.toFixed(2)}`);
-                                 });
+                                .catch(() => {
+                                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)},${lon.toFixed(2)}`);
+                                });
                         }
                     }
                     // FIX-1.4.1: hoist the AbortController out of the try block —
@@ -6500,29 +6493,27 @@ function checkDependenciesAndRun() {
                 glanceTrend: document.getElementById('hud-glance-trend')
             };
 
-            const expandBtn  = radarCard?.querySelector('#radar-expand-btn');
-            const dialScaler = radarCard?.querySelector('#radar-dial-scaler');
+            const expandBtn  = radarCard.querySelector('#radar-expand-btn');
+            const dialScaler = radarCard.querySelector('#radar-dial-scaler');
             let isRadarFullscreen = false;
-            if (expandBtn && radarCard) {
-                expandBtn.addEventListener('click', () => {
-                    isRadarFullscreen = !isRadarFullscreen;
-                    if (isRadarFullscreen) {
-                        radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                        radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                        const minDim = Math.min(window.innerWidth, window.innerHeight);
-                        const scale  = (minDim * 0.6) / 160;
-                        dialScaler.style.transform = `scale(${scale})`;
-                        expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
-                        document.body.classList.add('overflow-hidden');
-                    } else {
-                        radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
-                        radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                        dialScaler.style.transform = 'scale(1)';
-                        expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
-                        document.body.classList.remove('overflow-hidden');
-                    }
-                });
-            }
+            expandBtn.addEventListener('click', () => {
+                isRadarFullscreen = !isRadarFullscreen;
+                if (isRadarFullscreen) {
+                    radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    const minDim = Math.min(window.innerWidth, window.innerHeight);
+                    const scale  = (minDim * 0.6) / 160;
+                    dialScaler.style.transform = `scale(${scale})`;
+                    expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
+                    document.body.classList.add('overflow-hidden');
+                } else {
+                    radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    dialScaler.style.transform = 'scale(1)';
+                    expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
+                    document.body.classList.remove('overflow-hidden');
+                }
+            });
 
             // Pre-allocated ring buffer for wind trail — no GC on update
             const windHistory   = new Float32Array([-1, -1, -1]);
