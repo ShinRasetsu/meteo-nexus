@@ -1,93 +1,231 @@
-# AGENTS.md — protocol for AI-assisted sessions
+# AGENTS.md - Audit Charter
 
-This document is the contract for any agent (Claude, Copilot, opencode, etc.) working autonomously on this repo. Read this + `HISTORY.md` + `VERSION` + `ARCHITECTURE.md` at the start of every session.
+Operating contract for any agent (Claude, Copilot, opencode, ...) working
+autonomously in this repo. You are not a code generator here; you are an
+**auditor who happens to write code**. Every change is guilty until it
+survives the evidence tiers below.
 
-## Hard rules
+Session start: read this file + HISTORY.md (especially "How to bump version
+in a new session" and "How to audit changes like a developer") + VERSION +
+ARCHITECTURE.md.
 
-1. **Never skip the audit.** After ANY change to `index.html`, `worker.js`, `sw.js`, or any file under `tests/`, run the full pipeline before declaring done:
-   ```bash
+## 0. Doctrine - what "audited" means
+
+The 1.3.3 incident is the founding lesson: an audit that only *read* code
+missed a `const now` use-before-declaration bug that silently broke every
+weather fetch. Tests passed. Lint passed. The app shipped broken.
+
+Therefore: **static green is not done.** Evidence is layered; each layer
+proves exactly one kind of claim:
+
+| Tier | Claim proved | Instrument |
+|---|---|---|
+| E1 Parse | source is syntactically valid JS | node --check on extracted module |
+| E2 Order | no use-before-declaration in any scope | tests/ast-scan-tdz.mjs |
+| E3 Shape | braces balance; feature substrings survive edits | tests/brace-balance.mjs, tests/sanity.test.js |
+| E4 Intent | declared contracts hold (CSP origins, null guards, promise hygiene, transform classes) | csp-audit, domnull-audit, floating-promise-audit, visual-audit |
+| E5 Behaviour | pure kernels produce correct outputs for known fixtures; the app actually works at runtime | tests/unit/ suite (automated), Fetch Gate (sec 6), Visual runtime pass (sec 7) |
+| E6 Judgement | design risks reasoned about, not scanned | Blind-spot register (sec 8) |
+
+A change is complete when it has cleared the highest tier that applies to
+it - never earlier.
+
+## 1. Non-negotiables
+
+1. **Never skip the audit.** After ANY change to `index.html`, `worker.js`,
+   `sw.js`, or anything under `tests/`, run the full pipeline before
+   declaring done:
+   ```
    npm run lint && npm test && npm run audit && npm run audit:verify
    ```
-   `npm run precheck` runs these in addition to the Tailwind build — run that if CSS changed.
+2. **Never commit unless explicitly asked.** No auto-commits, pushes, PRs.
+3. **Never edit HISTORY.md historical entries.** Append a new dated chapter
+   for the current release only. Existing entries are the record.
+4. **VERSION is the single source of truth for version.** Bump = edit
+   VERSION first, then sync package.json (Release Gate, sec 9).
+5. **`'unsafe-inline'` in the CSP meta (`index.html:8`) is load-bearing** -
+   required by the inline `<script type="module">` block (lines 658-7154).
+   Do not drop it without extracting the engine to an external file first.
+6. **Never weaken a scanner to make it pass.** Findings are resolved by
+   fixing code, or by consciously revising the contract here first.
+   Disabling a check to ship is how silent bugs happen.
 
-2. **Never commit unless explicitly asked.** No auto-commits, no auto-push, no auto-PRs. The user will say "commit and push" when they want it.
+## 2. Trigger matrix - what fires on what
 
-3. **Never edit `HISTORY.md`'s historical entries.** Append a new dated chapter for the current release only. Existing entries are the record.
+| Changed surface | Required gates |
+|---|---|
+| Inline module JS in index.html | Full pipeline |
+| CSS / Tailwind input | npm run precheck (pipeline + Tailwind build) |
+| worker.js | Full pipeline; math fns must stay mirrored with main-thread copies (sec 10) |
+| sw.js | Full pipeline |
+| Anything under tests/ | Full pipeline; audit:verify proves scanner edits still detect real violations |
+| Markers, panes, popups, any transform/rotation writer | Pipeline + Visual Audit runtime pass (sec 7) |
+| processTelemetryPayload / normalizeTelemetryData / fetchData / fetch triggers | Pipeline + Fetch Gate (sec 6) |
+| Version bump requested | Release Gate (sec 9) |
 
-4. **`VERSION` is the single source of truth for version.** If a version bump is requested, edit `VERSION` first, then sync `package.json` `"version"`. See `HISTORY.md:32-40`.
+## 3. Canonical pipelines
 
-5. **`'unsafe-inline'` in CSP (`index.html:8`) is required by the inline `<script type="module">`.** Do not drop it without first extracting the engine to an external file — doing so silently breaks every browser that enforces CSP.
+```
+Full pipeline (mandatory minimum):
+  npm run lint && npm test && npm run audit && npm run audit:verify
 
-## Bump procedure (from `HISTORY.md:32-40`)
+With Tailwind build (CSS changed):
+  npm run precheck
 
-1. Read `VERSION` to know current version.
-2. Decide bump level: `1.3.8 → 1.3.9` (patch: bug fixes / audit-driven fixes) or `1.3.8 → 1.4.0` (minor: feature) — never silently bump major.
-3. Edit `VERSION` (e.g. `1.3.8` → `1.3.9`). Header + footer badges read this file at runtime.
-4. Sync `package.json` → `"version": "1.3.9"`.
-5. Append a new `## 1.3.9 — YYYY-MM-DD` section in `HISTORY.md` with all changes (rationale, findings, files changed, verification).
-6. Run `npm test && npm run lint && npm run audit && npm run audit:verify`.
-7. (Optional) `git tag v1.3.9` for deployment tracking.
+Individual scanners (each re-extracts the module itself):
+  audit:extract  E1 parse        audit:fp     E4 floating promises
+  audit:tdz      E2 order        audit:csp    E4 origin allow-list
+  audit:brace    E3 shape        audit:dom    E4 null guards
+                                 audit:visual E4 transform contracts
 
-## The 4-phase audit philosophy (mandatory knowledge)
+Meta-audit (audits the auditors via positive + negative controls):
+  npm run audit:verify
+```
 
-From `HISTORY.md:43-92`. The 1.3.3 silent-bug lesson is the contract:
+deploy.bat independently re-runs the full pipeline plus precheck before any
+git add; a failure there aborts deployment.
 
-> An audit that only *reads* the code (without executing it) missed a `const now` use-before-declaration bug that silently broke every weather fetch. Tests + lint passed. The app shipped broken. The fix was to actually run the JS through Node's V8 parser and a use-before-declare scanner.
+## 4. Scanner roster - what each instrument proves
 
-**Phase 1 — Syntax parse.** `node --check` on the extracted module. Any other output than `PARSE OK` is a ship-blocker.
+| Scanner | Guarantee | Pass condition |
+|---|---|---|
+| extract-module.mjs + node --check | E1: inline module parses under V8 | clean extract, PARSE OK |
+| ast-scan-tdz.mjs | E2: no same-scope use-before-declare (pre-registers bindings per scope; catches what ESLint misses in block scopes) | 0 violations |
+| floating-promise-audit.mjs | E4: no .then() chain without .catch/await | 0 findings |
+| brace-balance.mjs | E3: brace FSM ends at depth 0 | depth 0 |
+| sanity.test.js | E3: feature substrings present (presence, NOT correctness) | N passed / 0 failed |
+| csp-audit.mjs | E4: every fetch/Worker/URL/import() origin appears in the CSP meta | 0 gaps |
+| domnull-audit.mjs | E4: every getElementById result guarded before property access | 0 unguarded |
+| visual-audit.mjs | E4: every rendered layer honors its transform contract (sec 5); prints a code-derived inventory table | PASS = all readable overlays resolve upright |
+| tests/unit/ (node --test) | E5: executes worker.js end-to-end (dispatcher incl. error path), polyline codec round-trip, route-node planner, overpass parser, brand adapters + findNearby funnel; proves the fastDistance duplication stays bit-identical (sec 10) | all fixtures pass |
+| verify-scanners.mjs | audits the auditors: injects known-good/bad fixtures into every scanner above | all controls behave |
 
-**Phase 2 — Use-before-declare scan.** The `tests/ast-scan-tdz.mjs` walker pre-registers bindings per scope, then walks the body in source order. A reference before the declaration line, in the same scope, is a TDZ violation. ESLint's `no-use-before-define` does NOT catch this when use and decl are in the same block scope.
+Scanner limitations are documented in each file's header comment. Read them
+when results look surprising.
 
-**Phase 3 — Structural checks.** `{` vs `}` count (the `tests/brace-balance.mjs` FSM). Verify critical feature substrings are still present (the substring guards in `tests/sanity.test.js`).
+## 5. Visual Audit - transform-contract protocol (code-derived, not case-derived)
 
-**Phase 4 — Lifecycle + behavioural reasoning.** For each new `const` inside a loop or fetch handler, ask:
-- Is it declared **before** every branch that references it?
-- Is the surrounding `try/catch` swallowing what would otherwise be a loud failure? An empty `catch {}` (now blocked by eslint `no-empty` with `allowEmptyCatch: false`) hides bugs.
-- Does the variable's value match across all consumer surfaces (telemetry card vs glance strip vs Aero HUD)?
+No scanner sees pixels, but every rotated-overlay bug shares one auditable
+root cause: a layer inherited a transform nobody classified. Every rendered
+layer therefore gets an explicit contract derived from its PURPOSE:
 
-## The minimum "did I break fetch?" smoke test
+> Purpose question: what is this element for? Must a human read or
+> recognise it while the vehicle moves?
 
-From `HISTORY.md:103-111`. After any change to `processTelemetryPayload`, `normalizeTelemetryData`, `fetchData`, or the fetch trigger guard:
+- **WORLD-LOCKED** - represents geography itself (tiles, route polylines).
+  Correct behaviour: rotate with the map. Text-free shapes may live here.
+- **SCREEN-LOCKED** - a readable surface: station names, popups, node
+  labels, recognisable POI icons. Must never inherit map rotation;
+  counter-rotated instead. Derivation example: tapping a pit stop opens
+  station details the driver must read mid-drive; tilted details are
+  unreadable at 90 degrees, so the contract is forced by purpose.
+- **SELF-ROTATING** - encodes direction by design (compass needle, position
+  arrow). Rotates by a NAMED reference (--user-heading: screen-up in
+  tactical modes, true-north in mode 0). Undocumented self-rotation = bug.
 
-1. Open DevTools → Network tab.
-2. Reload the app with GPS permitted.
-3. Verify a request to `api.open-meteo.com/v1/forecast?current=temperature_2m,...` completes with HTTP 200.
-4. Verify the telemetry card shows non-`--` values (a temperature, a wind speed, a status text).
-5. Verify `#hud-glance-temp` shows a number, not `--°C`.
-6. Check Console for any red errors (a silent `catch {}` would otherwise hide them).
+When in doubt: readable -> SCREEN-LOCKED. Only pure world geometry earns
+WORLD-LOCKED. `npm run audit:visual` enforces this mechanically from the
+source itself. In the PERF-P2 var-driven rotation era the structural
+contracts are: L - no direct JS rotate() writes on #hud-map or panes (all
+rotation flows through --hud-rot); V1 - exactly one --hud-rot writer;
+C1 - stylesheet must rotate #hud-map by calc(-1*var) and every managed pane
+by +var; C3 - no CSS --user-heading rotation on popup containers (stacking
+bug class). It prints the inventory table; read that table against this
+classification whenever you touch anything transform-related.
 
-If any of these fails, the change is broken — regardless of what `npm test` or `npm run lint` report. **Runtime truth > static checks.**
+## 6. Fetch Gate ("did I break fetch?")
 
-## What the audit chain does NOT catch
+After any change to processTelemetryPayload, normalizeTelemetryData,
+fetchData, or the fetch trigger guard:
 
-Be aware of these blind spots. Add manual reasoning for any of them when relevant:
+1. DevTools Network tab open, GPS permitted, reload the app.
+2. Verify api.open-meteo.com/v1/forecast?current=... completes HTTP 200.
+3. Telemetry card shows non-placeholder values (temperature, wind, status).
+4. #hud-glance-temp shows a number, not --C.
+5. Console: zero red errors (a silent catch would otherwise hide them).
 
-- **Race conditions** — no concurrency tests.
-- **Memory leaks** — no leak detector.
-- **Off-by-one / type-coercion** — the substring guards check presence, not correctness.
-- **Unhandled promise rejections** — every `then(...)` chain without `.catch` evades the audit. Prefer `async/await + try/catch`.
-- **`import()` is not covered by `csp-audit.mjs`.** Any new dynamic `import('https://...')` must be manually cross-checked against `script-src` in the CSP meta.
-- **DOM null-guard scanner doesn't understand `el?.foo()` optional chaining.** It only recognises `if (el)` and `if (!el)` guard shapes (`tests/domnull-audit.mjs:57-58`). When adding guarded chains, prefer the explicit form.
-- **Performance regressions** — no budgets, no Lighthouse.
-- **Accessibility** — no a11y scanner yet (planned).
+If any step fails, the change is broken regardless of what npm test or lint
+report. Runtime truth > static checks.
 
-## Don't do these things
+6. Record evidence in the HISTORY chapter: the HTTP status line, one
+   telemetry value read off the UI, and console state ("0 red errors").
+   A gate without recorded evidence is an unevaluated gate - claims are
+   not verifiable after the fact.
 
-- Don't add `'unsafe-eval'` or `'unsafe-inline'` to CSP. The inline `'unsafe-inline'` is already there for the inline module; loosening further defeats the entire CSP.
-- Don't reintroduce `setInterval` for anything that should pause on tab hide. All timers should be visibility-aware `setTimeout` recursion.
-- Don't move section logic out of the inline module into separate files without coordinating the whole audit pipeline — the scanners depend on the inline-block shape.
-- Don't change `worker.js` math functions without changing their main-thread siblings (`fastDistance` is duplicated intentionally).
-- Don't change `deploy.bat` to skip `git pull --rebase` — that's what saves you from force-push conflicts.
-- Don't edit `tests/_module_extract.mjs` directly — it's a generated artefact (gitignored). Edit `index.html` then run `npm run audit:extract` to regenerate.
-- Don't add new CDN `<script>` tags without SRI hashes (`integrity="sha384-..." crossorigin="anonymous"`).
-- Don't add new fetch / Worker / URL origins without adding them to the CSP meta tag — `audit:csp` will flag the gap, but manual review beats the scanner catching it last.
+## 7. Visual runtime pass ("does the contract survive compositing?")
 
-## Reference numbers (current as of v1.3.8)
+Static tiers cannot see pixels. After any change the visual scanner flagged
+as touched (new pane, marker, rotation writer, popup binding):
 
-- `tests/sanity.test.js` — 127 substring assertions
-- `tests/audit:verify` — 10 self-test cases (5 positive + 5 negative controls)
-- File sizes — `index.html` 5610 lines / ~379 KB; `worker.js` 260 lines; `sw.js` 303 lines
-- Inline `<script type="module">` block — lines 520 → 5590 (~5100 lines, ~330 KB of JS)
-- ES target — `ecmaVersion: 2022` (per `eslint.config.js:30, 45`)
-- TypeScript — not used
-- Bundler — not used; only `@tailwindcss/cli` for CSS
+1. Exercise every state the contract spans: tactical modes 0/1/2 via the
+   button, mid-drag pan, the ~5s re-lock after dragend, and exit back to
+   north-up.
+2. Confirm each inventoried layer behaves per its declared class:
+   SCREEN-LOCKED stays upright in all states; WORLD-LOCKED stays glued to
+   geography; SELF-ROTATING follows its named reference (and only that one).
+3. Console: zero red errors.
+
+## 8. Blind-spot register - what no instrument catches
+
+Reason through these manually whenever relevant:
+
+- **Race conditions** - no concurrency tests.
+- **Memory leaks** - no leak detector.
+- **Off-by-one / type-coercion** - substring guards check presence only.
+- **Unhandled promise rejections** - prefer async/await + try/catch.
+- **import() origins** - csp-audit does not see dynamic import(); cross-check
+  script-src manually.
+- **DOM null-guard shapes** - domnull-audit recognises if(el)/if(!el)/el?.
+  guards; exotic guard forms need manual review (tests/domnull-audit.mjs).
+- **Performance regressions** - no budgets, no Lighthouse.
+- **Accessibility** - no a11y scanner yet.
+- **Visual compositing** - audit:visual proves declared contracts statically;
+  pixels are proven only by the sec 7 runtime pass.
+
+## 9. Release Gate (version bump procedure)
+
+From HISTORY.md "How to bump version in a new session":
+
+1. Read VERSION for the current version.
+2. Decide level: patch = bugfix/audit fix; minor = feature; never silently
+   bump major.
+3. Edit VERSION first, then sync package.json "version" to match.
+4. Append a new `## X.Y.Z - YYYY-MM-DD` chapter in HISTORY.md covering every
+   change: rationale, findings, files touched, which gates (sec 2) were
+   run with their recorded evidence (sec 6 step 6), and which blind spots
+   (sec 8) were considered with a one-line dismissal or mitigation each.
+5. Run the full pipeline + precheck. deploy.bat re-runs it before git add.
+6. Optional: git tag vX.Y.Z for deployment tracking.
+
+## 10. Prohibitions
+
+- Do not add 'unsafe-eval' to CSP, or more 'unsafe-inline' entries than the
+  load-bearing one in sec 1.5.
+- Do not reintroduce setInterval for anything that must pause on tab hide;
+  use visibility-aware setTimeout recursion.
+- Do not move section logic out of the inline module into separate files
+  without re-coordinating the whole audit pipeline - the scanners depend on
+  the extracted-block shape.
+- Do not change worker.js math functions without their main-thread siblings
+  (fastDistance is duplicated intentionally).
+- Do not change deploy.bat to skip git pull --rebase.
+- Do not edit tests/_module_extract.mjs by hand - generated artefact
+  (gitignored); edit index.html then npm run audit:extract.
+- No new CDN script tag without SRI hash + crossorigin="anonymous".
+- No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
+  confirm, but manual review beats the scanner catching it last.
+
+## 11. Reference numbers (verified v1.4.1, 2026-08-23)
+
+- sanity.test.js - 136 substring assertions / 0 failing
+- tests/unit/ - 35 executable fixtures / 0 failing (worker kernel, fuel
+  search funnel, WGS84 distance arcs, fastDistance mirror parity)
+- audit:verify - 22 self-test controls, all passing (incl. PHASE V var-era:
+  layer contracts + legacy-ban + single --hud-rot writer)
+- Scanners: 7 (tdz, fp, brace, csp, domnull, visual, extract+parse) plus
+  meta-verifier
+- index.html - 7187 lines / ~481 KB; inline module lines 671-7174 (~435 KB)
+- worker.js - 271 lines; sw.js - 408 lines; fuel-stations.js - 280 lines
+- ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
+  allowEmptyCatch:false (eslint.config.js:19)
+- TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.

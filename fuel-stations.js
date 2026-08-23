@@ -10,16 +10,30 @@ const _stationCache = new Map(); // brand -> { raw: [], adapted: [], ts: number 
 // ─── Fast bounding-box pre-filter constants ───
 const _DEG2KM = 111.32; // 1° lat ≈ 111.32 km
 
-// ─── Optimized Haversine (pre-computes cos(lat) for multiple calls) ───
+// ─── Ellipsoidal point-to-point distance (A2) ───
+// Direction-aware equirectangular on WGS84 expansion series (meters per
+// degree of lat / lon at the midpoint latitude). Accurate to <0.05% across
+// all bearings for search-range hops; the previous constant-R haversine was
+// up to ~0.5% off depending on bearing/latitude — enough to misrank
+// near-tie stations. Hot rejection paths elsewhere stay spherical.
+const _D2R = Math.PI / 180;
+function _meridionalMPerDeg(latDeg) {
+  const c2 = Math.cos(2 * latDeg * _D2R);
+  const c4 = Math.cos(4 * latDeg * _D2R);
+  return 111132.954 - 559.822 * c2 + 1.175 * c4;
+}
+function _parallelMPerDeg(latDeg) {
+  const c1 = Math.cos(latDeg * _D2R);
+  const c3 = Math.cos(3 * latDeg * _D2R);
+  const c5 = Math.cos(5 * latDeg * _D2R);
+  return 111412.84 * c1 - 93.5 * c3 + 0.118 * c5;
+}
+// Historical name kept for call-site stability; no longer literal haversine.
 function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const p = Math.PI / 180;
-  const dLat = (lat2 - lat1) * p;
-  const dLon = (lon2 - lon1) * p;
-  const cosLat1 = Math.cos(lat1 * p);
-  const cosLat2 = Math.cos(lat2 * p);
-  const a = Math.sin(dLat / 2) ** 2 + cosLat1 * cosLat2 * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
+  const midLat = (lat1 + lat2) / 2;
+  const dNorth = (lat2 - lat1) * _meridionalMPerDeg(midLat);
+  const dEast = (lon2 - lon1) * _parallelMPerDeg(midLat);
+  return Math.sqrt(dNorth * dNorth + dEast * dEast) / 1000;
 }
 
 // ─── StationLoader ───
@@ -114,13 +128,16 @@ export const BrandAdapters = {
   shell: (raw) => {
     const fuels = [];
     const pricing = raw.fuel_pricing?.prices || {};
-    if (pricing.fuelsave_98 !== null) fuels.push('V-Power Racing');
-    if (pricing.vpower_gasoline !== null) fuels.push('V-Power Gasoline');
-    if (pricing.vpower_diesel !== null) fuels.push('V-Power Diesel');
-    if (pricing.fuelsave_95 !== null) fuels.push('FuelSave Gasoline');
-    if (pricing.fuelsave_diesel !== null) fuels.push('FuelSave Diesel');
-    if (pricing.shell_regular_diesel !== null) fuels.push('Diesel');
-    if (pricing.premium_diesel !== null) fuels.push('Premium Diesel');
+    // FIX (unit-audit): `!== null` treated a MISSING key as offered
+    // (`undefined !== null` is true), so partial payloads advertised fuels
+    // they never priced. `!= null` rejects both null and undefined.
+    if (pricing.fuelsave_98 != null) fuels.push('V-Power Racing');
+    if (pricing.vpower_gasoline != null) fuels.push('V-Power Gasoline');
+    if (pricing.vpower_diesel != null) fuels.push('V-Power Diesel');
+    if (pricing.fuelsave_95 != null) fuels.push('FuelSave Gasoline');
+    if (pricing.fuelsave_diesel != null) fuels.push('FuelSave Diesel');
+    if (pricing.shell_regular_diesel != null) fuels.push('Diesel');
+    if (pricing.premium_diesel != null) fuels.push('Premium Diesel');
     if (!fuels.length) fuels.push('Fuel'); // fallback
 
     return {
@@ -145,7 +162,11 @@ export const BrandAdapters = {
         ev: raw.ev_opening_hours,
         openStatus: raw.open_status, // 'open' | 'closed' | 'twenty_four_hour'
         tzOffset: raw.tz_offset,
-        nextChange: raw.next_open_status_change
+        nextChange: raw.next_open_status_change,
+        // A3: explicit knowledge flag so the UI can badge "hours unknown"
+        // instead of silently implying confirmed-open. 24/7 counts as known.
+        hoursKnown: ['open', 'closed', 'twenty_four_hour'].includes(raw.open_status) ||
+                    raw.twenty_four_hour === true
       },
       is24_7: raw.twenty_four_hour === true
     };
@@ -163,7 +184,8 @@ export const BrandAdapters = {
       amenities,
       hours: {
         operating: raw.operating_hours,
-        openStatus: raw.operating_hours ? 'unknown' : 'unknown'
+        openStatus: raw.operating_hours ? 'unknown' : 'unknown',
+        hoursKnown: raw.operating_hours != null || raw.twenty_four_hour === true
       },
       is24_7: /24[/\\-]?7|twenty.four.hour/i.test(raw.operating_hours || '')
     };
@@ -236,6 +258,11 @@ export const SearchEngine = {
     const lonMax = lon + radiusKm / lonKmPerDeg;
 
     for (const s of stations) {
+      // FIX (unit-audit): NaN coordinates passed every numeric guard below
+      // (all NaN comparisons are false), letting broken records through as
+      // NaN-distance results. Reject non-finite coords explicitly.
+      if (!Number.isFinite(s.lat) || !Number.isFinite(s.lon)) continue;
+
       // Quick bounding box reject
       if (s.lat < latMin || s.lat > latMax || s.lon < lonMin || s.lon > lonMax) continue;
       

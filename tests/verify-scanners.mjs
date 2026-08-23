@@ -184,6 +184,50 @@ check('PHASE 4b negative control (allowed script-src) -> csp-audit 0',
     writeMutation(original + "\nimport('https://cdn.jsdelivr.net/npm/foo.js');\n");
   });
 
+// ---------- Phase V: visual-audit transform contracts ----------
+// A text-bearing overlay in the DEFAULT marker pane inherits map rotation
+// (never counter-rotated) -> SCREEN-LOCKED violation, exit 2.
+check('PHASE V text overlay inherits rotation -> visual-audit nonzero',
+  'visual-audit.mjs', 2, 'FAIL', () => {
+    writeMutation(original +
+      "\nvar negMarker = L.marker([0, 0], { icon: L.divIcon({ className: 'neg-x', html: '<div class=\"node-label\">BAD-LABEL</div>', iconSize: [0, 0] }) });\n");
+  });
+
+// ---------- Phase V negative control: readable overlay in upright pane ----------
+// Same content, but assigned to the counter-rotated uprightPane -> contract
+// satisfied, scanner must stay at exit 0.
+check('PHASE V negative control (text overlay in upright pane) -> visual-audit 0',
+  'visual-audit.mjs', 0, 'PASS - all readable overlays', () => {
+    writeMutation(original +
+      "\nvar posMarker = L.marker([0, 0], { pane: 'uprightPane', icon: L.divIcon({ className: 'pos-x', html: '<div class=\"node-label\">OK-LABEL</div>', iconSize: [0, 0] }) });\n");
+  });
+
+// ---------- Phase V contract L: legacy direct rotate writes are banned ----------
+// A second #hud-map rotate() template write bypasses the --hud-rot single
+// writer -> desync risk -> must FAIL.
+check('PHASE V L legacy direct rotate site -> visual-audit nonzero',
+  'visual-audit.mjs', 2, 'FAIL', () => {
+    writeMutation(original +
+      '\nfunction rogueRotateSite(deg) { DOM.hudMap.style.transform = `rotate(${-deg}deg)`; }\n');
+  });
+
+// ---------- Phase V contract V1: single --hud-rot writer ----------
+// A second function writing the rotation variable violates the one-writer
+// contract -> must FAIL. (The clean extract has exactly one: applyHudCssRotation.)
+check('PHASE V V1 duplicate --hud-rot writer -> visual-audit nonzero',
+  'visual-audit.mjs', 2, 'FAIL', () => {
+    writeMutation(original +
+      "\nfunction rogueVarWriter(deg) { DOM.hudMap.style.setProperty('--hud-rot', deg + 'deg'); }\n");
+  });
+
+// ---------- Phase V negative control: clean extract in the var era ----------
+// The unmutated module satisfies every contract (one var writer, stylesheet
+// coverage, no legacy writes, no popup CSS stack) -> must stay exit 0.
+check('PHASE V negative control (clean extract, var era) -> visual-audit 0',
+  'visual-audit.mjs', 0, 'PASS - all readable overlays', () => {
+    writeMutation(original);
+  });
+
 restore();
 console.log('Scanner verification results:');
 console.log(results.join('\n'));

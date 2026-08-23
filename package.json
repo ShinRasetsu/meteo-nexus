@@ -7,7 +7,7 @@
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "node tests/sanity.test.js",
+    "test": "node tests/sanity.test.js && node --test tests/unit/worker.test.mjs tests/unit/fuel-stations.test.mjs",
     "check": "npm run lint && npm run test",
     "audit:extract": "node tests/extract-module.mjs && node --check tests/_module_extract.mjs",
     "audit:tdz": "node tests/ast-scan-tdz.mjs",
@@ -15,8 +15,9 @@
     "audit:brace": "node tests/extract-module.mjs && node tests/brace-balance.mjs",
     "audit:csp": "node tests/extract-module.mjs && node tests/csp-audit.mjs",
     "audit:dom": "node tests/extract-module.mjs && node tests/domnull-audit.mjs",
+    "audit:visual": "node tests/extract-module.mjs && node tests/visual-audit.mjs",
     "audit:verify": "node tests/verify-scanners.mjs",
-    "audit": "npm run audit:extract && npm run audit:tdz && npm run audit:fp && npm run audit:brace && npm run audit:csp && npm run audit:dom",
+    "audit": "npm run audit:extract && npm run audit:tdz && npm run audit:fp && npm run audit:brace && npm run audit:csp && npm run audit:dom && npm run audit:visual",
     "build:css": "npx @tailwindcss/cli --input src/tailwind.css --output tailwind.min.css --minify",
     "precheck": "npm run build:css && npm run audit"
   },

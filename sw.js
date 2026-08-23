@@ -341,10 +341,38 @@ self.addEventListener('fetch', (e) => {
         return;
     }
 
-    // APP SHELL & SAME-ORIGIN: Network First, App Cache fallback.
-    // Only caches HTML documents (navigation requests) and static assets — skips
-    // JSON/API responses to avoid polluting APP_CACHE with dynamic telemetry data.
+    // APP SHELL & SAME-ORIGIN.
+    // P3: NAVIGATIONS (HTML documents) use stale-while-revalidate: the cached
+    // shell answers INSTANTLY (precached at install, so even first offline
+    // boot is fast) and the network copy refreshes the cache in the
+    // background. Previous Network-First strategy paid a full HTML round-trip
+    // before every online boot rendered. Freshness cost: one load behind,
+    // covered by the existing SKIP_WAITING update flow. All other same-origin
+    // assets stay Network-First with cache fallback (freshness matters more
+    // than latency for worker.js/tailwind).
     if (url.origin === self.location.origin) {
+        if (e.request.mode === 'navigate') {
+            e.respondWith((async () => {
+                const cache = await caches.open(APP_CACHE);
+                const cached = await cache.match('./index.html');
+                // Background refresh — never blocks the response; failures are
+                // swallowed (offline boots fall through to the cached shell).
+                fetch(e.request).then(async (response) => {
+                    if (response && response.status === 200 &&
+                        (response.headers.get('content-type') || '').includes('text/html')) {
+                        await cache.put('./index.html', response.clone());
+                    }
+                }).catch(() => { /* offline — cached shell already served */ });
+                if (cached) return cached;
+                try {
+                    const response = await fetch(e.request);
+                    return response || Response.error();
+                } catch {
+                    return Response.error();
+                }
+            })());
+            return;
+        }
         e.respondWith((async () => {
             try {
                 const response = await fetch(e.request);
