@@ -223,9 +223,41 @@
 
             color: #9ca3af !important;
         }
+        /* U1 SAFE-AREA: dash mounts put notched-phone cutouts over content.
+           max() keeps Tailwind's intended padding as the floor and grows by
+           the hardware inset when present. Mirrors p-2 / md:p-6 / lg:p-8. */
+        .safe-body {
+            padding-top: max(0.5rem, env(safe-area-inset-top));
+            padding-right: max(0.5rem, env(safe-area-inset-right));
+            padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+            padding-left: max(0.5rem, env(safe-area-inset-left));
+        }
+        @media (min-width: 768px) {
+            .safe-body {
+                padding: max(1.5rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-right))
+                         max(1.5rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
+            }
+        }
+        @media (min-width: 1024px) {
+            .safe-body {
+                padding: max(2rem, env(safe-area-inset-top)) max(2rem, env(safe-area-inset-right))
+                         max(2rem, env(safe-area-inset-bottom)) max(2rem, env(safe-area-inset-left));
+            }
+        }
+        /* U1: additive insets for absolutely-positioned map overlays so chips
+           and buttons never sit under the notch/camera housing. */
+        .overlay-safe {
+            margin-top: env(safe-area-inset-top);
+            margin-right: env(safe-area-inset-right);
+            margin-bottom: env(safe-area-inset-bottom);
+            margin-left: env(safe-area-inset-left);
+        }
+        /* U3: minimum touch target for driving-relevant controls (bumpy-road /
+           glove test). Desktop density barely changes (min wins only when smaller). */
+        .tap-48 { min-width: 48px; min-height: 48px; }
     </style>
 </head>
-<body class="text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
+    <body class="safe-body text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
     <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
         <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
@@ -346,19 +378,19 @@
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             <div class="flex flex-row items-center gap-2 shrink-0">
-                <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                    <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
                     <i class="fa-solid fa-gas-pump"></i> <span class="hidden sm:inline">Pit Stop</span>
                 </button>
                 <button onclick="window.openFuelSettings()" aria-label="Fuel Settings" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
                     <i class="fa-solid fa-gear"></i>
                 </button>
-                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-bolt"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
-                <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
+                <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
                     <i class="fa-solid fa-xmark"></i> <span class="hidden sm:inline">Clear</span>
                 </button>
-                <button id="native-nav-btn" aria-label="External Navigation" class="hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
+                <button id="native-nav-btn" aria-label="External Navigation" class="tap-48 hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
                     <i class="fa-solid fa-diamond-turn-right"></i> <span class="hidden sm:inline">Nav</span>
                 </button>
                 <button onclick="toggleFocus('sec-map')" aria-label="Focus Map" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center">
@@ -370,7 +402,7 @@
         <div class="map-wrapper w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
             <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] origin-center"></div>
             
-            <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%]">
+            <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%] overlay-safe">
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
                     <i class="fa-solid fa-gauge-high text-brand-teal text-sm"></i>
                     <div class="flex items-baseline gap-1">
@@ -436,13 +468,56 @@
                 </div>
             </div>
 
-            <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto">
+            <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto overlay-safe">
+                <button onclick="toggleDriveMode()" id="drive-btn" class="bg-surface-800 border-2 border-surface-700 text-brand-blue hover:border-brand-blue w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-sm" title="Drive Mode (glanceable full-screen)" aria-label="Toggle Drive Mode">
+                    <i class="fa-solid fa-car-side text-lg"></i>
+                </button>
                 <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
                     <i class="fa-solid fa-compass text-lg md:text-xl"></i>
                 </button>
                 <button onclick="openMagCalModal()" id="magcal-btn" class="bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-purple hover:border-brand-purple w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Calibrate Compass (figure-8 pattern)">
                     <i class="fa-solid fa-compass text-base md:text-lg"></i>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- U2 DRIVE MODE: glanceable full-screen HUD for arm's-reach reading while
+         moving. Three numbers only: speed+status / next node / route+eta.
+         Fixed overlay lives OUTSIDE #hud-map -> SCREEN-LOCKED by construction,
+         no rotation contract applies (visual-audit scope unchanged). -->
+    <div id="drive-mode" class="hidden fixed inset-0 z-[3000] bg-[#08090b] flex-col items-center justify-between text-center select-none" style="padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));">
+        <div class="w-full flex items-center justify-between">
+            <span class="text-xs font-bold text-gray-600 uppercase tracking-[0.3em]"><i class="fa-solid fa-car-side mr-2"></i>Drive Mode</span>
+            <button onclick="toggleDriveMode(false)" aria-label="Exit Drive Mode" class="tap-48 bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-white hover:border-surface-500 rounded-xl flex items-center justify-center transition-all">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex flex-col items-center gap-3">
+            <div class="flex items-baseline gap-3">
+                <span id="dm-speed" class="font-mono font-black text-white leading-none" style="font-size:min(30vw,9rem);">0</span>
+                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">km/h</span>
+            </div>
+            <div id="dm-status-chip" class="flex items-center gap-2 px-4 py-2 rounded-full border-2 border-brand-success/50 bg-brand-success/10">
+                <i id="dm-status-icon" class="fa-solid fa-circle-check text-brand-success text-lg"></i>
+                <span id="dm-status" class="font-black uppercase tracking-widest text-brand-success text-base md:text-xl">CLEAR</span>
+                <span id="dm-temp" class="font-mono font-bold text-gray-400 text-sm ml-2">--</span>
+            </div>
+        </div>
+
+        <div class="w-full max-w-md grid grid-cols-3 gap-2">
+            <div class="bg-surface-900/80 border border-surface-800 rounded-xl py-4 px-2">
+                <div class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1">Next Node</div>
+                <div id="dm-node" class="font-mono font-black text-brand-teal text-lg leading-none">—</div>
+            </div>
+            <div class="bg-surface-900/80 border border-surface-800 rounded-xl py-4 px-2">
+                <div class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1">Route</div>
+                <div id="dm-route" class="font-mono font-black text-white text-lg leading-none">NO ROUTE</div>
+            </div>
+            <div class="bg-surface-900/80 border border-surface-800 rounded-xl py-4 px-2">
+                <div class="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-1">Est @ Speed</div>
+                <div id="dm-eta" class="font-mono font-black text-gray-300 text-lg leading-none">—</div>
             </div>
         </div>
     </div>
@@ -1480,6 +1555,7 @@
             _panRotateHookInstalled: false,
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
+            driveMode: false, driveRouteKm: null, driveRouteMin: null,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
@@ -1629,7 +1705,17 @@
                 de: document.getElementById('stat-de'),
                 jp: document.getElementById('stat-jp'),
                 ca: document.getElementById('stat-ca')
-            }
+            },
+            // U2 Drive Mode overlay refs
+            driveMode: document.getElementById('drive-mode'),
+            driveSpeed: document.getElementById('dm-speed'),
+            driveStatusChip: document.getElementById('dm-status-chip'),
+            driveStatusIcon: document.getElementById('dm-status-icon'),
+            driveStatus: document.getElementById('dm-status'),
+            driveTemp: document.getElementById('dm-temp'),
+            driveNode: document.getElementById('dm-node'),
+            driveRoute: document.getElementById('dm-route'),
+            driveEta: document.getElementById('dm-eta')
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
 
@@ -1927,6 +2013,10 @@ let delta = heading - state.lastHeading;
         // PERF: last-pan position cache for the panTo deadband (OPT-1.4.1) — the
         // last lat/lon we actually panned to, so stationary frames skip panTo.
         let _lastPanLat = 0, _lastPanLon = 0;
+        // U2: Drive Mode rounded-key write cache (same pattern as PERF-4 gates —
+        // a hidden overlay costs one boolean check per frame; a visible one only
+        // writes DOM when a displayed value actually changed).
+        let _driveUiKeys = {};
 
         // PERF-P2: single-write rotation. One custom property drives ALL map
         // rotation transforms (see the stylesheet rules next to the
@@ -2072,6 +2162,53 @@ let delta = heading - state.lastHeading;
                     DOM.hudMap.style.setProperty('--user-heading', `${arrowRounded}deg`);
                     state.lastArrowHeading = arrowRounded;
                 }
+            }
+            // U2 DRIVE MODE updater — hidden overlay costs one boolean check per
+            // frame; visible overlay writes DOM only when a DISPLAYED value
+            // changed (rounded-key discipline, same as PERF-4 gates).
+            if (state.driveMode && DOM.driveMode && !DOM.driveMode.classList.contains('hidden')) {
+                const st = window.__METEO_CORE_STATE;
+                const spd = Math.max(0, Math.round(state.currentSpeed || 0));
+                if (_driveUiKeys.spd !== spd) { _driveUiKeys.spd = spd; updateText(DOM.driveSpeed, String(spd)); }
+                const raining = st.isRainingNow === true || WMO_RAIN_CODES.has(st.weatherCode);
+                const sKey = raining ? 'RAIN NOW' : 'CLEAR';
+                if (_driveUiKeys.status !== sKey) {
+                    _driveUiKeys.status = sKey;
+                    updateText(DOM.driveStatus, sKey);
+                    updateClass(DOM.driveStatusChip, raining
+                        ? 'flex items-center gap-2 px-4 py-2 rounded-full border-2 border-brand-red/60 bg-brand-red/10'
+                        : 'flex items-center gap-2 px-4 py-2 rounded-full border-2 border-brand-success/50 bg-brand-success/10');
+                    updateClass(DOM.driveStatusIcon, raining
+                        ? 'fa-solid fa-cloud-showers-heavy text-brand-red text-lg'
+                        : 'fa-solid fa-circle-check text-brand-success text-lg');
+                    updateClass(DOM.driveStatus, raining
+                        ? 'font-black uppercase tracking-widest text-brand-red text-base md:text-xl animate-pulse'
+                        : 'font-black uppercase tracking-widest text-brand-success text-base md:text-xl');
+                }
+                const tempC = (typeof st.temperature === 'number') ? Math.round(st.temperature) : null;
+                if (_driveUiKeys.temp !== tempC) { _driveUiKeys.temp = tempC; updateText(DOM.driveTemp, tempC === null ? '--' : tempC + '°'); }
+                const nodesArr = state.routeNodes;
+                const curIdx = state.routeNodesCursor || 0;
+                const n = (nodesArr && nodesArr[curIdx]) ? nodesArr[curIdx] : null;
+                let nTxt = '—';
+                if (n && state.autoCoords) {
+                    const dm = Math.sqrt(fastDistanceSqMeters(state.autoCoords.lat, state.autoCoords.lon, n.lat, n.lon));
+                    if (Number.isFinite(dm)) {
+                        nTxt = (n.id != null ? 'N-' + n.id + ' · ' : '') +
+                               (dm >= 1000 ? (dm / 1000).toFixed(1) + ' KM' : (Math.round(dm / 10) * 10) + ' M');
+                    }
+                }
+                if (_driveUiKeys.node !== nTxt) { _driveUiKeys.node = nTxt; updateText(DOM.driveNode, nTxt); }
+                const rKm = (typeof state.driveRouteKm === 'number') ? state.driveRouteKm : null;
+                const rTxt = rKm !== null ? rKm.toFixed(1) + ' KM' : 'NO ROUTE';
+                let etaTxt = '—';
+                if (rKm !== null && state.currentSpeed >= 5) {
+                    const hrs = rKm / state.currentSpeed;
+                    etaTxt = hrs >= 1 ? Math.floor(hrs) + 'H ' + Math.round((hrs % 1) * 60) + 'M'
+                                      : Math.max(1, Math.round(hrs * 60)) + 'M';
+                }
+                if (_driveUiKeys.route !== rTxt) { _driveUiKeys.route = rTxt; updateText(DOM.driveRoute, rTxt); }
+                if (_driveUiKeys.eta !== etaTxt) { _driveUiKeys.eta = etaTxt; updateText(DOM.driveEta, etaTxt); }
             }
             // Compass icon + heading text driven by Aero HUD's polished visualHeading
             // (TC=120ms EMA, same as Aero compass ring). No duplicate smoothing.
@@ -3437,6 +3574,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             window.applyTacticalMode();
         };
 
+        // U2: Drive Mode toggle. The overlay is a fixed sibling of #hud-map, so
+        // no rotation contract applies; the updater lives in smoothVisualsLoop
+        // behind rounded-key caches so hidden state costs one classList check.
+        window.toggleDriveMode = function(force) {
+            state.driveMode = (typeof force === 'boolean') ? force : !state.driveMode;
+            if (DOM.driveMode) {
+                DOM.driveMode.classList.toggle('hidden', !state.driveMode);
+                DOM.driveMode.classList.toggle('flex', state.driveMode);
+            }
+            if (!state.driveMode) _driveUiKeys = {}; // force full repaint on reopen
+        };
+
         window.applyTacticalMode = function() {
             if (!state.mapObj) return;
             if (state.tacticalMode > 0) {
@@ -3881,6 +4030,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
             const totalNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
             const engineTag = window.lastWinningEngine ? `[${window.lastWinningEngine}] ` : '';
+            // U2: Drive Mode consumes these instead of recomputing totals per frame.
+            state.driveRouteKm = parseFloat(distKm);
+            state.driveRouteMin = totalSec / 60;
             const conf = FuelManager.getConfig();
             const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
 
@@ -5715,6 +5867,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (state.mapObj) for (let item of state.interceptMarkers) { if (item.marker) state.mapObj.removeLayer(item.marker); }
             state.interceptMarkers = [];
             state.lastIntelFetch = 0; state.currentRouteCoords = null; state.isFuelOnlyRoute = false;
+            // U2: clear the Drive Mode route snapshot with the route itself.
+            state.driveRouteKm = null; state.driveRouteMin = null;
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
             DOM.navBtn.classList.add('hidden');
