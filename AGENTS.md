@@ -211,6 +211,13 @@ From HISTORY.md "How to bump version in a new session":
 - Do not change deploy.bat to skip git pull --rebase.
 - Do not edit tests/_module_extract.mjs by hand - generated artefact
   (gitignored); edit index.html then npm run audit:extract.
+- Never rewrite index.html (or any source file) via PowerShell
+  Get-Content/Set-Content - PS 5.1 reads UTF-8 as ANSI and re-encoding
+  double-encodes every non-ASCII char (em-dash -> mojibake). Use the Edit
+  tool, or byte-exact [IO.File] APIs only. If a full-file transform is ever
+  unavoidable: backup first, then verify with git diff --stat (mass line
+  changes = corruption) and reverse via
+  utf8-decode -> cp1252-encode -> WriteAllBytes.
 - No new CDN script tag without SRI hash + crossorigin="anonymous".
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+?<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -259,18 +259,14 @@
 </head>
     <body class="safe-body text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 py-2 px-2 border-b-4 border-surface-800">
-        <h1 class="self-start text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+    <header class="flex items-center justify-between gap-3 py-2 px-2 border-b-4 border-surface-800">
+        <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
             <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i>
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
             <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
         </h1>
 
-        <div class="self-stretch sm:self-auto w-full sm:w-auto flex flex-wrap items-center justify-between sm:justify-end gap-2 md:gap-3">
-            <button id="cache-map-btn" aria-label="Cache Map Data" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
-                <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
-            </button>
-            <span id="cache-gauge" class="font-mono text-[10px] text-gray-500 bg-surface-800/50 px-2 py-1 rounded border border-surface-700/50 whitespace-nowrap hidden" title="Offline tile cache quota">-- MB</span>
+        <div class="flex items-center gap-2">
             <button id="pwa-install-btn" aria-label="Install App" class="hidden w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 items-center gap-2 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
@@ -686,27 +682,9 @@
         </div>
     </div>
 
-    <div id="map-cache-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-        <div class="bg-surface-900 border-4 border-brand-teal rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(20,184,166,0.3)]">
-            <h3 class="text-xl font-black text-brand-teal uppercase tracking-widest mb-2"><i class="fa-solid fa-cloud-arrow-down"></i> Cache Route Tiles?</h3>
-            <p class="text-gray-300 font-mono text-sm mb-6">This will download OpenStreetMap tiles along your active route for offline use. It may use significant mobile data and storage.</p>
-            <div class="flex gap-3 justify-end">
-                <button onclick="closeModal('map-cache-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
-                <button onclick="executeMapCache()" class="px-4 py-2 bg-brand-teal text-black font-black rounded-lg hover:bg-teal-400 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(20,184,166,0.5)]">Download</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="map-clear-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-        <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)]">
-            <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-2"><i class="fa-solid fa-map-location-dot"></i> Clear Map Storage?</h3>
-            <p class="text-gray-300 font-mono text-sm mb-6">This will permanently delete all offline map tiles stored in the browser's persistent cache.</p>
-            <div class="flex gap-3 justify-end">
-                <button onclick="closeModal('map-clear-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
-                <button onclick="executeMapClear()" class="px-4 py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Delete Maps</button>
-            </div>
-        </div>
-    </div>
+    <!-- N5: map-cache / map-clear confirm modals removed — tile prefetch is
+         automatic on every new route (updateRouteStatus -> downloadMapCache).
+         Manual cache clearing still available via PURGE (wipes all caches). -->
 
     <!-- MAGNETOMETER CALIBRATION MODAL (8-pattern capture) -->
     <div id="magcal-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
@@ -1555,12 +1533,12 @@
             _panRotateHookInstalled: false,
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
-            driveMode: false, driveRouteKm: null, driveRouteMin: null,
+            driveMode: false, driveRouteKm: null, driveRouteMin: null, lastAutoCacheSig: null,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
             tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
-            lastFetchAttempt: 0, isCachingMap: false, mapAbortController: null, fuelMarkers: [],
+            lastFetchAttempt: 0, isCachingMap: false, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
             renderAccText: null, renderAccClass: null,
@@ -1692,13 +1670,12 @@
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
-            modals: { custom: document.getElementById('custom-modal'), mapCache: document.getElementById('map-cache-modal'), mapClear: document.getElementById('map-clear-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
+            modals: { custom: document.getElementById('custom-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry'), ev: document.getElementById('pref-ev'), h2: document.getElementById('pref-h2'), openingMode: document.getElementById('pref-opening-mode'), amenitiesList: document.getElementById('pref-amenities-list'), offlineContent: document.getElementById('pref-offline-content'), offlineBrandList: document.getElementById('offline-brand-list'), downloadAllBtn: document.getElementById('download-all-btn') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
-            cacheMapBtn: document.getElementById('cache-map-btn'),
-            // FIX-1.4.1b (F5): hoisted — the CACHE_STATS_REPLY listener re-ran
-            // getElementById('cache-gauge') on every SW reply (~every fetch).
-            cacheGauge: document.getElementById('cache-gauge'),
+            // N5: cacheMapBtn/cacheGauge removed — tile prefetch is automatic
+            // (updateRouteStatus -> downloadMapCache); the CACHE_STATS reply
+            // handler no-ops on the missing gauge element by design.
             statNodes: {
                 eu: document.getElementById('stat-eu'),
                 us: document.getElementById('stat-us'),
@@ -1721,13 +1698,12 @@
 
         // FIX-1.4.1c (LOW-2): id→element reverse map for the modals, built once
         // at DOM-cache time. closeModal() callers pass the kebab-case element
-        // ids ('map-cache-modal', ...) while DOM.modals is keyed by camelCase
-        // ('mapCache', ...) — the previous per-close getElementById was
-        // redundant work for a lookup this map answers in one property read.
+        // ids while DOM.modals is keyed by camelCase ('fuelSettings', ...) —
+        // the previous per-close getElementById was redundant work for a
+        // lookup this map answers in one property read.
+        // N5: map-cache/map-clear modals removed (auto tile prefetch).
         const MODAL_BY_ID = {
             'custom-modal': DOM.modals.custom,
-            'map-cache-modal': DOM.modals.mapCache,
-            'map-clear-modal': DOM.modals.mapClear,
             'fuel-settings-modal': DOM.modals.fuelSettings,
             'magcal-modal': DOM.modals.magCal
         };
@@ -2243,44 +2219,21 @@ let delta = heading - state.lastHeading;
             }
         }
 
-        // --- MAP CACHE BUTTON ---
-        let mapHoldTimer = null;
-        const promptMapDownload = () => {
-            if (state.isCachingMap) return;
-            if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) {
-                updateText(DOM.statusEl, "NO ROUTE TO CACHE");
-                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-warning/30 whitespace-nowrap");
-                return;
-            }
-            DOM.modals.mapCache.classList.remove('hidden');
-        };
-        if (DOM.cacheMapBtn) {
-            DOM.cacheMapBtn.addEventListener('pointerdown', (e) => {
-                if (e.button !== 0 && e.type !== 'touchstart' && e.type !== 'pointerdown') return;
-                if (state.isCachingMap) return;
-                mapHoldTimer = setTimeout(() => { mapHoldTimer = null; DOM.modals.mapClear.classList.remove('hidden'); }, 800);
-            });
-            DOM.cacheMapBtn.addEventListener('pointerup', (e) => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; promptMapDownload(); } });
-            DOM.cacheMapBtn.addEventListener('pointerleave', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
-            DOM.cacheMapBtn.addEventListener('pointercancel', () => { if (mapHoldTimer) { clearTimeout(mapHoldTimer); mapHoldTimer = null; } });
-            DOM.cacheMapBtn.addEventListener('contextmenu', e => e.preventDefault());
-        } else {
-            console.warn('MeteoNexus: cache-map-btn DOM element missing — map-cache UI unavailable.');
-        }
-
         // --- MAP TILE PREFETCHER ---
+        // N5: fully automatic now. The old manual MAP button (tap-to-cache,
+        // hold-to-clear, confirm modal, progress chip) is gone; tiles for the
+        // active route are prefetched in the background on every NEW route
+        // signature (see updateRouteStatus). Silent: failures are tallied and
+        // logged at debug level; completion logs one info line. requestCacheStats
+        // resync after the run keeps the SW LRU budget truthful.
         function lon2tile(lon, zoom) { return Math.floor((lon + 180) / 360 * Math.pow(2, zoom)); }
         function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
-
-        window.executeMapCache = function() { closeModal('map-cache-modal'); window.downloadMapCache(); };
 
         window.downloadMapCache = async function() {
             if (state.isCachingMap) return;
             if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) return;
+            if (!navigator.onLine) return;
             state.isCachingMap = true;
-            state.mapAbortController = new AbortController();
-            const signal = state.mapAbortController.signal;
-            const originalHtml = DOM.cacheMapBtn.innerHTML;
             try {
                 if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
                 const zooms = [14, 15, 16];
@@ -2294,73 +2247,38 @@ let delta = heading - state.lastHeading;
                     });
                 });
                 const urls = Array.from(tileSet);
-                DOM.cacheMapBtn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i><span class="hidden md:block">0%</span>`;
-                DOM.cacheMapBtn.classList.add('bg-brand-teal', 'text-white');
-                DOM.cacheMapBtn.classList.remove('bg-brand-teal/10', 'text-brand-teal');
                 const cache = await caches.open('meteonexus-map-cache');
-                let downloaded = 0;
                 let failedTiles = 0;  // Tally of tiles whose fetch/cache.put failed
                 const concurrency = 5;
                 for (let i = 0; i < urls.length; i += concurrency) {
-                    if(signal.aborted) throw new Error("Aborted");
                     const batch = urls.slice(i, i + concurrency);
                     await Promise.all(batch.map(async (url) => {
-                        // Surface silent fetch/parse/cache failures to the user's
-                        // progress UI — previously an empty `catch(e) {}` hid
-                        // stuck batches (network/CORS/abort race). We don't
-                        // block on individual tile errors but DO tally them so
-                        // the final chip count can be inspected/surfaced.
+                        // Individual tile errors never block the batch; they are
+                        // tallied so the completion log can be inspected.
                         try {
                             const res = await cache.match(url);
                             if (!res) {
-                                const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit', signal });
+                                const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit' });
                                 if (fetchRes.ok || fetchRes.type === 'opaque') await cache.put(url, fetchRes.clone());
                             }
                         } catch (e) {
-                            // Suppress AbortError spam from intentional teardown,
-                            // log everything else at debug level so the dev can
-                            // see why tiles go missing in DevTools.
                             if (e && e.name !== 'AbortError') console.debug('tile fetch failed:', url, e && e.message);
                             failedTiles++;
                         }
-                        downloaded++;
                     }));
-                    if (i % 20 === 0) { const pct = Math.round((downloaded / urls.length) * 100); updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-cloud-arrow-down fa-fade"></i><span class="hidden md:block">${pct}%</span>`); }
                     await new Promise(r => setTimeout(r, 50));
                 }
-                updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-check"></i><span class="hidden md:block">CACHED</span>`);
-                if (failedTiles > 0) console.warn('Map cache finished with', failedTiles, 'failed tile uploads.');
+                console.info(`Offline tiles: ${urls.length - failedTiles}/${urls.length} cached for the active route.`);
                 // FIX-1.4.1b (H1): the SW never sees these tile puts (opaque,
                 // no-cors fetches bypass the fetch handler), so its in-memory byte
-                // counter — which drives both the LRU eviction budget and the
-                // #cache-gauge pill — would stay near zero after a large download.
-                // Re-seed it from disk so eviction and the gauge reflect reality.
+                // counter — which drives the LRU eviction budget — would stay near
+                // zero after a large download. Re-seed it from disk.
                 if (typeof window.requestCacheStats === 'function') window.requestCacheStats(true);
             } catch(err) {
-                if(err.message !== "Aborted") updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-triangle-exclamation"></i><span class="hidden md:block">FAILED</span>`);
+                console.warn('Background tile cache failed:', err && err.message);
             } finally {
-                setTimeout(() => {
-                    updateHTML(DOM.cacheMapBtn, originalHtml);
-                    DOM.cacheMapBtn.classList.remove('bg-brand-teal', 'text-white');
-                    DOM.cacheMapBtn.classList.add('bg-brand-teal/10', 'text-brand-teal');
-                    state.isCachingMap = false; state.mapAbortController = null;
-                }, 3000);
+                state.isCachingMap = false;
             }
-        };
-
-        window.executeMapClear = async function() {
-            try {
-                if(state.mapAbortController) state.mapAbortController.abort();
-                await caches.delete('meteonexus-map-cache');
-                closeModal('map-clear-modal');
-                updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-trash"></i><span class="hidden md:block">CLEARED</span>`);
-                setTimeout(() => { updateHTML(DOM.cacheMapBtn, `<i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>`); }, 2000);
-                // FIX-1.4.1b (H2): the counter was never reset here — after a
-                // clear the SW still believed the old bytes existed, so the gauge
-                // kept showing the stale usage and the LRU budget stayed consumed.
-                // Resync from the (now empty) cache.
-                if (typeof window.requestCacheStats === 'function') window.requestCacheStats(true);
-            } catch(e) { console.error("Map cache clear failed:", e); }
         };
 
         // --- AUDIO ---
@@ -4033,6 +3951,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // U2: Drive Mode consumes these instead of recomputing totals per frame.
             state.driveRouteKm = parseFloat(distKm);
             state.driveRouteMin = totalSec / 60;
+            // N5: automatic offline tile prefetch. Gated per route signature so a
+            // NEW route (re-route, waypoint swap, pitstop insert) re-caches while
+            // telemetry-refresh re-fires of the same route skip. 5s debounce lets
+            // the routing UI settle; online + not-already-caching guards apply.
+            const routeSig = summary.totalDistance + '|' + (route.coordinates ? route.coordinates.length : 0);
+            if (navigator.onLine && routeSig !== state.lastAutoCacheSig) {
+                state.lastAutoCacheSig = routeSig;
+                setTimeout(() => {
+                    if (navigator.onLine && !state.isCachingMap) window.downloadMapCache();
+                }, 5000);
+            }
             const conf = FuelManager.getConfig();
             const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
 
@@ -6508,7 +6437,8 @@ function checkDependenciesAndRun() {
             // telemetry refresh + after map-cache-tap confirms.
             // FIX-1.4.1b (H1/H2): resync=true asks the SW to re-seed its in-memory
             // byte counter from disk before replying — used after downloadMapCache
-            // and executeMapClear, which mutate the on-disk cache directly while
+            // used after downloadMapCache (auto tile prefetch) mutates the on-disk
+        // cache directly while
             // the SW (and its LRU/eviction bookkeeping) never sees the writes.
             window.requestCacheStats = (resync = false) => {
                 if (!navigator.serviceWorker.controller) return;
