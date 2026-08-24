@@ -259,26 +259,26 @@
 </head>
     <body class="safe-body text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
-    <header class="flex justify-between items-center py-2 px-2 border-b-4 border-surface-800">
-        <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-            <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i> 
+    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 py-2 px-2 border-b-4 border-surface-800">
+        <h1 class="self-start text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+            <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i>
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
             <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
         </h1>
-        
-        <div class="flex flex-wrap items-center gap-2 md:gap-3">
-            <button id="cache-map-btn" aria-label="Cache Map Data" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
+
+        <div class="self-stretch sm:self-auto w-full sm:w-auto flex flex-wrap items-center justify-between sm:justify-end gap-2 md:gap-3">
+            <button id="cache-map-btn" aria-label="Cache Map Data" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-teal/40 bg-brand-teal/10 text-brand-teal text-xs md:text-sm font-bold tracking-widest hover:bg-brand-teal hover:text-white transition-all shadow-sm select-none" title="Tap to cache route tiles (confirm). Hold to clear cache.">
                 <i class="fa-solid fa-map"></i><span class="hidden md:block">MAP</span>
             </button>
             <span id="cache-gauge" class="font-mono text-[10px] text-gray-500 bg-surface-800/50 px-2 py-1 rounded border border-surface-700/50 whitespace-nowrap hidden" title="Offline tile cache quota">-- MB</span>
-            <button id="pwa-install-btn" aria-label="Install App" class="hidden items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
+            <button id="pwa-install-btn" aria-label="Install App" class="hidden w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 items-center gap-2 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
-            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="flex items-center gap-2 px-3 py-2 md:px-5 md:py-3 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm">
+            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm select-none" title="Purge caches and storage (confirm)">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
-            <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="flex items-center gap-3 px-4 py-2 md:px-6 md:py-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-sm md:text-base font-bold tracking-widest transition-all">
-                <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i> 
+            <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-6 md:py-3 flex items-center gap-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-surface-400 hover:text-white transition-all" title="Sonar audio alerts">
+                <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i>
                 <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
             </button>
         </div>
