@@ -20,7 +20,7 @@
     <link rel="preconnect" href="https://valhalla1.openstreetmap.de" crossorigin>
     
     <link rel="preload" as="style" href="./tailwind.min.css">
-    <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+    <link rel="preload" as="script" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous">
 
     <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js" integrity="sha384-JU5BZoPLFT50NKsen0cKt0RTuYeiJ8LaXWA97AZ+JjLppaQ72oIFUVre0Vb/MBYO" crossorigin="anonymous">
     <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js" integrity="sha384-zD+VnXMUMWCArv4u3Gxh8to370Q7NeoMtDYNNhnw8711mv1amoE8p4oDmdc7d7xy" crossorigin="anonymous">
@@ -331,6 +331,7 @@
                         <div id="stat-us" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">US</div>
                         <div id="stat-de" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">DE</div>
                         <div id="stat-jp" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
+                        <div id="stat-ca" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">CA</div>
                     </div>
                 </div>
             </div>
@@ -827,19 +828,19 @@
         // of the call (no per-waypoint recomputation needed for typical routes ≤ 99
         // nodes that mostly sit in one regime; buy-node reach is limited).
         const REGIONAL_WEIGHTS = {
-            default:   { ecmwf_ifs025: 0.40, gfs_seamless:  0.30, icon_seamless: 0.18, jma_seamless: 0.12 },
-            europe:    { ecmwf_ifs025: 0.32, gfs_seamless:  0.22, icon_seamless: 0.36, jma_seamless: 0.10 },
-            east_asia: { ecmwf_ifs025: 0.36, gfs_seamless:  0.22, icon_seamless: 0.14, jma_seamless: 0.28 }
+            default:   { ecmwf_ifs025: 0.38, gfs_seamless:  0.28, icon_seamless: 0.16, jma_seamless: 0.12, gem_seamless: 0.06 },
+            europe:    { ecmwf_ifs025: 0.30, gfs_seamless:  0.21, icon_seamless: 0.34, jma_seamless: 0.09, gem_seamless: 0.06 },
+            east_asia: { ecmwf_ifs025: 0.34, gfs_seamless:  0.21, icon_seamless: 0.13, jma_seamless: 0.26, gem_seamless: 0.06 }
         };
 
         // Long-lead weights (~+72h+): ECMWF's lead shrinks; GFS converges; ICON/JMA
         // are not competitive at long range outside their nested domains. Used as the
-        // far-end interpolation target by setActiveWeightsAtLead(). Both ECMWF and
-        // GFS carry 0.40 (the documented convergence point); regional models shrink.
+        // far-end interpolation target by setActiveWeightsAtLead(). GEM keeps a small
+        // flat seat at every regime/lead (independence vote, see ENSEMBLE_WEIGHTS).
         const LONG_LEAD_WEIGHTS = {
-            default:   { ecmwf_ifs025: 0.40, gfs_seamless:  0.40, icon_seamless: 0.12, jma_seamless: 0.08 },
-            europe:    { ecmwf_ifs025: 0.36, gfs_seamless:  0.36, icon_seamless: 0.22, jma_seamless: 0.06 },
-            east_asia: { ecmwf_ifs025: 0.40, gfs_seamless:  0.36, icon_seamless: 0.10, jma_seamless: 0.18 }
+            default:   { ecmwf_ifs025: 0.38, gfs_seamless:  0.38, icon_seamless: 0.11, jma_seamless: 0.07, gem_seamless: 0.06 },
+            europe:    { ecmwf_ifs025: 0.34, gfs_seamless:  0.34, icon_seamless: 0.21, jma_seamless: 0.05, gem_seamless: 0.06 },
+            east_asia: { ecmwf_ifs025: 0.38, gfs_seamless:  0.34, icon_seamless: 0.09, jma_seamless: 0.13, gem_seamless: 0.06 }
         };
 
         function _inEurope(lat, lon)   { return lat >= 35 && lat <= 72 && lon >= -15 && lon <= 40; }
@@ -874,20 +875,22 @@
             return out;
         }
         const ENSEMBLE_WEIGHTS = {
-            ecmwf_ifs025: 0.40,  // ECMWF IFS 0.25° — verified leader on 24-72h precip
+            ecmwf_ifs025: 0.38,  // ECMWF IFS 0.25° — verified leader on 24-72h precip
                                 // skill (WMO SVSNA 2023-2024, Open-Meteo validation).
-                                // Bumped from 0.35 to reflect skill ranking.
-            gfs_seamless:  0.30,  // GFS seamless — solid global #2; converges with
-                                // ECMWF at +72h. Trimmed from 0.35 since GFS
-                                // under-performs ECMWF at 24-48h.
-            icon_seamless: 0.18,  // ICON seamless — very competitive in Europe/MENA
+            gfs_seamless:  0.28,  // GFS seamless — solid global #2.
+            icon_seamless: 0.16,  // ICON seamless — very competitive in Europe/MENA
                                 // (where ICON-EU nested runs lead ECMWF for precip
-                                // placement). Bumped from 0.15 to acknowledge that.
-            jma_seamless:  0.12   // JMA seamless — leads over Japan/Western Pacific,
-                                // weaker globally. Trimmed from 0.15 to reflect
-                                // narrow regional skill.
+                                // placement).
+            jma_seamless:  0.12,  // JMA seamless — leads over Japan/Western Pacific,
+                                // weaker globally.
+            gem_seamless:  0.06   // GEM (CMC, Canada) — N4 addition: mid-tier global
+                                // skill but fully INDEPENDENT physics/assimilation,
+                                // so its vote decorrelates from the ECMWF/GFS pair.
+                                // Weight is deliberately small: enough to break
+                                // ties, never enough to drag consensus. If Brier
+                                // history shows no skill gain, revert this number.
         };
-        const ENSEMBLE_LABELS = { ecmwf_ifs025: 'EU', gfs_seamless: 'US', icon_seamless: 'DE', jma_seamless: 'JP' };
+        const ENSEMBLE_LABELS = { ecmwf_ifs025: 'EU', gfs_seamless: 'US', icon_seamless: 'DE', jma_seamless: 'JP', gem_seamless: 'CA' };
 
         const WeatherEnsemble = {
             models: Object.keys(ENSEMBLE_WEIGHTS),
@@ -1014,14 +1017,24 @@
             // positive value to be considered "live"; the dry-but-real case (whole
             // week clear sky) is statistically negligible over a 48h hourly sample
             // — most regions have at least one forecast hour with > 0.01 mm precip.
-            checkHealth(arr) {
+            // N3: optional now-window — when nowIdx >= 0, coverage is measured
+            // over a +-halfWindow-hour slice around "now" instead of the full
+            // 48h array, so the badge reflects whether the node is alive NOW
+            // rather than whether it reported at some point this week.
+            checkHealth(arr, nowIdx = -1, halfWindow = 3) {
                 if (!arr || !Array.isArray(arr) || arr.length === 0) return { healthy: false, coveragePct: 0 };
                 let valid = 0, sumAbs = 0;
-                const len = arr.length;
+                let start = 0, len = arr.length;
+                if (nowIdx >= 0) {
+                    start = Math.max(0, nowIdx - halfWindow);
+                    len = Math.min(arr.length, nowIdx + halfWindow + 1) - start;
+                    if (len <= 0) { start = 0; len = arr.length; }
+                }
                 for (let i = 0; i < len; i++) {
-                    if (arr[i] !== null && arr[i] !== undefined) {
+                    const v = arr[start + i];
+                    if (v !== null && v !== undefined) {
                         valid++;
-                        sumAbs += Math.abs(arr[i]);
+                        sumAbs += Math.abs(v);
                     }
                 }
                 const coveragePct = (valid / len) * 100;
@@ -1614,7 +1627,8 @@
                 eu: document.getElementById('stat-eu'),
                 us: document.getElementById('stat-us'),
                 de: document.getElementById('stat-de'),
-                jp: document.getElementById('stat-jp')
+                jp: document.getElementById('stat-jp'),
+                ca: document.getElementById('stat-ca')
             }
         };
         if (DOM.accUi) DOM.accText = DOM.accUi.querySelector('#gps-acc-text');
@@ -4909,7 +4923,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
 
             // Coverage-% health per model — partial degradation now shows as yellow, not green.
-            const nodeHealth = WeatherEnsemble.models.map(m => WeatherEnsemble.checkHealth(precipModels[m]));
+            // N1: health is sampled across THREE variables (precip + temp + wind speed)
+            // and takes the best effective coverage — previously a model with live
+            // temp/wind but a gapped precip feed was painted red as "offline" even
+            // though the node was reporting. N3: measured over a +-3h window around
+            // "now", so the badge answers "is this node alive now".
+            const nodeHealth = WeatherEnsemble.models.map(m => {
+                let best = WeatherEnsemble.checkHealth(precipModels[m], nowIndex);
+                const alt = [tempModels[m], windSpdModels[m]];
+                for (let k = 0; k < alt.length; k++) {
+                    const h = WeatherEnsemble.checkHealth(alt[k], nowIndex);
+                    const hEff = h.sentinelDead ? 0 : h.coveragePct;
+                    const bEff = best.sentinelDead ? 0 : best.coveragePct;
+                    if (hEff > bEff) best = h;
+                }
+                return best;
+            });
 
             // Low-confidence flag — set when the active precip weight falls below the
             // global ACK baseline (ECMWF + GFS both unavailable/down). The UI follows
@@ -4985,10 +5014,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const id = WeatherEnsemble.labels[m].toLowerCase();
                 const el = DOM.statNodes[id];
                 if (!el) return;
-                const health = nodeHealth ? nodeHealth[idx] : { healthy: true, coveragePct: 100 };
+                const health = nodeHealth ? nodeHealth[idx] : { healthy: true, coveragePct: 100, sentinelDead: false };
                 if (health.coveragePct < WeatherEnsemble.HEALTH_DOWN_PCT) {
-                    updateClass(el, "font-bold px-2 py-0.5 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest");
-                    updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`);
+                    // N2: distinguish "model has no data for this region" (expected
+                    // behavior, gray) from "model faulted / partial outage" (red).
+                    if (health.sentinelDead || health.coveragePct === 0) {
+                        updateClass(el, "font-bold px-2 py-0.5 bg-surface-700 border border-surface-600 text-gray-400 rounded flex-1 md:flex-none text-center uppercase tracking-widest");
+                        updateHTML(el, `<i class="fa-solid fa-ban mr-1"></i> ${id.toUpperCase()}`);
+                        el.title = `No regional coverage — ${id.toUpperCase()} returns no data for this area (expected, excluded from consensus)`;
+                    } else {
+                        updateClass(el, "font-bold px-2 py-0.5 bg-brand-red border border-brand-red text-black rounded flex-1 md:flex-none text-center uppercase tracking-widest");
+                        updateHTML(el, `<i class="fa-solid fa-triangle-exclamation mr-1"></i> ${id.toUpperCase()}`);
+                        el.title = `${Math.round(health.coveragePct)}% data coverage — FAULTED, weight redistributed`;
+                    }
                 } else if (health.coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT) {
                     updateClass(el, "font-bold px-2 py-0.5 bg-brand-warning/20 border border-brand-warning/50 text-brand-warning rounded flex-1 md:flex-none text-center uppercase tracking-widest");
                     updateHTML(el, `<i class="fa-solid fa-circle-half-stroke mr-1"></i> ${id.toUpperCase()}`);

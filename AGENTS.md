@@ -224,7 +224,7 @@ From HISTORY.md "How to bump version in a new session":
   layer contracts + legacy-ban + single --hud-rot writer)
 - Scanners: 7 (tdz, fp, brace, csp, domnull, visual, extract+parse) plus
   meta-verifier
-- index.html - 7187 lines / ~481 KB; inline module lines 671-7174 (~435 KB)
+- index.html - 7232 lines / ~483 KB; inline module lines 672-7212 (~437 KB)
 - worker.js - 271 lines; sw.js - 408 lines; fuel-stations.js - 280 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
