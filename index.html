@@ -7307,9 +7307,12 @@ function checkDependenciesAndRun() {
                 const ver = (await res.text()).trim();
                 if (!ver) return;
                 for (const el of badges) el.textContent = 'v' + ver;
-            } catch {
-                for (const el of badges) el.textContent = 'v?';
-            }
+        } catch {
+            // A "v?" badge is user-facing noise — hide the badge entirely when
+            // the version file can't be loaded (file:// origin, deploy that
+            // forgot VERSION). The header reads clean either way.
+            for (const el of badges) el.style.display = 'none';
+        }
         })();
     </script>
 </body>
