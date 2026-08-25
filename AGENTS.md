@@ -229,7 +229,7 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.5.0, 2026-08-25)
+## 11. Reference numbers (verified v1.6.0, 2026-08-25)
 
 - sanity.test.js - 139 substring assertions / 0 failing
 - tests/unit/ - 35 executable fixtures / 0 failing (worker kernel, fuel
@@ -238,7 +238,7 @@ From HISTORY.md "How to bump version in a new session":
   layer contracts + PHASE S shell integrity)
 - Scanners: 8 (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
   plus meta-verifier
-- index.html - 7392 lines / ~492 KB; inline module lines 752-7369 (~442 KB)
+- index.html - 7404 lines / ~493 KB; inline module lines 752-7369 (~442 KB)
 - worker.js - 271 lines; sw.js - 408 lines; fuel-stations.js - 280 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)

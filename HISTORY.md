@@ -1181,3 +1181,44 @@ Minor bump from 1.4.1 → 1.5.0. Three user-facing features (Drive Mode, fifth e
 ### Blind spots considered (§8)
 
 Races: none new (single-writer rotation; prefetch guarded non-concurrent). Leaks: pane created once; no new listeners. Off-by-one/coercion: the two unit-caught fixes cover this class. Unhandled rejections: prefetch fully caught. import(): none added. Perf: gated writes everywhere; SWR trades one-load-behind for instant boots (documented). A11y: tap-48 + aria-labels improved; full pass still owed. Visual compositing: scanner-proven statically; runtime pass listed pending above.
+
+### Post-bump additions (shipped under 1.5.0 via deploy auto-commits — 2026-08-25 late)
+
+Work landed after the chapter above was written; deployed and user-confirmed the same day. Documented here so the 1.5.0 chapter covers what actually shipped.
+
+- **Environment cards merged (density-by-mode)** — `#main-status-card` + telemetry card unified into one `col-span-12` card (status column + data column, portrait stacks). Normal mode = driving glance; focus mode (`section-fullscreen`) reveals diagnostics via pure-CSS `.focus-only` hook — zero JS show/hide.
+- **Focus-only diagnostics** — Global Node Health strip, `±X° MODEL SPREAD · regime · ⚠ N GLOBAL NODES OFFLINE` line, and a NEW per-model table (`EU 0.00 DRY | JP 0.10 TRACE …`) answering "which node disagrees and by how much" behind every LOW CONF. Reads `precipModels`/`nowIndex` already in memory — zero new API calls.
+- **Honest wording** — big status `STABLE` → `NO RAIN` (internal classifyWetness string untouched); cloud pill parenthetical removed (`39% Cloud (Partly Cloudy)` repeated itself); `EAST_ASIA` regime key formatted for humans; `REGIONAL ONLY` jargon → explicit offline count.
+- **Low-confidence dot** — consensus value keeps its magnitude color; skepticism moved to a tiny amber ⚠ dot (pulse) beside it, visible in normal mode (safety-relevant), explanation focus-only.
+- **UV band** — WHO scale appended (`LOW/MODERATE/HIGH/VERY HIGH/EXTREME`).
+- **Aero-Vector focus independence** — the dynamically-mounted radar card (DOM-nested in `main-grid`) was dragged into Local-Telemetry fullscreen. Fix: container `id="aero-vector-card"`, expand button toggles `aero-fullscreen` marker, CSS excludes it from telemetry fullscreen unless it is itself fullscreen (`:has()` twin makes it mount-position-independent). User-confirmed fixed.
+- **Version badge** — hides entirely when `./VERSION` can't load (file:// origin, missed deploy) instead of showing a meaningless `v?`.
+- **Leaflet preload SRI alignment** — preload lacked the consumer's `integrity`/`crossorigin`; aligned (double-fetch + discard warning gone).
+- **file:// diagnosis** — user console dump audited: all errors traced to `file://` origin (SW/Worker/import/fetch bans); documented that the app must be served. Preload fix above was the only code change.
+- Sanity guards 136 → 139 (`.focus-only` hook, `focus-model-table`, `NO RAIN` mapping). Full pipeline + precheck green after each landed change; final: lint 0 · 139/139 · 35/35 · 8 scanners PASS · 24/24 meta.
+- **PENDING runtime evidence (unchanged):** Fetch Gate 5-model 200, Drive Mode values, upright popups/icons, auto-prefetch observation, compass feel, second-boot speed — user device.
+
+---
+
+## 1.6.0 — 2026-08-25 (minor: unified Environment card + density-by-mode + focus independence)
+
+### Bump rationale
+
+Minor bump from 1.5.0 → 1.6.0. Formalizes the post-1.5.0 work documented in the 1.5.0 post-bump addendum above (merged Environment card, density-by-mode diagnostics, Aero-Vector focus independence, honest wording, badge/preload fixes) as its own release. Full change detail lives in that addendum to avoid duplication — this chapter is the release marker + gate evidence.
+
+### Release content (summary — see 1.5.0 post-bump addendum for detail)
+
+- Environment cards merged into one `col-span-12` card; portrait stacks.
+- Density-by-mode: normal = driving glance; focus (`section-fullscreen`) reveals node-health strip, spread/regime line, and a NEW per-model table (`EU 0.00 DRY | … | CA 0.00 DRY`) via pure-CSS `.focus-only` — zero JS show/hide, zero new API calls.
+- Honest wording: `STABLE` → `NO RAIN` (display-only), cloud-pill parenthetical removed, `EAST_ASIA` → `EAST ASIA`, `REGIONAL ONLY` → `⚠ N GLOBAL NODES OFFLINE`, UV gains WHO band, consensus low-confidence moved off the value onto a ⚠ dot.
+- Aero-Vector HUD focus independence: excluded from Local-Telemetry fullscreen (descendant + `:has()` CSS, `aero-fullscreen` marker) — user-confirmed fixed.
+- Version badge hides on load failure; Leaflet preload SRI aligned.
+
+### Gates run + evidence (at bump time)
+
+- `npm run lint && npm test && npm run audit && npm run audit:verify && npm run precheck` — ALL GREEN: lint 0 · sanity 139/139 · unit 35/35 (accuracy layer untouched — display-only release) · 8 scanners PASS · 24/24 meta-controls · Tailwind build OK.
+- **PENDING runtime evidence (user device):** merged-card normal/focus density check, per-model table vs node-strip consistency, portrait stacking, Aero exclusion (user-confirmed working), Drive Mode independence, Fetch Gate 5-model 200.
+
+### Blind spots considered (§8)
+
+Races: none (CSS-only visibility). Leaks: none (static markup). Perf: hidden diagnostics cost one CSS rule match; mini-table renders per fetch (5-min cycle). A11y: focus-only content reachable in fullscreen; contrast unchanged. Visual compositing: no rotation-surface changes; device pass listed pending.
