@@ -6638,7 +6638,10 @@ function checkDependenciesAndRun() {
 
             const aeroContainer = document.createElement('div');
             aeroContainer.id = 'aero-vector-card';
-            aeroContainer.className = "col-span-1 lg:col-span-12 w-full mt-2";
+            // NOTE: main-grid is grid-cols-1 since the U2-MERGE — a col-span-12
+            // child here would create 11 implicit auto columns and squeeze the
+            // merged card's 1fr track (the desktop width-imbalance bug).
+            aeroContainer.className = "w-full mt-2";
 
             const radarCard = document.createElement('div');
             radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
