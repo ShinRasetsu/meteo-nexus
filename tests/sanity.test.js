@@ -90,6 +90,11 @@ assert(
   "DOM.statNodes references stat-eu, stat-us, stat-de, stat-jp (IDs match HTML)"
 );
 
+// U2-MERGE: density-by-mode + honest status wording
+assertIncludes(html, 'focus-only', "index.html defines the .focus-only density-by-mode hook");
+assertIncludes(html, 'id="focus-model-table"', "index.html renders the focus-only per-model table");
+assertIncludes(html, '"NO RAIN"', "index.html displays NO RAIN instead of the ambiguous STABLE");
+
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");
 assertIncludes(html, 'cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', "Chart.js 4.4.1 loaded");

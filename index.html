@@ -255,6 +255,12 @@
         /* U3: minimum touch target for driving-relevant controls (bumpy-road /
            glove test). Desktop density barely changes (min wins only when smaller). */
         .tap-48 { min-width: 48px; min-height: 48px; }
+        /* U2-FOCUS: density-by-mode. Diagnostic rows (node strip, model table,
+           spread/regime line) exist only for the fullscreen readout — hidden in
+           the driving glance, revealed by the existing focus class. Zero JS. */
+        .focus-only { display: none !important; }
+        #sec-telemetry.section-fullscreen .focus-only { display: flex !important; }
+        #sec-telemetry.section-fullscreen .focus-only.focus-grid { display: grid !important; }
     </style>
 </head>
     <body class="safe-body text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
@@ -285,81 +291,102 @@
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
             <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
-        <div id="main-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div id="main-grid" class="grid grid-cols-1 gap-4">
 
-            <!-- CHANGED: added code-agreement-badge div after weather-desc -->
-            <div id="main-status-card" class="hud-card lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-surface-800 bg-surface-900 min-h-[200px] md:min-h-[250px] relative overflow-hidden">
-                <div class="absolute top-4 left-4">
-                    <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-60">Local Telemetry</span>
-                </div>
-                <div class="absolute top-4 right-4 text-right">
-                    <div id="location-badge" class="text-sm font-bold text-gray-300 flex items-center gap-1.5 justify-end uppercase tracking-widest">
-                        <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
-                    </div>
-                    <div class="text-[10px] font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
-                        <i class="fa-regular fa-clock text-brand-blue opacity-80"></i> 
-                        <span id="local-time-text">--:--:--</span>
-                    </div>
-                </div>
+            <!-- U2-MERGE: status + telemetry cards unified. Density-by-mode:
+                 diagnostic rows (node strip, per-model table, spread/regime) are
+                 .focus-only — revealed by sec-telemetry.section-fullscreen.
+                 ALL element ids preserved; render JS untouched except labels. -->
+            <div id="main-status-card" class="hud-card col-span-1 rounded-2xl p-4 md:p-6 border-4 border-surface-800 bg-surface-900 relative overflow-hidden">
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6">
 
-                <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
-                <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
-                <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
-                <!-- NEW: model weather-code agreement badge -->
-                <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest"></div>
-            </div>
-
-            <!-- CHANGED: added metric-temp-spread, changed "Model Sync" to "Rain Consensus" -->
-            <div class="lg:col-span-7 bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col justify-around gap-4">
-                <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
-                    <div>
-                        <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temperature</span>
-                        <div class="flex items-baseline gap-3">
-                            <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white leading-none">--</div>
-                            <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
+                    <!-- STATUS COLUMN -->
+                    <div class="md:col-span-4 flex flex-col items-center justify-center text-center relative min-h-[180px]">
+                        <div class="absolute top-0 left-0">
+                            <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-60">Local Telemetry</span>
                         </div>
-                        <!-- NEW: model spread band -->
-                        <div id="metric-temp-spread" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-1"></div>
-                    </div>
-                    <div class="text-right">
-                        <!-- CHANGED: "Model Sync" → "Rain Consensus" -->
-                        <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Rain Consensus</span>
-                        <div id="metric-agree" class="font-mono text-4xl md:text-5xl font-black text-brand-teal leading-none">--</div>
-                    </div>
-                </div>
-
-                <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
-                    <div>
-                        <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind & Humidity</span>
-                        <div class="flex items-baseline gap-4">
-                            <div class="flex items-baseline gap-1">
-                                <span id="metric-wind-speed" class="font-mono text-3xl md:text-4xl font-black text-white leading-none">--</span>
-                                <span class="text-xs font-bold text-gray-500 uppercase">km/h</span>
+                        <div class="absolute top-0 right-0 text-right">
+                            <div id="location-badge" class="text-sm font-bold text-gray-300 flex items-center gap-1.5 justify-end uppercase tracking-widest">
+                                <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
                             </div>
-                            <div id="metric-hum" class="font-mono text-2xl md:text-3xl font-black text-brand-blue leading-none">--</div>
+                            <div class="text-[10px] font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
+                                <i class="fa-regular fa-clock text-brand-blue opacity-80"></i>
+                                <span id="local-time-text">--:--:--</span>
+                            </div>
                         </div>
-                        <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
-                        <div class="flex items-center gap-3 mt-1.5">
-                            <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- hPa</span>
-                            <span class="text-gray-600 text-[10px]">|</span>
-                            <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- km</span>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
-                        <div id="metric-uv-val" class="font-mono text-3xl md:text-4xl font-black text-brand-purple leading-none">--</div>
-                        <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
-                    </div>
-                </div>
 
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
-                    <div class="flex flex-wrap gap-2 md:gap-3 font-mono text-xs md:text-sm w-full md:w-auto">
-                        <div id="stat-eu" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">EU</div>
-                        <div id="stat-us" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">US</div>
-                        <div id="stat-de" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">DE</div>
-                        <div id="stat-jp" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
-                        <div id="stat-ca" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">CA</div>
+                        <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
+                        <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
+                        <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
+                        <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest"></div>
+                    </div>
+
+                    <!-- DATA COLUMN -->
+                    <div class="md:col-span-8 flex flex-col justify-around gap-4 md:border-l-2 md:border-surface-800 md:pl-6">
+
+                        <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
+                            <div>
+                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temperature</span>
+                                <div class="flex items-baseline gap-3">
+                                    <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white leading-none">--</div>
+                                    <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-sm font-bold text-brand-teal uppercase tracking-widest block mb-1">Rain Consensus
+                                    <span id="low-conf-dot" class="hidden align-middle ml-1 w-2 h-2 rounded-full bg-brand-warning animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.7)]" title="Low confidence — global nodes offline"></span>
+                                </span>
+                                <div id="metric-agree" class="font-mono text-4xl md:text-5xl font-black text-brand-teal leading-none">--</div>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
+                            <div>
+                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind & Humidity</span>
+                                <div class="flex items-baseline gap-5">
+                                    <div class="flex flex-col items-start">
+                                        <div class="flex items-baseline gap-1">
+                                            <span id="metric-wind-speed" class="font-mono text-3xl md:text-4xl font-black text-white leading-none">--</span>
+                                            <span class="text-xs font-bold text-gray-500 uppercase">km/h</span>
+                                        </div>
+                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Wind</span>
+                                    </div>
+                                    <div class="flex flex-col items-start">
+                                        <div id="metric-hum" class="font-mono text-2xl md:text-3xl font-black text-brand-blue leading-none">--</div>
+                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Humidity</span>
+                                    </div>
+                                </div>
+                                <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
+                                <div class="flex items-center gap-3 mt-1.5">
+                                    <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- hPa</span>
+                                    <span class="text-gray-600 text-[10px]">|</span>
+                                    <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- km</span>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
+                                <div id="metric-uv-val" class="font-mono text-3xl md:text-4xl font-black text-brand-purple leading-none">--</div>
+                                <div id="metric-uv-band" class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">--</div>
+                                <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
+                            </div>
+                        </div>
+
+                        <!-- FOCUS-ONLY: diagnostics revealed in fullscreen -->
+                        <div class="focus-only flex-col gap-3">
+                            <div class="flex flex-wrap justify-between items-center gap-2">
+                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
+                                <span id="metric-temp-spread" class="text-[10px] font-mono font-bold uppercase tracking-widest text-gray-500"></span>
+                            </div>
+                            <div class="flex flex-wrap gap-2 md:gap-3 font-mono text-xs md:text-sm w-full">
+                                <div id="stat-eu" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">EU</div>
+                                <div id="stat-us" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">US</div>
+                                <div id="stat-de" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">DE</div>
+                                <div id="stat-jp" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
+                                <div id="stat-ca" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">CA</div>
+                            </div>
+                            <div id="focus-model-table" class="font-mono text-[10px] md:text-xs text-gray-400 leading-relaxed text-left"></div>
+                        </div>
+
                     </div>
                 </div>
             </div>
@@ -1675,6 +1702,9 @@
             metricWindSpeed: document.getElementById('metric-wind-speed'), metricWindDir: document.getElementById('metric-wind-dir'),
             metricPressure: document.getElementById('metric-pressure'), metricVisibility: document.getElementById('metric-visibility'),
             metricUvVal: document.getElementById('metric-uv-val'), metricUvTime: document.getElementById('metric-uv-time'),
+            metricUvBand: document.getElementById('metric-uv-band'),
+            lowConfDot: document.getElementById('low-conf-dot'),
+            focusModelTable: document.getElementById('focus-model-table'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
@@ -5063,6 +5093,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
                      tempBand, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble,
+                     // U2-MERGE: focus-only per-model table reads these (display
+                     // layer only — the ensemble math above is untouched).
+                     precipModels, nowIdx: nowIndex,
                      // Extra atmospheric fields from the API current block that the
                      // offline-reconstructed `curr` object doesn't carry. These are
                      // only useful when displaying live observed data (precip breakdown,
@@ -5098,7 +5131,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -5133,22 +5166,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             updateText(DOM.metricHum,     curr.relative_humidity_2m + '%');
             updateText(DOM.metricAgree,   `${currentAgreement.toFixed(0)}%`);
 
-            // Color reflects actual meaning: red = high wet consensus, teal = dry consensus.
-            // Low-confidence override (amber) — set when only regional models are alive.
-            // The amber tint signals "treat the % tag skeptically", which is the
-            // desired effect when ECMWF/GFS are both offline or null at this hour.
+            // U2-MERGE: confidence moved OFF the value onto the ⚠ dot. A 0% in
+            // amber read as "0% but worried"; now the number keeps its honest
+            // magnitude color and the dot carries the skepticism (full
+            // explanation lives in the focus-only diagnostics).
             if (DOM.metricAgree) {
-                const agreeColorClass = lowConfidence ? 'text-brand-warning'
-                                      : currentStatus === 'RAIN_LIKELY'   ? 'text-brand-red'
+                const agreeColorClass = currentStatus === 'RAIN_LIKELY'   ? 'text-brand-red'
                                       : currentStatus === 'RAIN_POSSIBLE' ? 'text-brand-warning'
                                       :                                      'text-brand-teal';
                 updateClass(DOM.metricAgree, `font-mono text-4xl md:text-5xl font-black leading-none ${agreeColorClass}`);
-                // Tooltip-only — keeps the dashboard surface clean but shows
-                // confidence context when the user hovers.
                 DOM.metricAgree.title = lowConfidence
                     ? `Low confidence — ECMWF/GFS unavailable. Wetness % relies on regional models.`
                     : `${Math.round(currentAgreement)}% weighted ensemble agreement across reporting models.`;
             }
+            if (DOM.lowConfDot) DOM.lowConfDot.classList.toggle('hidden', !lowConfidence);
 
             // Temp spread: ±half-spread of the 4-model band at current hour.
             // When `lowConfidence` is set (ECMWF + GFS both degraded), annotate
@@ -5159,14 +5190,37 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // user can see which weight table drove the consensus.
             if (DOM.metricTempSpread) {
                 if (tempBand && tempBand[0]) {
+                    // U2-MERGE: focus-only diagnostic line. Regime key formatted
+                    // for humans (EAST_ASIA -> EAST ASIA); REGIONAL ONLY replaced
+                    // by an explicit offline count.
                     const spreadStr = `±${(tempBand[0].spread / 2).toFixed(1)}° MODEL SPREAD`;
-                    const regimeTag = WeatherEnsemble.getActiveRegime ? ` • ${WeatherEnsemble.getActiveRegime().toUpperCase()}` : '';
-                    const lcSuffix  = lowConfidence ? ' • REGIONAL ONLY' : '';
+                    const regimeRaw = WeatherEnsemble.getActiveRegime ? WeatherEnsemble.getActiveRegime() : '';
+                    const regimeTag = regimeRaw ? ` • ${regimeRaw.replace(/_/g, ' ').toUpperCase()}` : '';
+                    const deadGlobals = ['ecmwf_ifs025', 'gfs_seamless'].filter(m => {
+                        const i = WeatherEnsemble.models.indexOf(m);
+                        return i >= 0 && nodeHealth[i] && nodeHealth[i].coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT;
+                    }).length;
+                    const lcSuffix = deadGlobals > 0 ? ` • ⚠ ${deadGlobals} GLOBAL NODE${deadGlobals > 1 ? 'S' : ''} OFFLINE` : '';
                     updateText(DOM.metricTempSpread, spreadStr + regimeTag + lcSuffix);
-                    updateClass(DOM.metricTempSpread, `text-[10px] font-mono font-bold uppercase tracking-widest mt-1 ${lowConfidence ? 'text-brand-warning' : 'text-gray-500'}`);
+                    updateClass(DOM.metricTempSpread, `text-[10px] font-mono font-bold uppercase tracking-widest ${lowConfidence ? 'text-brand-warning' : 'text-gray-500'}`);
                 } else {
                     updateText(DOM.metricTempSpread, '');
                 }
+            }
+
+            // U2-MERGE: focus-only per-model table — current-hour precip + vote
+            // per node. Reads data already fetched; zero new API calls. This is
+            // the "which node disagrees and by how much" answer behind LOW CONF.
+            if (DOM.focusModelTable && precipModels && typeof nowIdx === 'number') {
+                const rows = WeatherEnsemble.models.map(m => {
+                    const arr = precipModels[m];
+                    const v = arr ? arr[nowIdx] : null;
+                    const vote = (v === null || v === undefined) ? ['NO DATA', 'text-gray-500']
+                               : (v >= 0.1 ? ['WET', 'text-brand-blue'] : ['DRY', 'text-brand-success']);
+                    const mm = (v === null || v === undefined) ? '--' : v.toFixed(2);
+                    return `<span class="whitespace-nowrap mr-3"><b class="${vote[1]}">${WeatherEnsemble.labels[m]}</b> ${mm}mm <span class="${vote[1]} font-bold">${vote[0]}</span></span>`;
+                });
+                updateHTML(DOM.focusModelTable, rows.join('<span class="text-gray-600 mx-1">|</span>'));
             }
 
             // Code agreement: "N/M MODELS AGREE" on the weather icon category
@@ -5203,9 +5257,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             let maxUV = 0, maxUvIdx = -1;
             for (let i = 0; i < uvData.length; i++) { if (uvData[i] > maxUV) { maxUV = uvData[i]; maxUvIdx = i; } }
             updateText(DOM.metricUvVal, maxUV.toFixed(1));
+            // U2-MERGE: WHO UV band — a number without a scale isn't actionable.
+            if (DOM.metricUvBand) {
+                const uvBand = maxUV < 3 ? 'LOW' : maxUV < 6 ? 'MODERATE' : maxUV < 8 ? 'HIGH' : maxUV < 11 ? 'VERY HIGH' : 'EXTREME';
+                updateText(DOM.metricUvBand, maxUV > 0 ? uvBand : '--');
+            }
             updateText(DOM.metricUvTime, (maxUvIdx >= 0 && times[maxUvIdx]) ? "@ " + times[maxUvIdx].replace(" (+1d)", "") : "--");
 
-            updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center transition-colors duration-500 border-4 min-h-[200px] md:min-h-[250px] relative overflow-hidden ");
+            updateClass(DOM.mainCard, "col-span-1 rounded-2xl p-4 md:p-6 transition-colors duration-500 border-4 relative overflow-hidden ");
 
             // Reset status-specific classes before applying the new state.
             DOM.mainCard.classList.remove(
@@ -5259,7 +5318,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50');
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIconFinal} text-brand-success`);
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-success uppercase');
-                updateText(DOM.statusText, "STABLE");
+                // U2-MERGE: "STABLE" was ambiguous (stable what?). The big word
+                // states the precipitation fact for the driver. Internal
+                // classifyWetness string unchanged — chart/timeline/Aero safe.
+                updateText(DOM.statusText, "NO RAIN");
             }
             // Reset the haptic rising-edge latch whenever we are NOT in the RAIN NOW
             // branch, so the next dry→raining transition rearms the vibration pulse.
@@ -5295,8 +5357,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     if (typeParts.length > 0) parts.push(`(${typeParts.join(', ')})`);
                 }
                 if (ccover !== null) {
-                    const cloudLabel = ccover >= 80 ? 'Overcast' : ccover >= 50 ? 'Mostly Cloudy' : ccover >= 20 ? 'Partly Cloudy' : 'Mostly Clear';
-                    parts.push(`${Math.round(ccover)}% Cloud (${cloudLabel})`);
+                    // U2-MERGE: dropped the parenthetical cloud label — "39% Cloud
+                    // (Partly Cloudy)" repeated itself; the percentage IS the fact.
+                    parts.push(`${Math.round(ccover)}% Cloud`);
                 }
                 // Determine colour: when it is raining, the text goes red;
                 // otherwise neutral gray.

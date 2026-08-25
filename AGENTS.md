@@ -231,14 +231,14 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.5.0, 2026-08-25)
 
-- sanity.test.js - 136 substring assertions / 0 failing
+- sanity.test.js - 139 substring assertions / 0 failing
 - tests/unit/ - 35 executable fixtures / 0 failing (worker kernel, fuel
   search funnel, WGS84 distance arcs, fastDistance mirror parity)
 - audit:verify - 24 self-test controls, all passing (incl. PHASE V var-era
   layer contracts + PHASE S shell integrity)
 - Scanners: 8 (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
   plus meta-verifier
-- index.html - 7329 lines / ~488 KB; inline module lines 725-7306 (~440 KB)
+- index.html - 7392 lines / ~492 KB; inline module lines 752-7369 (~442 KB)
 - worker.js - 271 lines; sw.js - 408 lines; fuel-stations.js - 280 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
