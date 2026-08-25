@@ -725,6 +725,16 @@
     <script type="module">
         "use strict";
 
+        // --- SHELL INTEGRITY TRIPWIRE ---
+        // The encoding incident shipped "?<!DOCTYPE html>" — quirks mode with a
+        // stray rendered glyph, silent to every static scanner. Standards-mode
+        // documents report CSS1Compat; anything else means the HTML shell was
+        // damaged (content before the doctype, missing doctype, BOM-as-text).
+        if (document.compatMode !== 'CSS1Compat') {
+            console.warn('MeteoNexus: page is in ' + document.compatMode +
+                ' mode — HTML shell corruption suspected. Check for content before <!DOCTYPE html> in index.html.');
+        }
+
         // --- FETCH WRAPPER ---
         const fetchWithRetry = async (url, options = {}, retries = 3, backoff = 500) => {
             const timeout = options.timeout || 15000;

@@ -77,6 +77,7 @@ Individual scanners (each re-extracts the module itself):
   audit:tdz      E2 order        audit:csp    E4 origin allow-list
   audit:brace    E3 shape        audit:dom    E4 null guards
                                  audit:visual E4 transform contracts
+  audit:shell    E1 document integrity (doctype/BOM/mojibake/U+FFFD)
 
 Meta-audit (audits the auditors via positive + negative controls):
   npm run audit:verify
@@ -98,6 +99,7 @@ git add; a failure there aborts deployment.
 | domnull-audit.mjs | E4: every getElementById result guarded before property access | 0 unguarded |
 | visual-audit.mjs | E4: every rendered layer honors its transform contract (sec 5); prints a code-derived inventory table | PASS = all readable overlays resolve upright |
 | tests/unit/ (node --test) | E5: executes worker.js end-to-end (dispatcher incl. error path), polyline codec round-trip, route-node planner, overpass parser, brand adapters + findNearby funnel; proves the fastDistance duplication stays bit-identical (sec 10) | all fixtures pass |
+| shell-audit.mjs | E1: HTML DOCUMENT integrity - doctype first bytes, BOM, charset, U+FFFD, mojibake signatures. Exists because the encoding incident shipped "?<!DOCTYPE html>" (quirks mode + stray glyph) through a fully green module-level audit. Runtime twin: compatMode tripwire at module start | PASS = document shell intact |
 | verify-scanners.mjs | audits the auditors: injects known-good/bad fixtures into every scanner above | all controls behave |
 
 Scanner limitations are documented in each file's header comment. Read them
@@ -218,6 +220,11 @@ From HISTORY.md "How to bump version in a new session":
   unavoidable: backup first, then verify with git diff --stat (mass line
   changes = corruption) and reverse via
   utf8-decode -> cp1252-encode -> WriteAllBytes.
+  RECOVERY VERIFICATION PROTOCOL (the '?' doctype lesson): after any
+  transcoding recovery, check BOTH failure classes - mojibake signatures
+  AND replacement losses (standalone '?', U+FFFD, first-bytes dump of the
+  file, non-ASCII count vs git HEAD). A grep for one class never proves
+  the other absent.
 - No new CDN script tag without SRI hash + crossorigin="anonymous".
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
@@ -227,10 +234,10 @@ From HISTORY.md "How to bump version in a new session":
 - sanity.test.js - 136 substring assertions / 0 failing
 - tests/unit/ - 35 executable fixtures / 0 failing (worker kernel, fuel
   search funnel, WGS84 distance arcs, fastDistance mirror parity)
-- audit:verify - 22 self-test controls, all passing (incl. PHASE V var-era:
-  layer contracts + legacy-ban + single --hud-rot writer)
-- Scanners: 7 (tdz, fp, brace, csp, domnull, visual, extract+parse) plus
-  meta-verifier
+- audit:verify - 24 self-test controls, all passing (incl. PHASE V var-era
+  layer contracts + PHASE S shell integrity)
+- Scanners: 8 (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
+  plus meta-verifier
 - index.html - 7386 lines / ~489 KB; inline module lines 747-7366 (~443 KB)
 - worker.js - 271 lines; sw.js - 408 lines; fuel-stations.js - 280 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with

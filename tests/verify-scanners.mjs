@@ -14,9 +14,9 @@ let pass = 0, fail = 0;
 const results = [];
 
 function restore() { fs.writeFileSync(extractPath, original, 'utf8'); }
-function runScanner(script) {
+function runScanner(script, extraArgs = []) {
   try {
-    const out = execFileSync('node', [path.join(here, script)], { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
+    const out = execFileSync('node', [path.join(here, script), ...extraArgs], { cwd: repo, encoding: 'utf8', stdio: 'pipe' });
     return { code: 0, out: out || '', err: '' };
   } catch (e) {
     return { code: e.status ?? 1, out: e.stdout ?? '', err: e.stderr ?? '' };
@@ -227,6 +227,32 @@ check('PHASE V negative control (clean extract, var era) -> visual-audit 0',
   'visual-audit.mjs', 0, 'PASS - all readable overlays', () => {
     writeMutation(original);
   });
+
+// ---------- Phase S: shell-audit (HTML document integrity) ----------
+// The encoding incident shipped "?<!DOCTYPE html>" — invisible to every
+// module-level scanner. These controls prove shell-audit catches it.
+// Positive control: prepend a stray '?' to a TEMP COPY of index.html
+// (BOM-free write so the doctype branch is exercised) -> must FAIL.
+{
+  const tmp = path.join(here, '_shell_tmp.html');
+  try {
+    fs.copyFileSync(path.join(repo, 'index.html'), tmp);
+    const encoded = new TextEncoder().encode('?' + fs.readFileSync(tmp, 'utf8'));
+    fs.writeFileSync(tmp, encoded);
+    const r = runScanner('shell-audit.mjs', [tmp]);
+    const ok = r.code === 2 && r.err.includes('DOCTYPE');
+    if (ok) { pass++; results.push('  PASS  PHASE S doctype corruption -> shell-audit nonzero (exit=' + r.code + ')'); }
+    else { fail++; results.push('  FAIL  PHASE S doctype corruption -> shell-audit (exit=' + r.code + ') ' + r.err.slice(0, 120)); }
+  } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
+}
+
+// Negative control: the untouched live shell must stay at exit 0.
+{
+  const r = runScanner('shell-audit.mjs', [path.join(repo, 'index.html')]);
+  const ok = r.code === 0 && r.out.includes('PASS');
+  if (ok) { pass++; results.push('  PASS  PHASE S negative control (clean shell) -> shell-audit 0'); }
+  else { fail++; results.push('  FAIL  PHASE S negative control (clean shell) -> shell-audit (exit=' + r.code + ')'); }
+}
 
 restore();
 console.log('Scanner verification results:');
