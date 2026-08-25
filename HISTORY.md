@@ -1126,3 +1126,58 @@ No bugs found in worker.js. Extensive test and code validation confirm correctne
 - **1 LOW** fix (CORS mode)
 - **2 structural** additions: versioning system (VERSION + HISTORY.md + dynamic badges), handoff protocol
 - **3 audit passes** total — no remaining known bugs
+---
+
+## 1.5.0 — 2026-08-25 (minor: Drive Mode + 5-node ensemble + zero-touch offline tiles + shell-integrity tier)
+
+### Bump rationale
+
+Minor bump from 1.4.1 → 1.5.0. Three user-facing features (Drive Mode, fifth ensemble node, automatic offline tile prefetch), a UI ergonomics pass (Tier 1), two performance upgrades, three accuracy upgrades, five bug fixes, and a new audit tier (shell-audit) born from a self-inflicted encoding incident that was caught by the user's eyes and is now mechanically impossible to repeat silently.
+
+### Features
+
+- **Drive Mode (U2)** — full-screen glanceable HUD (`fa-car-side` button, map cluster): giant speed + weather status chip (CLEAR teal / RAIN NOW red+pulse via `isRainingNow`/WMO codes) + next-node distance + route total + naive ETA labelled "Est @ Speed". Updater lives in `smoothVisualsLoop` behind rounded-key write caches; hidden state costs one boolean per frame. Fixed overlay is a sibling of `#hud-map` — SCREEN-LOCKED by construction.
+- **GEM joins the ensemble (N4)** — `gem_seamless` at 0.06; ECMWF .38 / GFS .28 / ICON .16 / JMA .12 renormalized across all 7 weight tables (default/europe/east_asia × short/long-lead, all sum to 1.00). Rationale: independence (decorrelated errors), not skill — CA badge added to Global Node Health strip. CMA/BOM deferred: let Brier history vote.
+- **Node-health honesty (N1–N3)** — health samples precip+temp+wind (best effective coverage), measured over a ±3h window around "now"; gray NO-COVERAGE state (sentinel/out-of-region, "expected, excluded from consensus") distinct from red FAULTED ("weight redistributed").
+- **Automatic offline tile prefetch (N5)** — the manual MAP button, tiles counter, and both confirm modals are REMOVED. On every NEW route signature: 5s debounce → silent background download (concurrency 5, 50ms pacing, online + non-concurrent guards), one console.info completion line, SW LRU byte-counter resync preserved. Manual clearing still available via PURGE.
+- **Tier-1 UI ergonomics** — safe-area insets (`viewport-fit=cover` was present; `.safe-body` mirrors p-2/md:p-6/lg:p-8 via `max()`, `.overlay-safe` for map chips), 48px touch targets on Pit Stop/Paste/Clear/Nav, header compacted to one row (gauge + cyan button removed; PURGE + SONAR paired right), version badge hides instead of showing "v?" when VERSION can't load.
+
+### Performance
+
+- **P2 single-write rotation** — `applyHudCssRotation` writes ONE CSS var (`--hud-rot`); stylesheet derives map (`calc(-1*var)`) + both managed panes (`+var`). One JS write per gated frame replaces three writes + two queries.
+- **P3 SWR app shell** — navigations serve the cached shell instantly, network refreshes in background (one load behind, covered by SKIP_WAITING flow). Other assets stay Network-First.
+- P1 (pane-ref caching) superseded by P2 (zero queries).
+
+### Accuracy
+
+- **A2 search-grade geodesy** — fuel distance is now direction-aware WGS84 (meridional/parallel series, <0.05% all bearings; constant-R haversine was ~0.5% bearing-dependent). Verified against reference arcs: 1° lon @ equator = 111.32 km (was 111.195), 1° lat = 110.57 km (was also 111.195). Hot rejection paths + worker `fastDistance` stay spherical (mirror parity intact, bit-identical test enforced).
+- **A3 honest hours** — adapters emit `hoursKnown`; popups badge "Hours Unknown" instead of implying confirmed-open (24/7 counts as known; `isOpenNow` filter optimism unchanged).
+- **A4 adaptive compass EMA** — Aero TC 120 ms → up to 360 ms on per-frame swings ≥8° (noise spikes integrate out; genuine turns ~1.5°/frame unaffected).
+- **A1 verified pre-existing** — `MagHeadingFuser` already fuses GNSS COG with compass (logistic crossover ~7 km/h, accuracy-weighted) and dead-reckoning consumes the fused stream. No change needed; documented to prevent double-building.
+
+### Fixes
+
+- **Pitstop icon rotation (user-reported via video)** — nav forces `tacticalMode=1`; map rotates but marker icons inherited it. New `uprightPane` (z=590) hosts fuel/waypoint/intercept markers, counter-rotated with the popup pane.
+- **Popup double counter-rotation (deep-audit HIGH)** — legacy CSS `.custom-popup-dark{rotate(var(--user-heading))}` stacked on the JS pane sync → net +heading tilt in ALL modes. Removed; contract C3 now fails the pipeline on recurrence.
+- **Shell adapter pricing** — `!== null` → `!= null`: missing price keys no longer advertise fuels (`undefined !== null` was true).
+- **findNearby NaN guard** — NaN coordinates passed every numeric filter; explicit `Number.isFinite` rejection added.
+- **Leaflet preload integrity mismatch** — preload lacked the consumer's `integrity`/`crossorigin`; aligned (double-fetch + discard warning gone).
+- **"?<!DOCTYPE html>" incident** — a PowerShell `Get-Content/Set-Content` round-trip double-encoded the file (cp1252 misread), and the recovery's one lossy byte (BOM → `?`) landed before the doctype: quirks mode + stray top-left glyph on the live site. Reversed byte-exactly; the single surviving `?` was found via the user's DOM inspection and removed. Charter now bans PS text rewrites of source files and mandates the dual-class recovery protocol (mojibake + replacement-loss).
+
+### Audit tooling (this release's structural legacy)
+
+- **`audit:shell` (new tier)** — HTML document integrity: doctype first bytes, BOM, charset, U+FFFD, mojibake signatures. Exists because the incident passed every module-level scanner. Runtime twin: `compatMode !== 'CSS1Compat'` console tripwire at module start.
+- **visual-audit var-era contracts** — L (no direct rotate writes), V1 (single `--hud-rot` writer), C1 (stylesheet signs/coverage), C3 (no popup CSS stacking). Code-derived inventory table.
+- **Unit suite** — 35 fixtures executing worker.js end-to-end (dispatcher error paths, polyline round-trip via independent encoder, node planner `.lon` branch, overpass dedup/strict/TOP-K), fuel funnel, WGS84 arcs, `fastDistance` mirror bit-parity.
+- **`audit:verify` = 24 controls** — every scanner proven in both directions.
+- **AGENTS.md overhauled** into an auditor charter: E1–E6 evidence tiers, trigger matrix, scanner roster, blind-spot register, release gate; user-report doctrine added ("a user-visible artifact is app truth until the auditor proves otherwise").
+
+### Gates run + evidence
+
+- `npm run lint && npm test && npm run audit && npm run audit:verify && npm run precheck` — ALL GREEN at bump time: lint 0 · sanity 136/136 · unit 35/35 · 8 scanners PASS · 24/24 meta-controls · Tailwind build OK.
+- Three-way non-ASCII histogram (HEAD ↔ working ↔ LIVE deploy): only delta = 2 comment em-dashes (local ahead); all data-bearing classes (° ² ± · × ≈) identical — misinformation audit clean.
+- **PENDING (user device, post-deploy):** Fetch Gate (5-model `models=` HTTP 200 — critical first check for `gem_seamless`), visual runtime pass (Drive Mode values, popups/icons upright modes 0/1/2), auto-prefetch observation (tile requests ~5s after routesfound), compass feel (A4), second-boot speed (SWR). Recorded as unevaluated until evidenced per §6.6.
+
+### Blind spots considered (§8)
+
+Races: none new (single-writer rotation; prefetch guarded non-concurrent). Leaks: pane created once; no new listeners. Off-by-one/coercion: the two unit-caught fixes cover this class. Unhandled rejections: prefetch fully caught. import(): none added. Perf: gated writes everywhere; SWR trades one-load-behind for instant boots (documented). A11y: tap-48 + aria-labels improved; full pass still owed. Visual compositing: scanner-proven statically; runtime pass listed pending above.
