@@ -261,6 +261,13 @@
         .focus-only { display: none !important; }
         #sec-telemetry.section-fullscreen .focus-only { display: flex !important; }
         #sec-telemetry.section-fullscreen .focus-only.focus-grid { display: grid !important; }
+        /* AERO-VECTOR: the radar card is DOM-nested inside main-grid but owns an
+         INDEPENDENT focus mode (radar-expand-btn). Excluded from Local-Telemetry
+         fullscreen unless it is itself fullscreen — focusing telemetry no longer
+         drags the radar card along for the ride. */
+        #sec-telemetry.section-fullscreen #aero-vector-card:not(.aero-fullscreen) { display: none !important; }
+        /* Position-independent twin: survives future mount-anchor changes. */
+        body:has(#sec-telemetry.section-fullscreen) #aero-vector-card:not(.aero-fullscreen) { display: none !important; }
     </style>
 </head>
     <body class="safe-body text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
@@ -6630,6 +6637,7 @@ function checkDependenciesAndRun() {
             }
 
             const aeroContainer = document.createElement('div');
+            aeroContainer.id = 'aero-vector-card';
             aeroContainer.className = "col-span-1 lg:col-span-12 w-full mt-2";
 
             const radarCard = document.createElement('div');
@@ -6744,6 +6752,10 @@ function checkDependenciesAndRun() {
             if (expandBtn && radarCard) {
                 expandBtn.addEventListener('click', () => {
                     isRadarFullscreen = !isRadarFullscreen;
+                    // FIX: marker class on the container lets CSS exclude the
+                    // Aero card from Local-Telemetry fullscreen (it is DOM-nested
+                    // in main-grid but owns an independent focus mode).
+                    aeroContainer.classList.toggle('aero-fullscreen', isRadarFullscreen);
                     if (isRadarFullscreen) {
                         radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
                         radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
