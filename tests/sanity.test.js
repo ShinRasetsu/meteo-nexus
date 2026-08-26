@@ -94,6 +94,8 @@ assert(
 assertIncludes(html, 'focus-only', "index.html defines the .focus-only density-by-mode hook");
 assertIncludes(html, 'id="focus-model-table"', "index.html renders the focus-only per-model table");
 assertIncludes(html, '"NO RAIN"', "index.html displays NO RAIN instead of the ambiguous STABLE");
+assertIncludes(html, 'id="focus-outlook"', "index.html renders the focus-only 6H rain outlook strip");
+assertIncludes(html, 'id="focus-envelope"', "index.html renders the focus-only today-envelope line");
 
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");

@@ -1222,3 +1222,61 @@ Minor bump from 1.5.0 → 1.6.0. Formalizes the post-1.5.0 work documented in th
 ### Blind spots considered (§8)
 
 Races: none (CSS-only visibility). Leaks: none (static markup). Perf: hidden diagnostics cost one CSS rule match; mini-table renders per fetch (5-min cycle). A11y: focus-only content reachable in fullscreen; contrast unchanged. Visual compositing: no rotation-surface changes; device pass listed pending.
+
+---
+
+## 1.6.1 — 2026-08-26 (patch: U2-FOCUS diagnostics expansion + three release-gate fixes)
+
+### Bump rationale
+
+Patch bump from 1.6.0 → 1.6.1. Ships the U2-FOCUS work that was found sitting uncommitted in the working tree this session: an expansion of the focus-only diagnostics surface (fullscreen Local Telemetry) with a full Model Matrix table, a 6-hour rain outlook strip, and a today-envelope line. Display-layer only — zero new fetches, zero ensemble-math changes, no rotation surfaces touched. During the release gate, hand-reasoning over the new payload code caught **three E5-class bugs that every scanner missed** (dead UI elements — the 1.3.3 class again), fixed before ship.
+
+### Release content (U2-FOCUS)
+
+`index.html`, focus-only block of the merged Environment card:
+
+- **Model Matrix · Current Hour** (`#focus-model-table` upgraded) — was a single-line precip+vote strip; now a 7-column grid per node: label / temp / wind / gust / rain mm / WET-DRY vote / coverage % (coverage < 80% painted warning-amber). Answers "which node disagrees and by how much" across all variables, not just precip.
+- **6H Rain Outlook** (`#focus-outlook`, new) — six chips, one per hour from now: HH:MM label (from `times[]` when the chart renders; `+Nh` fallback otherwise), consensus wetness % color-coded (≥75 red / ≥30 amber / else green), and consensus mm beneath when ≥ 0.1mm.
+- **Incoming 1–3h badge** (`#focus-incoming`, new) — `⚡ INCOMING 1-3H` shown when `incomingRain` fires.
+- **Today envelope** (`#focus-envelope`, new) — `Today X°/Y° · 24h Accum N.Nmm · Gust Peak NN km/h · Trend ±N°/1h`, segments omitted when their data is null.
+- DOM cache grew `focusOutlook`/`focusEnvelope`/`focusIncoming`; `normalizeTelemetryData` now precomputes a `focus` payload (`perModel`, `outlook`, `accum24`, `tMin`, `tMax`, `gustPeak`) from arrays already in memory; writers are gated display-only updates at fetch cadence (~5 min).
+- Focus container gap-3 → gap-4 for section separation.
+
+### Findings fixed AT the release gate (all three invisible to the scanner chain)
+
+The first draft of the focus payload read `rainData[i]` and `rainData.length`. But `rainData` is an **object** `{eu, us, de, jp}` of Float64Arrays, not a flat array:
+
+1. **Dead outlook mm** — `rainData[i]` on that object is `undefined`, so the mm sub-label could never render. Parse OK, TDZ OK, lint OK, substring tests green. Fixed by building a real consensus vector: `weightedValueAll(precipModels, nowIndex, maxSlice)` — slice-aligned with `hourlyAgreement` (index 0 = now), covers all `_MI` nodes including GEM, excludes sentinel-dead models via the existing pre-filter, and no longer depends on the chart-render gate (`rainData` itself is chart-only).
+2. **Dead 24h accum** — `rainData.length` → `undefined` → `Math.min(24, undefined)` = NaN → accumulation loop never ran → "24h Accum" permanently absent. Same fix; accum now sums the next-24h consensus mm (rolling window, honest under its label).
+3. **Fragile length probe** — `tempBlend`/`gustBlend` windows were sized off `tempModels.ecmwf_ifs025.length`; if ECMWF went out-of-region the entire "Today °" segment silently vanished though other nodes reported. Now sized off `totalLen` (the authoritative `h.time.length`).
+
+Bonus consistency fix: on chart-skip fetches `hourlyAgreement` is only 4 cells long, which made the strip render 4 chips instead of 6; cells 4–5 are now computed per-index via `weightedWetnessAt(precipModels, nowIndex + i)` so the strip is always 6 wide regardless of the chart gate.
+
+### Known bounded behaviours (documented, not bugs)
+
+- "Today °" min/max and gust peak blend **absolute hours [0..24)** — calendar-today semantics, correct under Open-Meteo's documented anchor (hourly series starts local midnight today, `timezone=auto`). If a future change alters the fetch anchor, this label must be revisited.
+- Offline replay of stale caches can make "Today" refer to the cached day until the next successful fetch self-corrects.
+- `weightedValueAll` temp/gust windows allocate one Array(24) + one Array(24) per fetch — bounded at ~12/hour, negligible.
+
+### Files changed
+
+- `index.html` — U2-FOCUS payload + writers + markup + the three fixes above
+- `tests/sanity.test.js` — +2 guards: `id="focus-outlook"`, `id="focus-envelope"` (139 → 141)
+- `AGENTS.md` — reference numbers synced to v1.6.1 (7490 lines / ~501 KB; module 772–7467)
+- `VERSION` → `1.6.1`, `package.json` → `"version": "1.6.1"`
+- `HISTORY.md` — this chapter
+
+### Gates run + evidence
+
+- `npm run lint && npm test && npm run audit && npm run audit:verify` after the pre-fix working-tree state was first triaged, then **again after the fixes**: lint 0 errors · sanity 141/141 · unit 35/35 · extract+parse OK (module line 772..7467, 448840 bytes) · TDZ 0 · floating-promise 0 · brace depth=0/max=8 · CSP 0 gaps · DOM-null 0 unguarded · visual-audit PASS (inventory unchanged: 1 `--hud-rot` writer, popups/upright-pane upright) · shell PASS · meta-controls 24/24 · `npm run precheck` green (Tailwind v4.3.3 build + full audit chain).
+- Fetch Gate NOT re-triggered: no changes to `processTelemetryPayload` fetch surfaces, URLs, or triggers (payload consumers only). Visual runtime pass NOT triggered by §5/§7: no transform/rotation writers or panes touched (audit:visual inventory byte-identical to 1.6.0's).
+- **PENDING (user device):** the standing 1.5.0/1.6.0 runtime-evidence list, plus for this release — Model Matrix rows vs node-strip consistency, outlook chips tracking reality during a rain onset, envelope numbers sane vs chart, Incoming badge on a real 1–3h onset.
+
+### Blind spots considered (§8)
+
+Races: none (single-threaded fetch-cadence writes). Leaks: none (no listeners/timers added). Off-by-one/coercion: exactly where this release's three bugs lived — caught by reasoning over data SHAPES (object vs array), which no scanner models; unit suite still cannot execute the inline `normalizeTelemetryData` (worker/fuel kernels only), so shape-contract regressions in this path remain a known blind spot, mitigated only by gate-time reasoning like this one. Unhandled rejections: none added (pure sync reads). import(): none. Perf: two Array(24)/fetch — negligible. A11y: unchanged patterns. Visual compositing: untouched (scanner-proven above).
+
+### Process notes
+
+- `deploy.bat` being untracked was investigated and confirmed **by design**, not an anomaly: the script actively excludes itself from staging on every run (`git reset HEAD` + `git rm --cached`, lines 73–78) so the deployment mechanism never reaches the remote. No action needed.
+- The top-of-file "Current state at session end" table still describes 1.4.1 (2026-08-15); it predates the charter rule against editing historical entries and was left as-is — bottom chapters (1.5.0 → 1.6.x) are the authoritative record.

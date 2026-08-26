@@ -379,7 +379,7 @@
                         </div>
 
                         <!-- FOCUS-ONLY: diagnostics revealed in fullscreen -->
-                        <div class="focus-only flex-col gap-3">
+                        <div class="focus-only flex-col gap-4">
                             <div class="flex flex-wrap justify-between items-center gap-2">
                                 <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
                                 <span id="metric-temp-spread" class="text-[10px] font-mono font-bold uppercase tracking-widest text-gray-500"></span>
@@ -391,7 +391,20 @@
                                 <div id="stat-jp" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">JP</div>
                                 <div id="stat-ca" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">CA</div>
                             </div>
-                            <div id="focus-model-table" class="font-mono text-[10px] md:text-xs text-gray-400 leading-relaxed text-left"></div>
+
+                            <div>
+                                <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em] mb-2">Model Matrix · Current Hour</div>
+                                <div id="focus-model-table" class="font-mono text-[10px] md:text-xs"></div>
+                            </div>
+
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em]">6H Rain Outlook</div>
+                                    <span id="focus-incoming" class="hidden text-[9px] font-black text-brand-warning uppercase tracking-widest"><i class="fa-solid fa-bolt mr-1"></i>Incoming 1-3H</span>
+                                </div>
+                                <div id="focus-outlook" class="flex gap-1"></div>
+                                <div id="focus-envelope" class="text-[10px] font-mono text-gray-400 mt-2 uppercase tracking-widest"></div>
+                            </div>
                         </div>
 
                     </div>
@@ -1712,6 +1725,9 @@
             metricUvBand: document.getElementById('metric-uv-band'),
             lowConfDot: document.getElementById('low-conf-dot'),
             focusModelTable: document.getElementById('focus-model-table'),
+            focusOutlook: document.getElementById('focus-outlook'),
+            focusEnvelope: document.getElementById('focus-envelope'),
+            focusIncoming: document.getElementById('focus-incoming'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
@@ -5083,6 +5099,46 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
             const lowConfidence = precipActiveWeight < WeatherEnsemble._GLOBAL_ACK;
 
+            // U2-FOCUS: precompute the fullscreen diagnostic payload. Pure reads
+            // of arrays already extracted above — no new fetches, no math changes.
+            const focusPerModel = WeatherEnsemble.models.map((m, idx) => ({
+                label: WeatherEnsemble.labels[m],
+                temp:    tempModels[m]     ? tempModels[m][nowIndex]     : null,
+                wind:    windSpdModels[m]  ? windSpdModels[m][nowIndex]  : null,
+                gust:    windGustModels[m] ? windGustModels[m][nowIndex] : null,
+                precip:  precipModels[m]   ? precipModels[m][nowIndex]   : null,
+                coverage: nodeHealth[idx]  ? Math.round(nodeHealth[idx].coveragePct) : null
+            }));
+            // U2-FOCUS FIX (found at the 1.6.1 release gate): rainData is an
+            // OBJECT ({eu,us,de,jp} Float64Arrays), not a flat array — the first
+            // draft indexed it numerically (rainData[i] → undefined → mm never
+            // rendered) and read .length off it (undefined → accLen=NaN →
+            // accum24 frozen at 0). Build the consensus mm vector straight from
+            // precipModels instead: slice-aligned with hourlyAgreement (index 0
+            // = now), covers every _MI node incl. GEM, excludes sentinel-dead
+            // models via the pre-filter above, and does not depend on the
+            // needsChartArg gate (rainData itself is chart-only).
+            const mmAll = WeatherEnsemble.weightedValueAll(precipModels, nowIndex, maxSlice);
+            const outlookHours = [];
+            const outlookLen = Math.min(6, mmAll.length);
+            for (let i = 0; i < outlookLen; i++) {
+                const pct = (i < hourlyAgreement.length) ? hourlyAgreement[i]
+                          : WeatherEnsemble.weightedWetnessAt(precipModels, nowIndex + i).pct;
+                outlookHours.push({
+                    label: (times && times[i]) ? String(times[i]).slice(-5) : `+${i}h`,
+                    pct,
+                    mm: mmAll[i]
+                });
+            }
+            let accum24 = 0, tMin = null, tMax = null, gustPeak = null;
+            const accLen = Math.min(24, mmAll.length);
+            for (let i = 0; i < accLen; i++) { if (mmAll[i]) accum24 += mmAll[i]; }
+            const tempBlend = WeatherEnsemble.weightedValueAll(tempModels, 0, Math.min(24, totalLen));
+            for (const v of tempBlend) { if (v !== null && v !== undefined) { if (tMin === null || v < tMin) tMin = v; if (tMax === null || v > tMax) tMax = v; } }
+            const gustBlend = WeatherEnsemble.weightedValueAll(windGustModels, 0, Math.min(24, totalLen));
+            for (const v of gustBlend) { if (v !== null && v !== undefined) { if (gustPeak === null || v > gustPeak) gustPeak = v; } }
+            const focus = { perModel: focusPerModel, outlook: outlookHours, accum24, tMin, tMax, gustPeak };
+
             const currentAgreement = hourlyAgreement[0] || 0;
             const currentStatus    = WeatherEnsemble.classifyWetness(currentAgreement);
             // Observation override: if the API's current weather_code says it is
@@ -5100,9 +5156,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
                      tempBand, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble,
-                     // U2-MERGE: focus-only per-model table reads these (display
-                     // layer only — the ensemble math above is untouched).
-                     precipModels, nowIdx: nowIndex,
+                     // U2-FOCUS: fullscreen diagnostic payload (display layer only
+                     // — the ensemble math above is untouched).
+                     precipModels, nowIdx: nowIndex, focus,
                      // Extra atmospheric fields from the API current block that the
                      // offline-reconstructed `curr` object doesn't carry. These are
                      // only useful when displaying live observed data (precip breakdown,
@@ -5215,19 +5271,46 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 }
             }
 
-            // U2-MERGE: focus-only per-model table — current-hour precip + vote
-            // per node. Reads data already fetched; zero new API calls. This is
-            // the "which node disagrees and by how much" answer behind LOW CONF.
-            if (DOM.focusModelTable && precipModels && typeof nowIdx === 'number') {
-                const rows = WeatherEnsemble.models.map(m => {
-                    const arr = precipModels[m];
-                    const v = arr ? arr[nowIdx] : null;
-                    const vote = (v === null || v === undefined) ? ['NO DATA', 'text-gray-500']
-                               : (v >= 0.1 ? ['WET', 'text-brand-blue'] : ['DRY', 'text-brand-success']);
-                    const mm = (v === null || v === undefined) ? '--' : v.toFixed(2);
-                    return `<span class="whitespace-nowrap mr-3"><b class="${vote[1]}">${WeatherEnsemble.labels[m]}</b> ${mm}mm <span class="${vote[1]} font-bold">${vote[0]}</span></span>`;
-                });
-                updateHTML(DOM.focusModelTable, rows.join('<span class="text-gray-600 mx-1">|</span>'));
+            // U2-FOCUS: fullscreen diagnostic writers. Display-only reads of the
+            // precomputed `focus` payload — zero new fetches, zero math changes.
+            if (DOM.focusModelTable && data.focus) {
+                const cell = (v, unit, digits = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '--' : Number(v).toFixed(digits) + unit;
+                const vote = (mm) => (mm === null || mm === undefined) ? ['NO DATA', 'text-gray-500'] : (mm >= 0.1 ? ['WET', 'text-brand-blue'] : ['DRY', 'text-brand-success']);
+                const head = '<div class="grid grid-cols-7 gap-x-2 text-gray-500 font-bold uppercase tracking-widest border-b border-surface-800 pb-1 mb-1">'
+                    + '<span>Node</span><span class="text-right">Temp</span><span class="text-right">Wind</span><span class="text-right">Gust</span><span class="text-right">Rain</span><span class="text-right">Vote</span><span class="text-right">Cov</span></div>';
+                const rows = data.focus.perModel.map(p => {
+                    const [voteTxt, voteCls] = vote(p.precip);
+                    return '<div class="grid grid-cols-7 gap-x-2 py-0.5 border-b border-surface-800/50">'
+                        + `<span class="font-black text-gray-300">${p.label}</span>`
+                        + `<span class="text-right text-gray-300">${cell(p.temp, '°', 0)}</span>`
+                        + `<span class="text-right text-gray-300">${cell(p.wind, '', 0)}</span>`
+                        + `<span class="text-right text-gray-400">${cell(p.gust, '', 0)}</span>`
+                        + `<span class="text-right text-gray-300">${cell(p.precip, 'mm', 2)}</span>`
+                        + `<span class="text-right font-bold ${voteCls}">${voteTxt}</span>`
+                        + `<span class="text-right ${p.coverage !== null && p.coverage < 80 ? 'text-brand-warning' : 'text-gray-500'}">${p.coverage === null ? '--' : p.coverage + '%'}</span>`
+                        + '</div>';
+                }).join('');
+                updateHTML(DOM.focusModelTable, head + rows);
+            }
+            if (DOM.focusOutlook && data.focus) {
+                const chips = data.focus.outlook.map(o => {
+                    const cls = o.pct >= 75 ? 'border-brand-red/60 text-brand-red'
+                              : o.pct >= 30 ? 'border-brand-warning/50 text-brand-warning'
+                              : 'border-brand-success/40 text-brand-success';
+                    const mm = (o.mm !== null && o.mm >= 0.1) ? `<div class="text-[8px] text-gray-500">${o.mm.toFixed(1)}mm</div>` : '';
+                    return `<div class="flex-1 text-center border ${cls} rounded-md py-1 bg-black/30"><div class="text-[8px] text-gray-500">${o.label}</div><div class="text-xs font-black">${Math.round(o.pct)}%</div>${mm}</div>`;
+                }).join('');
+                updateHTML(DOM.focusOutlook, chips);
+            }
+            if (DOM.focusIncoming) DOM.focusIncoming.classList.toggle('hidden', !incomingRain);
+            if (DOM.focusEnvelope && data.focus) {
+                const f = data.focus;
+                const parts = [];
+                if (f.tMin !== null && f.tMax !== null) parts.push(`Today ${Math.round(f.tMin)}°/${Math.round(f.tMax)}°`);
+                if (f.accum24 > 0) parts.push(`24h Accum ${f.accum24.toFixed(1)}mm`);
+                if (f.gustPeak !== null) parts.push(`Gust Peak ${Math.round(f.gustPeak)} km/h`);
+                if (temperatureTrend !== null && temperatureTrend !== undefined) parts.push(`Trend ${temperatureTrend >= 0 ? '+' : ''}${temperatureTrend}°/1h`);
+                updateText(DOM.focusEnvelope, parts.length ? parts.join(' · ') : '--');
             }
 
             // Code agreement: "N/M MODELS AGREE" on the weather icon category
