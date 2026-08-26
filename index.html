@@ -192,7 +192,10 @@
             height: 100vh !important; overflow-y: auto !important; background-color: #000000 !important; 
         }
         .section-fullscreen .map-wrapper { height: calc(100vh - 100px) !important; }
-        .section-fullscreen .chart-wrapper { height: calc(100vh - 80px) !important; }
+        /* U3-PLOT: the chart now lives inside the telemetry focus block, so its
+           fullscreen height is BOUNDED — the old sec-plot rule (100vh - 80px)
+           would push the matrix/outlook/envelope below the fold. */
+        #sec-telemetry.section-fullscreen .chart-wrapper { height: clamp(240px, 42vh, 420px) !important; }
         
         .custom-popup-dark .leaflet-popup-content-wrapper,
         .custom-popup-dark .leaflet-popup-tip {
@@ -405,6 +408,13 @@
                                 <div id="focus-outlook" class="flex gap-1"></div>
                                 <div id="focus-envelope" class="text-[10px] font-mono text-gray-400 mt-2 uppercase tracking-widest"></div>
                             </div>
+
+                            <div>
+                                <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em] mb-2">Atmospheric Telemetry Plot · 24H</div>
+                                <div class="chart-wrapper w-full relative h-[300px] md:h-[360px]">
+                                    <canvas id="mainChart"></canvas>
+                                </div>
+                            </div>
                         </div>
 
                     </div>
@@ -573,15 +583,9 @@
         <div id="timeline-container" class="pb-2 no-select w-full"></div>
     </div>
 
-    <div id="sec-plot" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 mb-8 transition-all duration-300">
-        <div class="mb-4 flex items-center justify-between">
-            <span class="text-sm font-bold uppercase tracking-widest text-gray-500">Atmospheric Telemetry Plot</span>
-            <button onclick="toggleFocus('sec-plot')" aria-label="Focus Plot" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-plot"></i></button>
-        </div>
-        <div class="chart-wrapper flex-grow w-full relative h-[350px]">
-            <canvas id="mainChart"></canvas>
-        </div>
-    </div>
+    <!-- U3-PLOT: #sec-plot removed — the Atmospheric Telemetry Plot now lives
+         inside the sec-telemetry focus-only block (single Chart instance,
+         resized on focus open via toggleFocus). -->
 
     <div id="fuel-settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)] max-h-[90vh] overflow-y-auto">
@@ -1732,7 +1736,7 @@
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
-            secIntel: document.getElementById('sec-intel'), secPlot: document.getElementById('sec-plot'),
+            secIntel: document.getElementById('sec-intel'),
             modals: { custom: document.getElementById('custom-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
             fuel: { trigger: document.getElementById('fuel-trigger-btn'), save: document.getElementById('save-fuel-btn'), brand: document.getElementById('pref-brand'), variant: document.getElementById('pref-variant'), toll: document.getElementById('pref-toll'), highway: document.getElementById('pref-highway'), ferry: document.getElementById('pref-ferry'), ev: document.getElementById('pref-ev'), h2: document.getElementById('pref-h2'), openingMode: document.getElementById('pref-opening-mode'), amenitiesList: document.getElementById('pref-amenities-list'), offlineContent: document.getElementById('pref-offline-content'), offlineBrandList: document.getElementById('offline-brand-list'), downloadAllBtn: document.getElementById('download-all-btn') },
             audio: { btn: document.getElementById('audio-btn'), icon: document.getElementById('audio-icon'), text: document.getElementById('audio-text') },
@@ -2413,8 +2417,7 @@ let delta = heading - state.lastHeading;
         const SECTION_DESCRIPTORS = [
             {id: 'sec-telemetry', el: DOM.secTelemetry, icon: document.getElementById('icon-sec-telemetry')},
             {id: 'sec-map', el: DOM.secMap, icon: document.getElementById('icon-sec-map')},
-            {id: 'sec-intel', el: DOM.secIntel, icon: document.getElementById('icon-sec-intel')},
-            {id: 'sec-plot', el: DOM.secPlot, icon: document.getElementById('icon-sec-plot')}
+            {id: 'sec-intel', el: DOM.secIntel, icon: document.getElementById('icon-sec-intel')}
         ];
         window.toggleFocus = function(secId) {
             const isCurrentlyFocused = state.focusedSection === secId;
@@ -2433,7 +2436,11 @@ let delta = heading - state.lastHeading;
                         if (iconDesktop) updateClass(iconDesktop, 'fa-solid fa-compress text-lg');
                         document.body.classList.add('overflow-hidden');
                         if (sec.id === 'sec-map' && state.mapObj) requestAnimationFrame(() => requestAnimationFrame(() => state.mapObj.invalidateSize()));
-                        else if (sec.id === 'sec-plot' && state.chart) requestAnimationFrame(() => requestAnimationFrame(() => state.chart.resize()));
+                        // U3-PLOT: the chart canvas lives inside the telemetry focus
+                        // block (display:none while unfocused renders it at 0x0) —
+                        // after the section is revealed, wait two frames for layout
+                        // then resize so Chart.js repaints at the real box size.
+                        else if (sec.id === 'sec-telemetry' && state.chart) requestAnimationFrame(() => requestAnimationFrame(() => state.chart.resize()));
                     } else {
                         if (!el.classList.contains('hidden') || sec.id === 'sec-intel') {
                             el.classList.add('section-hidden'); el.classList.remove('section-fullscreen');

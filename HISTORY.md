@@ -1280,3 +1280,37 @@ Races: none (single-threaded fetch-cadence writes). Leaks: none (no listeners/ti
 
 - `deploy.bat` being untracked was investigated and confirmed **by design**, not an anomaly: the script actively excludes itself from staging on every run (`git reset HEAD` + `git rm --cached`, lines 73–78) so the deployment mechanism never reaches the remote. No action needed.
 - The top-of-file "Current state at session end" table still describes 1.4.1 (2026-08-15); it predates the charter rule against editing historical entries and was left as-is — bottom chapters (1.5.0 → 1.6.x) are the authoritative record.
+
+---
+
+## 1.7.0 — 2026-08-26 (minor: Atmospheric Telemetry Plot merged into telemetry Focus Mode)
+
+### Bump rationale
+
+Minor bump from 1.6.1 → 1.7.0. User-proposed structural change, implemented as **Variant A (relocate)**: the Atmospheric Telemetry Plot now lives inside the `#sec-telemetry` focus-only diagnostics block, and the standalone `#sec-plot` section is removed from the normal flow entirely. Rationale: focus mode is the analysis surface (node health → Model Matrix → 6H outlook → envelope), but it previously *hid* the one artifact showing the 24h timeline, forcing toggle-back-and-forth to cross-reference. One Chart.js instance throughout — no duplication (two instances would double per-fetch compute and break the F1 chartSig gate's single-instance assumption).
+
+### Changes
+
+- `index.html`:
+  - **Chart relocated** — `#mainChart` + `.chart-wrapper` moved into the focus-only block, placed last in the analysis reading order: Node Health → Model Matrix → 6H Outlook → envelope → **24H plot**. Section header restyled to match sibling labels (`ATMOSPHERIC TELEMETRY PLOT · 24H`).
+  - **`#sec-plot` removed** — markup, expand button, `DOM.secPlot` cache entry, and its `SECTION_DESCRIPTORS` entry deleted. The hide-others branch of `toggleFocus` loses nothing: telemetry fullscreen now contains everything worth focusing.
+  - **Resize choreography** — a canvas inside a `display:none` parent renders at 0×0; on focus open, `toggleFocus('sec-telemetry')` now runs the same double-rAF + `state.chart.resize()` treatment sec-plot's own fullscreen used (`index.html`, focus engine). Resize-on-close unnecessary; next open re-resizes.
+  - **CSS** — old global `.section-fullscreen .chart-wrapper { height: calc(100vh - 80px) }` replaced with `#sec-telemetry.section-fullscreen .chart-wrapper { height: clamp(240px, 42vh, 420px) }`: the 100vh takeover would have pushed the matrix/outlook/envelope below the fold; the chart gets a bounded band instead.
+- `tests/sanity.test.js` — +3 guards (141 → 144): `id="mainChart"` present; `id="sec-plot"` AND `toggleFocus('sec-plot')` both ABSENT (first negative-pattern guard pair via bare `assert`); the telemetry-open resize hook substring.
+- `AGENTS.md` — reference numbers synced to v1.7.0 (7497 lines / ~502 KB; module 776–7474).
+- `VERSION` → `1.7.0`, `package.json` → `"version": "1.7.0"`, `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- Full pipeline after code edits, before docs: lint 0 · sanity **144/144** · unit 35/35 · TDZ 0 · fp 0 · brace depth=0/max=8 · CSP 0 gaps · DOM-null 0 unguarded · visual-audit PASS (rotation inventory unchanged — the chart is SCREEN-LOCKED static markup, no panes/writers touched) · shell PASS · meta 24/24 · precheck green (Tailwind v4.3.3).
+- Fetch Gate not triggered: zero changes to fetch surfaces or the data path (F1 gate reads the same single instance). Visual runtime pass not triggered by §5/§7: no transform/rotation writers or map panes touched.
+- **PENDING (user device):** open Local Telemetry focus → chart visible at bounded height below the envelope, correct size after open (no 0×0 / squashed canvas), normal-mode scroll no longer contains a standalone plot card, matrix↔timeline cross-reference works without leaving focus.
+
+### Blind spots considered (§8)
+
+Races: none (resize is rAF-after-reveal, idempotent). Leaks: none (one instance, fewer DOM nodes than before). Off-by-one/coercion: n/a (markup + lifecycle only). Unhandled rejections: none added. import(): none. Perf: strictly positive — one fewer always-rendered section; chart work unchanged (fetch-gated as before). A11y: net neutral (expand button for a standalone section removed; content remains reachable in focus). Visual compositing: untouched (scanner-proven). Known accepted trade-off: the plot is no longer glanceable without opening focus — judged correct per density-by-mode (driving glance = strip/Aero HUD; analysis = focus).
+
+### Process notes
+
+- Variant B (dual-surface via re-parenting the node on toggle) was considered and rejected: DOM-node choreography in `toggleFocus` buys nothing over relocating into the surface that logically owns the artifact, and it would have kept a second resize/restore path alive permanently.
+- `Index.ref/index_Ref.html` intentionally still contains the old `#sec-plot` markup — it is a frozen reference snapshot, never scanned by the pipeline.

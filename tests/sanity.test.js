@@ -97,6 +97,14 @@ assertIncludes(html, '"NO RAIN"', "index.html displays NO RAIN instead of the am
 assertIncludes(html, 'id="focus-outlook"', "index.html renders the focus-only 6H rain outlook strip");
 assertIncludes(html, 'id="focus-envelope"', "index.html renders the focus-only today-envelope line");
 
+// U3-PLOT: chart relocated into the telemetry focus block; standalone section gone
+assertIncludes(html, 'id="mainChart"', "index.html renders the Atmospheric Telemetry Plot canvas");
+assert(
+  !html.includes('id="sec-plot"') && !html.includes("toggleFocus('sec-plot')"),
+  "standalone #sec-plot section is fully removed (chart lives in focus mode only)"
+);
+assertIncludes(html, 'sec-telemetry\' && state.chart', "focus-open resizes the hosted chart canvas");
+
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");
 assertIncludes(html, 'cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', "Chart.js 4.4.1 loaded");
