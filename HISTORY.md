@@ -1314,3 +1314,13 @@ Races: none (resize is rAF-after-reveal, idempotent). Leaks: none (one instance,
 
 - Variant B (dual-surface via re-parenting the node on toggle) was considered and rejected: DOM-node choreography in `toggleFocus` buys nothing over relocating into the surface that logically owns the artifact, and it would have kept a second resize/restore path alive permanently.
 - `Index.ref/index_Ref.html` intentionally still contains the old `#sec-plot` markup — it is a frozen reference snapshot, never scanned by the pipeline.
+
+### Post-write additions (shipped under 1.7.0 before deploy)
+
+**U5-GPS boot fix** — user report: on home WiFi the app showed "SEARCH LOCATION / GPS BLOCKED." and sat dead for ~a minute before weather data arrived; on mobile data it was instant. Diagnosis from code: not API rate limiting (per-cycle volume is ~3 requests; `fetchWithRetry` already backs off 429s). The real chain is a cold-start GNSS fix on WiFi-only positioning (no A-GPS cell assist) exceeding the one-shot `getCurrentPosition` `{timeout: 10000}` → error callback painted a false terminal "GPS BLOCKED" at t=10s → meanwhile `startBackgroundTracking`'s `watchPosition` kept acquiring, delivered the first fix ~1 min in (`index.html:3427`), and silently rescued map + weather. Mobile data feels instant because carrier A-GPS supplies a tower-based fix immediately.
+
+Fixes applied to the boot geolocation branch (`runApp`, U5-GPS block):
+
+1. **Honest taxonomy** — `PERMISSION_DENIED` keeps "GPS BLOCKED." (real denial); `TIMEOUT`/`POSITION_UNAVAILABLE` now show **"ACQUIRING GPS…"** in teal instead of a false alarm.
+2. **Auto-retry** — up to 2 retries (fresh 10s timeouts, 3s gaps) before falling back to an honest "GPS UNAVAILABLE." card. Every path re-checks `state.autoCoords` first so a watch-rescued session never stacks redundant attempts; the tracking watch remains the ultimate rescue either way.
+- Sanity guards 144 → 146 (`ACQUIRING GPS`, `err.code === err.PERMISSION_DENIED`). Gates re-run after the change: lint 0 · sanity 146/146 · unit 35/35 · TDZ 0 · fp 0 · brace depth=0 · CSP 0 · DOM-null 0 · visual PASS · shell PASS · meta 24/24 · precheck green. Fetch Gate not triggered (`fetchData` untouched); no transform surfaces touched. Device evidence owed: cold-boot on the slow WiFi shows ACQUIRING GPS (not BLOCKED) then self-recovers when the fix lands.

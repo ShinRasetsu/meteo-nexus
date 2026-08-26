@@ -6541,18 +6541,45 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (state.isMapLocked) window.applyTacticalMode();
                 fetchData(state.autoCoords.lat, state.autoCoords.lon, false);
             } else if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    p => { state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude }; initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); },
-                    () => {
-                        updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
-                        updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
-                        updateText(DOM.statusText, "SEARCH LOCATION");
-                        updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase');
-                        updateText(DOM.weatherDesc, "GPS BLOCKED.");
-                        updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> GPS BLOCKED`);
-                    },
-                    { timeout: 10000, enableHighAccuracy: true }
-                );
+                // U5-GPS: honest acquisition taxonomy + auto-retry. Cold-start
+                // TTFF on WiFi-only devices (no A-GPS cell assist) routinely
+                // exceeds the 10s one-shot timeout; painting "GPS BLOCKED" for
+                // a slow fix was both false and terminal-looking. Taxonomy:
+                // PERMISSION_DENIED = genuinely blocked (terminal state);
+                // TIMEOUT / POSITION_UNAVAILABLE = still acquiring → retry,
+                // because startBackgroundTracking's watchPosition may deliver
+                // the first fix at any moment and rescue this card anyway.
+                const paintGpsDown = (desc, badge) => {
+                    updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+                    updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
+                    updateText(DOM.statusText, "SEARCH LOCATION");
+                    updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase');
+                    updateText(DOM.weatherDesc, desc);
+                    updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> ${badge}`);
+                };
+                const GPS_BOOT_RETRIES = 2;
+                const attemptGpsFix = (attempt) => {
+                    if (state.autoCoords) return;
+                    navigator.geolocation.getCurrentPosition(
+                        p => { state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude }; initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); },
+                        (err) => {
+                            if (state.autoCoords) return;
+                            if (err && err.code === err.PERMISSION_DENIED) {
+                                paintGpsDown("GPS BLOCKED.", "GPS BLOCKED");
+                                return;
+                            }
+                            if (attempt <= GPS_BOOT_RETRIES) {
+                                updateText(DOM.statusText, "ACQUIRING GPS…");
+                                updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-teal uppercase');
+                                setTimeout(() => attemptGpsFix(attempt + 1), 3000);
+                                return;
+                            }
+                            paintGpsDown("GPS UNAVAILABLE.", "GPS SIGNAL");
+                        },
+                        { timeout: 10000, enableHighAccuracy: true }
+                    );
+                };
+                attemptGpsFix(1);
             }
         }
 

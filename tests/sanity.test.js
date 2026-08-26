@@ -105,6 +105,10 @@ assert(
 );
 assertIncludes(html, 'sec-telemetry\' && state.chart', "focus-open resizes the hosted chart canvas");
 
+// U5-GPS: honest boot taxonomy — timeout/unavailable must not read "GPS BLOCKED"
+assertIncludes(html, 'ACQUIRING GPS', "index.html shows ACQUIRING GPS while the one-shot fix retries");
+assertIncludes(html, 'err.code === err.PERMISSION_DENIED', "index.html reserves GPS BLOCKED for real permission denials");
+
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");
 assertIncludes(html, 'cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', "Chart.js 4.4.1 loaded");

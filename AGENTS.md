@@ -231,7 +231,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.7.0, 2026-08-26)
 
-- sanity.test.js - 141 substring assertions / 0 failing
+- sanity.test.js - 146 substring assertions / 0 failing
 - tests/unit/ - 35 executable fixtures / 0 failing (worker kernel, fuel
   search funnel, WGS84 distance arcs, fastDistance mirror parity)
 - audit:verify - 24 self-test controls, all passing (incl. PHASE V var-era
