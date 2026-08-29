@@ -252,9 +252,13 @@ assertIncludes(html, "PROCESS_OVERPASS", "main thread can request PROCESS_OVERPA
 // override the dashboard would display "RAIN POSSIBLE" while it was already
 // raining (regression auditors should look here first).
 assertIncludes(html, "const WMO_RAIN_CODES = new Set([", "index.html declares WMO_RAIN_CODES active-precip code set");
-assertIncludes(html, "WMO_RAIN_CODES.has(curr.weather_code)", "index.html gates isRainingNow on WMO_RAIN_CODES membership");
-assertIncludes(html, "if (isRainingNow) {", "index.html elevates RAIN NOW above ensemble-forecast status tiers");
+assertIncludes(html, "const WMO_STATUS = {", "index.html declares granular WMO_STATUS map for at-a-glance detail");
+assertIncludes(html, "function getWmoStatus(code, curr)", "index.html gates granular observed status via getWmoStatus with precip gating");
+assertIncludes(html, "hasMeasurablePrecip(curr)", "index.html gates drizzle/light-rain RAIN NOW on measurable precip >=0.1 mm");
+assertIncludes(html, "if (wmoDetail && wmoDetail.isPrecip) {", "index.html elevates granular precip status above ensemble-forecast tiers");
 assertIncludes(html, "\"RAIN NOW\"", "index.html surfaces RAIN NOW status text");
+assertIncludes(html, "\"LIGHT DRIZZLE\"", "index.html surfaces granular LIGHT DRIZZLE vs RAIN NOW detail");
+assertIncludes(html, "\"NO RAIN\"", "index.html surfaces NO RAIN stable text");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently
@@ -280,8 +284,8 @@ assertIncludes(html, "d._newPos.x = d._startPos.x + (dx * cos - dy * sin);", "in
 assertIncludes(html, "d._newPos.y = d._startPos.y + (dx * sin + dy * cos);", "index.html completes the 2D rotation of the pan delta (y component)");
 
 // Route timeline nodes: observed weather_code must drive wetness status, not
-// the ensemble forecast vote — same "RAIN NOW" override as the dashboard applies.
-assertIncludes(html, "const isRainingNowNode = WMO_RAIN_CODES.has(code);", "index.html route nodes override ensemble wetness with observed weather_code");
+// the ensemble forecast vote — same granular override as the dashboard applies.
+assertIncludes(html, "getWmoStatus(code,", "index.html route nodes derive granular status via getWmoStatus");
 assertIncludes(html, "isRainingNowNode ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct)", "index.html route nodes elevate to RAIN_NOW when observation reports active precip");
 assertIncludes(html, "status === 'RAIN_NOW'", "index.html route node path icon/color distinguishes RAIN_NOW tier");
 
@@ -290,7 +294,7 @@ assertIncludes(html, "status === 'RAIN_NOW'", "index.html route node path icon/c
 // rendered below the HUD title that uses the observed code — not the ensemble
 // agreement forecast vote.
 assertIncludes(html, "__METEO_CORE_STATE.weatherCode = dCurr.current.weather_code", "index.html surfaces observed weather_code to Aero HUD");
-assertIncludes(html, "__METEO_CORE_STATE.isRainingNow = WMO_RAIN_CODES.has(window.__METEO_CORE_STATE.weatherCode)", "index.html precomputes isRainingNow verdict for the Aero HUD hot path");
+assertIncludes(html, "getWmoStatus(window.__METEO_CORE_STATE.weatherCode,", "index.html precomputes granular isRainingNow via getWmoStatus for the Aero HUD hot path");
 assertIncludes(html, "id=\"ui-radar-wxm-icon\"", "index.html declares Aero HUD weather-icon element");
 assertIncludes(html, "id=\"ui-radar-wxm-text\"", "index.html declares Aero HUD weather-text element");
 

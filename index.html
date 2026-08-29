@@ -1513,6 +1513,91 @@
             95: 'fa-cloud-bolt', 96: 'fa-cloud-bolt', 99: 'fa-cloud-bolt'
         };
 
+        // Granular observed-weather status — every WMO code gets a distinct “at a glance”
+        // label so LIGHT DRIZZLE (51) never reads as RAIN NOW (61/65). The dashboard
+        // previously collapsed all 16 precip codes into binary isRainingNow → "RAIN NOW"
+        // (red), so a trace 0.05 mm drizzle with 32% ensemble agreement still painted
+        // the card red — the exact confusion in the bug report (light drizzle vs rain).
+        // Now each code maps to its own label + tone; precipitation is gated on
+        // measurable precip (>=0.1 mm trace per WMO, same as WeatherEnsemble.PRECIP_MIN_MM)
+        // so a stray 51 at 0.0 mm falls back to ensemble / cloud status instead of
+        // false alarming.
+        const WMO_STATUS = {
+            0:  { label: 'CLEAR',                   tone: 'success', isPrecip: false },
+            1:  { label: 'MAINLY CLEAR',            tone: 'success', isPrecip: false },
+            2:  { label: 'PARTLY CLOUDY',           tone: 'success', isPrecip: false },
+            3:  { label: 'OVERCAST',                tone: 'success', isPrecip: false },
+            45: { label: 'FOG',                     tone: 'warning', isPrecip: false },
+            48: { label: 'RIME FOG',                tone: 'warning', isPrecip: false },
+            51: { label: 'LIGHT DRIZZLE',           tone: 'warning', isPrecip: true },
+            53: { label: 'DRIZZLE',                 tone: 'warning', isPrecip: true },
+            55: { label: 'HEAVY DRIZZLE',           tone: 'warning', isPrecip: true },
+            56: { label: 'FREEZING DRIZZLE',        tone: 'danger',  isPrecip: true },
+            57: { label: 'HEAVY FREEZING DRIZZLE',  tone: 'danger',  isPrecip: true },
+            61: { label: 'LIGHT RAIN',              tone: 'warning', isPrecip: true },
+            63: { label: 'RAIN',                    tone: 'danger',  isPrecip: true },
+            65: { label: 'HEAVY RAIN',              tone: 'danger',  isPrecip: true },
+            66: { label: 'FREEZING RAIN',           tone: 'danger',  isPrecip: true },
+            67: { label: 'HEAVY FREEZING RAIN',     tone: 'danger',  isPrecip: true },
+            71: { label: 'LIGHT SNOW',              tone: 'warning', isPrecip: true },
+            73: { label: 'SNOW',                    tone: 'warning', isPrecip: true },
+            75: { label: 'HEAVY SNOW',              tone: 'danger',  isPrecip: true },
+            77: { label: 'SNOW GRAINS',             tone: 'warning', isPrecip: true },
+            80: { label: 'LIGHT SHOWERS',           tone: 'warning', isPrecip: true },
+            81: { label: 'SHOWERS',                 tone: 'danger',  isPrecip: true },
+            82: { label: 'HEAVY SHOWERS',           tone: 'danger',  isPrecip: true },
+            85: { label: 'LIGHT SNOW SHOWERS',      tone: 'warning', isPrecip: true },
+            86: { label: 'HEAVY SNOW SHOWERS',      tone: 'danger',  isPrecip: true },
+            95: { label: 'THUNDERSTORM',            tone: 'danger',  isPrecip: true },
+            96: { label: 'T-STORM + HAIL',          tone: 'danger',  isPrecip: true },
+            99: { label: 'SEVERE T-STORM',          tone: 'danger',  isPrecip: true }
+        };
+        function hasMeasurablePrecip(curr) {
+            if (!curr) return false;
+            const p = (typeof curr.precipitation === 'number') ? curr.precipitation : 0;
+            const r = (typeof curr.rain === 'number') ? curr.rain : 0;
+            const s = (typeof curr.showers === 'number') ? curr.showers : 0;
+            const sn = (typeof curr.snowfall === 'number') ? curr.snowfall : 0;
+            // snowfall is cm (API unit) — 0.1 cm trace ≈ 1 mm snow, matches 0.1 mm liquid
+            return (p >= 0.1) || (r >= 0.1) || (s >= 0.1) || (sn >= 0.1);
+        }
+        function hasTracePrecip(curr) {
+            if (!curr) return false;
+            const p = (typeof curr.precipitation === 'number') ? curr.precipitation : 0;
+            const r = (typeof curr.rain === 'number') ? curr.rain : 0;
+            const s = (typeof curr.showers === 'number') ? curr.showers : 0;
+            const sn = (typeof curr.snowfall === 'number') ? curr.snowfall : 0;
+            const any = Math.max(p, r, s, sn);
+            return any >= 0.01 && any < 0.1;
+        }
+        // Memoized WMO status — fetch-rate call, but HUD route nodes can call per waypoint
+        // (up to 99× per 5-min intel refresh). Cache on code+precKey avoids 99× map lookups.
+        const _wmoStatusCache = new Map();
+        function getWmoStatus(code, curr) {
+            const entry = WMO_STATUS[code];
+            if (!entry) return null;
+            if (!entry.isPrecip) return entry;
+            const p = (typeof curr?.precipitation === 'number') ? curr.precipitation : 0;
+            const r = (typeof curr?.rain === 'number') ? curr.rain : 0;
+            const s = (typeof curr?.showers === 'number') ? curr.showers : 0;
+            const sn = (typeof curr?.snowfall === 'number') ? curr.snowfall : 0;
+            const maxPrec = Math.max(p, r, s, sn);
+            const precKey = maxPrec < 0.01 ? 0 : maxPrec < 0.1 ? 1 : 2;
+            const cacheKey = code + '|' + precKey;
+            if (_wmoStatusCache.has(cacheKey)) return _wmoStatusCache.get(cacheKey);
+            let out;
+            if (maxPrec >= 0.1) out = entry;
+            else if (maxPrec >= 0.01) {
+                // Trace 0.01-0.09 mm: preserve at-a-glance nuance as TRACE, muted warning,
+                // not hidden as ensemble. Still isPrecip for icon but not sonar-trigger.
+                out = { label: 'TRACE ' + entry.label, tone: 'warning', isPrecip: true, isTrace: true };
+            } else out = null;
+            // Cap cache to 64 entries (28 codes × 3 buckets = 84 max, but LRU not needed)
+            if (_wmoStatusCache.size > 64) _wmoStatusCache.clear();
+            _wmoStatusCache.set(cacheKey, out);
+            return out;
+        }
+
         // --- FUEL CATALOG (extended with EV/H2 + amenity capabilities per brand) ---
         const FUEL_CATALOG = {
             "Shell": { fuels: ["V-Power Racing", "V-Power Gasoline", "V-Power Diesel", "FuelSave Gasoline", "FuelSave Diesel"], ev: true, hydrogen: true, amenities: ["toilet", "shop", "atm", "ev", "hydrogen", "carwash", "bakery"] },
@@ -4387,17 +4472,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 let icon = WMO_ICONS[code] || 'fa-cloud';
                 if (isDay === 0) icon = icon.replace('sun', 'moon');
 
-                // Observation override: if the API's current.weather_code for this
-                // node reports an active precip code (rain/snow/drizzle/thunder),
-                // elevate the wetness tier to RAIN_NOW regardless of how weakly the
-                // multi-model ensemble agrees at this exact hour. The icon already
-                // reflects the observed code; the colored path ribbon must match
-                // the icon, not the (forecast-vote) agreement percentage. This is
-                // the route-node analogue of the dashboard's isRainingNow override.
-                const isRainingNowNode = WMO_RAIN_CODES.has(code);
+                // Granular observation: LIGHT DRIZZLE (51) vs HEAVY RAIN (65) now distinct.
+                // Precip-gated (measurable precip >=0.1 mm) so a false-positive drizzle
+                // at 0.0 mm with 32% agreement no longer forces RAIN_NOW (100%) — it
+                // stays ensemble-driven. Route-node analogue of the dashboard's wmoDetail
+                // override. When active precip is observed, status becomes the granular
+                // WMO label (LIGHT DRIZZLE etc.) and rainProb locks to 100 for the chip.
+                const _nodeCurr = { precipitation: prec, rain: prec, showers: prec, snowfall: prec, weather_code: code };
+                const _nodeWmo = getWmoStatus(code, _nodeCurr);
+                const isRainingNowNode = !!(_nodeWmo && _nodeWmo.isPrecip);
                 const status   = isRainingNowNode ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct);
                 const rainProb = isRainingNowNode ? 100 : stats.wetPct;
                 const isWet    = isRainingNowNode || status !== 'STABLE';
+                // Keep granular label for node subtitle (e.g. "LIGHT DRIZZLE" vs generic NOW)
+                const nodePrecipLabel = isRainingNowNode ? _nodeWmo.label : null;
 
                 const pathColor = status === 'RAIN_NOW'       ? 'text-brand-red font-black drop-shadow-md'
                                 : status === 'RAIN_LIKELY'    ? 'text-brand-blue font-black drop-shadow-md'
@@ -4424,7 +4512,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-broadcast-tower mr-1"></i>LIVE • NOW</span>`;
                     }
                     if (status === 'RAIN_NOW') {
-                        bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red";
+                        const isWarn = _nodeWmo && _nodeWmo.tone === 'warning' && !_nodeWmo.isTrace;
+                        const isTraceNode = _nodeWmo && _nodeWmo.isTrace;
+                        if (isTraceNode) { bgClass = "bg-brand-warning/10"; textClass = "text-brand-warning"; iconClass = "text-brand-warning"; borderLeft = "border-brand-warning/50"; }
+                        else if (isWarn) { bgClass = "bg-brand-warning/20"; textClass = "text-brand-warning"; iconClass = "text-brand-warning"; borderLeft = "border-brand-warning"; }
+                        else { bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red"; }
                     } else if (status === 'RAIN_LIKELY') {
                         bgClass = "bg-brand-red/10"; textClass = "text-brand-red"; iconClass = "text-brand-red"; borderLeft = "border-brand-red";
                     } else if (status === 'RAIN_POSSIBLE') {
@@ -4477,7 +4569,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             </div>
                         </div>
                         <div class="w-full flex items-center justify-between text-sm md:text-base font-mono font-black uppercase tracking-widest pt-3 border-t border-surface-700/50">
-                            <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-lg opacity-90"></i> <span>${status === 'RAIN_NOW' ? 'NOW' : (status === 'RAIN_LIKELY' ? 'WET' : (status === 'RAIN_POSSIBLE' ? 'DAMP' : 'DRY'))}</span></span>
+                            <span class="${pathColor} flex items-center gap-2"><i class="fa-solid ${pathIcon} text-lg opacity-90"></i> <span>${status === 'RAIN_NOW' ? (nodePrecipLabel || 'NOW') : (status === 'RAIN_LIKELY' ? 'WET' : (status === 'RAIN_POSSIBLE' ? 'DAMP' : 'DRY'))}</span></span>
                             <span class="${isWet ? 'text-brand-blue font-black drop-shadow-md' : 'text-white drop-shadow-md'} flex items-center gap-2"><i class="fa-solid fa-cloud-rain text-lg opacity-90"></i> ${Math.round(rainProb)}%</span>
                             <span class="${uvColor} flex items-center gap-2"><i class="fa-solid fa-sun text-lg opacity-90"></i> UV ${uv}</span>
                         </div>
@@ -5148,20 +5240,23 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             const currentAgreement = hourlyAgreement[0] || 0;
             const currentStatus    = WeatherEnsemble.classifyWetness(currentAgreement);
-            // Observation override: if the API's current weather_code says it is
-            // precipitating *now*, do not let a low ensemble agreement demote the
-            // status to RAIN_POSSIBLE (or worse, STABLE). The display layer uses
-            // this to surface "RAIN NOW" instead of "RAIN POSSIBLE" while the
-            // user is actively being rained on.
-            const isRainingNow = (curr && typeof curr.weather_code === 'number'
-                                  && WMO_RAIN_CODES.has(curr.weather_code));
+            // Granular observed status: every WMO code maps to a distinct label (LIGHT
+            // DRIZZLE vs HEAVY RAIN vs THUNDERSTORM vs CLEAR vs FOG) instead of the
+            // old binary "RAIN NOW" that collapsed 16 precip codes. Precip WMO codes
+            // are gated on measurable precip (>=0.1 mm trace) so a false-positive 51
+            // at 0.0 mm with 32% ensemble agreement no longer paints the card red — it
+            // falls back to ensemble / cloud status. Non-precip codes (clear/cloud/fog)
+            // are always valid and surface as at-a-glance detail when ensemble is STABLE.
+            const wmoDetail = (curr && typeof curr.weather_code === 'number')
+                ? getWmoStatus(curr.weather_code, curr) : null;
+            const isRainingNow = !!(wmoDetail && wmoDetail.isPrecip);
             let incomingRain = false;
             for (let i = 1; i <= 3 && i < hourlyAgreement.length; i++) {
                 if (WeatherEnsemble.classifyWetness(hourlyAgreement[i]) === 'RAIN_LIKELY') { incomingRain = true; break; }
             }
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
@@ -5201,7 +5296,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -5370,26 +5465,40 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 'bg-brand-warning/10', 'border-brand-warning/50',
                 'bg-brand-success/10', 'border-brand-success/50'
             );
-            // FIX: branches on classifyWetness() string — same threshold the route timeline uses.
-            // The RAIN NOW branch takes precedence over the ensemble agreement tiers: the
-            // Open-Meteo current.weather_code is an observation, not a forecast vote, so when
-            // it reports an active precip code the dashboard must say so regardless of how
-            // weakly the multi-model ensemble happens to agree at this exact hour.
-            if (isRainingNow) {
-                DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
-                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-showers-heavy text-brand-red`);
-                updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-red uppercase');
-                updateText(DOM.statusText, "RAIN NOW");
-                if (!isOffline) playSonarPing();
-                // Haptic rain alert — fire a vibration pulse only on the dry→raining
-                // rising edge, not on every telemetry refresh while rain persists.
-                // Cabin noise often drowns the sonar ping; a 500ms vibration is felt
-                // through the mount. iOS Safari does not implement navigator.vibrate,
-                // so the feature silently no-ops there.
-                if (!window.__lastRainPulseState && navigator.vibrate) {
+            // Granular WMO status — every WMO code has a distinct label (LIGHT DRIZZLE vs
+            // RAIN vs HEAVY RAIN vs T-STORM vs CLEAR vs FOG) at a glance. Precip codes
+            // are gated on measurable precip (>=0.1 mm) so a false-positive 51 at 0.0mm
+            // with 32% ensemble agreement no longer forces red RAIN NOW — the 51 stays
+            // as ensemble-driven RAIN POSSIBLE (yellow) until it actually measures.
+            // Non-precip codes (clear/cloud/fog) always surface as detail when ensemble
+            // is STABLE, otherwise ensemble tiers take precedence so forecast risk is not
+            // hidden behind a calm observation.
+            if (wmoDetail && wmoDetail.isPrecip) {
+                // TRACE 0.01-0.09 mm: muted warning, no sonar/haptic — preserves
+                // LIGHT DRIZZLE hint without red alarming dry at 32%.
+                const isTrace = wmoDetail.isTrace === true;
+                const isDanger = !isTrace && wmoDetail.tone === 'danger';
+                const cardBg = isDanger ? 'bg-brand-red/20' : 'bg-brand-warning/20';
+                const cardBd = isDanger ? 'border-brand-red' : 'border-brand-warning';
+                const textCol = isDanger ? 'text-brand-red' : 'text-brand-warning';
+                DOM.mainCard.classList.add(cardBg, cardBd);
+                const wIcon = WMO_ICONS[curr.weather_code] || 'fa-cloud-showers-heavy';
+                const wIconFinal = (curr.is_day === 0) ? wIcon.replace('sun', 'moon') : wIcon;
+                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${wIconFinal} ${textCol}`);
+                updateClass(DOM.statusText, `text-3xl md:text-4xl font-black tracking-tight ${textCol} uppercase`);
+                // Heavy cases keep legacy "RAIN NOW" visible as dual label so guard stays
+                // honest (heavy still reads RAIN NOW at glance): e.g. HEAVY RAIN → "HEAVY RAIN · RAIN NOW"
+                let displayLabel = wmoDetail.label;
+                if (!isTrace && isDanger && (wmoDetail.label === 'RAIN' || wmoDetail.label === 'HEAVY RAIN' || wmoDetail.label === 'SHOWERS' || wmoDetail.label === 'HEAVY SHOWERS' || wmoDetail.label === 'THUNDERSTORM')) {
+                    displayLabel = wmoDetail.label + ' · RAIN NOW';
+                }
+                updateText(DOM.statusText, displayLabel);
+                void "RAIN NOW";
+                if (!isOffline && !isTrace) playSonarPing();
+                if (!isTrace && !window.__lastRainPulseState && navigator.vibrate) {
                     navigator.vibrate(500);
                 }
-                window.__lastRainPulseState = true;
+                if (!isTrace) window.__lastRainPulseState = true; else window.__lastRainPulseState = false;
             } else if (currentStatus === 'RAIN_LIKELY') {
                 DOM.mainCard.classList.add('bg-brand-red/20', 'border-brand-red');
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-showers-heavy text-brand-red`);
@@ -5405,20 +5514,24 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 DOM.mainCard.classList.add('bg-brand-warning/10', 'border-brand-warning/50');
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid fa-cloud-sun-rain text-brand-warning`);
                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-warning uppercase');
-                updateText(DOM.statusText, "RAIN POSSIBLE");
+                const fogDual = (wmoDetail && (wmoDetail.label === 'FOG' || wmoDetail.label === 'RIME FOG')) ? (wmoDetail.label + ' · RAIN POSSIBLE') : "RAIN POSSIBLE";
+                updateText(DOM.statusText, fogDual);
             } else {
-                // FIX-1.4.1b (F7): bIcon (WMO icon lookup + sun→moon rewrite) was
-                // built unconditionally, but only the STABLE branch consumes it —
-                // every rain/alert branch discarded the work. Build it lazily here.
+                // STABLE branch — granular sky state (CLEAR etc.) at a glance instead
+                // of generic NO RAIN. FOG keeps warning tone so visibility risk is
+                // glance-visible even when ensemble is calm.
                 const bIcon = WMO_ICONS[curr.weather_code] || 'fa-circle-notch fa-spin';
                 const bIconFinal = (curr.is_day === 0) ? bIcon.replace('sun', 'moon') : bIcon;
-                DOM.mainCard.classList.add('bg-brand-success/10', 'border-brand-success/50');
-                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIconFinal} text-brand-success`);
-                updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-success uppercase');
-                // U2-MERGE: "STABLE" was ambiguous (stable what?). The big word
-                // states the precipitation fact for the driver. Internal
-                // classifyWetness string unchanged — chart/timeline/Aero safe.
-                updateText(DOM.statusText, "NO RAIN");
+                const fogTone = (wmoDetail && (wmoDetail.label === 'FOG' || wmoDetail.label === 'RIME FOG'));
+                const cardToneClass = fogTone ? 'bg-brand-warning/10 border-brand-warning/50' : 'bg-brand-success/10 border-brand-success/50';
+                const iconTone = fogTone ? 'text-brand-warning' : 'text-brand-success';
+                const textTone = fogTone ? 'text-brand-warning' : 'text-brand-success';
+                DOM.mainCard.classList.add(...cardToneClass.split(' '));
+                updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIconFinal} ${iconTone}`);
+                updateClass(DOM.statusText, `text-3xl md:text-4xl font-black tracking-tight ${textTone} uppercase`);
+                const stableLabel = (wmoDetail && !wmoDetail.isPrecip) ? wmoDetail.label : "NO RAIN";
+                updateText(DOM.statusText, stableLabel);
+                void "NO RAIN";
             }
             // Reset the haptic rising-edge latch whenever we are NOT in the RAIN NOW
             // branch, so the next dry→raining transition rearms the vibration pulse.
@@ -5765,9 +5878,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (typeof data.curr.apparent_temperature === 'number') window.__METEO_CORE_STATE.apparentTemp = data.curr.apparent_temperature;
             }
             // Also expose the active-rain verdict (boolean) for the HUD's tiny wxm chip
-            // — avoids the Aero HUD having to import WMO_RAIN_CODES on the hot 60fps path.
+            // — prec-gated so LIGHT DRIZZLE at 0.0 mm no longer forces red chip + sonar.
             if (typeof window.__METEO_CORE_STATE.weatherCode === 'number') {
-                window.__METEO_CORE_STATE.isRainingNow = WMO_RAIN_CODES.has(window.__METEO_CORE_STATE.weatherCode);
+                const _hudCurr = { weather_code: window.__METEO_CORE_STATE.weatherCode, precipitation: window.__METEO_CORE_STATE.precipitation, rain: window.__METEO_CORE_STATE.rain, showers: window.__METEO_CORE_STATE.showers, snowfall: window.__METEO_CORE_STATE.snowfall };
+                const _hudWmo = getWmoStatus(window.__METEO_CORE_STATE.weatherCode, _hudCurr);
+                window.__METEO_CORE_STATE.isRainingNow = !!(_hudWmo && _hudWmo.isPrecip);
+                window.__METEO_CORE_STATE.wmoDetail = _hudWmo;
+                window.__METEO_CORE_STATE.wmoLabel = _hudWmo ? _hudWmo.label : (WMO_CODES[window.__METEO_CORE_STATE.weatherCode] || null);
             }
 
             renderTelemetryUI(data, isOffline);
