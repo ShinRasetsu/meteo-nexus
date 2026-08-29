@@ -305,6 +305,7 @@
     </header>
 
     <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
+        <div class="flex justify-center -mb-1"><div onclick="toggleFocus('sec-telemetry')" class="w-10 h-1 bg-surface-600 rounded-full cursor-pointer hover:bg-brand-teal transition-colors" title="Swipe to expand diagnostics"></div></div>
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
             <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
@@ -331,6 +332,7 @@
                                 <i class="fa-regular fa-clock text-brand-blue opacity-80"></i>
                                 <span id="local-time-text">--:--:--</span>
                             </div>
+                            <div id="tracking-progress-bar" class="w-full h-1 bg-surface-800 rounded-full mt-2 overflow-hidden hidden"><div id="tracking-progress-fill" class="h-full bg-brand-teal transition-all duration-500" style="width:0%"></div></div>
                         </div>
 
                         <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
@@ -463,7 +465,7 @@
         <div class="map-wrapper w-full relative h-[450px] md:h-[600px] rounded-xl border-4 border-surface-700 z-0 bg-[#111111] overflow-hidden">
             <div id="hud-map" class="absolute top-[-25%] left-[-25%] w-[150%] h-[150%] origin-center"></div>
             
-            <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[80%] overlay-safe">
+            <div class="absolute top-4 left-4 z-[1000] flex flex-wrap gap-2 pointer-events-none max-w-[60%] overlay-safe">
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
                     <i class="fa-solid fa-gauge-high text-brand-teal text-sm"></i>
                     <div class="flex items-baseline gap-1">
@@ -477,12 +479,24 @@
                     </div>
                 </div>
                 <div class="bg-surface-900/90 border border-surface-700 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg backdrop-blur-md pointer-events-auto">
-                    <i id="live-compass-icon" class="fa-regular fa-compass text-brand-blue text-sm"></i>
+                    <i id="live-compass-icon" class="fa-solid fa-location-arrow text-brand-blue text-sm"></i>
                     <div class="flex items-baseline gap-1">
                         <span id="live-heading-txt" class="font-mono text-base font-black text-white leading-none">N</span>
                         <span id="live-heading-deg" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">000°</span>
                     </div>
                 </div>
+            </div>
+            <div id="tracking-eta-bar" class="absolute top-4 right-4 z-[1000] hidden bg-surface-900/90 border border-brand-teal/50 px-3 py-1.5 rounded-lg shadow-lg backdrop-blur-md pointer-events-none md:flex items-center gap-3 text-[10px] font-mono font-bold uppercase tracking-widest">
+                <span id="tracking-eta-next" class="text-brand-teal">NEXT --</span>
+                <span class="text-surface-600">|</span>
+                <span id="tracking-eta-eta" class="text-white">ETA --:--</span>
+                <span class="text-surface-600">|</span>
+                <span id="tracking-eta-dist" class="text-gray-300">-- KM</span>
+            </div>
+            <div id="tracking-recenter-chip" class="absolute top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
+                <i class="fa-solid fa-location-crosshairs animate-pulse"></i>
+                <span id="tracking-recenter-text">RECENTER IN 5s</span>
+                <button onclick="window.applyTacticalMode && window.applyTacticalMode(); state.isMapLocked=true;" class="ml-2 bg-black/20 px-2 py-0.5 rounded-full text-[9px]">NOW</button>
             </div>
 
             <!-- Quick-glance summary strip — single condensed line for driving mode.
@@ -2153,6 +2167,7 @@ let delta = heading - state.lastHeading;
         // a hidden overlay costs one boolean check per frame; a visible one only
         // writes DOM when a displayed value actually changed).
         let _driveUiKeys = {};
+        let _trackingEtaKeys = { eta: null, dist: null, next: null, locked: null, countdown: null, prog: null };
 
         // PERF-P2: single-write rotation. One custom property drives ALL map
         // rotation transforms (see the stylesheet rules next to the
@@ -2345,6 +2360,86 @@ let delta = heading - state.lastHeading;
                 }
                 if (_driveUiKeys.route !== rTxt) { _driveUiKeys.route = rTxt; updateText(DOM.driveRoute, rTxt); }
                 if (_driveUiKeys.eta !== etaTxt) { _driveUiKeys.eta = etaTxt; updateText(DOM.driveEta, etaTxt); }
+            }
+            // Tracking ETA bar — Google Maps level sticky header (ETA + remaining + next maneuver).
+            // Visible only when a route exists; gated on rounded values so 60fps loop stays cheap.
+            {
+                const etaBar = document.getElementById('tracking-eta-bar');
+                const recenterChip = document.getElementById('tracking-recenter-chip');
+                if (etaBar) {
+                    const hasRoute = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0));
+                    const shouldShow = hasRoute && state.autoCoords;
+                    const showKey = shouldShow ? 1 : 0;
+                    if (_trackingEtaKeys.locked !== showKey) {
+                        _trackingEtaKeys.locked = showKey;
+                        etaBar.classList.toggle('hidden', !shouldShow);
+                        etaBar.classList.toggle('flex', shouldShow);
+                    }
+                    if (shouldShow) {
+                        // Next node — same cursor logic Drive Mode uses, distance via fastDistanceSqMeters
+                        const curIdx = state.routeNodesCursor || 0;
+                        const n = (state.routeNodes && state.routeNodes[curIdx]) ? state.routeNodes[curIdx] : null;
+                        let nextTxt = 'NEXT --';
+                        if (n && state.autoCoords) {
+                            const dm = Math.sqrt(fastDistanceSqMeters(state.autoCoords.lat, state.autoCoords.lon, n.lat, n.lon));
+                            if (Number.isFinite(dm)) {
+                                const distStr = dm >= 1000 ? (dm/1000).toFixed(1)+'KM' : Math.round(dm/10)*10+'M';
+                                nextTxt = (n.id!=null ? 'N-'+n.id+' ' : '') + distStr;
+                            }
+                        } else if (state.targetCoords && state.autoCoords) {
+                            const dm2 = Math.sqrt(fastDistanceSqMeters(state.autoCoords.lat, state.autoCoords.lon, state.targetCoords.lat, state.targetCoords.lon));
+                            if (Number.isFinite(dm2)) nextTxt = dm2 >= 1000 ? (dm2/1000).toFixed(1)+'KM' : Math.round(dm2/10)*10+'M';
+                        }
+                        if (_trackingEtaKeys.next !== nextTxt) { _trackingEtaKeys.next = nextTxt; const el=document.getElementById('tracking-eta-next'); if(el) el.textContent=nextTxt; }
+                        // Remaining distance + ETA from driveRouteKm
+                        const rKm2 = (typeof state.driveRouteKm === 'number') ? state.driveRouteKm : null;
+                        const distTxt = rKm2!==null ? rKm2.toFixed(1)+' KM' : '-- KM';
+                        if (_trackingEtaKeys.dist !== distTxt) { _trackingEtaKeys.dist = distTxt; const el=document.getElementById('tracking-eta-dist'); if(el) el.textContent=distTxt; }
+                        let etaTxt2 = '--:--';
+                        if (rKm2!==null && state.currentSpeed >= 5) {
+                            const mins = (rKm2 / state.currentSpeed)*60;
+                            const etaDate = new Date(Date.now() + mins*60000);
+                            etaTxt2 = etaDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) + ' · ' + (mins>=60 ? Math.floor(mins/60)+'H '+Math.round(mins%60)+'M' : Math.max(1,Math.round(mins))+'M');
+                        } else if (rKm2!==null && state.driveRouteMin!==null) {
+                            etaTxt2 = Math.round(state.driveRouteMin) + 'M';
+                        }
+                        if (_trackingEtaKeys.eta !== etaTxt2) { _trackingEtaKeys.eta = etaTxt2; const el=document.getElementById('tracking-eta-eta'); if(el) el.textContent=etaTxt2; }
+                        // Progress bar — Google Maps remaining/total tape in telemetry header
+                        const totalNodes = (state.routeNodes && state.routeNodes.length) ? state.routeNodes.length : 0;
+                        const curCursor = state.routeNodesCursor || 0;
+                        const prog = totalNodes ? Math.round((curCursor/totalNodes)*100) : 0;
+                        const bar = document.getElementById('tracking-progress-bar');
+                        const fill = document.getElementById('tracking-progress-fill');
+                        if (!bar) {}
+                        if (!fill) {}
+                        if (bar && fill) {
+                            const shouldShowBar = shouldShow && totalNodes>0;
+                            bar.classList.toggle('hidden', !shouldShowBar);
+                            if (shouldShowBar && _trackingEtaKeys.prog !== prog) { _trackingEtaKeys.prog = prog; if (fill) fill.style.width = prog+'%'; }
+                        }
+                    }
+                }
+                // Re-center countdown — Google Maps "Re-center in 5s" chip
+                if (recenterChip) {
+                    const showRecenter = !state.isMapLocked && state.autoCoords && (state.routeNodes || state.targetCoords);
+                    const recKey = showRecenter ? 1 : 0;
+                    if (_trackingEtaKeys.countdown !== recKey) {
+                        _trackingEtaKeys.countdown = recKey;
+                        recenterChip.classList.toggle('hidden', !showRecenter);
+                        recenterChip.classList.toggle('flex', showRecenter);
+                    }
+                    if (showRecenter) {
+                        // Estimate remaining from _recenterLockTimer setTimeout handle — fallback to 5s
+                        // We store the deadline in state._recenterDeadline when scheduling
+                        let secs = 5;
+                        if (state._recenterDeadline) secs = Math.max(0, Math.ceil((state._recenterDeadline - Date.now())/1000));
+                        const txtEl = document.getElementById('tracking-recenter-text');
+                        if (txtEl) {
+                            const t = `RECENTER IN ${secs}s`;
+                            if (txtEl.textContent !== t) txtEl.textContent = t;
+                        }
+                    }
+                }
             }
             // Compass icon + heading text driven by Aero HUD's polished visualHeading
             // (TC=120ms EMA, same as Aero compass ring). No duplicate smoothing.
@@ -3727,6 +3822,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // it re-locked the map MID-DRAG (pan + heading-follow re-engaging
                 // under the user's finger). Track + clear it alongside the outer.
                 if (state._recenterLockTimer) { clearTimeout(state._recenterLockTimer); state._recenterLockTimer = null; }
+                state._recenterDeadline = null;
                 state.isMapLocked = false;
                 // Dragging must NOT rotate the map. The map's rotation is purely
                 // heading-driven (smoothVisualsLoop writes rotate(-heading) when
@@ -3780,6 +3876,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             });
             state.mapObj.on('dragend', () => {
                 if (state.tacticalMode > 0 && state.autoCoords && !state.isMapLocked) {
+                    state._recenterDeadline = Date.now() + 5000;
                     state._recenterTimer = setTimeout(() => {
                         if (!state.isMapLocked && state.tacticalMode > 0 && state.autoCoords) {
                             const lat = state.visual.lat || state.autoCoords.lat;
@@ -3813,6 +3910,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 // a stale id here would make a later dragstart clear a
                                 // dead timer (harmless) but also mask the real state.
                                 state._recenterLockTimer = null;
+                                state._recenterDeadline = null;
                             }, 600);
                         }
                     }, 5000);
