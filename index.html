@@ -264,6 +264,14 @@
         .focus-only { display: none !important; }
         #sec-telemetry.section-fullscreen .focus-only { display: flex !important; }
         #sec-telemetry.section-fullscreen .focus-only.focus-grid { display: grid !important; }
+        /* AERO focus-only: dense diagnostics (VIS, pressure, Brier) only in fullscreen */
+        .aero-focus-only { display: none !important; }
+        .aero-fullscreen .aero-focus-only { display: flex !important; }
+        .aero-fullscreen .aero-focus-only.aero-focus-grid { display: grid !important; }
+        @media (prefers-reduced-motion: reduce) {
+            #radar-dial-scaler { transition: none !important; }
+            #ui-radar-wind-ghost-1, #ui-radar-wind-ghost-2, #ui-radar-wind-ghost-3 { transition: none !important; }
+        }
         /* AERO-VECTOR: the radar card is DOM-nested inside main-grid but owns an
          INDEPENDENT focus mode (radar-expand-btn). Excluded from Local-Telemetry
          fullscreen unless it is itself fullscreen — focusing telemetry no longer
@@ -5856,6 +5864,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (typeof dCurr.current.showers    === 'number') window.__METEO_CORE_STATE.showers    = dCurr.current.showers;
                 if (typeof dCurr.current.snowfall   === 'number') window.__METEO_CORE_STATE.snowfall   = dCurr.current.snowfall;
                 if (typeof dCurr.current.cloud_cover === 'number') window.__METEO_CORE_STATE.cloudCover = dCurr.current.cloud_cover;
+                if (typeof dCurr.current.relative_humidity_2m === 'number') window.__METEO_CORE_STATE.humidity = dCurr.current.relative_humidity_2m;
                 if (typeof dCurr.current.pressure_msl=== 'number') window.__METEO_CORE_STATE.pressure   = dCurr.current.pressure_msl;
                 if (typeof dCurr.current.visibility  === 'number') window.__METEO_CORE_STATE.visibility = dCurr.current.visibility;
                 if (typeof dCurr.current.temperature_2m       === 'number') window.__METEO_CORE_STATE.temperature   = dCurr.current.temperature_2m;
@@ -5886,6 +5895,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 window.__METEO_CORE_STATE.wmoDetail = _hudWmo;
                 window.__METEO_CORE_STATE.wmoLabel = _hudWmo ? _hudWmo.label : (WMO_CODES[window.__METEO_CORE_STATE.weatherCode] || null);
             }
+            // Focus-only diagnostics — fetch-rate, no extra 60fps allocs
+            if (data && data.wmoDetail) window.__METEO_CORE_STATE.wmoDetail = data.wmoDetail;
+            if (typeof WeatherEnsemble !== 'undefined' && WeatherEnsemble.getActiveRegime) window.__METEO_CORE_STATE.regime = WeatherEnsemble.getActiveRegime();
+            if (data && data.tempBand && data.tempBand[0]) window.__METEO_CORE_STATE.tempSpread = data.tempBand[0].spread;
+            if (data && typeof data.currentAgreement === 'number') window.__METEO_CORE_STATE.agreement = data.currentAgreement;
 
             renderTelemetryUI(data, isOffline);
             // PERF: chart-level signature gate — the payload gate above passes on a
@@ -6887,7 +6901,7 @@ function checkDependenciesAndRun() {
                             <i id="ui-radar-wxm-icon" class="fa-solid fa-circle-notch fa-spin text-sm text-gray-400" title="weather code"></i>
                             <span id="ui-radar-wxm-text" class="text-[10px] font-black uppercase tracking-widest text-gray-300">--</span>
                         </div>
-                        <span id="ui-radar-gust" class="text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
+                        <span id="ui-radar-gust" class="aero-focus-only text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
                     </div>
                     <div class="flex items-start gap-4">
                         <div class="text-right pointer-events-none">
@@ -6897,7 +6911,7 @@ function checkDependenciesAndRun() {
                                 <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                             </div>
                         </div>
-                        <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm">
+                        <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Expand Aero HUD">
                             <i class="fa-solid fa-expand text-base"></i>
                         </button>
                     </div>
@@ -6946,13 +6960,24 @@ function checkDependenciesAndRun() {
                             <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
                             <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
                         </div>
-                        <div class="flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
+                        <div class="aero-focus-only flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
                             <span id="ui-radar-crosswind">CRS: 0</span>
                             <span class="text-surface-600">|</span>
                             <span id="ui-radar-headwind">HWD: 0</span>
                         </div>
-                        <span id="ui-radar-visibility" class="text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1 block opacity-0 transition-opacity">VIS 99 km</span>
+                        <span id="ui-radar-visibility" class="aero-focus-only text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1 block opacity-0 transition-opacity">VIS 99 km</span>
                     </div>
+                </div>
+                <div id="aero-focus-left" class="aero-focus-only hidden absolute left-4 top-20 bottom-20 w-36 flex-col justify-center gap-2 pointer-events-none">
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Pressure</div><div id="ui-radar-pressure" class="text-xs font-mono font-bold text-gray-300">-- hPa</div></div>
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Humidity</div><div id="ui-radar-humidity" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Cloud</div><div id="ui-radar-cloud" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Visibility</div><div id="ui-radar-vis2" class="text-xs font-mono font-bold text-gray-300">--</div></div>
+                </div>
+                <div id="aero-focus-right" class="aero-focus-only hidden absolute right-4 top-20 bottom-20 w-36 flex-col justify-center gap-2 pointer-events-none">
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Regime</div><div id="ui-radar-regime" class="text-[10px] font-mono font-bold text-brand-teal">--</div></div>
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Spread</div><div id="ui-radar-spread" class="text-xs font-mono font-bold text-gray-300">--°</div></div>
+                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Brier</div><div id="ui-radar-brier" class="text-[9px] font-mono text-gray-400 leading-tight">--</div></div>
                 </div>
             `;
 
@@ -6976,6 +7001,13 @@ function checkDependenciesAndRun() {
                     document.getElementById('ui-radar-wind-ghost-2'),
                     document.getElementById('ui-radar-wind-ghost-3')
                 ],
+                focusPressure: document.getElementById('ui-radar-pressure'),
+                focusHumidity: document.getElementById('ui-radar-humidity'),
+                focusCloud: document.getElementById('ui-radar-cloud'),
+                focusVis2: document.getElementById('ui-radar-vis2'),
+                focusRegime: document.getElementById('ui-radar-regime'),
+                focusSpread: document.getElementById('ui-radar-spread'),
+                focusBrier: document.getElementById('ui-radar-brier'),
                 glanceRain: document.getElementById('hud-glance-rain'),
                 glanceWind: document.getElementById('hud-glance-wind'),
                 glanceVis:  document.getElementById('hud-glance-vis'),
@@ -7009,6 +7041,25 @@ function checkDependenciesAndRun() {
                         document.body.classList.remove('overflow-hidden');
                     }
                 });
+                // Escape + map drag auto-exit — focus stuck with body overflow-hidden
+                // blocks scroll + hides glance strip. Map drag implies user wants to
+                // navigate, not inspect diagnostics.
+                const exitAeroFocus = () => {
+                    if (!isRadarFullscreen) return;
+                    isRadarFullscreen = false;
+                    aeroContainer.classList.remove('aero-fullscreen');
+                    radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
+                    radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
+                    dialScaler.style.transform = 'scale(1)';
+                    expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
+                    document.body.classList.remove('overflow-hidden');
+                };
+                document.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitAeroFocus(); });
+                // Map dragstart lives in main module; listen on #hud-map wrapper if present
+                const _hudMapEl = document.getElementById('hud-map');
+                if (_hudMapEl) _hudMapEl.addEventListener('dragstart', exitAeroFocus);
+                // Expose for manual close from other focus toggles
+                window.exitAeroFocus = exitAeroFocus;
             }
 
             // Pre-allocated ring buffer for wind trail — no GC on update
@@ -7072,7 +7123,14 @@ function checkDependenciesAndRun() {
                 glWindKey: -Infinity,
                 glVisKey: -Infinity,
                 glTempKey: -Infinity,
-                glTrendKey: -Infinity
+                glTrendKey: -Infinity,
+                focusPressureKey: -Infinity,
+                focusHumidityKey: -Infinity,
+                focusCloudKey: -Infinity,
+                focusVis2Key: -Infinity,
+                focusRegimeKey: '',
+                focusSpreadKey: -Infinity,
+                focusBrierKey: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -7226,7 +7284,10 @@ function checkDependenciesAndRun() {
                             // Same icon mapping the dashboard uses, with night-code remap.
                             let icon = WMO_ICONS[code] || 'fa-cloud';
                             if (st.isDay === 0) icon = icon.replace('sun', 'moon');
-                            let label = WMO_CODES[code] || `Code: ${code}`;
+                            // Prefer granular WMO_STATUS label (LIGHT DRIZZLE vs RAIN) when
+                            // available, fallback to legacy WMO_CODES. Keeps glance distinct
+                            // for 51 vs 63 at same 0.2 mm.
+                            let label = (st.wmoDetail && st.wmoDetail.label) ? st.wmoDetail.label : (WMO_CODES[code] || `Code: ${code}`);
                             // Append precipitation intensity when it is actively raining
                             // (isRainingNow) and the value is meaningful (>= 0.1 mm).
                             // The Aero HUD chip is small, so use "Drizzle 0.1mm" format
@@ -7251,8 +7312,11 @@ function checkDependenciesAndRun() {
                                 label = pType ? `${label} ${pLabel} (${pType.trim()})` : `${label} ${pLabel}`;
                             }
                             if (st.isRainingNow) {
-                                wxmIconClass = `${icon} text-brand-red drop-shadow-md`;
-                                wxmTextClass = 'text-brand-red';
+                                const tone = st.wmoDetail ? st.wmoDetail.tone : 'danger';
+                                const isTraceHud = st.wmoDetail && st.wmoDetail.isTrace;
+                                if (isTraceHud) { wxmIconClass = `${icon} text-brand-warning drop-shadow-md`; wxmTextClass = 'text-brand-warning'; }
+                                else if (tone === 'warning') { wxmIconClass = `${icon} text-brand-warning drop-shadow-md`; wxmTextClass = 'text-brand-warning'; }
+                                else { wxmIconClass = `${icon} text-brand-red drop-shadow-md`; wxmTextClass = 'text-brand-red'; }
                             } else {
                                 wxmIconClass = `${icon} text-gray-300`;
                                 wxmTextClass = 'text-gray-300';
@@ -7310,6 +7374,73 @@ function checkDependenciesAndRun() {
                     }
                 }
 
+                // FOCUS-ONLY PANELS — dense diagnostics visible only when Aero HUD is
+                // fullscreen. Fetch-rate inputs (pressure, cloud, visibility, regime,
+                // spread, Brier) so numeric keys gate string builds exactly like the
+                // alt/wxm chips above. Hidden in non-focus via .aero-focus-only CSS.
+                if (_el.focusPressure) {
+                    const pKey = (typeof st.pressure === 'number') ? Math.round(st.pressure) : -999;
+                    if (_uiCache.focusPressureKey !== pKey) {
+                        _uiCache.focusPressureKey = pKey;
+                        _el.focusPressure.textContent = (pKey !== -999) ? (pKey + ' hPa') : '-- hPa';
+                    }
+                }
+                if (_el.focusHumidity) {
+                    const hKey = (typeof st.humidity === 'number') ? Math.round(st.humidity) : -999;
+                    if (_uiCache.focusHumidityKey !== hKey) {
+                        _uiCache.focusHumidityKey = hKey;
+                        _el.focusHumidity.textContent = (hKey !== -999) ? (hKey + '%') : '--%';
+                    }
+                }
+                if (_el.focusCloud) {
+                    const cKey = (typeof st.cloudCover === 'number') ? Math.round(st.cloudCover) : -999;
+                    if (_uiCache.focusCloudKey !== cKey) {
+                        _uiCache.focusCloudKey = cKey;
+                        _el.focusCloud.textContent = (cKey !== -999) ? (cKey + '%') : '--%';
+                    }
+                }
+                if (_el.focusVis2) {
+                    let v2Key = -1;
+                    if (typeof st.visibility === 'number') {
+                        const km = st.visibility / 1000;
+                        v2Key = km < 1 ? Math.round(km*100) : km < 10 ? Math.round(km*10) : Math.round(km);
+                        v2Key += (km < 1 ? 0 : km < 5 ? 100000 : 200000);
+                    }
+                    if (_uiCache.focusVis2Key !== v2Key) {
+                        _uiCache.focusVis2Key = v2Key;
+                        if (v2Key >= 0 && typeof st.visibility === 'number') {
+                            const km = st.visibility / 1000;
+                            _el.focusVis2.textContent = (km < 1 ? km.toFixed(2) : km.toFixed(1)) + ' km';
+                        } else _el.focusVis2.textContent = '--';
+                    }
+                }
+                if (_el.focusRegime) {
+                    const rKey = (st.wmoLabel || '') + '|' + (st.regime || '');
+                    if (_uiCache.focusRegimeKey !== rKey) {
+                        _uiCache.focusRegimeKey = rKey;
+                        const regimeRaw = (typeof window.WeatherEnsemble !== 'undefined' && window.WeatherEnsemble.getActiveRegime) ? window.WeatherEnsemble.getActiveRegime() : (st.regime || '');
+                        const regimeTxt = regimeRaw ? regimeRaw.replace(/_/g,' ').toUpperCase() : '--';
+                        _el.focusRegime.textContent = regimeTxt;
+                    }
+                }
+                if (_el.focusSpread) {
+                    const sKey = (typeof st.tempSpread === 'number') ? Math.round(st.tempSpread*10) : -999;
+                    if (_uiCache.focusSpreadKey !== sKey) {
+                        _uiCache.focusSpreadKey = sKey;
+                        _el.focusSpread.textContent = (sKey !== -999) ? ('±' + (sKey/10).toFixed(1) + '°') : '--°';
+                    }
+                }
+                if (_el.focusBrier) {
+                    const bKey = st.brierScores ? JSON.stringify(st.brierScores) : '';
+                    if (_uiCache.focusBrierKey !== bKey) {
+                        _uiCache.focusBrierKey = bKey;
+                        if (st.brierScores) {
+                            const parts = Object.entries(st.brierScores).map(([k,v])=> k.slice(0,2).toUpperCase()+':'+(v==null?'--':v.toFixed(2)));
+                            _el.focusBrier.textContent = parts.join(' ');
+                        } else _el.focusBrier.textContent = '--';
+                    }
+                }
+
                 // QUICK-GLANCE SUMMARY STRIP — top-center of map overlay.
                 // Single condensed line for driving mode: RAIN | WIND | VIS | °C.
                 // Each field only writes to DOM when its compact string changes,
@@ -7319,15 +7450,18 @@ function checkDependenciesAndRun() {
                     // (quantised to 0.1 mm — the display's precision). Numeric key
                     // means the toFixed + template build only runs on change.
                     const glRainKey = st.isRainingNow
-                        ? ((typeof st.precipitation === 'number') ? Math.round(st.precipitation * 10) : -2)
+                        ? ((typeof st.precipitation === 'number') ? Math.round(st.precipitation * 10) : -2) + ((typeof st.weatherCode === 'number' ? st.weatherCode : -1) * 10000)
                         : -1;
                     if (_uiCache.glRainKey !== glRainKey) {
                         _uiCache.glRainKey = glRainKey;
                         let rainStr, rainClass;
                         if (st.isRainingNow) {
                             const prec = (typeof st.precipitation === 'number') ? st.precipitation : null;
-                            rainStr = prec !== null ? `RAIN ${prec.toFixed(1)}mm` : 'RAIN NOW';
-                            rainClass = 'text-brand-red';
+                            // Granular glance: LIGHT DRIZZLE vs RAIN vs TRACE distinction
+                            const lbl = (st.wmoDetail && st.wmoDetail.label) ? st.wmoDetail.label : 'RAIN';
+                            rainStr = prec !== null ? `${lbl} ${prec.toFixed(1)}mm` : lbl + ' NOW';
+                            const tone = st.wmoDetail ? st.wmoDetail.tone : 'danger';
+                            rainClass = tone === 'warning' ? 'text-brand-warning' : 'text-brand-red';
                         } else {
                             rainStr = 'DRY';
                             rainClass = 'text-brand-success';
