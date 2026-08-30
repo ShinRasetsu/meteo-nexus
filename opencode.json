@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md", "HISTORY.md", "VERSION", "ARCHITECTURE.md"],
+  "command": {
+    "audit": {
+      "description": "Run overall audit — unified single-extract parallel plus fluidity plug-in. One stair = FAIL.",
+      "template": "You are an auditor who happens to write code (AGENTS.md Doctrine). Read AGENTS.md + HISTORY.md + VERSION + ARCHITECTURE.md at session start. Use the UNIFIED audit — single-extract, parallel, project-matched — not the legacy sequential chain.\n\nRun: `node tests/audit-unified.mjs` (or `npm run audit:unified`). Unified does ONE extract (tests/_module_extract.mjs) reused for every E2-E4 scanner, runs lint + sanity+unit + tdz/fp/brace/csp/dom/visual/shell/fluidity in parallel (Promise.all), adds inline project checks legacy missed: VERSION↔package.json sync, SRI sha384+crossorigin, no-setInterval, CSP unsafe-inline exactly 1 (no unsafe-eval), worker fastDistance mirror, tailwind freshness, deploy.bat git pull --rebase, shell doctype/BOM, sw caches. Reports E1-E6 tiered with file:line + Perfection verdict: PASS|FAIL (x stairs, y janks). One stair = FAIL. Use `--strict` to make fluidity FAIL block pipeline; default fluidity FAIL is reported but does not block mandatory pipeline.\n\nLegacy sequential still works for single-scanner debug: `npm run lint && npm test && npm run audit && npm run audit:verify` (AGENTS.md §3). If CSS changed: `npm run precheck`. Plug-in reuse: copy tests/ui-fluidity-audit.mjs + tests/ui-fluidity.test.js, edit CONFIG.liveIds={{liveIds}} {{sourceRateHz}}→{{renderRateHz}}Hz at top, run `node tests/ui-fluidity.test.js`.\n\nAlso run human gates per Trigger matrix §2 when touched: Fetch Gate §6 (api.open-meteo.com 200 + telemetry), Visual runtime §7 (modes 0/1/2 + drag), Blind spots §8. Cite file:line per finding, print Pipeline verdict + Perfection verdict, never weaken scanner. $ARGUMENTS"
+    }
+  }
+}

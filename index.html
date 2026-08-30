@@ -5077,7 +5077,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const _allModels = WeatherEnsemble.extractAllModelArrays(h, [
                 'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
                 'weather_code', 'wind_speed_10m', 'wind_direction_10m',
-                'wind_gusts_10m', 'precipitation'
+                'wind_gusts_10m', 'precipitation', 'precipitation_probability'
             ]);
             const tempModels     = _allModels.temperature_2m;
             const feelsModels    = _allModels.apparent_temperature;
@@ -5087,6 +5087,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const windDirModels  = _allModels.wind_direction_10m;
             const windGustModels = _allModels.wind_gusts_10m;
             const precipModels   = _allModels.precipitation;
+            const precipProbModels = _allModels.precipitation_probability;
 
             const totalLen = h.time.length;
             const maxSlice = Math.min(nowIndex + 24, totalLen);
@@ -5103,8 +5104,44 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const timesUnix  = needsChartArg ? new Array(sliceLen) : null;
             const uvData = new Array(sliceLen);
             const solarData = needsChartArg ? new Array(sliceLen) : null;
-            const uvArr = (hSol && hSol.uv_index) ? hSol.uv_index : new Array(totalLen).fill(0);
-            const solArr = (hSol && hSol.shortwave_radiation) ? hSol.shortwave_radiation : new Array(totalLen).fill(0);
+            // Solar arrays: prefer unsuffixed (legacy 3-request or synthesized single-request).
+            // Fallback for raw per-model suffixed (defense in depth if synthesis is bypassed or old cache shape):
+            // synthesize unsuffixed via weighted ensemble average (same weights as precip, e.g. uv_index_ecmwf null → weight renormalizes to gfs).
+            let uvArr, solArr;
+            if (hSol && Array.isArray(hSol.uv_index)) {
+                uvArr = hSol.uv_index;
+            } else if (hSol && WeatherEnsemble.models.some(m => hSol[`uv_index_${m}`] !== undefined)) {
+                try {
+                    const uvModels = WeatherEnsemble.extractAllModelArrays(hSol, ['uv_index']);
+                    const wUv = WeatherEnsemble.weightedValueAll(uvModels.uv_index, 0, totalLen);
+                    uvArr = wUv.map(v => (v === null || v === undefined) ? 0 : v);
+                } catch (_) {
+                    const fb = new Array(totalLen).fill(0);
+                    for (let i = 0; i < totalLen; i++) {
+                        for (const { m } of WeatherEnsemble._MI) { const a = hSol[`uv_index_${m}`]; if (a && a[i] !== null && a[i] !== undefined) { fb[i] = a[i]; break; } }
+                    }
+                    uvArr = fb;
+                }
+            } else {
+                uvArr = new Array(totalLen).fill(0);
+            }
+            if (hSol && Array.isArray(hSol.shortwave_radiation)) {
+                solArr = hSol.shortwave_radiation;
+            } else if (hSol && WeatherEnsemble.models.some(m => hSol[`shortwave_radiation_${m}`] !== undefined)) {
+                try {
+                    const solModels = WeatherEnsemble.extractAllModelArrays(hSol, ['shortwave_radiation']);
+                    const wSol = WeatherEnsemble.weightedValueAll(solModels.shortwave_radiation, 0, totalLen);
+                    solArr = wSol.map(v => (v === null || v === undefined) ? 0 : v);
+                } catch (_) {
+                    const fb = new Array(totalLen).fill(0);
+                    for (let i = 0; i < totalLen; i++) {
+                        for (const { m } of WeatherEnsemble._MI) { const a = hSol[`shortwave_radiation_${m}`]; if (a && a[i] !== null && a[i] !== undefined) { fb[i] = a[i]; break; } }
+                    }
+                    solArr = fb;
+                }
+            } else {
+                solArr = new Array(totalLen).fill(0);
+            }
             // BUG FIX: Open-Meteo with timezone=auto returns hourly timestamps in unix
             // SECONDS aligned to LOCAL midnights — the unix seconds encode the actual
             // UTC instant for "06:00 Asia/Manila" (e.g. 22:00 UTC the previous day).
@@ -5304,6 +5341,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
             const lowConfidence = precipActiveWeight < WeatherEnsemble._GLOBAL_ACK;
 
+            // Native Open-Meteo precipitation_probability (per-model, e.g. 0-100). Added with single-request
+            // consolidation: `hourly=...,precipitation_probability`. When &models= is present the field is
+            // per-model suffixed (precipitation_probability_ecmwf_ifs025), else unsuffixed. Weighted average
+            // via same ensemble weights (with null-skipping) gives the native ensemble probability for diagnostics;
+            // it is NOT the same as our weighted wetness pct (which is derived from precip mm via _precipContribution
+            // ramp), but the two should correlate — exposed for future UI cross-check and Brier-style verification.
+            let nativePrecipProb = null;
+            try {
+                if (precipProbModels) {
+                    const ppAt = WeatherEnsemble.weightedValueAt(precipProbModels, nowIndex);
+                    if (ppAt && ppAt.value !== null && ppAt.value !== undefined) nativePrecipProb = Math.round(ppAt.value);
+                }
+            } catch(_) { nativePrecipProb = null; }
+
             // U2-FOCUS: precompute the fullscreen diagnostic payload. Pure reads
             // of arrays already extracted above — no new fetches, no math changes.
             const focusPerModel = WeatherEnsemble.models.map((m, idx) => ({
@@ -5312,6 +5363,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 wind:    windSpdModels[m]  ? windSpdModels[m][nowIndex]  : null,
                 gust:    windGustModels[m] ? windGustModels[m][nowIndex] : null,
                 precip:  precipModels[m]   ? precipModels[m][nowIndex]   : null,
+                prob:    precipProbModels && precipProbModels[m] ? precipProbModels[m][nowIndex] : null,
                 coverage: nodeHealth[idx]  ? Math.round(nodeHealth[idx].coveragePct) : null
             }));
             // U2-FOCUS FIX (found at the 1.6.1 release gate): rainData is an
@@ -5363,10 +5415,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
                      tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail, incomingRain, lowConfidence,
-                     nodeHealth, codeAgreement, windEnsemble,
+                     nodeHealth, codeAgreement, windEnsemble, nativePrecipProb,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
-                     precipModels, nowIdx: nowIndex, focus,
+                     precipModels, precipProbModels, nowIdx: nowIndex, focus,
                      // Extra atmospheric fields from the API current block that the
                      // offline-reconstructed `curr` object doesn't carry. These are
                      // only useful when displaying live observed data (precip breakdown,
@@ -5481,19 +5533,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             // U2-FOCUS: fullscreen diagnostic writers. Display-only reads of the
             // precomputed `focus` payload — zero new fetches, zero math changes.
+            // Prob column added with native Open-Meteo precipitation_probability (per-model, weighted same as precip).
             if (DOM.focusModelTable && data.focus) {
                 const cell = (v, unit, digits = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '--' : Number(v).toFixed(digits) + unit;
                 const vote = (mm) => (mm === null || mm === undefined) ? ['NO DATA', 'text-gray-500'] : (mm >= 0.1 ? ['WET', 'text-brand-blue'] : ['DRY', 'text-brand-success']);
-                const head = '<div class="grid grid-cols-7 gap-x-2 text-gray-500 font-bold uppercase tracking-widest border-b border-surface-800 pb-1 mb-1">'
-                    + '<span>Node</span><span class="text-right">Temp</span><span class="text-right">Wind</span><span class="text-right">Gust</span><span class="text-right">Rain</span><span class="text-right">Vote</span><span class="text-right">Cov</span></div>';
+                const head = '<div class="grid grid-cols-8 gap-x-2 text-gray-500 font-bold uppercase tracking-widest border-b border-surface-800 pb-1 mb-1">'
+                    + '<span>Node</span><span class="text-right">Temp</span><span class="text-right">Wind</span><span class="text-right">Gust</span><span class="text-right">Rain</span><span class="text-right">Prob</span><span class="text-right">Vote</span><span class="text-right">Cov</span></div>';
                 const rows = data.focus.perModel.map(p => {
                     const [voteTxt, voteCls] = vote(p.precip);
-                    return '<div class="grid grid-cols-7 gap-x-2 py-0.5 border-b border-surface-800/50">'
+                    return '<div class="grid grid-cols-8 gap-x-2 py-0.5 border-b border-surface-800/50">'
                         + `<span class="font-black text-gray-300">${p.label}</span>`
                         + `<span class="text-right text-gray-300">${cell(p.temp, '°', 0)}</span>`
                         + `<span class="text-right text-gray-300">${cell(p.wind, '', 0)}</span>`
                         + `<span class="text-right text-gray-400">${cell(p.gust, '', 0)}</span>`
                         + `<span class="text-right text-gray-300">${cell(p.precip, 'mm', 2)}</span>`
+                        + `<span class="text-right text-gray-300">${cell(p.prob, '%', 0)}</span>`
                         + `<span class="text-right font-bold ${voteCls}">${voteTxt}</span>`
                         + `<span class="text-right ${p.coverage !== null && p.coverage < 80 ? 'text-brand-warning' : 'text-gray-500'}">${p.coverage === null ? '--' : p.coverage + '%'}</span>`
                         + '</div>';
@@ -5998,6 +6052,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (typeof WeatherEnsemble !== 'undefined' && WeatherEnsemble.getActiveRegime) window.__METEO_CORE_STATE.regime = WeatherEnsemble.getActiveRegime();
             if (data && data.tempBand && data.tempBand[0]) window.__METEO_CORE_STATE.tempSpread = data.tempBand[0].spread;
             if (data && typeof data.currentAgreement === 'number') window.__METEO_CORE_STATE.agreement = data.currentAgreement;
+            if (data && typeof data.nativePrecipProb === 'number') window.__METEO_CORE_STATE.nativePrecipProb = data.nativePrecipProb;
 
             renderTelemetryUI(data, isOffline);
             // PERF: chart-level signature gate — the payload gate above passes on a
@@ -6025,12 +6080,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         async function fetchData(lat, lon, skipReverseGeo = false) {
             // PERF-3: single-flight memoization. On cold boot both the
             // `state.autoCoords`-populated path and the first geolocation fix
-            // could race into simultaneous `fetchData` calls — 6 HTTP requests
-            // instead of 3, double ensemble recompute, double Chart.update(),
-            // second call stomping first's __METEO_CORE_STATE writes. Coalescing
-            // all concurrent callers onto the same in-flight promise preserves
-            // the observable outcome (one processTelemetryPayload run) while
-            // letting each caller await the same result.
+            // could race into simultaneous `fetchData` calls — previously 6 HTTP
+            // requests instead of 3, double ensemble recompute, double Chart.update(),
+            // second call stomping first's __METEO_CORE_STATE writes. After single-
+            // request consolidation (3→1) the race would be 2×1 instead of 2×3, but
+            // still doubles work — coalescing all concurrent callers onto the same
+            // in-flight promise preserves the observable outcome (one
+            // processTelemetryPayload run) while letting each caller await the same result.
             if (_fetchInFlight) return _fetchInFlight;
             _fetchInFlight = (async () => {
                 try {
@@ -6064,37 +6120,36 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         }
                     }
                     // FIX-1.4.1: hoist the AbortController out of the try block —
-                    // the catch below must be able to abort the two siblings that
+                    // the catch below must be able to abort the in-flight fetch that
                     // may still be mid-retry (fetchWithRetry backoff runs ~7s after
                     // the first failure), otherwise orphaned retries keep hammering
-                    // the API for the whole backoff window with no reader.
+                    // the API for the whole backoff window with no reader. Previously
+                    // 2 siblings; after 3→1 consolidation it is a single fetch.
                     let weatherAbort = null;
                     try {
                         if (!navigator.onLine) throw new Error("Browser is offline.");
 
                         const modelList = WeatherEnsemble.models.join(',');
 
-                        // --- Total-budget race ---
-                        // Each fetch can independently take up to 1+2+4s backoff + 15s timeout =
-                        // ~22 s per endpoint (all awaited together via Promise.all). Total wall
-                        // clock for failed weather = ~22 s before the user gets any view, which
-                        // violates the "feels instant" UX contract. Race the whole bundle
-                        // against an 8 s budget — if the network can't win in 8 s we fall back
-                        // to localforage cache immediately so UI shows last-known telemetry
-                        // (clearly marked offline), rather than a frozen spin.
+                        // --- Consolidated single-request fetch (Low-risk win 1: 3→1) ---
+                        // Previously 3 parallel fetches (current + ensemble hourly + solar hourly)
+                        // = 3 RTT + shared budget race (~22s worst-case per endpoint via Promise.all).
+                        // Open-Meteo allows &current=...&hourly=...&models=... in ONE URL (open-meteo.com/en/docs).
+                        // Consolidation:
+                        //   • 1 RTT instead of 3 (latency win, mobile especially)
+                        //   • 1 budget timer vs shared bundle race (simpler abort semantics)
+                        //   • Cache still stores {dCurr,dFore,dSolar} split for backward compat with existing
+                        //     IndexedDB payloads and the offline fallback path (cached.timestamp).
+                        // Solar variables (shortwave_radiation, uv_index) become per-model suffixed when &models=
+                        // is present (verified live: shortwave_radiation_ecmwf_ifs025, uv_index_gfs_seamless;
+                        // ecmwf uv_index often null). dSolar is synthesized as weighted ensemble average via
+                        // WeatherEnsemble.weightedValueAll so downstream normalizeTelemetryData keeps its
+                        // unsuffixed hSol.shortwave_radiation / hSol.uv_index contract unchanged.
                         const WEATHER_FETCH_BUDGET_MS = 8000;
                         weatherAbort = new AbortController();
-                        const fetchBundle = Promise.all([
-                            fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&elevation=nan&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
-                            fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m&models=${modelList}&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
-                            fetchWithRetry(`${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&hourly=shortwave_radiation,uv_index&forecast_days=2&timezone=auto&timeformat=unixtime`, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000)
-                        ]);
-                        // PERF-1: capture the timer id so we can clearTimeout it
-                        // on both success and catch paths. The previous closure
-                        // held `weatherAbort.abort` for the full 8 s after weather
-                        // had already arrived (typically 1-2 s), and the late
-                        // timer fired with no readers (harmless reject — race
-                        // already settled — but also re-aborted completed fetches).
+                        // Elevation param omitted → default 90m DEM downscaling (open-meteo.com/docs: “land” cell selection with elevation correction).
+                        // Previously elevation=nan disabled downscaling (average grid-cell height) — worse on mountain peaks.
+                        const singleUrl = `${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,shortwave_radiation,uv_index,precipitation_probability&minutely_15=precipitation,temperature_2m,wind_speed_10m,wind_gusts_10m,weather_code&models=${modelList}&forecast_days=2&forecast_minutely_15=12&timezone=auto&timeformat=unixtime`;
                         let budgetTimerId;
                         const budgetTimeout = new Promise((_, reject) => {
                             budgetTimerId = setTimeout(() => {
@@ -6103,17 +6158,94 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             }, WEATHER_FETCH_BUDGET_MS);
                         });
                         try {
-                            const [rCurr, rFore, rSolar] = await Promise.race([fetchBundle, budgetTimeout]);
-                            clearTimeout(budgetTimerId);
-                            // PERF-16: parse the three responses in parallel.
-                            // Previous code awaited them sequentially — `rFore`
-                            // alone can be ~10-30 KB; awaiting `rCurr.json()`
-                            // then `rFore.json()` then `rSolar.json()` serialized
-                            // three native JSON.parse calls that could otherwise
-                            // share the same microtask round-trip.
-                            const [dCurr, dFore, dSolar] = await Promise.all([
-                                rCurr.json(), rFore.json(), rSolar.json()
+                            const rAll = await Promise.race([
+                                fetchWithRetry(singleUrl, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
+                                budgetTimeout
                             ]);
+                            clearTimeout(budgetTimerId);
+                            const dAll = await rAll.json();
+                            // Split single payload into legacy 3-part shape for processTelemetryPayload + cache compat.
+                            const dCurr = { current: dAll.current, elevation: dAll.elevation, utc_offset_seconds: dAll.utc_offset_seconds, timezone: dAll.timezone, timezone_abbreviation: dAll.timezone_abbreviation };
+                            const dFore = { hourly: dAll.hourly };
+                            let dSolar;
+                            if (dAll.hourly && Array.isArray(dAll.hourly.time)) {
+                                const hasUnsuffixedSolar = dAll.hourly.shortwave_radiation !== undefined && dAll.hourly.uv_index !== undefined;
+                                if (hasUnsuffixedSolar) {
+                                    dSolar = { hourly: { time: dAll.hourly.time, shortwave_radiation: dAll.hourly.shortwave_radiation, uv_index: dAll.hourly.uv_index } };
+                                } else {
+                                    try {
+                                        const solarModels = WeatherEnsemble.extractAllModelArrays(dAll.hourly, ['shortwave_radiation', 'uv_index']);
+                                        const totalLen = dAll.hourly.time.length;
+                                        const solArr = WeatherEnsemble.weightedValueAll(solarModels.shortwave_radiation, 0, totalLen);
+                                        const uvArr = WeatherEnsemble.weightedValueAll(solarModels.uv_index, 0, totalLen);
+                                        const solFixed = solArr.map(v => (v === null || v === undefined) ? 0 : v);
+                                        const uvFixed = uvArr.map(v => (v === null || v === undefined) ? 0 : v);
+                                        dSolar = { hourly: { time: dAll.hourly.time, shortwave_radiation: solFixed, uv_index: uvFixed } };
+                                    } catch (synthErr) {
+                                        console.warn('Solar synthesis via weightedValueAll failed, falling back to first-model pick:', synthErr);
+                                        const totalLen = dAll.hourly.time.length;
+                                        const solFixed = new Array(totalLen);
+                                        const uvFixed = new Array(totalLen);
+                                        for (let i = 0; i < totalLen; i++) {
+                                            let sVal = null, uVal = null;
+                                            for (const { m } of WeatherEnsemble._MI) {
+                                                const sArr = dAll.hourly[`shortwave_radiation_${m}`];
+                                                const uArr = dAll.hourly[`uv_index_${m}`];
+                                                if (sVal === null && sArr && sArr[i] !== null && sArr[i] !== undefined) sVal = sArr[i];
+                                                if (uVal === null && uArr && uArr[i] !== null && uArr[i] !== undefined) uVal = uArr[i];
+                                                if (sVal !== null && uVal !== null) break;
+                                            }
+                                            solFixed[i] = sVal !== null ? sVal : 0;
+                                            uvFixed[i] = uVal !== null ? uVal : 0;
+                                        }
+                                        dSolar = { hourly: { time: dAll.hourly.time, shortwave_radiation: solFixed, uv_index: uvFixed } };
+                                    }
+                                }
+                            } else {
+                                dSolar = { hourly: dAll.hourly };
+                            }
+                            // --- Minutely 15 synthesis (Win5) ---
+                            // Open-Meteo minutely_15 becomes per-model suffixed when &models= is present (verified live:
+                            // precipitation_ecmwf_ifs025 etc.). Synthesize unsuffixed weighted ensemble for consumers
+                            // that expect minutely_15.precipitation etc. Keep raw dAll.minutely_15 for Brier if needed.
+                            let dMinutely = null;
+                            if (dAll.minutely_15 && Array.isArray(dAll.minutely_15.time)) {
+                                const m15 = dAll.minutely_15;
+                                const hasUnsuffixedMin = Array.isArray(m15.precipitation) && m15.precipitation !== undefined;
+                                if (hasUnsuffixedMin) {
+                                    dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: m15.precipitation.slice(), temperature_2m: (m15.temperature_2m||[]).slice(), wind_speed_10m: (m15.wind_speed_10m||[]).slice(), wind_gusts_10m: (m15.wind_gusts_10m||[]).slice(), weather_code: (m15.weather_code||[]).slice() } };
+                                } else {
+                                    try {
+                                        const mm = WeatherEnsemble.extractAllModelArrays(m15, ['precipitation','temperature_2m','wind_speed_10m','wind_gusts_10m','weather_code']);
+                                        const tLen = m15.time.length;
+                                        const pArr = WeatherEnsemble.weightedValueAll(mm.precipitation, 0, tLen);
+                                        const tArr = WeatherEnsemble.weightedValueAll(mm.temperature_2m, 0, tLen);
+                                        const wsArr = WeatherEnsemble.weightedValueAll(mm.wind_speed_10m, 0, tLen);
+                                        const wgArr = WeatherEnsemble.weightedValueAll(mm.wind_gusts_10m, 0, tLen);
+                                        const wcArr = new Array(tLen);
+                                        for (let i = 0; i < tLen; i++) wcArr[i] = WeatherEnsemble.weightedMajorityAt(mm.weather_code, i).code;
+                                        dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: pArr.map(v=> (v===null||v===undefined)?0:v), temperature_2m: tArr.map(v=> (v===null||v===undefined)?0:v), wind_speed_10m: wsArr.map(v=> (v===null||v===undefined)?0:v), wind_gusts_10m: wgArr.map(v=> (v===null||v===undefined)?0:v), weather_code: wcArr } };
+                                    } catch (minErr) {
+                                        console.warn('Minutely synthesis failed, falling back to first-model pick:', minErr);
+                                        const tLen = m15.time.length;
+                                        const pFix = new Array(tLen), tFix = new Array(tLen), wsFix = new Array(tLen), wgFix = new Array(tLen), wcFix = new Array(tLen);
+                                        for (let i = 0; i < tLen; i++) {
+                                            let pV=null,tV=null,wsV=null,wgV=null,wcV=null;
+                                            for (const { m } of WeatherEnsemble._MI) {
+                                                const pA=m15[`precipitation_${m}`], tA=m15[`temperature_2m_${m}`], wsA=m15[`wind_speed_10m_${m}`], wgA=m15[`wind_gusts_10m_${m}`], wcA=m15[`weather_code_${m}`];
+                                                if (pV===null && pA && pA[i]!==null && pA[i]!==undefined) pV=pA[i];
+                                                if (tV===null && tA && tA[i]!==null && tA[i]!==undefined) tV=tA[i];
+                                                if (wsV===null && wsA && wsA[i]!==null && wsA[i]!==undefined) wsV=wsA[i];
+                                                if (wgV===null && wgA && wgA[i]!==null && wgA[i]!==undefined) wgV=wgA[i];
+                                                if (wcV===null && wcA && wcA[i]!==null && wcA[i]!==undefined) wcV=wcA[i];
+                                            }
+                                            pFix[i]=pV!==null?pV:0; tFix[i]=tV!==null?tV:0; wsFix[i]=wsV!==null?wsV:0; wgFix[i]=wgV!==null?wgV:0; wcFix[i]=wcV;
+                                        }
+                                        dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: pFix, temperature_2m: tFix, wind_speed_10m: wsFix, wind_gusts_10m: wgFix, weather_code: wcFix } };
+                                    }
+                                }
+                                try { window.__METEO_CORE_STATE.minutely = dMinutely.minutely_15; window.__METEO_CORE_STATE.minutelyTime = Date.now(); } catch(_) {}
+                            }
                             const now = Date.now();
                             // FIX-1.4.1 (P6): render BEFORE the awaited disk writes.
                             // Previously localforage.setItem was awaited first; a
@@ -6135,9 +6267,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // is tight enough that at most one fetch per pageload is missed.
                             if (!state._lastCacheWriteTs || (now - state._lastCacheWriteTs) > 60000) {
                                 state._lastCacheWriteTs = now;
-                                try { await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, timestamp: now }); }
+                                try { await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, dMinutely, timestamp: now }); }
                                 catch (e) { console.warn('Telemetry cache persist failed:', e); }
                             }
+                            // Publish minutely to telemetryCache for freshness gate inspection
+                            if (dMinutely) state.telemetryCache.minutely = dMinutely;
                             // Rate-limit BrierScore to every 5 minutes to avoid excessive
                             // localforage writes (720 writes/day → ~288 writes/day max).
                             if (!state._lastBrierTs || (now - state._lastBrierTs) > 300000) {
@@ -6164,15 +6298,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             clearTimeout(budgetTimerId);
                         }
                     } catch (e) {
-                        // FIX-1.4.1 (B4): abort the two sibling fetches that may still
+                        // FIX-1.4.1 (B4): abort the in-flight fetch that may still
                         // be mid-retry — without this, fetchWithRetry's backoff kept
                         // firing ~7 s of orphaned requests after the first failure
-                        // with no consumer.
+                        // with no consumer. Single-request consolidation makes this
+                        // a single abort instead of the previous 3× sibling abort.
                         if (weatherAbort) weatherAbort.abort();
                         console.warn("Network Error. Failing over to IndexedDB LocalForage cache.", e);
                         try {
                             const cached = await localforage.getItem('telemetry_payload');
-                            if (cached) processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp);
+                            if (cached) {
+                                processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp);
+                                // Restore minutely from cache if present (backward compat: old caches have no dMinutely)
+                                if (cached.dMinutely && cached.dMinutely.minutely_15) {
+                                    try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
+                                }
+                            }
                         } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }
                     }
                 } finally {
@@ -7848,8 +7989,9 @@ function checkDependenciesAndRun() {
 
         checkDependenciesAndRun();
     </script>
-    <footer class="w-full text-center pb-4 mt-2">
+    <footer class="w-full text-center pb-4 mt-2 flex flex-col items-center gap-1">
         <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest uppercase opacity-40 hover:opacity-100 transition-opacity" title="MeteoNexus Tactical HUD — deployed version" data-version-badge></span>
+        <span class="text-[10px] font-mono text-gray-500 tracking-widest">Weather data by <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline hover:text-brand-teal">Open-Meteo.com</a> • CC BY 4.0</span>
     </footer>
     <script>
         (async function hydrateVersion() {

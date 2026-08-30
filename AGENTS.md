@@ -60,6 +60,7 @@ it - never earlier.
 | sw.js | Full pipeline |
 | Anything under tests/ | Full pipeline; audit:verify proves scanner edits still detect real violations |
 | Markers, panes, popups, any transform/rotation writer | Pipeline + Visual Audit runtime pass (sec 7) |
+| Live DOM / interpolator / RAF bar / progress-fill | Pipeline + Fluidity Audit (sec 5.6) |
 | processTelemetryPayload / normalizeTelemetryData / fetchData / fetch triggers | Pipeline + Fetch Gate (sec 6) |
 | Version bump requested | Release Gate (sec 9) |
 
@@ -72,12 +73,18 @@ Full pipeline (mandatory minimum):
 With Tailwind build (CSS changed):
   npm run precheck
 
+Unified (single-extract, parallel, project-matched — preferred for /audit):
+  npm run audit:unified            # or node tests/audit-unified.mjs
+  # does ONE extract reused for every E2-E4 scanner, runs lint/sanity/unit + tdz/fp/brace/csp/dom/visual/shell/fluidity in parallel,
+  # plus inline project checks legacy missed: VERSION sync, SRI, no-setInterval, unsafe-inline load-bearing, worker mirror, tailwind freshness, deploy guard
+
 Individual scanners (each re-extracts the module itself):
   audit:extract  E1 parse        audit:fp     E4 floating promises
   audit:tdz      E2 order        audit:csp    E4 origin allow-list
   audit:brace    E3 shape        audit:dom    E4 null guards
                                  audit:visual E4 transform contracts
   audit:shell    E1 document integrity (doctype/BOM/mojibake/U+FFFD)
+  audit:fluidity E5 fluidity (plug-in, perf + UI correctness) — not in mandatory chain; run via `npm run audit:fluidity` or `node tests/ui-fluidity.test.js`
 
 Meta-audit (audits the auditors via positive + negative controls):
   npm run audit:verify
@@ -100,6 +107,7 @@ git add; a failure there aborts deployment.
 | visual-audit.mjs | E4: every rendered layer honors its transform contract (sec 5); prints a code-derived inventory table | PASS = all readable overlays resolve upright |
 | tests/unit/ (node --test) | E5: executes worker.js end-to-end (dispatcher incl. error path), polyline codec round-trip, route-node planner, overpass parser, brand adapters + findNearby funnel; proves the fastDistance duplication stays bit-identical (sec 10) | all fixtures pass |
 | shell-audit.mjs | E1: HTML DOCUMENT integrity - doctype first bytes, BOM, charset, U+FFFD, mojibake signatures. Exists because the encoding incident shipped "?<!DOCTYPE html>" (quirks mode + stray glyph) through a fully green module-level audit. Runtime twin: compatMode tripwire at module start | PASS = document shell intact |
+| ui-fluidity-audit.mjs | E5: live DOM driven by low-freq sources (1→60 Hz) stays fluid — no stair/jank (G0-G4: inventory, hard fails, precision, hygiene, a11y) | Perfection verdict PASS (0 stairs, 0 janks) |
 | verify-scanners.mjs | audits the auditors: injects known-good/bad fixtures into every scanner above | all controls behave |
 
 Scanner limitations are documented in each file's header comment. Read them
@@ -134,6 +142,47 @@ C1 - stylesheet must rotate #hud-map by calc(-1*var) and every managed pane
 by +var; C3 - no CSS --user-heading rotation on popup containers (stacking
 bug class). It prints the inventory table; read that table against this
 classification whenever you touch anything transform-related.
+
+## 5.6 UI Fluidity Audit — performance & UI correctness (plug-in)
+
+Live DOM driven by low-freq sources (1 Hz GPS, 0.0002 Hz fetch) must glide
+at 60 Hz without stair (quantised jumps) or jank (layout thrash / lag).
+The fluidity plug-in is a **perfection gate** — one stair = FAIL — and is
+reusable in other projects via `{{liveIds}}` / `{{sourceRateHz}}` /
+`{{renderRateHz}}` placeholders.
+
+**Plug-in prompt (copy to other project, edit CONFIG):**
+> You are UI Fluidity Auditor. Audit `{{liveIds}}` for stair/jank at
+> `{{sourceRateHz}}→{{renderRateHz}}Hz`. Cite `file:line`, run
+> `node tests/ui-fluidity.test.js`.
+
+For this repo the instantiation is `CONFIG.liveIds = [tracking-progress-fill,
+tracking-eta-next, driveNode, driveSpeed, liveSpeed, hud-map]` at
+`1→60 Hz` (`tests/ui-fluidity-audit.mjs:28`). Edit that CONFIG for other
+projects.
+
+**Gates (cite `file:line` per finding, print PASS/FAIL per gate):**
+
+- **G0 Inventory** — every live DOM vs low-freq source (watchPosition/fetch/
+  interval/onmessage) has an interpolator; missing `display+=(target-display)*alpha`
+  or `vel*dt+corr` → FAIL. Verifies `state.visual` lerp exists.
+- **G1 Hard fails** — `target→dom.textContent` direct, `Math.round(*100)%`
+  on bars (need `toFixed(1)`), raw `toFixed` without `displayDistance`,
+  `transition 75ms` on RAF bar (need `none`+`will-change`), missing
+  `display+=(target-display)*alpha` / `vel*dt+corrAlpha`, or sim `ratio<0.08`.
+- **G2 Precision** — fractional `toFixed(1)` derived from `display*`, peak
+  glide monotonic (exp lerp, no overshoot).
+- **G3 Hygiene** — `will-change`/`contain`/`translateZ(0)`, prev guards
+  (`if (prev!==next)`), `dt` clamped ≤32 ms, hidden/stale throttle
+  (`visibilityState`, deadband `VISUAL_DEADBAND_SQ`).
+- **G4 A11y/perf** — `prefers-reduced-motion` boot-only (no dynamic listener
+  needed), `aria-live="polite"` on live regions, `will-change` not leaking
+  transparency.
+
+**Run:** `npm run audit:fluidity` (needs `extract-module.mjs` first) or
+`node tests/ui-fluidity.test.js` (self-contained, also used by other projects).
+Output ends `Perfection verdict: PASS | FAIL (x stairs, y janks)` — one stair
+= FAIL. Fix G1 stairs first, then G3 hygiene.
 
 ## 6. Fetch Gate ("did I break fetch?")
 
@@ -179,8 +228,9 @@ Reason through these manually whenever relevant:
   script-src manually.
 - **DOM null-guard shapes** - domnull-audit recognises if(el)/if(!el)/el?.
   guards; exotic guard forms need manual review (tests/domnull-audit.mjs).
-- **Performance regressions** - no budgets, no Lighthouse.
-- **Accessibility** - no a11y scanner yet.
+- **Performance regressions** - fluidity audit (sec 5.6, G0-G3) catches stair/jank + hygiene,
+  but no Lighthouse budgets, no long-task detector.
+- **Accessibility** - fluidity G4 catches `aria-live` + `prefers-reduced-motion`, but no axe-core/full a11y scan.
 - **Visual compositing** - audit:visual proves declared contracts statically;
   pixels are proven only by the sec 7 runtime pass.
 
@@ -236,8 +286,8 @@ From HISTORY.md "How to bump version in a new session":
   search funnel, WGS84 distance arcs, fastDistance mirror parity)
 - audit:verify - 24 self-test controls, all passing (incl. PHASE V var-era
   layer contracts + PHASE S shell integrity)
-- Scanners: 8 (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
-  plus meta-verifier
+- Scanners: 8 mandatory (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
+  + 1 plug-in (fluidity: G0-G4 perfection gate) plus meta-verifier
 - index.html - 7497 lines / ~502 KB; inline module lines 776-7474 (~449 KB)
 - worker.js - 271 lines; sw.js - 408 lines; fuel-stations.js - 280 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
