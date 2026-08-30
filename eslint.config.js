@@ -20,7 +20,7 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/**", ".git/**", "index.html", "deploy.bat", "manifest.json", "tests/_module_extract.mjs"],
+    ignores: ["node_modules/**", ".git/**", ".opencode/**", "index.html", "deploy.bat", "manifest.json", "tests/_module_extract.mjs"],
   },
   {
     // Standalone browser-worker files run in a Web Worker / ServiceWorker scope.

@@ -1,32 +1,24 @@
-// Unified Audit — single-extract, parallel, project-matched orchestrator
+// Professional Unified Audit — single-extract, parallel, project-matched
 // ─────────────────────────────────────────────────────────────────────
-// Replaces the sequential `npm run audit` chain (8× re-extract, serial).
-// Does ONE extract, runs all scanners in parallel, adds project-specific
-// checks that the legacy chain missed, and prints a single evidence-tiered
-// report. Optimized for this repo (meteo-dashboard) — edit CONFIG if copied.
+// Professional audit flow for meteo-dashboard (tactical HUD PWA). Runs every
+// flow that suits this app — not generic JS — in one optimized pass.
 //
-// Why unified (vs many files):
-//   • 8× extract → 1× extract (490 KB × 8 = 3.9 MB I/O saved, ~1.2s)
-//   • Scanners re-extract the module itself → redundant work; unified extracts
-//     once and reuses tests/_module_extract.mjs for every E2-E4 scanner.
-//   • `npm run audit` was `extract && tdz && fp && brace && csp && dom && visual && shell`
-//     serial → unified runs E2-E4 scanners + fluidity + shell + lint/sanity/unit
-//     in parallel (Promise.all), ~3× faster on 4 cores.
-//   • Legacy chain missed project-specific contracts (VERSION sync, SRI, no
-//     setInterval, unsafe-inline load-bearing, worker mirror, tailwind freshness,
-//     deploy.bat guard) — unified adds them as inline G4+ checks so /audit
-//     perfectly matches this project’s AGENTS.md / HISTORY.md / VERSION
-//     charter, not just generic JS.
-//   • One report, one tier mapping (E1-E6), one `file:line` per finding, one
-//     perfection verdict for fluidity — instead of 8 separate logs.
+// Flows (AGENTS.md §0 / §4 + project charter):
+//   Pre-flight  E1  Parse & Shell     : extract + node --check, shell doctype/BOM, eslint, tailwind freshness
+//   Structure   E2-E3 Order & Shape   : TDZ (same-scope), brace-balance, sanity substrings, sw caches
+//   Security    E4  Intent            : CSP origins, SRI, no-setInterval, unsafe-inline load-bearing, Firebase sealed, PWA manifest, viewport, worker mirror, deploy guard
+//   UI          E4-E5 Correctness     : visual transform contracts (WORLD/SCREEN/SELF), fluidity G0-G4 (1→60 Hz stair/jank, per AGENTS §5.6)
+//   Data        E5  Behaviour         : unit suite (worker, ensemble, route, fuel, fastDistance parity), fetch single-flight, VERSION sync
+//   Release     E4/E6 Release & Meta  : VERSION single source, deploy guard, verify-scanners (24 controls)
 //
-// Evidence tiers (AGENTS.md §0):
-//   E1 Parse  → node --check + shell-audit
-//   E2 Order  → ast-scan-tdz
-//   E3 Shape  → brace-balance + sanity.test.js
-//   E4 Intent → csp-audit + domnull-audit + visual-audit + floating-promise + SRI + CSP unsafe-inline + no-setInterval + VERSION sync + worker mirror
-//   E5 Behaviour → unit suite + fluidity plug-in (G0-G4 perfection) + tailwind freshness
-//   E6 Judgement → blind-spot checklist (sec 8)
+// Why unified vs legacy sequential `npm run audit`:
+//   • 8× extract (490KB×8) → 1× extract reused (saves 3.9MB I/O, ~1.2s)
+//   • Scanners each re-extract → redundant; unified reuses tests/_module_extract.mjs
+//   • Legacy serial `extract && tdz && fp && brace && csp && dom && visual && shell` → unified parallel Promise.all (~3× faster)
+//   • Legacy missed project contracts (VERSION, SRI, Firebase, PWA, viewport, night mode, tailwind, deploy) — unified adds them so /audit perfectly matches AGENTS.md/HISTORY.md/VERSION, not just generic JS
+//   • One tiered report (E1-E6) with file:line per finding + Pipeline verdict + Perfection verdict (one stair = FAIL)
+//
+// Evidence tiers: E1 Parse → E6 Judgement (AGENTS.md §0)
 //
 // Gaps covered that legacy chain missed (this project):
 //   • VERSION file ↔ package.json + header/footer badge (single source of truth, sec 9)
@@ -245,6 +237,64 @@ function inlineChecks() {
       exit: ok ? 0 : 2,
       out: ok ? 'sw.js has APP_CACHE + MAP_CACHE' : `app=${hasAppCache} map=${hasMapCache}`,
       err: ok ? '' : 'Cache strategy drift — see ARCHITECTURE.md',
+      ms: 0,
+    })
+  }
+
+  // 11. PWA manifest — required fields, icons local, display standalone (offline suitability)
+  {
+    let ok; let msg; let err = ''
+    try {
+      const mf = JSON.parse(fs.readFileSync(path.join(repo, 'manifest.json'), 'utf8'))
+      const hasName = typeof mf.name === 'string' && mf.name.length > 0
+      const hasShort = typeof mf.short_name === 'string' && mf.short_name.length > 0
+      const hasIcons = Array.isArray(mf.icons) && mf.icons.length > 0 && mf.icons.every(i => i.src && i.src.startsWith('./'))
+      const hasDisplay = mf.display === 'standalone'
+      ok = hasName && hasShort && hasIcons && hasDisplay
+      msg = ok ? `manifest: ${mf.name} / ${mf.short_name}, ${mf.icons.length} local icons, display=${mf.display}` : `manifest missing: name=${hasName} short=${hasShort} iconsLocal=${hasIcons} display=${mf.display}`
+      if (!ok) err = 'PWA manifest must have name, short_name, local icons, display=standalone (offline install)'
+    } catch (e) { msg = String(e); err = 'manifest.json parse failed' }
+    addResult('E4', 'pwa-manifest', 'PWA manifest has name, short_name, local icons, display standalone', ok, { exit: ok ? 0 : 2, out: msg, err, ms: 0 })
+  }
+
+  // 12. Viewport accessibility — must not lock zoom (WCAG 1.4.4, sanity also checks)
+  {
+    const hasMaxScale = /maximum-scale=1\.0/.test(html)
+    const hasNoScale = /user-scalable=no/.test(html)
+    const hasViewportFit = /viewport-fit=cover/.test(html)
+    const ok = !hasMaxScale && !hasNoScale && hasViewportFit
+    addResult('E4', 'viewport-a11y', 'Viewport does not lock zoom, has viewport-fit=cover (notch-aware)', ok, {
+      exit: ok ? 0 : 2,
+      out: ok ? 'viewport: zoom not locked, viewport-fit=cover present' : `viewport maxScale=${hasMaxScale} noScale=${hasNoScale} fitCover=${hasViewportFit}`,
+      err: ok ? '' : 'Do not add maximum-scale=1.0 or user-scalable=no (WCAG)',
+      ms: 0,
+    })
+  }
+
+  // 13. Firebase sealed guard — must use __firebase_config_sealed and onAuthStateChanged before signIn
+  {
+    const hasSealed = /__firebase_config_sealed/.test(html) || /__firebase_config_sealed/.test(indexModule)
+    const hasAuthListener = /onAuthStateChanged/.test(indexModule) && /signInAnonymously/.test(indexModule)
+    const onAuthCall = indexModule.indexOf('onAuthStateChanged(auth')
+    const signInCall = indexModule.indexOf('signInAnonymously(auth')
+    const orderOk = hasSealed && hasAuthListener && onAuthCall !== -1 && signInCall !== -1 && onAuthCall < signInCall
+    const ok = hasSealed && orderOk
+    addResult('E4', 'firebase-guard', 'Firebase uses sealed config and onAuthStateChanged before signIn (no token injection)', ok, {
+      exit: ok ? 0 : 2,
+      out: ok ? 'Firebase sealed guard + auth listener order OK' : `sealed=${hasSealed} orderOk=${orderOk}`,
+      err: ok ? '' : 'Use __firebase_config_sealed guard; register onAuthStateChanged before signInAnonymously',
+      ms: 0,
+    })
+  }
+
+  // 14. Night mode + HUD chrome — body.night toggled on is_day, brightness filter present
+  {
+    const hasNightClass = /body\.night/.test(html) && /is_day/.test(indexModule)
+    const ok = hasNightClass
+    addResult('E4', 'night-mode', 'Night mode toggles body.night on is_day==0 with HUD dimming', ok, {
+      exit: ok ? 0 : 2,
+      out: ok ? 'body.night + is_day handling present' : 'Missing body.night / is_day handling',
+      err: ok ? '' : 'Night mode must dim HUD for driving at night',
       ms: 0,
     })
   }
