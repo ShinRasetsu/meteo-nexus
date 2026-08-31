@@ -332,7 +332,7 @@
                                 <i class="fa-regular fa-clock text-brand-blue opacity-80"></i>
                                 <span id="local-time-text">--:--:--</span>
                             </div>
-                            <div id="tracking-progress-bar" class="w-full h-1 bg-surface-800 rounded-full mt-2 overflow-hidden hidden"><div id="tracking-progress-fill" class="h-full bg-brand-teal transition-all duration-500" style="width:0%"></div></div>
+                            <div id="tracking-progress-bar" class="fixed md:absolute top-0 md:top-auto left-0 right-0 md:left-auto md:right-auto md:w-full h-2 md:h-1 bg-surface-800 md:rounded-full mt-0 md:mt-2 overflow-hidden hidden z-50 md:z-auto pointer-events-none" style="contain:layout"><div id="tracking-progress-fill" class="h-full bg-brand-teal will-change-transform" style="width:0%; will-change:width; contain:layout; transition:none"></div></div>
                         </div>
 
                         <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
@@ -486,17 +486,17 @@
                     </div>
                 </div>
             </div>
-            <div id="tracking-eta-bar" class="absolute top-4 right-4 z-[1000] hidden bg-surface-900/90 border border-brand-teal/50 px-3 py-1.5 rounded-lg shadow-lg backdrop-blur-md pointer-events-none md:flex items-center gap-3 text-[10px] font-mono font-bold uppercase tracking-widest">
+            <div id="tracking-eta-bar" aria-live="polite" aria-atomic="true" class="fixed md:absolute top-2 md:top-4 left-2 right-2 md:left-auto md:right-4 z-[1000] hidden bg-surface-900/95 border border-brand-teal/50 px-4 md:px-3 py-2.5 md:py-1.5 rounded-xl md:rounded-lg shadow-xl backdrop-blur-md pointer-events-none flex items-center justify-between md:justify-start gap-2 md:gap-3 text-xs md:text-[10px] font-mono font-bold uppercase tracking-widest">
                 <span id="tracking-eta-next" class="text-brand-teal">NEXT --</span>
                 <span class="text-surface-600">|</span>
                 <span id="tracking-eta-eta" class="text-white">ETA --:--</span>
                 <span class="text-surface-600">|</span>
                 <span id="tracking-eta-dist" class="text-gray-300">-- KM</span>
             </div>
-            <div id="tracking-recenter-chip" class="absolute top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
+            <div id="tracking-recenter-chip" class="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-4 md:px-3 py-2 md:py-1 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
                 <i class="fa-solid fa-location-crosshairs animate-pulse"></i>
                 <span id="tracking-recenter-text">RECENTER IN 5s</span>
-                <button onclick="window.applyTacticalMode && window.applyTacticalMode(); state.isMapLocked=true;" class="ml-2 bg-black/20 px-2 py-0.5 rounded-full text-[9px]">NOW</button>
+                <button onclick="window.applyTacticalMode && window.applyTacticalMode(); state.isMapLocked=true;" class="ml-2 bg-black/20 px-3 md:px-2 py-1 md:py-0.5 rounded-full text-xs md:text-[9px]">NOW</button>
             </div>
 
             <!-- Quick-glance summary strip — single condensed line for driving mode.
@@ -2186,7 +2186,7 @@ let delta = heading - state.lastHeading;
                 return;
             }
             requestAnimationFrame(smoothVisualsLoop);
-            const dt = Math.min(time - lastVisualFrameTime, 100);
+            const dt = Math.min(time - lastVisualFrameTime, 32);
             lastVisualFrameTime = time;
             if (!state.mapObj || !state.autoCoords) return;
             if (state.rawSensorHeading !== null) triggerRenderPipeline();
@@ -2229,10 +2229,10 @@ let delta = heading - state.lastHeading;
                 if (distSq > 0.000025) { state.visual.lat = targetLat; state.visual.lon = targetLon; }
                 else if (distSq > 1e-12) {
                     // Speed-proportional visual lerp: TC shrinks at higher speeds so
-                    // the map keeps pace with the user. At 0 km/h: TC=400ms (floaty),
+                    // the map keeps pace with the user. At 0 km/h: TC=180ms (capped, was 400ms floaty),
                     // at 60 km/h: TC=80ms (tight, fast).
                     const speedClamped = Math.min(state.currentSpeed, 80);
-                    const tc = 400 - (speedClamped * (320 / 80));
+                    const tc = Math.min(180, 400 - (speedClamped * (320 / 80)));
                     const lerpPos = 1 - Math.exp(-dt / Math.max(tc, 16));
                     state.visual.lat += dLat * lerpPos; state.visual.lon += dLon * lerpPos;
                 }
@@ -2343,10 +2343,12 @@ let delta = heading - state.lastHeading;
                 const n = (nodesArr && nodesArr[curIdx]) ? nodesArr[curIdx] : null;
                 let nTxt = '—';
                 if (n && state.autoCoords) {
-                    const dm = Math.sqrt(fastDistanceSqMeters(state.autoCoords.lat, state.autoCoords.lon, n.lat, n.lon));
-                    if (Number.isFinite(dm)) {
+                    const displayLat = state.visual.lat ?? state.autoCoords.lat;
+                    const displayLon = state.visual.lon ?? state.autoCoords.lon;
+                    const displayDistance = Math.sqrt(fastDistanceSqMeters(displayLat, displayLon, n.lat, n.lon));
+                    if (Number.isFinite(displayDistance)) {
                         nTxt = (n.id != null ? 'N-' + n.id + ' · ' : '') +
-                               (dm >= 1000 ? (dm / 1000).toFixed(1) + ' KM' : (Math.round(dm / 10) * 10) + ' M');
+                               (displayDistance >= 1000 ? (displayDistance / 1000).toFixed(1) + ' KM' : (Math.round(displayDistance / 10) * 10) + ' M');
                     }
                 }
                 if (_driveUiKeys.node !== nTxt) { _driveUiKeys.node = nTxt; updateText(DOM.driveNode, nTxt); }
@@ -2381,14 +2383,18 @@ let delta = heading - state.lastHeading;
                         const n = (state.routeNodes && state.routeNodes[curIdx]) ? state.routeNodes[curIdx] : null;
                         let nextTxt = 'NEXT --';
                         if (n && state.autoCoords) {
-                            const dm = Math.sqrt(fastDistanceSqMeters(state.autoCoords.lat, state.autoCoords.lon, n.lat, n.lon));
-                            if (Number.isFinite(dm)) {
-                                const distStr = dm >= 1000 ? (dm/1000).toFixed(1)+'KM' : Math.round(dm/10)*10+'M';
+                            const displayLat = state.visual.lat ?? state.autoCoords.lat;
+                            const displayLon = state.visual.lon ?? state.autoCoords.lon;
+                            const displayDistance = Math.sqrt(fastDistanceSqMeters(displayLat, displayLon, n.lat, n.lon));
+                            if (Number.isFinite(displayDistance)) {
+                                const distStr = displayDistance >= 1000 ? (displayDistance/1000).toFixed(1)+'KM' : Math.round(displayDistance/10)*10+'M';
                                 nextTxt = (n.id!=null ? 'N-'+n.id+' ' : '') + distStr;
                             }
                         } else if (state.targetCoords && state.autoCoords) {
-                            const dm2 = Math.sqrt(fastDistanceSqMeters(state.autoCoords.lat, state.autoCoords.lon, state.targetCoords.lat, state.targetCoords.lon));
-                            if (Number.isFinite(dm2)) nextTxt = dm2 >= 1000 ? (dm2/1000).toFixed(1)+'KM' : Math.round(dm2/10)*10+'M';
+                            const displayLat2 = state.visual.lat ?? state.autoCoords.lat;
+                            const displayLon2 = state.visual.lon ?? state.autoCoords.lon;
+                            const displayDistance2 = Math.sqrt(fastDistanceSqMeters(displayLat2, displayLon2, state.targetCoords.lat, state.targetCoords.lon));
+                            if (Number.isFinite(displayDistance2)) nextTxt = displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+'KM' : Math.round(displayDistance2/10)*10+'M';
                         }
                         if (_trackingEtaKeys.next !== nextTxt) { _trackingEtaKeys.next = nextTxt; const el=document.getElementById('tracking-eta-next'); if(el) el.textContent=nextTxt; }
                         // Remaining distance + ETA from driveRouteKm
@@ -2407,7 +2413,7 @@ let delta = heading - state.lastHeading;
                         // Progress bar — Google Maps remaining/total tape in telemetry header
                         const totalNodes = (state.routeNodes && state.routeNodes.length) ? state.routeNodes.length : 0;
                         const curCursor = state.routeNodesCursor || 0;
-                        const prog = totalNodes ? Math.round((curCursor/totalNodes)*100) : 0;
+                        const prog = totalNodes ? Number(((curCursor/totalNodes)*100).toFixed(1)) : 0;
                         const bar = document.getElementById('tracking-progress-bar');
                         const fill = document.getElementById('tracking-progress-fill');
                         if (!bar) {}

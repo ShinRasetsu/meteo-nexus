@@ -180,11 +180,25 @@ if (!hasInterpAlpha && !hasVelDt) {
 
 // 5. sim ratio<0.08 — simulate interpolator covering 8% per frame
 {
-  // Find tc values used for position/heading lerp
-  const tcs = [...src.matchAll(/const tc\s*=\s*(\d+)|timeConstant\s*=\s*(\d+)|TC\s*=\s*(\d+)/g)].map(m => Number(m[1] || m[2] || m[3])).filter(Boolean)
-  // Also parse dynamic tc: 400 - (speedClamped * (320/80)) → at 60 km/h tc=80, at 0 tc=400
+  // Strip comments so TC= in comments (e.g. // TC=400ms) is not captured as code tc
+  const srcNoComments = src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  // Find tc values used for position/heading lerp — handle Math.min cap: const tc = Math.min(180, 400 - ...) → capture 180 (effective), not 400
+  const tcs = []
+  for (const m of srcNoComments.matchAll(/const tc\s*=\s*([^;]+);/g)) {
+    const expr = m[1]
+    const minCap = expr.match(/Math\.min\(\s*(\d+)/)
+    if (minCap) tcs.push(Number(minCap[1]))
+    else {
+      const direct = expr.match(/^\s*(\d+)/)
+      if (direct) tcs.push(Number(direct[1]))
+    }
+  }
+  for (const m of srcNoComments.matchAll(/timeConstant\s*=\s*[^;]*?(\d+)\s*:\s*(\d+)/g)) {
+    tcs.push(Number(m[1]), Number(m[2]))
+  }
+  const filteredTCs = tcs.filter(Boolean)
   const dt = 1000 / CONFIG.renderRateHz // ~16.6
-  const ratios = tcs.length ? tcs.map(tc => 1 - Math.exp(-dt / tc)) : [(1 - Math.exp(-dt / 120))] // fallback 120ms
+  const ratios = filteredTCs.length ? filteredTCs.map(tc => 1 - Math.exp(-dt / tc)) : [(1 - Math.exp(-dt / 120))] // fallback 120ms
   const minRatio = Math.min(...ratios)
   if (minRatio < CONFIG.minSimRatio) {
     const line = srcLineNo(src.search(/1 - Math\.exp\(-dt/))
