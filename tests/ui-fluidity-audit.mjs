@@ -54,12 +54,11 @@ const html = fs.readFileSync(HTML, 'utf8')
 const CONFIG = {
   // Live DOM that should glide at renderRateHz despite low-freq source.
   // For meteo-dashboard these are GPS-driven HUD elements (1 Hz → 60 Hz).
+  // Drive Mode removed per user request — liveIds now only tracking card + HUD.
   liveIds: [
     'tracking-progress-fill', // bar width %
     'tracking-eta-next',      // next-node distance
     'tracking-eta-dist',      // remaining distance
-    'driveNode',              // drive-mode node distance
-    'driveSpeed',             // drive-mode speed
     'liveSpeed',              // telemetry speed
     'hud-map',                // map pan/rotate (transform)
   ],
