@@ -54,13 +54,15 @@ const html = fs.readFileSync(HTML, 'utf8')
 const CONFIG = {
   // Live DOM that should glide at renderRateHz despite low-freq source.
   // For meteo-dashboard these are GPS-driven HUD elements (1 Hz → 60 Hz).
-  // Drive Mode removed per user request — liveIds now only tracking card + HUD.
+  // Drive Mode removed per user request — liveIds now only tracking card + HUD + heading (added per heading jitter fix).
   liveIds: [
     'tracking-progress-fill', // bar width %
     'tracking-eta-next',      // next-node distance
     'tracking-eta-dist',      // remaining distance
     'liveSpeed',              // telemetry speed
-    'hud-map',                // map pan/rotate (transform)
+    'live-heading-deg',       // heading deg (mag+GPS fused, 1→60 Hz)
+    'live-heading-txt',       // heading cardinal
+    'hud-map',                // map pan/rotate (--hud-rot, visual.heading)
   ],
   sourceRateHz: 1,   // watchPosition / route cursor
   renderRateHz: 60,  // rAF smoothVisualsLoop / renderAero
@@ -202,6 +204,17 @@ if (!hasInterpAlpha && !hasVelDt) {
   if (minRatio < CONFIG.minSimRatio) {
     const line = srcLineNo(src.search(/1 - Math\.exp\(-dt/))
     add('G1', 'jank', line > 0 ? line : 1, `interpolator sim ratio ${minRatio.toFixed(3)} < ${CONFIG.minSimRatio} at ${CONFIG.renderRateHz} Hz — tail too slow, visible lag/jank`, 'Lower tc (e.g., 80 ms at 60 km/h) or increase alpha; keep ratio ≥0.08 (tc ≤200 ms at 60 Hz)', 'Verify: sim `(1-Math.exp(-16/tc)).toFixed(3) >=0.08`')
+  }
+  // Heading jitter: deadband and timeConstant for visual.heading must be smooth, not snappy
+  const headingDeadband = srcNoComments.match(/if\s*\(\s*Math\.abs\(dHeading\)\s*>\s*([\d.]+)\s*\)/)
+  if (headingDeadband && Number(headingDeadband[1]) < 0.3) {
+    const line = srcLineNo(src.indexOf(headingDeadband[0]))
+    add('G1', 'jank', line, `heading deadband ${headingDeadband[1]}° < 0.3° — will jitter from magnetometer noise at 1→60 Hz`, 'Use `if (Math.abs(dHeading) > 0.3)` + `timeConstant moving ? 150 : 30` (smooth, not snappy)', 'Verify: grep `dHeading.*0.3`')
+  }
+  const headingTC = srcNoComments.match(/timeConstant\s*=\s*moving\s*\?\s*(\d+)\s*:\s*(\d+)/)
+  if (headingTC && Number(headingTC[1]) < 120) {
+    const line = srcLineNo(src.indexOf(headingTC[0]))
+    add('G1', 'jank', line, `heading timeConstant moving ${headingTC[1]}ms < 120ms — snappy, will follow noise`, 'Use `moving ? 150 : 30` (ratio 0.10 at 60 Hz) for smooth heading', 'Verify: grep `timeConstant.*150.*30`')
   }
 }
 
