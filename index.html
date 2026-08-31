@@ -441,22 +441,22 @@
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             <div class="flex flex-row items-center gap-2 shrink-0">
-                    <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
-                    <i class="fa-solid fa-gas-pump"></i> <span class="hidden sm:inline">Pit Stop</span>
+                    <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                    <i class="fa-solid fa-gas-pump text-base sm:text-sm"></i> <span class="hidden sm:inline">Pit Stop</span>
                 </button>
-                <button onclick="window.openFuelSettings()" aria-label="Fuel Settings" class="bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm transition-all shadow-sm">
-                    <i class="fa-solid fa-gear"></i>
+                <button onclick="window.openFuelSettings()" aria-label="Fuel Settings" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-gray-400 hover:text-white font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm transition-all shadow-sm flex items-center justify-center">
+                    <i class="fa-solid fa-gear text-base sm:text-sm"></i>
                 </button>
-                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
-                    <i class="fa-solid fa-bolt"></i> <span class="hidden sm:inline">Paste Target</span>
+                <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-sm">
+                    <i class="fa-solid fa-bolt text-base sm:text-sm"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
-                <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold p-2 sm:px-3 sm:py-1.5 rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-2 shadow-sm">
-                    <i class="fa-solid fa-xmark"></i> <span class="hidden sm:inline">Clear</span>
+                <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-sm">
+                    <i class="fa-solid fa-xmark text-base sm:text-sm"></i> <span class="hidden sm:inline">Clear</span>
                 </button>
-                <button id="native-nav-btn" aria-label="External Navigation" class="tap-48 hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white p-2 sm:px-3 sm:py-1.5 rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-2">
-                    <i class="fa-solid fa-diamond-turn-right"></i> <span class="hidden sm:inline">Nav</span>
+                <button id="native-nav-btn" aria-label="External Navigation" class="tap-48 hidden text-xs md:text-sm font-bold bg-brand-blue/20 border-2 border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg transition-all uppercase tracking-widest shadow-sm flex items-center gap-0 sm:gap-2">
+                    <i class="fa-solid fa-diamond-turn-right text-base sm:text-sm"></i> <span class="hidden sm:inline">Nav</span>
                 </button>
-                <button onclick="toggleFocus('sec-map')" aria-label="Focus Map" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center">
+                <button onclick="toggleFocus('sec-map')" aria-label="Focus Map" class="tap-48 w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:p-2 bg-surface-800 border-2 border-surface-700 rounded-xl sm:rounded-lg flex items-center justify-center text-brand-teal hover:text-white transition-colors">
                     <i class="fa-solid fa-expand text-base" id="icon-sec-map"></i>
                 </button>
             </div>
@@ -526,7 +526,7 @@
                  `hidden md:inline`-style Tailwind variant utilities, because the
                  precompiled Tailwind v4 build doesn't ship every variant (per
                  HISTORY.md v1.3.x portrait-overlap fixup note). -->
-            <div id="hud-glance-strip" class="absolute z-[1000] pointer-events-none
+            <div id="hud-glance-strip" class="absolute z-[1000] pointer-events-none hidden
                         top-4 left-1/2 -translate-x-1/2 max-w-[90%] md:max-w-[60%]">
                 <div id="hud-glance-strip-inner" class="bg-surface-900/90 border border-surface-700 px-2 md:px-3 py-1 rounded-lg shadow-lg backdrop-blur-md
                             flex flex-wrap items-center justify-center gap-1 md:gap-3
