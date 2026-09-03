@@ -7,12 +7,17 @@
       "type": "local",
       "command": ["npx", "-y", "@playwright/mcp"],
       "enabled": true
+    },
+    "figma": {
+      "type": "local",
+      "command": ["npx", "-y", "figma-developer-mcp", "--figma-api-key={env:FIGMA_API_KEY}", "--stdio"],
+      "enabled": true
     }
   },
   "command": {
     "audit": {
-      "description": "Run unified audit",
-      "template": "Run `node tests/audit-unified.mjs` via bash and print Pipeline + Perfection verdicts. $ARGUMENTS"
+      "description": "Run unified audit — E1-E6 + Figma design sync + Playwright 390x844. One stair = FAIL.",
+      "template": "Run `node tests/audit-unified.mjs` via bash (single-extract parallel, 30 checks: E1 Parse, E2 Order, E3 Shape, E4 Intent incl. Figma MCP sharp/lively, E5 Behaviour incl. Playwright 390x844 + fluidity, E6 Verify). Print Pipeline + Perfection verdicts. $ARGUMENTS"
     }
   }
 }

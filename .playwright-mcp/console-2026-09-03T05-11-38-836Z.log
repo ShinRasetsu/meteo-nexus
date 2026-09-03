@@ -1,0 +1,4 @@
+[     845ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://shinrasetsu.github.io/favicon.ico:0
+[    1120ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://shinrasetsu.github.io/meteo-nexus/index.html:0
+[    2185ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://shinrasetsu.github.io/meteo-nexus/index.html:0
+[  196864ms] [LOG] Magnetometer Hooked. @ https://shinrasetsu.github.io/meteo-nexus/index.html:2491
