@@ -7,12 +7,28 @@
       "type": "local",
       "command": ["npx", "-y", "@playwright/mcp"],
       "enabled": true
+    },
+    "magic": {
+      "type": "remote",
+      "url": "https://mcp.21st.dev/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:MAGIC_API_KEY}"
+      }
     }
   },
   "references": {
     "figma": {
       "path": "https://www.figma.com",
       "description": "Reference for sharp/lively design tokens (tap-48, contrast, spring) — used as design inspiration, not live API"
+    },
+    "motion": {
+      "path": "https://motion.dev",
+      "description": "Reference for lively spring animations (whileHover stiffness 300 damping 20) — use for HUD lively vs transition-all"
+    },
+    "hig": {
+      "path": "https://developer.apple.com/design/human-interface-guidelines",
+      "description": "Reference for watchOS glanceability at 390x844 — use for Local Telemetry 29°/39% and Map HUD safe-area readability while driving"
     }
   },
   "command": {

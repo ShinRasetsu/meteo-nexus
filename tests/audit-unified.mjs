@@ -388,7 +388,22 @@ function inlineChecks() {
     })
   }
 
-  // 19. UI improvements — lively, sharp, contrast suggestions (info, not block) — catches possible UI improvements
+  // 19. Motion + HIG references — lively spring (Motion) and glanceable HUD (HIG) for 390x844
+  {
+    let hasMotionRef = false; let hasHigRef = false
+    try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); hasMotionRef = !!(cfg.references && cfg.references.motion); hasHigRef = !!(cfg.references && cfg.references.hig) } catch { void 0 }
+    const hasMagicMcp = (() => { try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); return !!(cfg.mcp && cfg.mcp.magic) } catch { return false } })()
+    const ok = hasMotionRef && hasHigRef && hasMagicMcp
+    const msg = ok ? 'Motion + HIG references + Magic MCP present — lively spring (Motion) and glanceable 390x844 (HIG) available' : `references motion=${hasMotionRef} hig=${hasHigRef} mcp.magic=${hasMagicMcp} — add all three for lively HUD beyond Figma/Playwright`
+    addResult('E5', 'motion-hig', 'Motion.dev + Apple HIG references + Magic MCP for lively spring and glanceable HUD', ok, {
+      exit: ok ? 0 : 2,
+      out: msg,
+      err: ok ? '' : 'Add references.motion https://motion.dev + references.hig https://developer.apple.com/design/human-interface-guidelines + mcp.magic https://mcp.21st.dev/mcp to opencode.json',
+      ms: 0,
+    })
+  }
+
+  // 20. UI improvements — lively, sharp, contrast suggestions (info, not block) — catches possible UI improvements
   {
     const hasSpring = /spring|framer-motion|whileHover/.test(html) || /spring/.test(indexModule)
     const hasSharpRound = /rounded-xl/.test(html)
