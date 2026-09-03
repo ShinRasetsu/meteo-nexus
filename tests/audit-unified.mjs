@@ -364,36 +364,23 @@ function inlineChecks() {
     })
   }
 
-  // 18. Figma — design sync sharp/lively via MCP (finds faults, not just presence)
+  // 18. Figma — design sync sharp/lively as reference (not live API)
   {
-    let hasFigmaMcp = false
-    try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); hasFigmaMcp = !!(cfg.mcp && cfg.mcp.figma) } catch { void 0 }
-    const hasFigmaKey = !!process.env.FIGMA_API_KEY
-    const hasFigmaFile = !!process.env.FIGMA_FILE_KEY || fs.existsSync(path.join(repo, 'figma.config.json'))
-    // Proper utilization: via @figma MCP the agent can pull --scale 390x844 tokens and compare to html: contrast, spring, radius, shadow
+    let hasFigmaRef = false
+    try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); hasFigmaRef = !!(cfg.references && cfg.references.figma) } catch { void 0 }
     const hasSharpLively = /tap-48/.test(html) && /will-change/.test(html) && /backdrop-blur/.test(html) && /rounded-xl/.test(html) && /shadow-xl/.test(html)
     const hasVibrant = /text-brand-teal/.test(html) && /bg-surface-900\/95/.test(html)
     let ok; let msg; let err = ''
-    if (hasFigmaMcp && hasFigmaKey) {
-      // MCP present + key — can actually find faults: compare Figma file tokens vs html
-      if (hasFigmaFile) {
-        ok = hasSharpLively && hasVibrant
-        msg = ok ? 'Figma MCP + file linked — sharp/lively/vibrant in sync (tap-48 w-11 rounded-xl shadow-xl will-change backdrop-blur contrast)' : 'Figma file linked but html missing sharp/lively/vibrant — run @figma to pull tokens for index.html:444,489'
-        err = ok ? '' : 'Figma would flag: add spring hover to tap-48, rounded-xl/shadow-xl to tracking card, keep brand-teal on bg-surface-900/95 for AAA'
-      } else {
-        ok = true
-        msg = 'Figma MCP + key present — set FIGMA_FILE_KEY (e.g. https://www.figma.com/file/<FILE_KEY>/) to enable fault finding (currently token-presence only)'
-        err = 'MCP can find faults only when file linked — else checks hasSharpLively only'
-      }
-    } else if (hasFigmaMcp) {
-      ok = true
-      msg = 'Figma MCP present — set FIGMA_API_KEY to enable MCP fault finding (currently warn, not block)'
+    if (hasFigmaRef) {
+      ok = hasSharpLively && hasVibrant
+      msg = ok ? 'Figma reference in sync — sharp/lively/vibrant present (tap-48 w-11 rounded-xl shadow-xl will-change backdrop-blur contrast)' : 'Figma reference linked but html missing sharp/lively/vibrant'
+      err = ok ? '' : 'Add spring hover to tap-48 (index.html:444), rounded-xl/shadow-xl to tracking card (index.html:489) for Figma sharp/lively'
     } else {
       ok = true
-      msg = 'no Figma MCP — design sync not enforced (warn) — add mcp.figma for @figma to find sharp/lively/contrast faults'
+      msg = 'Figma as reference — not live API — sharp/lively checked via static hasSharpLively (add references.figma in opencode.json for design inspiration)'
     }
-    // Even without MCP, other audit flows already catch sharp/lively via static (tap-48, will-change) — Figma adds cross-check vs design file
-    addResult('E5', 'figma-design', 'Figma 390x844 design sync via MCP (finds sharp/lively/contrast faults vs file, not just presence)', ok, {
+    // Even without live API, other flows already catch sharp/lively via static (tap-48, will-change) — Figma reference adds design inspiration
+    addResult('E5', 'figma-design', 'Figma 390x844 design sync as reference (sharp/lively/contrast vs file, not live API)', ok, {
       exit: ok ? 0 : 2,
       out: msg,
       err,

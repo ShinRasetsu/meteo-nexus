@@ -7,11 +7,12 @@
       "type": "local",
       "command": ["npx", "-y", "@playwright/mcp"],
       "enabled": true
-    },
+    }
+  },
+  "references": {
     "figma": {
-      "type": "local",
-      "command": ["npx", "-y", "figma-developer-mcp", "--figma-api-key={env:FIGMA_API_KEY}", "--stdio"],
-      "enabled": true
+      "path": "https://www.figma.com",
+      "description": "Reference for sharp/lively design tokens (tap-48, contrast, spring) — used as design inspiration, not live API"
     }
   },
   "command": {
