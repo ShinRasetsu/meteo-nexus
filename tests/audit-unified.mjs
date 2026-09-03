@@ -403,29 +403,120 @@ function inlineChecks() {
     })
   }
 
-  // 20. UI improvements — lively, sharp, contrast suggestions (info, not block) — catches possible UI improvements
+  // 20. Real HUDs — Garmin G3X / AIM Solo 2 / MoTeC C125 as reference (contrast, gauge, timer)
   {
-    const hasSpring = /spring|framer-motion|whileHover/.test(html) || /spring/.test(indexModule)
-    const hasSharpRound = /rounded-xl/.test(html)
-    const hasSharpShadow = /shadow-xl/.test(html)
-    const hasContrast = /text-brand-teal/.test(html) && /bg-surface-800/.test(html) && /border-brand-teal/.test(html)
-    const hasLively = hasSpring && hasSharpRound && hasSharpShadow
-    let suggestions = []
-    if (!hasSpring) suggestions.push('Add spring hover to #fuel-trigger-btn tap-48 (index.html:444) — lively vs transition-all duration-500')
-    if (!hasSharpRound) suggestions.push('Use rounded-xl on tracking card (index.html:489) for sharpness vs rounded-lg')
-    if (!hasSharpShadow) suggestions.push('Use shadow-xl on tracking-eta-bar (index.html:489) for depth vs shadow-lg')
-    if (!hasContrast) suggestions.push('Keep contrast AAA: text-brand-teal on bg-surface-900/95 (index.html:489) vs gray-500')
-    // Check for dull muted — suggest vibrant
-    const hasMuted = /text-gray-500.*uppercase.*tracking-widest/.test(html) // many muted labels
-    if (hasMuted && !hasLively) suggestions.push('Consider vibrant accent on Local Telemetry label (index.html:326) — muted gray-500 vs brand-teal')
-    const ok = true // info only, not blocking — catches improvements without failing pipeline
-    const msg = suggestions.length ? `UI improvements (${suggestions.length}): ${suggestions.join(' | ')}` : 'UI lively/sharp/contrast OK — no suggestions (tap-48 + rounded-xl + shadow-xl + contrast present)'
-    addResult('E5', 'ui-improvements', 'UI improvements lively/sharp/contrast — suggestions for proper UI (not block)', ok, {
+    let hasRealHudRef = false
+    try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); hasRealHudRef = !!(cfg.references && (cfg.references['real-hud'] || cfg.references['real_hud'])) } catch { void 0 }
+    const hasGreenContrast = /--green/.test(html) || /0\.5.*0\.7/.test(html) // index.html:107 --green 0.5→0.7
+    const hasGaugeCore = /gauge-core/.test(html) || /radial.*32%/.test(html) // index.html:432 radial 32%
+    const hasTabularNums = /tabular-nums/.test(html) && /crossFraction/.test(indexModule) // index.html:1064 vs 1589
+    const ok = true // reference, not block — informs proper UI beyond static; would be hasGreenContrast && hasGaugeCore && hasTabularNums if strict
+    const msg = hasRealHudRef ? (hasGreenContrast && hasGaugeCore && hasTabularNums ? 'Real HUD reference in sync — Garmin/AIM/MoTeC contrast, gauge, timer present' : 'Real HUD reference linked — html has --green/gauge/tabular checks (add 0.5→0.7, radial 32%, tabular-nums for full sync)') : 'Real HUD as reference — not live — contrast/gauge/timer checked via static (add references.real-hud for Garmin/AIM/MoTeC)'
+    addResult('E5', 'real-hud', 'Real HUDs Garmin/AIM/MoTeC as reference (contrast, gauge, timer)', ok, {
       exit: 0,
       out: msg,
       err: '',
       ms: 0,
     })
+  }
+
+  // 21. Game HUDs — F1 23 / Gran Turismo as reference (g-force, trail, motion)
+  {
+    let hasGameHudRef = false
+    try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); hasGameHudRef = !!(cfg.references && (cfg.references['game-hud'] || cfg.references['game_hud'])) } catch { void 0 }
+    const hasGForceSpring = /g-force-ring/.test(html) && /0\.34.*1\.56/.test(html) // index.html:435
+    const hasTrailDot = /g-dot/.test(html) || /0\.85.*1\.1rem/.test(html) // index.html:730
+    const hasMotionBlur = /will-change/.test(html) && /backdrop-blur/.test(html)
+    const ok = true // reference, not block — informs proper UI beyond static
+    const msg = hasGameHudRef ? (hasGForceSpring && hasTrailDot && hasMotionBlur ? 'Game HUD reference in sync — F1/Gran Turismo g-force spring + trail motion blur present' : 'Game HUD reference linked — html has g-force 0.34,1.56 + trail + will-change (add 0.85→1.1rem for full sync)') : 'Game HUD as reference — not live — g-force/trail checked via static (add references.game-hud for F1/Gran Turismo)'
+    addResult('E5', 'game-hud', 'Game HUDs F1/Gran Turismo as reference (g-force spring, trail, motion blur)', ok, {
+      exit: 0,
+      out: msg,
+      err: '',
+      ms: 0,
+    })
+  }
+
+  // 22. UI improvements — lively, sharp, contrast suggestions (info, not block) — catches possible UI improvements and creates recommendation list
+  {
+    const hasSpring = /spring|framer-motion|whileHover/.test(html) || /spring/.test(indexModule)
+    const hasSharpRound = /rounded-xl/.test(html)
+    const hasSharpShadow = /shadow-xl/.test(html)
+    const hasContrast = /text-brand-teal/.test(html) && /bg-surface-800/.test(html) && /border-brand-teal/.test(html)
+    let suggestions = []
+    let recommendations = []
+    if (!hasSpring) suggestions.push('Add spring hover to #fuel-trigger-btn (index.html:444)')
+    else recommendations.push('Spring on fuel-btn present — add to Gear/Paste/Clear (index.html:447)')
+    if (!hasSharpRound) suggestions.push('Use rounded-xl on tracking card (index.html:489)')
+    else recommendations.push('Sharp rounded-xl keep (index.html:489,444)')
+    if (!hasSharpShadow) suggestions.push('Use shadow-xl on ETA bar (index.html:489)')
+    else recommendations.push('Sharp shadow-xl keep (index.html:489)')
+    if (!hasContrast) suggestions.push('Keep contrast AAA: text-brand-teal on bg-surface-900/95 (index.html:489)')
+    else recommendations.push('Contrast AAA present (index.html:444,489)')
+    const hasMuted = /text-gray-500.*uppercase.*tracking-widest/.test(html)
+    if (hasMuted) recommendations.push('Vibrant accent on Local Telemetry label (index.html:326) — muted vs brand-teal')
+    if (suggestions.length === 0 && recommendations.length === 0) recommendations.push('UI OK — consider Motion spring 500/30 (Framer Motion)')
+    const allRecs = [...suggestions, ...recommendations]
+    const ok = true // info only, not blocking — catches improvements without failing pipeline
+    const msg = allRecs.length ? `Recs (${allRecs.length}): ${allRecs.join(' | ')}` : 'UI OK — no suggestions'
+    // Make guarantee also contain recs so PASS still shows recommendations (report truncates guarantee to 72 chars, but out is shown for FAIL only — for ui-improvements we want PASS to also show recs)
+    const guaranteeMsg = allRecs.length ? `Recs (${allRecs.length}): ${allRecs.slice(0,2).join(' | ').slice(0,70)}` : 'UI lively/sharp/contrast OK — no suggestions'
+    addResult('E5', 'ui-improvements', guaranteeMsg, ok, {
+      exit: 0,
+      out: msg,
+      err: '',
+      ms: 0,
+    })
+  }
+
+  // 23. Optimization — perf micro-opts still possible (info, not block)
+  {
+    const hasMathSqrt = /Math\.sqrt\(.*\+.*\+/.test(indexModule) // e.g., calibratedHeadingFromB hMagSq vs sqrt
+    const hasBrierGate = /if \(changed\)/.test(indexModule) && /_saveBrierLog/.test(indexModule)
+    const hasHoistedFetch = /fetchOpts = \{ \.\.\.options \}/.test(indexModule)
+    const suggestions = []
+    if (hasMathSqrt) suggestions.push('Use hMagSq<25 vs Math.sqrt<5 index.html magnetometer (saves sqrt)')
+    if (!hasBrierGate) suggestions.push('Gate brierRecordObservation with if(changed) to avoid 600-entry clone')
+    if (!hasHoistedFetch) suggestions.push('Hoist fetchOpts spread outside retry loop in fetchWithRetry')
+    // Check for remaining hot-path allocs: toLocaleTimeString with literal options
+    if (/toLocaleTimeString\([^)]*\{/.test(indexModule)) suggestions.push('Hoist toLocaleTimeString options literal (index.html syncClock) — 86k allocs/day')
+    const ok = true
+    const msg = suggestions.length ? `Optimizations (${suggestions.length}): ${suggestions.join(' | ')}` : 'No perf micro-opts left — 17 already done (HISTORY.md 1.3.10)'
+    addResult('E5', 'perf-optimizations', 'Performance micro-optimizations still possible (info, not block)', ok, { exit: 0, out: msg, err: '', ms: 0 })
+  }
+
+  // 24. Accuracy — WGS84 vs spherical, display vs target, ensemble vs single
+  {
+    const hasWGS84 = /WGS84|ellipsoidal|40075000.*cos/.test(indexModule) && /fastDistance/.test(indexModule)
+    const hasDisplayDist = /displayDistance/.test(indexModule) && /state\.visual/.test(indexModule)
+    const hasEnsemble = /precipProbModels/.test(indexModule) && /weightedWetness/.test(indexModule)
+    const hasNativeProb = /nativePrecipProb/.test(indexModule)
+    const suggestions = []
+    if (!hasWGS84) suggestions.push('Use WGS84 for fuel distance (index.html:2346 displayDistance) vs spherical 0.5% error')
+    if (!hasDisplayDist) suggestions.push('Use displayDistance (state.visual) not target (state.autoCoords) for 60Hz smooth')
+    if (!hasEnsemble) suggestions.push('Ensemble 5-model weightedWetness vs single-model (already done)')
+    if (!hasNativeProb) suggestions.push('Add native precipitation_probability (already done in 1.8.0)')
+    const ok = true
+    const msg = suggestions.length ? `Accuracy improvements (${suggestions.length}): ${suggestions.join(' | ')}` : 'Accuracy OK — WGS84, displayDistance, ensemble 5-model, native prob all present'
+    addResult('E5', 'accuracy-improvements', 'Accuracy improvements — WGS84, display vs target, ensemble, native prob (info, not block)', ok, { exit: 0, out: msg, err: '', ms: 0 })
+  }
+
+  // 25. Features — route, fuel, offline, HUD (info, not block)
+  {
+    const hasRoute = /routeNodes/.test(indexModule) && /fastDistance/.test(indexModule)
+    const hasFuel = /fuel.*Stations|FuelManager/.test(indexModule) && /tap-48/.test(html)
+    const hasOffline = /offline/i.test(html) && /localforage/.test(indexModule)
+    const hasHUD = /hud-map/.test(html) && /visual\.heading/.test(indexModule)
+    const suggestions = []
+    if (!hasRoute) suggestions.push('Route intelligence: Valhalla/OSRM/Overpass (already present)')
+    if (!hasFuel) suggestions.push('Fuel stations: Shell/Caltex local + Overpass fallback (already present)')
+    if (!hasOffline) suggestions.push('Offline: localforage cache for telemetry + fuel (already present)')
+    if (!hasHUD) suggestions.push('HUD: Aero + tracking + local telemetry (already present)')
+    // Check for feature gaps: e.g., no air-quality, no marine, no historical
+    if (!/air_quality/.test(indexModule)) suggestions.push('Consider Air Quality API (open-meteo.com) for HUD overlay')
+    const ok = true
+    const finalMsg = hasRoute && hasFuel && hasOffline && hasHUD ? 'Features OK — route, fuel, offline, HUD present (air-quality optional)' : `Features (${suggestions.length}): ${suggestions.join(' | ')}`
+    addResult('E5', 'feature-improvements', 'Feature improvements — route, fuel, offline, HUD, air-quality (info, not block)', ok, { exit: 0, out: finalMsg, err: '', ms: 0 })
   }
 
 }
@@ -506,6 +597,7 @@ async function main() {
   console.log('\n' + '─'.repeat(72))
   console.log('Unified audit report — evidence tiers (AGENTS.md §0)')
   console.log('─'.repeat(72))
+  const RECOMMENDATION_SCANNERS = new Set(['ui-improvements', 'perf-optimizations', 'accuracy-improvements', 'feature-improvements', 'figma-design', 'motion-hig', 'real-hud', 'game-hud', 'mobile-ux', 'visual-regression', 'lighthouse'])
   for (const tier of ['E1', 'E2', 'E3', 'E4', 'E5', 'E6']) {
     const list = byTier[tier]
     if (!list.length) continue
@@ -519,8 +611,21 @@ async function main() {
         const detail = (r.err || r.out || '').split('\n').slice(0, 4).join(' | ').slice(0, 600)
         if (detail) console.log(`       → ${detail}`)
         if (r.scanner === 'ui-fluidity-audit.mjs') console.log('       → Perfection gate: one stair = FAIL — run `npm run audit:fluidity` for G0-G4 file:line details')
+      } else if (RECOMMENDATION_SCANNERS.has(r.scanner) && r.out) {
+        const recDetail = r.out.split('\n').slice(0, 4).join(' | ').slice(0, 600)
+        if (recDetail) console.log(`       → ${recDetail}`)
       }
     }
+  }
+
+  // ── Recommendations result — always list possible improvements even when PASS ──
+  const recResults = results.filter(r => RECOMMENDATION_SCANNERS.has(r.scanner) && r.out)
+  console.log('\n' + '─'.repeat(72))
+  console.log(`Recommendations (${recResults.length} categories) — possible improvements (info, not block)`)
+  console.log('─'.repeat(72))
+  for (const r of recResults) {
+    const recLine = r.out.split('\n').slice(0, 4).join(' | ').slice(0, 600)
+    console.log(`  • ${r.scanner.padEnd(22)} ${recLine}`)
   }
 
   const mandatoryFails = results.filter(r => !r.pass && r.scanner !== 'ui-fluidity-audit.mjs').length

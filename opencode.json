@@ -29,6 +29,14 @@
     "hig": {
       "path": "https://developer.apple.com/design/human-interface-guidelines",
       "description": "Reference for watchOS glanceability at 390x844 — use for Local Telemetry 29°/39% and Map HUD safe-area readability while driving"
+    },
+    "real-hud": {
+      "path": "https://www8.garmin.com/manuals/webhelp/G3X_Touch_PilotGuide/",
+      "description": "Reference for Garmin G3X / AIM Solo 2 / MoTeC C125 — use for --green 0.5→0.7 contrast, gauge-core:432 radial 32% depth, timer tabular-nums vs AIM 1ms crossFraction:1589"
+    },
+    "game-hud": {
+      "path": "https://www.gran-turismo.com/us/gt7/manual/",
+      "description": "Reference for F1 23 / Gran Turismo telemetry — use for g-force-ring:435 4-quadrant lively spring 0.34,1.56 and trail g-dot:730 0.85→1.1rem motion blur"
     }
   },
   "command": {
