@@ -2,6 +2,13 @@
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["AGENTS.md", "HISTORY.md", "VERSION", "ARCHITECTURE.md"],
   "plugin": ["./.opencode/plugin/audit.ts"],
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp"],
+      "enabled": true
+    }
+  },
   "command": {
     "audit": {
       "description": "Run unified audit",
