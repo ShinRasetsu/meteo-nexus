@@ -347,6 +347,12 @@ assertIncludes(html, "snowfall:(dCurr && dCurr.current && typeof dCurr.current.s
 assertIncludes(html, "cloudCover: (dCurr && dCurr.current && typeof dCurr.current.cloud_cover", "index.html propagates cloud cover");
 assertIncludes(html, "const ccover  = (typeof cloudCover === 'number')", "index.html telemetry card reads cloud cover for human label");
 
+// Solar/UV non-negative guard: Open-Meteo emits occasional negative
+// shortwave_radiation (e.g. -1.5 at 01:00); without Math.max(0, …) it dragged
+// y_solar below zero and Chart.js drew a "-200" tick.
+assertIncludes(html, "Math.max(0, so)", "index.html clamps solar to non-negative (kills -200 tick class)");
+assertIncludes(html, "suggestedMin: 0, suggestedMax: 1000", "index.html floors y_solar at 0");
+
 // ---------------------------------------------------------------------------
 // worker.js — task dispatcher integrity
 // ---------------------------------------------------------------------------

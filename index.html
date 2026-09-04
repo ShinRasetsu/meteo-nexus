@@ -4909,8 +4909,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 }
                             }
                         },
-                        y_rain:  { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 2 },
-                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMax: 1000 },
+                        y_rain:  { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMin: 0, suggestedMax: 2 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMin: 0, suggestedMax: 1000 },
                         y_uv:    { type: 'linear', display: false, min: 0, max: 15 },
                         y_temp:  { type: 'linear', display: false, position: 'right' }
                     }
@@ -5005,11 +5005,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 try {
                     const uvModels = WeatherEnsemble.extractAllModelArrays(hSol, ['uv_index']);
                     const wUv = WeatherEnsemble.weightedValueAll(uvModels.uv_index, 0, totalLen);
-                    uvArr = wUv.map(v => (v === null || v === undefined) ? 0 : v);
+                    uvArr = wUv.map(v => (v === null || v === undefined) ? 0 : Math.max(0, v));
                 } catch (_) {
                     const fb = new Array(totalLen).fill(0);
                     for (let i = 0; i < totalLen; i++) {
-                        for (const { m } of WeatherEnsemble._MI) { const a = hSol[`uv_index_${m}`]; if (a && a[i] !== null && a[i] !== undefined) { fb[i] = a[i]; break; } }
+                        for (const { m } of WeatherEnsemble._MI) { const a = hSol[`uv_index_${m}`]; if (a && a[i] !== null && a[i] !== undefined) { fb[i] = Math.max(0, a[i]); break; } }
                     }
                     uvArr = fb;
                 }
@@ -5022,11 +5022,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 try {
                     const solModels = WeatherEnsemble.extractAllModelArrays(hSol, ['shortwave_radiation']);
                     const wSol = WeatherEnsemble.weightedValueAll(solModels.shortwave_radiation, 0, totalLen);
-                    solArr = wSol.map(v => (v === null || v === undefined) ? 0 : v);
+                    solArr = wSol.map(v => (v === null || v === undefined) ? 0 : Math.max(0, v));
                 } catch (_) {
                     const fb = new Array(totalLen).fill(0);
                     for (let i = 0; i < totalLen; i++) {
-                        for (const { m } of WeatherEnsemble._MI) { const a = hSol[`shortwave_radiation_${m}`]; if (a && a[i] !== null && a[i] !== undefined) { fb[i] = a[i]; break; } }
+                        for (const { m } of WeatherEnsemble._MI) { const a = hSol[`shortwave_radiation_${m}`]; if (a && a[i] !== null && a[i] !== undefined) { fb[i] = Math.max(0, a[i]); break; } }
                     }
                     solArr = fb;
                 }
@@ -5049,10 +5049,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     timesUnix[i] = t;
                     times[i] = fmtHour(t, utcOffsetSec);
                     const so = solArr[j];
-                    solarData[i] = (so === null || so === undefined) ? 0 : so;
+                    // Physical clamp: Open-Meteo occasionally emits a small negative
+                    // shortwave_radiation (e.g. -1.5 at 01:00 between zero night cells).
+                    // One such cell dragged y_solar min below zero and Chart.js drew a
+                    // "-200" tick. Solar irradiance can never be negative, so floor at 0.
+                    solarData[i] = (so === null || so === undefined) ? 0 : Math.max(0, so);
                 }
                 const uv = uvArr[j];
-                uvData[i] = (uv === null || uv === undefined) ? 0 : uv;
+                uvData[i] = (uv === null || uv === undefined) ? 0 : Math.max(0, uv);
                 if (uvData[i] > uvMaxVal) { uvMaxVal = uvData[i]; uvMaxIdx = i; }
             }
             // The UV metric's "@ HH:MM" label reads times[maxUvIdx] — when the chart
@@ -6069,8 +6073,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                         const totalLen = dAll.hourly.time.length;
                                         const solArr = WeatherEnsemble.weightedValueAll(solarModels.shortwave_radiation, 0, totalLen);
                                         const uvArr = WeatherEnsemble.weightedValueAll(solarModels.uv_index, 0, totalLen);
-                                        const solFixed = solArr.map(v => (v === null || v === undefined) ? 0 : v);
-                                        const uvFixed = uvArr.map(v => (v === null || v === undefined) ? 0 : v);
+                                        const solFixed = solArr.map(v => (v === null || v === undefined) ? 0 : Math.max(0, v));
+                                        const uvFixed = uvArr.map(v => (v === null || v === undefined) ? 0 : Math.max(0, v));
                                         dSolar = { hourly: { time: dAll.hourly.time, shortwave_radiation: solFixed, uv_index: uvFixed } };
                                     } catch (synthErr) {
                                         console.warn('Solar synthesis via weightedValueAll failed, falling back to first-model pick:', synthErr);
@@ -6086,8 +6090,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                                 if (uVal === null && uArr && uArr[i] !== null && uArr[i] !== undefined) uVal = uArr[i];
                                                 if (sVal !== null && uVal !== null) break;
                                             }
-                                            solFixed[i] = sVal !== null ? sVal : 0;
-                                            uvFixed[i] = uVal !== null ? uVal : 0;
+                                            solFixed[i] = sVal !== null ? Math.max(0, sVal) : 0;
+                                            uvFixed[i] = uVal !== null ? Math.max(0, uVal) : 0;
                                         }
                                         dSolar = { hourly: { time: dAll.hourly.time, shortwave_radiation: solFixed, uv_index: uvFixed } };
                                     }

@@ -1366,3 +1366,35 @@ Races: `displayDistance` `state.visual ?? state.autoCoords` `index.html:2346` si
 - `playwright` `opencode.json:5` `mcp.playwright` `npx -y @playwright/mcp` + `figma` `opencode.json:5` `mcp.figma` `figma-developer-mcp` both `Plugins:` visible after restart (file-based `audit.md` `agent: perfection-auditor` `/.opencode/command/audit.md:1` shows as `/audit`, plugin `/.opencode/plugin/audit.ts:1` shows as `audit` in `Plugins`).
 - `opencode.json:4` `command.audit` was prompt-dump `You are an auditor...` `opencode.json:7` — now `Run node tests/audit-unified.mjs via bash...` `opencode.json:7` `description: Run unified audit` `agent: perfection-auditor` `.opencode/command/audit.md:1` direct `.js` `bash` like `Velocity-Lab` `tests/fluidity.test.js:1` `require("fs")` `PASS/FAIL` `process.exit(0/1)` — no prompt dump.
 - `awaiting satellite` report `HEAD~3..HEAD` `HEAD 1484dc0` `22:13` auto-update `500KB` inline `index.html:798` rebuilt — first load `APP_CACHE` miss + GPS cold-start `watchPosition` `1Hz` `timeout:10000` `index.html:6933` normal `1-5s` outdoor `30-60s` indoor, not `displayDistance` `dt`/`tc` changes (visual lerp only).
+
+---
+
+## 1.8.1 — 2026-09-04 (patch: negative solar clamp — kills "-200" tick on telemetry plot)
+
+### Bump rationale
+
+Patch bump 1.8.0 → 1.8.1. Single user-visible bug fix, no features. The Atmospheric Telemetry Plot drew a **-200** tick on the Solar Irradiance axis.
+
+### Root cause (proven live via Playwright, not guessed)
+
+`Chart.getChart('mainChart')` on the deployed site showed `Solar (W/m²)` data `min: -1.5, max: 852.25` — one `-1.5` cell at `01:00` between zero night cells (`[0, 0, -1.5, 0, 0]`). Open-Meteo emits an occasional small negative `shortwave_radiation` at night (physically impossible, should be 0); the code passed it straight through, so `y_solar` (`suggestedMax: 1000`, no floor) auto-scaled to ticks `[-200, 0, 200, …, 1000]` — verified in fullscreen focus mode (`sec-telemetry.section-fullscreen`). No `-200` literal exists anywhere in source; the tick is purely data-driven. The 1.8.0 single-fetch solar synthesis propagates the same artifact (weighted average preserves the sign), so the fix covers all paths.
+
+### Changes
+
+- `index.html`:
+  - **Choke-point clamp** (`normalizeTelemetryData` chart loop `index.html:5052`): `solarData[i]` / `uvData[i]` now `Math.max(0, …)` — every solar source (legacy API, synthesized, cached) converges here, so one clamp kills the whole class. UV clamped too (same physical non-negativity).
+  - **Synthesis clamps** (`fetchData` `index.html:6072` weighted + `index.html:6089` first-model fallback; `normalizeTelemetryData` suffixed fallbacks `index.html:5008`/`index.html:5025` + picks `index.html:5012`/`index.html:5029`): `Math.max(0, …)` so cached `dSolar.hourly` stays clean.
+  - **Axis floors** (`renderChart` `index.html:4912`): `suggestedMin: 0` on `y_solar` + `y_rain` (precip can't be negative either; `y_uv` already `min: 0`). Belt-and-braces with the clamp.
+  - Temps intentionally NOT clamped (legitimately negative in winter).
+- `tests/sanity.test.js` — +2 guards (150 → 152): `Math.max(0, so)` clamp present; `suggestedMin: 0, suggestedMax: 1000` on `y_solar`.
+- `VERSION` → `1.8.1`, `package.json` → `"version": "1.8.1"`, `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` 152 sanity + 35 unit · `node tests/audit-unified.mjs` `Pipeline PASS — 37 checks` `Perfection PASS (0 stairs, 0 janks)` · `npm run audit:verify` 24/24 · `npm run precheck` green.
+- Playwright live proof (before fix): `y_solar min: -200, ticks: [-200, 0, …, 1000]`, solar data `min: -1.5 @ 01:00`; after fix the clamp forces `min ≥ 0` so ticks start at `0`.
+- Fetch Gate not triggered (`fetchData` URLs/triggers untouched — synthesis math only). Visual runtime §7 advised (chart axis config touched): open Local Telemetry focus → solar axis starts at 0, no negative tick.
+
+### Blind spots considered (AGENTS.md §8)
+
+Races: none (sync clamps in fetch-cadence code). Leaks: none. Off-by-one/coercion: `Math.max(0, …)` preserves `0` and positives bit-identically; only negatives move (to 0). Unhandled rejections: none added. import(): none. Perf: 24 `Math.max`/fetch — negligible. A11y: unchanged. Visual compositing: proven live above, not just statically.

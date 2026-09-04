@@ -1,0 +1,2 @@
+[     488ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ https://shinrasetsu.github.io/meteo-nexus/index.html:2467
+[     505ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://shinrasetsu.github.io/favicon.ico:0

@@ -1,0 +1,163 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading " METEONEXUS HUD v1.8.0" [level=1] [ref=e116]:
+      - generic [ref=e4]: 
+      - text: METEONEXUS
+      - generic [ref=e5]: HUD
+      - generic "Deployed version" [ref=e117]: v1.8.0
+    - generic [ref=e6]:
+      - text: 
+      - button "Purge System Storage" [ref=e7]:
+        - generic [ref=e8]: 
+        - generic [ref=e9]: PURGE
+      - button "Toggle Sonar" [ref=e10]:
+        - generic [ref=e11]: 
+        - generic [ref=e12]: SONAR OFF
+  - generic [ref=e13]:
+    - generic "Swipe to expand diagnostics" [ref=e15] [cursor=pointer]
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - generic [ref=e18]: 
+        - text: Environment Processing
+      - button "Focus Telemetry" [ref=e19]:
+        - generic [ref=e20]: 
+    - generic [ref=e21]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - generic [ref=e25]: Local Telemetry
+          - generic [ref=e26]:
+            - generic [ref=e27]:
+              - generic [ref=e118]: 
+              - text: Calamba
+            - generic [ref=e29]:
+              - generic [ref=e30]: 
+              - generic [ref=e31]: 09:59:27
+          - generic [ref=e32]: 
+          - generic [ref=e33]: OVERCAST
+          - generic [ref=e34]: Overcast · 100% Cloud
+          - generic [ref=e119]: 2/5 MODELS AGREE
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]:
+              - generic [ref=e38]: Temperature
+              - generic [ref=e39]:
+                - generic [ref=e40]: 29°
+                - generic [ref=e41]: Feels 34°
+            - generic [ref=e42]:
+              - generic [ref=e43]: Rain Consensus
+              - generic "4% weighted ensemble agreement across reporting models." [ref=e120]: 4%
+          - generic [ref=e45]:
+            - generic [ref=e46]:
+              - generic [ref=e47]: Wind & Humidity
+              - generic [ref=e48]:
+                - generic [ref=e49]:
+                  - generic [ref=e50]:
+                    - generic [ref=e51]: "19"
+                    - generic [ref=e52]: km/h
+                  - generic [ref=e53]: Wind
+                - generic [ref=e54]:
+                  - generic [ref=e55]: 81%
+                  - generic [ref=e56]: Humidity
+              - generic [ref=e57]:
+                - text: SW
+                - generic [ref=e121]: 
+              - generic [ref=e58]:
+                - generic [ref=e59]: 1010 hPa
+                - generic [ref=e60]: "|"
+                - generic [ref=e61]: "-- km"
+            - generic [ref=e62]:
+              - generic [ref=e63]: Max UV
+              - generic [ref=e64]: "8.8"
+              - generic [ref=e65]: VERY HIGH
+              - generic [ref=e66]: "@ 12:00"
+          - text: 
+      - generic [ref=e68]:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 
+              - text: Aero-Vector HUD
+            - generic:
+              - generic "weather code": 
+              - generic: OVERCAST
+          - generic:
+            - generic:
+              - generic: ALTIMETER
+              - generic:
+                - generic: "16"
+                - generic: m (TOPO)
+            - button "Expand Aero HUD" [ref=e69]:
+              - generic [ref=e70]: 
+        - generic [ref=e71]:
+          - generic:
+            - generic: "N"
+            - generic: S
+            - generic: W
+            - generic: E
+          - generic: 
+        - generic:
+          - generic:
+            - generic: Rel. Angle
+            - generic: "--"
+          - generic:
+            - generic: Wind Base
+            - generic:
+              - generic: "18"
+              - generic: km/h
+  - generic [ref=e72]:
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - generic [ref=e76]: 
+          - text: "Tracking | GNSS: HIGH (0m)"
+        - generic [ref=e77]: STANDBY
+      - generic [ref=e78]:
+        - button "Trigger Pit Stop Search" [ref=e79]:
+          - generic [ref=e80]: 
+          - generic [ref=e81]: Pit Stop
+        - button "Fuel Settings" [ref=e82]:
+          - generic [ref=e83]: 
+        - button "Paste Location Link" [ref=e84]:
+          - generic [ref=e85]: 
+          - generic [ref=e86]: Paste Target
+        - button "Clear Route" [ref=e87]:
+          - generic [ref=e88]: 
+          - generic [ref=e89]: Clear
+        - text: 
+        - button "Focus Map" [ref=e90]:
+          - generic [ref=e91]: 
+    - generic [ref=e92]:
+      - generic [ref=e93]:
+        - button [ref=e122] [cursor=pointer]
+        - generic:
+          - generic: 100 m
+          - generic [ref=e129]:
+            - link "Leaflet" [ref=e130] [cursor=pointer]:
+              - /url: https://leafletjs.com
+            - text: "| © OSM"
+      - generic:
+        - generic [ref=e94]:
+          - generic [ref=e95]: 
+          - generic [ref=e96]:
+            - generic [ref=e97]: "000"
+            - generic [ref=e98]: km/h
+          - generic "Session Max Speed" [ref=e100]:
+            - generic [ref=e101]: Max
+            - generic [ref=e102]: "0"
+        - generic [ref=e103]:
+          - generic [ref=e104]: 
+          - generic [ref=e105]:
+            - generic [ref=e106]: "N"
+            - generic [ref=e107]: 000°
+      - text: 
+      - generic [ref=e108]:
+        - button "" [ref=e109]
+        - button "" [ref=e111]
+  - text:                               
+  - contentinfo [ref=e113]:
+    - generic "MeteoNexus Tactical HUD — deployed version" [ref=e136]: v1.8.0
+    - generic [ref=e114]:
+      - text: Weather data by
+      - link "Open-Meteo.com" [ref=e115] [cursor=pointer]:
+        - /url: https://open-meteo.com
+      - text: • CC BY 4.0
