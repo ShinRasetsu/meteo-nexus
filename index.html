@@ -3502,14 +3502,24 @@ let delta = heading - state.lastHeading;
                     state.lastLocationTimestamp = now;
 
                     state.renderAccuracy = accuracy;
-                    if (accuracy <= 15) {
+                    // accuracy can be null on some platforms (the trust model in
+                    // MagHeadingFuser already treats non-finite accuracy as neutral);
+                    // without this guard the old `accuracy <= 15` classified null as
+                    // HIGH (0m) — a false-positive "pinpoint" status.
+                    if (!Number.isFinite(accuracy)) {
+                        state.renderAccText = `Tracking | GNSS: ACQUIRING`;
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap";
+                    } else if (accuracy <= 15) {
                         state.renderAccText = `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`;
                         state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
                     } else if (accuracy <= 60) {
                         state.renderAccText = `Tracking | GNSS: MED (${Math.round(accuracy)}m)`;
                         state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
                     } else {
-                        state.renderAccText = `Tracking | LTE/A-GPS (${Math.round(accuracy)}m)`;
+                        // Honest label: a degraded fix is still a GPS fix, not
+                        // necessarily cellular positioning (enableHighAccuracy asks
+                        // for GPS; >60m is typically urban-canyon / multi-path).
+                        state.renderAccText = `Tracking | GNSS: LOW (${Math.round(accuracy)}m)`;
                         state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
                     }
 
@@ -6826,7 +6836,25 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const attemptGpsFix = (attempt) => {
                     if (state.autoCoords) return;
                     navigator.geolocation.getCurrentPosition(
-                        p => { state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude }; initMap(p.coords.latitude, p.coords.longitude); fetchData(p.coords.latitude, p.coords.longitude, false); },
+                        p => {
+                            if (state.autoCoords) return;
+                            // GPS accuracy gate: the running watchPath already rejects
+                            // >3000m fixes (index.html engine), but the boot one-shot
+                            // used to accept ANY fix — a coarse WiFi/cell first fix could
+                            // center the map and fetch weather for the wrong place. Retry
+                            // a poor fix until the retry budget is gone, then accept it as
+                            // last resort (a rough location beats a dead app).
+                            const acc = p.coords.accuracy;
+                            if ((!Number.isFinite(acc) || acc > 3000) && attempt <= GPS_BOOT_RETRIES) {
+                                updateText(DOM.statusText, "ACQUIRING GPS…");
+                                updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-teal uppercase');
+                                setTimeout(() => attemptGpsFix(attempt + 1), 3000);
+                                return;
+                            }
+                            state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
+                            initMap(p.coords.latitude, p.coords.longitude);
+                            fetchData(p.coords.latitude, p.coords.longitude, false);
+                        },
                         (err) => {
                             if (state.autoCoords) return;
                             if (err && err.code === err.PERMISSION_DENIED) {

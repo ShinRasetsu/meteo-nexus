@@ -109,6 +109,10 @@ assertIncludes(html, 'sec-telemetry\' && state.chart', "focus-open resizes the h
 assertIncludes(html, 'ACQUIRING GPS', "index.html shows ACQUIRING GPS while the one-shot fix retries");
 assertIncludes(html, 'err.code === err.PERMISSION_DENIED', "index.html reserves GPS BLOCKED for real permission denials");
 
+// GPS accuracy audit (1.8.2): null-safe, honest accuracy taxonomy
+assertIncludes(html, 'GNSS: ACQUIRING', "null/non-finite accuracy renders ACQUIRING, not a false HIGH (0m)");
+assertIncludes(html, 'GNSS: LOW (', "degraded >60m fixes are labelled LOW, not the misleading LTE/A-GPS");
+
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");
 assertIncludes(html, 'cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', "Chart.js 4.4.1 loaded");
