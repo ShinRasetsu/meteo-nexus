@@ -73,7 +73,8 @@
             weatherCode: null, isDay: null, isRainingNow: false,
             precipitation: null, rain: null, showers: null, snowfall: null,
             cloudCover: null, pressure: null, visibility: null,
-            temperature: null, apparentTemp: null, tempTrend: null
+            temperature: null, apparentTemp: null, tempTrend: null,
+            sunPair: null
         };
     </script>
 
@@ -268,11 +269,11 @@
         .aero-focus-only { display: none !important; }
         .aero-fullscreen .aero-focus-only { display: flex !important; }
         .aero-fullscreen .aero-focus-only.aero-focus-grid { display: grid !important; }
-        /* AERO mobile-fullscreen: on narrow viewports the side rails (2x w-36)
-           cannot flank the dial (390px < 144 + 144 + dial) — they overlapped
-           the ring. In fullscreen they dock as a 2-column grid under the dial
-           while the dial grows to fill the width (see fitAeroDial). Desktop
-           fullscreen keeps the flanking rails. Threshold 768px matches the
+        /* AERO corners: fullscreen puts 2 chips in each corner (TL/TR/BL/BR)
+           around the centered dial — 8 chips balanced (Sun is the 8th).
+           Wide screens keep absolute corner flanks; on narrow viewports the
+           rows join the normal flow (row-top above the dial via order:-1)
+           so nothing can overlap the ring. Threshold 768px matches the
            portrait convention used by the glance strip. */
         @media (max-width: 767px) {
             #aero-vector-card.aero-fullscreen #aero-radar-card {
@@ -281,15 +282,20 @@
                 padding-top: max(4.5rem, env(safe-area-inset-top));
                 padding-bottom: max(6.5rem, env(safe-area-inset-bottom));
             }
-            #aero-vector-card.aero-fullscreen #aero-focus-left,
-            #aero-vector-card.aero-fullscreen #aero-focus-right {
-                position: static !important;
-                width: auto !important;
-                display: grid !important;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 0.5rem;
+            #aero-vector-card.aero-fullscreen #aero-row-top,
+            #aero-vector-card.aero-fullscreen #aero-row-bottom {
+                position: static;
                 align-self: stretch;
-                margin: 0.5rem 1rem 0;
+                margin-left: 1rem;
+                margin-right: 1rem;
+            }
+            #aero-vector-card.aero-fullscreen #aero-row-top {
+                order: -1;
+                margin-top: 0.5rem;
+            }
+            #aero-vector-card.aero-fullscreen #aero-row-bottom {
+                margin-top: 0.5rem;
+                margin-bottom: 0.5rem;
             }
         }
         @media (prefers-reduced-motion: reduce) {
@@ -5856,7 +5862,34 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // content must NOT rebuild the chart). Per-fetch cost: ~14 array reads.
         let _lastPayloadSig = null;
         let _lastChartSig = null;
-        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false, cachedTimestamp = null) {
+        // Sun-chip helper: next two rise/set events from the daily block,
+        // ordered upcoming-first (afternoon -> SET then RISE; morning ->
+        // RISE then SET). Pure wall-clock math on the location-local ISO
+        // strings — no Date.parse TZ pitfalls, so travellers see station
+        // time, not device time. Null when <2 upcoming events remain (stale
+        // offline cache past its window, or unparseable daily).
+        function nextSunPair(daily, nowMs, offSec) {
+            try {
+                if (!daily || !Array.isArray(daily.sunrise) || !Array.isArray(daily.sunset)) return null;
+                const nowLoc = new Date(nowMs + (offSec || 0) * 1000);
+                const nowDay = Date.UTC(nowLoc.getUTCFullYear(), nowLoc.getUTCMonth(), nowLoc.getUTCDate());
+                const nowMin = nowLoc.getUTCHours() * 60 + nowLoc.getUTCMinutes();
+                const ev = [];
+                const push = (s, kind) => {
+                    const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+                    if (!m) return;
+                    ev.push({ kind, day: Date.UTC(+m[1], +m[2] - 1, +m[3]), hm: m[4] + ':' + m[5], mins: (+m[4]) * 60 + (+m[5]) });
+                };
+                daily.sunrise.forEach(s => push(s, 'rise'));
+                daily.sunset.forEach(s => push(s, 'set'));
+                ev.sort((a, b) => (a.day - b.day) || (a.mins - b.mins));
+                const after = ev.filter(e => (e.day > nowDay) || (e.day === nowDay && e.mins > nowMin));
+                if (after.length < 2) return null;
+                return [{ kind: after[0].kind, hm: after[0].hm }, { kind: after[1].kind, hm: after[1].hm }];
+            } catch (_) { return null; }
+        }
+
+        async function processTelemetryPayload(dCurr, dFore, dSolar, isOffline = false, cachedTimestamp = null, dDaily = null) {
             if (dCurr && dCurr.elevation !== undefined) {
                 window.__METEO_CORE_STATE.topoAltitude = dCurr.elevation;
             }
@@ -5982,6 +6015,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (data && data.tempBand && data.tempBand[0]) window.__METEO_CORE_STATE.tempSpread = data.tempBand[0].spread;
             if (data && typeof data.currentAgreement === 'number') window.__METEO_CORE_STATE.agreement = data.currentAgreement;
             if (data && typeof data.nativePrecipProb === 'number') window.__METEO_CORE_STATE.nativePrecipProb = data.nativePrecipProb;
+            // Sun chip: publish the next rise/set pair every payload (fetch
+            // cadence). Assigned unconditionally — a payload without daily
+            // (old offline cache) clears to null so the chip shows '--'
+            // instead of a stale day's times.
+            window.__METEO_CORE_STATE.sunPair = (dDaily && dDaily.daily)
+                ? nextSunPair(dDaily.daily, Date.now(), (dCurr && typeof dCurr.utc_offset_seconds === 'number') ? dCurr.utc_offset_seconds : 0)
+                : null;
 
             renderTelemetryUI(data, isOffline);
             // PERF: chart-level signature gate — the payload gate above passes on a
@@ -6078,7 +6118,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         weatherAbort = new AbortController();
                         // Elevation param omitted → default 90m DEM downscaling (open-meteo.com/docs: “land” cell selection with elevation correction).
                         // Previously elevation=nan disabled downscaling (average grid-cell height) — worse on mountain peaks.
-                        const singleUrl = `${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,shortwave_radiation,uv_index,precipitation_probability&minutely_15=precipitation,temperature_2m,wind_speed_10m,wind_gusts_10m,weather_code&models=${modelList}&forecast_days=2&forecast_minutely_15=12&timezone=auto&timeformat=unixtime`;
+                        const singleUrl = `${CONFIG.weatherApi}?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation,rain,showers,snowfall,cloud_cover,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day&hourly=precipitation,temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,shortwave_radiation,uv_index,precipitation_probability&minutely_15=precipitation,temperature_2m,wind_speed_10m,wind_gusts_10m,weather_code&models=${modelList}&forecast_days=2&forecast_minutely_15=12&daily=sunrise,sunset&timezone=auto&timeformat=unixtime`;
                         let budgetTimerId;
                         const budgetTimeout = new Promise((_, reject) => {
                             budgetTimerId = setTimeout(() => {
@@ -6133,6 +6173,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             } else {
                                 dSolar = { hourly: dAll.hourly };
                             }
+                            // Sun chip (8th corner chip): daily rise/set ISO strings,
+                            // location-local (timezone=auto). Sliced to 2 days to
+                            // keep the IndexedDB row small; old caches lack dDaily
+                            // and degrade to '--' via the dDaily=null default.
+                            let dDaily = null;
+                            if (dAll.daily && Array.isArray(dAll.daily.time)) {
+                                dDaily = { daily: {
+                                    time: dAll.daily.time.slice(0, 2),
+                                    sunrise: Array.isArray(dAll.daily.sunrise) ? dAll.daily.sunrise.slice(0, 2) : [],
+                                    sunset: Array.isArray(dAll.daily.sunset) ? dAll.daily.sunset.slice(0, 2) : []
+                                } };
+                            }
                             // --- Minutely 15 synthesis (Win5) ---
                             // Open-Meteo minutely_15 becomes per-model suffixed when &models= is present (verified live:
                             // precipitation_ecmwf_ifs025 etc.). Synthesize unsuffixed weighted ensemble for consumers
@@ -6183,7 +6235,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // the user was served STALE cached telemetry despite
                             // fresh bytes already in hand.
                             try {
-                                processTelemetryPayload(dCurr, dFore, dSolar, false);
+                                processTelemetryPayload(dCurr, dFore, dSolar, false, null, dDaily);
                             } catch (renderErr) { console.error('Telemetry render failed:', renderErr); }
                             // FIX-1.4.1 (B5): stamp success only NOW — the GPS freshness
                             // gate reads telemetryCache.timestamp; stamping at fetch
@@ -6196,7 +6248,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // is tight enough that at most one fetch per pageload is missed.
                             if (!state._lastCacheWriteTs || (now - state._lastCacheWriteTs) > 60000) {
                                 state._lastCacheWriteTs = now;
-                                try { await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, dMinutely, timestamp: now }); }
+                                try { await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, dDaily, dMinutely, timestamp: now }); }
                                 catch (e) { console.warn('Telemetry cache persist failed:', e); }
                             }
                             // Publish minutely to telemetryCache for freshness gate inspection
@@ -6237,7 +6289,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         try {
                             const cached = await localforage.getItem('telemetry_payload');
                             if (cached) {
-                                processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp);
+                                processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
                                 // Restore minutely from cache if present (backward compat: old caches have no dMinutely)
                                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
@@ -7155,16 +7207,25 @@ function checkDependenciesAndRun() {
                         <span id="ui-radar-visibility" class="aero-focus-only text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1 block opacity-0 transition-opacity">VIS 99 km</span>
                     </div>
                 </div>
-                <div id="aero-focus-left" class="aero-focus-only hidden absolute left-4 top-20 bottom-20 w-36 flex-col justify-center gap-2 pointer-events-none">
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Pressure</div><div id="ui-radar-pressure" class="text-xs font-mono font-bold text-gray-300">-- hPa</div></div>
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Humidity</div><div id="ui-radar-humidity" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Cloud</div><div id="ui-radar-cloud" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Visibility</div><div id="ui-radar-vis2" class="text-xs font-mono font-bold text-gray-300">--</div></div>
+                <div id="aero-row-top" class="aero-focus-only hidden absolute left-4 right-4 top-20 flex-row justify-between gap-2 pointer-events-none">
+                    <div id="aero-corner-tl" class="flex flex-col gap-2 w-32 md:w-36">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Pressure</div><div id="ui-radar-pressure" class="text-xs font-mono font-bold text-gray-300">-- hPa</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Humidity</div><div id="ui-radar-humidity" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
+                    </div>
+                    <div id="aero-corner-tr" class="flex flex-col gap-2 w-32 md:w-36">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Regime</div><div id="ui-radar-regime" class="text-[10px] font-mono font-bold text-brand-teal">--</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Spread</div><div id="ui-radar-spread" class="text-xs font-mono font-bold text-gray-300">--°</div></div>
+                    </div>
                 </div>
-                <div id="aero-focus-right" class="aero-focus-only hidden absolute right-4 top-20 bottom-20 w-36 flex-col justify-center gap-2 pointer-events-none">
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Regime</div><div id="ui-radar-regime" class="text-[10px] font-mono font-bold text-brand-teal">--</div></div>
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Spread</div><div id="ui-radar-spread" class="text-xs font-mono font-bold text-gray-300">--°</div></div>
-                    <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Brier</div><div id="ui-radar-brier" class="text-[9px] font-mono text-gray-400 leading-tight">--</div></div>
+                <div id="aero-row-bottom" class="aero-focus-only hidden absolute left-4 right-4 bottom-24 flex-row justify-between gap-2 pointer-events-none">
+                    <div id="aero-corner-bl" class="flex flex-col gap-2 w-32 md:w-36">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Cloud</div><div id="ui-radar-cloud" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Visibility</div><div id="ui-radar-vis2" class="text-xs font-mono font-bold text-gray-300">--</div></div>
+                    </div>
+                    <div id="aero-corner-br" class="flex flex-col gap-2 w-32 md:w-36">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Brier</div><div id="ui-radar-brier" class="text-[9px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Sun</div><div id="ui-radar-sun-a" class="text-[10px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[10px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
+                    </div>
                 </div>
             `;
 
@@ -7195,6 +7256,8 @@ function checkDependenciesAndRun() {
                 focusRegime: document.getElementById('ui-radar-regime'),
                 focusSpread: document.getElementById('ui-radar-spread'),
                 focusBrier: document.getElementById('ui-radar-brier'),
+                focusSunA: document.getElementById('ui-radar-sun-a'),
+                focusSunB: document.getElementById('ui-radar-sun-b'),
                 glanceRain: document.getElementById('hud-glance-rain'),
                 glanceWind: document.getElementById('hud-glance-wind'),
                 glanceVis:  document.getElementById('hud-glance-vis'),
@@ -7342,7 +7405,8 @@ function checkDependenciesAndRun() {
                 focusVis2Key: -Infinity,
                 focusRegimeKey: '',
                 focusSpreadKey: -Infinity,
-                focusBrierKey: ''
+                focusBrierKey: '',
+                focusSunKey: ''
             };
 
             // Visual EMA state — ONLY values written to DOM transforms.
@@ -7650,6 +7714,22 @@ function checkDependenciesAndRun() {
                             const parts = Object.entries(st.brierScores).map(([k,v])=> k.slice(0,2).toUpperCase()+':'+(v==null?'--':v.toFixed(2)));
                             _el.focusBrier.textContent = parts.join(' ');
                         } else _el.focusBrier.textContent = '--';
+                    }
+                }
+                if (_el.focusSunA) {
+                    // Sun chip (8th corner chip): next two rise/set events,
+                    // upcoming-first (SET 18:42 then RISE 06:11 in the
+                    // afternoon; RISE then SET in the morning). Single string
+                    // key so both lines write only when the pair changes
+                    // (fetch cadence, not 60fps).
+                    const sp = st.sunPair;
+                    const aTxt = (sp && sp[0]) ? ((sp[0].kind === 'rise' ? 'RISE ' : 'SET ') + sp[0].hm) : '--';
+                    const bTxt = (sp && sp[1]) ? ((sp[1].kind === 'rise' ? 'RISE ' : 'SET ') + sp[1].hm) : '--';
+                    const sunKey = aTxt + '|' + bTxt;
+                    if (_uiCache.focusSunKey !== sunKey) {
+                        _uiCache.focusSunKey = sunKey;
+                        _el.focusSunA.textContent = aTxt;
+                        if (_el.focusSunB) _el.focusSunB.textContent = bTxt;
                     }
                 }
 

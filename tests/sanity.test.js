@@ -317,7 +317,12 @@ assertIncludes(html, "closest('.hidden')", "index.html guards the Aero HUD mount
 // Aero mobile-fullscreen: rails dock below the dial on narrow viewports,
 // dial fit is layout-honest (bleed margins), expand button is 48px
 assertIncludes(html, "aero-radar-card", "index.html ids the Aero radar card for fullscreen-mobile CSS");
-assertIncludes(html, "#aero-vector-card.aero-fullscreen #aero-focus-left", "index.html docks Aero side rails under the dial on narrow fullscreen");
+assertIncludes(html, 'id="aero-row-top"', "index.html groups Aero fullscreen chips into top corners around the centered dial");
+assertIncludes(html, 'id="aero-row-bottom"', "index.html groups Aero fullscreen chips into bottom corners around the centered dial");
+assertIncludes(html, 'id="aero-corner-br"', "index.html balances 8 chips as 4 corners x 2 (Brier + Sun bottom-right)");
+assertIncludes(html, 'id="ui-radar-sun-a"', "index.html declares the 8th Sun chip (upcoming rise/set)");
+assertIncludes(html, "daily=sunrise,sunset", "index.html fetches daily sunrise/sunset for the Sun chip");
+assertIncludes(html, "nextSunPair", "index.html computes the upcoming rise/set pair for the Sun chip");
 assertIncludes(html, "fitAeroDial", "index.html fits the Aero dial to the viewport with bleed compensation + resize re-fit");
 assertIncludes(html, 'id="radar-expand-btn" class="tap-48', "Aero expand button meets the 48px driving touch target");
 
