@@ -74,7 +74,7 @@
             precipitation: null, rain: null, showers: null, snowfall: null,
             cloudCover: null, pressure: null, visibility: null,
             temperature: null, apparentTemp: null, tempTrend: null,
-            sunPair: null
+            sunPair: null, groundSpeed: null
         };
     </script>
 
@@ -297,6 +297,36 @@
             justify-content: center;
             padding: 0.5rem 0.625rem;
             box-sizing: border-box;
+        }
+        /* AERO TAPES (Garmin G3X-style) theme for JS-generated ticks/labels:
+           plain classes (not Tailwind) so the mount-time innerHTML build can
+           never be broken by a stale precompiled stylesheet. Geometry rides
+           inline styles; only theme lives here. */
+        .tape-strip { position: absolute; top: 0; left: 0; will-change: transform; }
+        .tape-tick { position: absolute; background: #4b5563; }
+        .tape-tick.tape-major { background: #9ca3af; }
+        .tape-label, .tape-vlabel {
+            position: absolute; color: #9ca3af; white-space: nowrap;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700;
+        }
+        .tape-label { transform: translateX(-50%); }
+        .tape-caret-down {
+            position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+            width: 0; height: 0; border-left: 6px solid transparent;
+            border-right: 6px solid transparent; border-top: 8px solid #14b8a6;
+            filter: drop-shadow(0 0 6px rgba(20,184,166,0.8));
+        }
+        .tape-caret-right {
+            position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+            width: 0; height: 0; border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent; border-left: 8px solid #3b82f6;
+            filter: drop-shadow(0 0 6px rgba(59,130,246,0.8));
+        }
+        .tape-caret-left {
+            position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+            width: 0; height: 0; border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent; border-right: 8px solid #f59e0b;
+            filter: drop-shadow(0 0 6px rgba(245,158,11,0.8));
         }
         @media (max-width: 767px) {
             #aero-vector-card.aero-fullscreen #aero-radar-card {
@@ -3606,6 +3636,7 @@ let delta = heading - state.lastHeading;
                             else state.smoothedSpeed = state.smoothedSpeed + EMA_ALPHA_SPEED * (rawSpeedKmh - state.smoothedSpeed);
                             const displaySpeedKmH = Math.round(state.smoothedSpeed);
                             state.currentSpeed = displaySpeedKmH; state.renderSpeed = displaySpeedKmH;
+                            window.__METEO_CORE_STATE.groundSpeed = displaySpeedKmH;
                             state.lastSpeedTimestamp = now; triggerRenderPipeline();
                         } else {
                             state.smoothedSpeed = state.currentSpeed;
@@ -7191,19 +7222,19 @@ function checkDependenciesAndRun() {
                         <span id="ui-radar-gust" class="aero-focus-only text-[10px] font-black text-brand-red uppercase tracking-widest mt-1 opacity-0 transition-opacity drop-shadow-md">GUST WARNING</span>
                     </div>
                     <div class="flex items-start gap-4">
-                        <div class="text-right pointer-events-none">
-                            <span class="text-[10px] font-bold text-brand-orange uppercase tracking-widest block mb-0.5">ALTIMETER</span>
-                            <div class="flex items-baseline gap-1 justify-end" id="ui-radar-alt-container">
-                                <span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">--</span>
-                                <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
-                            </div>
-                        </div>
                         <button id="radar-expand-btn" class="tap-48 text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Expand Aero HUD">
                             <i class="fa-solid fa-expand text-base"></i>
                         </button>
                     </div>
                 </div>
 
+                <div id="aero-tape-hdg" class="aero-focus-only hidden w-full flex-col items-center pointer-events-none" style="margin-top:0.25rem">
+                    <div id="ui-tape-hdg-num" class="font-mono text-lg font-black text-brand-teal tracking-widest drop-shadow-md">---°</div>
+                    <div id="aero-tape-hdg-win" style="position:relative;width:100%;max-width:320px;height:2.25rem;overflow:hidden">
+                        <div id="ui-tape-hdg-strip" class="tape-strip"></div>
+                        <div class="tape-caret-down"></div>
+                    </div>
+                </div>
                 <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center">
                 <div id="radar-dial-scaler" class="relative w-44 h-44 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
                     
@@ -7233,16 +7264,30 @@ function checkDependenciesAndRun() {
                             <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
                         </div>
                     </div>
+                    <div id="aero-tape-spd" class="aero-focus-only" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none">
+                        <div style="position:relative;width:34px;height:120px;overflow:hidden">
+                            <div id="ui-tape-spd-strip" class="tape-strip"></div>
+                            <div class="tape-caret-right"></div>
+                        </div>
+                        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:2px 0">
+                            <div id="ui-tape-spd-num" class="font-mono text-sm font-black text-brand-blue" style="line-height:1.1">---</div>
+                            <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
+                        </div>
+                    </div>
+                    <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none">
+                        <div style="position:relative;width:34px;height:120px;overflow:hidden">
+                            <div id="ui-tape-alt-strip" class="tape-strip"></div>
+                            <div class="tape-caret-left"></div>
+                        </div>
+                        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:2px 0">
+                            <div id="ui-tape-alt-num" class="font-mono text-sm font-black text-brand-orange" style="line-height:1.1">---</div>
+                            <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">M</div>
+                        </div>
+                    </div>
                 </div>
                 </div>
 
-                <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
-                    <div>
-                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-0.5">Rel. Angle</span>
-                        <div class="flex items-baseline gap-1">
-                            <span id="ui-radar-rel-angle" class="font-mono text-xl md:text-2xl font-black text-gray-300 drop-shadow-md">--</span>
-                        </div>
-                    </div>
+                <div class="absolute bottom-4 left-4 right-4 flex justify-end items-end z-30 pointer-events-none">
                     <div class="text-right flex flex-col items-end">
                         <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
                         <div class="flex items-baseline gap-1 justify-end mb-1">
@@ -7285,9 +7330,14 @@ function checkDependenciesAndRun() {
             const _el = {
                 ring:         document.getElementById('ui-radar-ring'),
                 wind:         document.getElementById('ui-radar-wind-layer'),
-                relAngle:     document.getElementById('ui-radar-rel-angle'),
                 windSpeed:    document.getElementById('ui-radar-wind-speed'),
-                altContainer: document.getElementById('ui-radar-alt-container'),
+                hdgStrip:     document.getElementById('ui-tape-hdg-strip'),
+                hdgNum:       document.getElementById('ui-tape-hdg-num'),
+                hdgWin:       document.getElementById('aero-tape-hdg-win'),
+                spdStrip:     document.getElementById('ui-tape-spd-strip'),
+                spdNum:       document.getElementById('ui-tape-spd-num'),
+                altStrip:     document.getElementById('ui-tape-alt-strip'),
+                altNum:       document.getElementById('ui-tape-alt-num'),
                 gust:         document.getElementById('ui-radar-gust'),
                 wxmIcon:      document.getElementById('ui-radar-wxm-icon'),
                 wxmText:      document.getElementById('ui-radar-wxm-text'),
@@ -7318,6 +7368,67 @@ function checkDependenciesAndRun() {
                 glanceTemp: document.getElementById('hud-glance-temp'),
                 glanceTrend: document.getElementById('hud-glance-trend')
             };
+
+            // AERO TAPES (Garmin G3X-style): heading tape above the dial,
+            // speed/altitude vertical tapes overlaid inside the ring edges.
+            // Geometry constants mirror the template/CSS: HDG window is
+            // responsive (centre measured, not assumed); SPD/ALT windows are
+            // fixed 34x120 dial-px inside the scaler so no measurement is
+            // ever needed for them. Ticks/labels build ONCE here (innerHTML);
+            // per-frame cost is exactly one gated transform per strip.
+            const HDG_PPD = 4, HDG_COPY = 1440;
+            const SPD_PPD = 2, SPD_MIN = 0, SPD_MAX = 350;
+            const ALT_PPD = 0.4, ALT_MIN = -500, ALT_MAX = 6000;
+            const TAPE_WIN = 120, TAPE_CTR = 60; // vertical window px (dial-px)
+            const HDG_CARDS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
+            let hdgCtr = 150;
+            const measureTapes = () => {
+                // Event-time layout read (open/resize) — never per frame.
+                if (_el.hdgWin && _el.hdgWin.clientWidth > 0) hdgCtr = _el.hdgWin.clientWidth / 2;
+            };
+            function buildTapeTicks() {
+                const hdg = document.getElementById('ui-tape-hdg-strip');
+                if (hdg) {
+                    let s = '';
+                    for (let c = 0; c < 3; c++) for (let d = 0; d < 360; d += 5) {
+                        const x = (c * 360 + d) * HDG_PPD, maj = (d % 10 === 0);
+                        s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="left:${x}px;top:${maj ? 20 : 26}px;width:2px;height:${maj ? 16 : 10}px"></div>`;
+                        if (maj) {
+                            const lbl = HDG_CARDS[d] !== undefined ? HDG_CARDS[d] : String(d / 10);
+                            s += `<div class="tape-label" style="left:${x}px;top:0;font-size:11px">${lbl}</div>`;
+                        }
+                    }
+                    hdg.innerHTML = s;
+                    hdg.style.width = (3 * 360 * HDG_PPD) + 'px';
+                }
+                const spd = document.getElementById('ui-tape-spd-strip');
+                if (spd) {
+                    let s = '';
+                    for (let v = SPD_MIN; v <= SPD_MAX; v += 5) {
+                        const y = (v - SPD_MIN) * SPD_PPD, maj = (v % 10 === 0);
+                        s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="left:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
+                        if (maj) s += `<div class="tape-vlabel" style="left:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
+                    }
+                    spd.innerHTML = s;
+                    spd.style.height = ((SPD_MAX - SPD_MIN) * SPD_PPD) + 'px';
+                }
+                const alt = document.getElementById('ui-tape-alt-strip');
+                if (alt) {
+                    let s = '';
+                    for (let v = ALT_MIN; v <= ALT_MAX; v += 50) {
+                        const y = (v - ALT_MIN) * ALT_PPD, maj = (v % 200 === 0);
+                        s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="right:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
+                        if (maj) s += `<div class="tape-vlabel" style="right:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
+                    }
+                    alt.innerHTML = s;
+                    alt.style.height = ((ALT_MAX - ALT_MIN) * ALT_PPD) + 'px';
+                }
+            }
+            buildTapeTicks();
+            // Resize re-measures the responsive heading window (measureTapes
+            // keeps the last good centre when hidden — no forward reference
+            // to isRadarFullscreen, which is declared below).
+            window.addEventListener('resize', measureTapes);
 
             const expandBtn  = radarCard?.querySelector('#radar-expand-btn');
             const dialScaler = radarCard?.querySelector('#radar-dial-scaler');
@@ -7355,6 +7466,7 @@ function checkDependenciesAndRun() {
                         radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
                         radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
                         fitAeroDial();
+                        measureTapes();
                         expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
                         document.body.classList.add('overflow-hidden');
                     } else {
@@ -7397,8 +7509,8 @@ function checkDependenciesAndRun() {
 
             // UI write-cache — prevents DOM thrash at 60fps
             const _uiCache = {
-                alt: '', windSpeed: '', gust: 'hidden',
-                ringTrans: '', relAngle: '',
+                windSpeed: '', gust: 'hidden',
+                ringTrans: '',
                 windTrans: '', head: '', cross: '',
                 wxm: '', vis: '',
                 glanceRain: '', glanceWind: '', glanceVis: '', glanceTemp: '', glanceTrend: '',
@@ -7425,9 +7537,12 @@ function checkDependenciesAndRun() {
                 ringKey: -Infinity,
                 // Wind-vector rotation, 0.1 deg resolution.
                 windKey: -Infinity,
-                // relAngle chip: integer angle + cardinal-str index (wDir quantised
-                // to 16-point compass so 22.5 deg wobble doesn't thrash).
-                relKey: -Infinity,
+                // Heading/speed/altitude tape strip offsets (px-rounded) +
+                // readout keys. Strips translate 1x/frame max; readouts build
+                // only when the displayed integer changes.
+                hdgX: -Infinity, hdgNumKey: -Infinity,
+                spdY: -Infinity, spdNumKey: -Infinity,
+                altY: -Infinity, altNumKey: -Infinity,
                 // Headwind/tailwind chip: 1-bit head/tail + integer m/s.
                 headKey: -Infinity,
                 // Crosswind + lateral-g chip: 1-bit direction + crosswind m/s +
@@ -7438,11 +7553,10 @@ function checkDependenciesAndRun() {
                 // PERF-AERO-KEYS-2: numeric pre-keys for the remaining text/HTML
                 // sites that still built their display strings every frame before
                 // comparing (wind speed, gust, visibility, glance strip x5, wxm
-                // chip, altimeter). Each key quantises the raw inputs to exactly
+                // chip). Each key quantises the raw inputs to exactly
                 // the displayed resolution, so the toFixed / template-literal
                 // build only runs when the rendered text can actually change.
                 // -Infinity seeds force a first-frame build for every site.
-                altKey: -Infinity,
                 wxmKeyHi: -Infinity, wxmKeyLo: -Infinity,
                 wsKey: -Infinity,
                 gustKey: -Infinity,
@@ -7496,40 +7610,9 @@ function checkDependenciesAndRun() {
                 let activeHeading = 0;
                 let headingValid  = false;
 
-                // ALTIMETER: GNSS altitude → topo fallback → 2D-fix badge
-                if (_el.altContainer) {
-                    // Numeric key = path code (0=alt / 1=topo / 2=2d-fix) shifted
-                    // above the rounded altitude. Comparing two Numbers is
-                    // allocation-free — the Math.round and template-string build
-                    // only run when the key actually changes (fetch-rate, not
-                    // frame-rate). Piecewise path is encoded in the same key so a
-                    // class-switch across paths also triggers a refresh.
-                    let altPath, altR;
-                    if (st.altitude !== null) {
-                        altPath = 0;
-                        altR = Math.round(st.altitude);
-                    } else if (st.topoAltitude !== null) {
-                        altPath = 1;
-                        altR = Math.round(st.topoAltitude);
-                    } else {
-                        altPath = 2;
-                        altR = 0;
-                    }
-                    const altKey = altPath * 100000 + altR;
-                    // FIX-1.4.1 (P1): the template-string build moved inside the gate —
-                    // three template allocations ran every frame even when the key
-                    // (fetch-rate) hadn't changed.
-                    if (_uiCache.altKey !== altKey) {
-                        const altStr = altPath === 0
-                            ? `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${altR}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m</span>`
-                            : altPath === 1
-                            ? `<span class="font-mono text-lg font-black text-brand-orange drop-shadow-md">${altR}</span><span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest ml-1">m (TOPO)</span>`
-                            : `<span class="bg-surface-700 text-brand-orange text-[9px] px-1.5 py-0.5 rounded uppercase tracking-widest border border-surface-600">2D FIX</span>`;
-                        _el.altContainer.innerHTML = altStr;
-                        _uiCache.altKey = altKey;
-                        _uiCache.alt = altStr;
-                    }
-                }
+                // (Altimeter header readout retired — altitude now lives on the
+                // right vertical tape. The GNSS→topo fallback logic moved into
+                // the altitude tape writer below.)
 
                 // WIND SPEED — numeric pre-key: the toString build only runs when
                 // the rounded value actually changes (fetch-rate, not frame-rate).
@@ -7975,6 +8058,70 @@ function checkDependenciesAndRun() {
                     }
                     // Expose polished heading for tracking-card consumption
                     window.__METEO_CORE_STATE.smoothedHeading = visualHeading;
+
+                    // HEADING TAPE — same visualHeading as the ring: zero
+                    // divergence by construction. Strip holds 3x360° copies;
+                    // the middle copy keeps the window covered across the
+                    // 0° wrap. Pixel-rounded gate: one transform per frame max.
+                    if (_el.hdgStrip) {
+                        const hx = Math.round(HDG_COPY + visualHeading * HDG_PPD - hdgCtr);
+                        if (_uiCache.hdgX !== hx) {
+                            _uiCache.hdgX = hx;
+                            _el.hdgStrip.style.transform = `translateX(${-hx}px)`;
+                        }
+                    }
+                    if (_el.hdgNum) {
+                        const hnKey = Math.round(visualHeading);
+                        if (_uiCache.hdgNumKey !== hnKey) {
+                            _uiCache.hdgNumKey = hnKey;
+                            _el.hdgNum.textContent = hnKey + '°';
+                        }
+                    }
+                }
+
+                // SPEED + ALTITUDE TAPES — linear (no wrap): value clamped to
+                // the strip range, caret pins at the rail end past it while
+                // the digital readout keeps showing the true value. Same
+                // pixel-rounded single-transform discipline as the ring.
+                if (_el.spdStrip) {
+                    const gs = (typeof st.groundSpeed === 'number') ? st.groundSpeed : null;
+                    if (gs !== null) {
+                        const vc = Math.min(SPD_MAX, Math.max(SPD_MIN, gs));
+                        const sy = Math.round(Math.min((SPD_MAX - SPD_MIN) * SPD_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (vc - SPD_MIN) * SPD_PPD - TAPE_CTR)));
+                        if (_uiCache.spdY !== sy) {
+                            _uiCache.spdY = sy;
+                            _el.spdStrip.style.transform = `translateY(${-sy}px)`;
+                        }
+                    }
+                    if (_el.spdNum) {
+                        const snKey = (gs !== null) ? Math.round(gs) : -1;
+                        if (_uiCache.spdNumKey !== snKey) {
+                            _uiCache.spdNumKey = snKey;
+                            _el.spdNum.textContent = (snKey >= 0) ? String(snKey) : '---';
+                        }
+                    }
+                }
+                if (_el.altStrip) {
+                    // GNSS altitude → topo fallback — the retired header
+                    // altimeter's path logic, now feeding the right tape.
+                    let altVal = null;
+                    if (typeof st.altitude === 'number') altVal = st.altitude;
+                    else if (typeof st.topoAltitude === 'number') altVal = st.topoAltitude;
+                    if (altVal !== null) {
+                        const vc = Math.min(ALT_MAX, Math.max(ALT_MIN, altVal));
+                        const ay = Math.round(Math.min((ALT_MAX - ALT_MIN) * ALT_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (vc - ALT_MIN) * ALT_PPD - TAPE_CTR)));
+                        if (_uiCache.altY !== ay) {
+                            _uiCache.altY = ay;
+                            _el.altStrip.style.transform = `translateY(${-ay}px)`;
+                        }
+                    }
+                    if (_el.altNum) {
+                        const anKey = (altVal !== null) ? Math.round(altVal) : -99999;
+                        if (_uiCache.altNumKey !== anKey) {
+                            _uiCache.altNumKey = anKey;
+                            _el.altNum.textContent = (anKey !== -99999) ? String(anKey) : '---';
+                        }
+                    }
                 }
 
                 // WIND VECTOR MATH + SMOOTHING
@@ -7983,20 +8130,9 @@ function checkDependenciesAndRun() {
                     // relAngle: 0=headwind, 90=from right, 180=tailwind
                     const relAngle = (wDir - activeHeading + 360) % 360;
 
-                    if (_el.relAngle) {
-                        // PERF-AERO-KEYS — quantise angle + cardinal to a single
-                        // Number. wDir is folded through 16-point compass (22.5 deg
-                        // buckets) so a 5 deg wind-direction wobble doesn't thrash
-                        // the relAngle chip's innerHTML 60x/sec. The integer angle
-                        // is already the displayed resolution.
-                        const relKey = (Math.round(relAngle) * 100) + Math.round(wDir / 22.5);
-                        if (_uiCache.relKey !== relKey) {
-                            const relStr = `${Math.round(relAngle)}<span class="text-[12px] font-bold text-gray-500 ml-1.5 tracking-widest leading-none">&deg; ${getCardinalStr(wDir)}</span>`;
-                            _el.relAngle.innerHTML = relStr;
-                            _uiCache.relAngle = relStr;
-                            _uiCache.relKey = relKey;
-                        }
-                    }
+                    // (Rel-angle bottom-left readout retired — heading now lives
+                    // on the top tape. The relAngle variable above still drives
+                    // the wind-vector EMA below.)
 
                     // Wind vector EMA — TC=300ms (meteorological, slower than compass)
                     if (visualWindAngle === null) {

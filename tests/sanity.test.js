@@ -325,6 +325,15 @@ assertIncludes(html, "daily=sunrise,sunset", "index.html fetches daily sunrise/s
 assertIncludes(html, "nextSunPair", "index.html computes the upcoming rise/set pair for the Sun chip");
 assertIncludes(html, "fitAeroDial", "index.html fits the Aero dial to the viewport with bleed compensation + resize re-fit");
 assertIncludes(html, 'id="aero-dial-stage"', "index.html centres the Aero dial in a flex-1 stage with corner rows pinned top/bottom");
+assertIncludes(html, 'id="ui-tape-hdg-strip"', "index.html renders a digital heading tape above the compass");
+assertIncludes(html, 'id="aero-tape-spd"', "index.html renders a left vertical speed tape");
+assertIncludes(html, 'id="aero-tape-alt"', "index.html renders a right vertical altitude tape");
+assertIncludes(html, "buildTapeTicks", "index.html builds tape ticks once at mount (no per-frame allocation)");
+assertIncludes(html, "__METEO_CORE_STATE.groundSpeed", "index.html publishes smoothed ground speed for the speed tape");
+assert(
+  !html.includes('id="ui-radar-alt-container"') && !html.includes('id="ui-radar-rel-angle"'),
+  "retired header altimeter + bottom rel-angle readouts fully removed (tapes own that data now)"
+);
 assertIncludes(html, "aero-chip", "index.html pins Aero chip geometry in real CSS (immune to stale Tailwind builds)");
 assertIncludes(html, 'id="ui-radar-dewpoint"', "index.html enriches the humidity chip with a Magnus dew-point sub-line");
 assertIncludes(html, 'id="radar-expand-btn" class="tap-48', "Aero expand button meets the 48px driving touch target");
