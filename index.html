@@ -5864,28 +5864,34 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         let _lastChartSig = null;
         // Sun-chip helper: next two rise/set events from the daily block,
         // ordered upcoming-first (afternoon -> SET then RISE; morning ->
-        // RISE then SET). Pure wall-clock math on the location-local ISO
-        // strings — no Date.parse TZ pitfalls, so travellers see station
-        // time, not device time. Null when <2 upcoming events remain (stale
-        // offline cache past its window, or unparseable daily).
+        // RISE then SET). Accepts unixtime NUMBERS (what &models= returns
+        // for suffixed daily sun times) and ISO strings (unsuffixed form);
+        // ISO wall time is converted to epoch via utc_offset_seconds, so
+        // travellers see station time, not device time — no Date.parse TZ
+        // pitfalls. Null when <2 upcoming events remain (stale offline
+        // cache past its window, or unparseable daily).
         function nextSunPair(daily, nowMs, offSec) {
             try {
                 if (!daily || !Array.isArray(daily.sunrise) || !Array.isArray(daily.sunset)) return null;
-                const nowLoc = new Date(nowMs + (offSec || 0) * 1000);
-                const nowDay = Date.UTC(nowLoc.getUTCFullYear(), nowLoc.getUTCMonth(), nowLoc.getUTCDate());
-                const nowMin = nowLoc.getUTCHours() * 60 + nowLoc.getUTCMinutes();
+                const off = (offSec || 0) * 1000;
                 const ev = [];
-                const push = (s, kind) => {
-                    const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-                    if (!m) return;
-                    ev.push({ kind, day: Date.UTC(+m[1], +m[2] - 1, +m[3]), hm: m[4] + ':' + m[5], mins: (+m[4]) * 60 + (+m[5]) });
+                const push = (v, kind) => {
+                    let t = -1;
+                    if (typeof v === 'number' && Number.isFinite(v)) t = v * 1000;
+                    else if (typeof v === 'string') {
+                        const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+                        if (!m) return;
+                        t = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) - off;
+                    } else return;
+                    const d = new Date(t + off);
+                    ev.push({ kind, t, hm: String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0') });
                 };
-                daily.sunrise.forEach(s => push(s, 'rise'));
-                daily.sunset.forEach(s => push(s, 'set'));
-                ev.sort((a, b) => (a.day - b.day) || (a.mins - b.mins));
-                const after = ev.filter(e => (e.day > nowDay) || (e.day === nowDay && e.mins > nowMin));
-                if (after.length < 2) return null;
-                return [{ kind: after[0].kind, hm: after[0].hm }, { kind: after[1].kind, hm: after[1].hm }];
+                daily.sunrise.forEach(v => push(v, 'rise'));
+                daily.sunset.forEach(v => push(v, 'set'));
+                ev.sort((a, b) => a.t - b.t);
+                const i = ev.findIndex(e => e.t > nowMs);
+                if (i < 0 || i + 1 >= ev.length) return null;
+                return [{ kind: ev[i].kind, hm: ev[i].hm }, { kind: ev[i + 1].kind, hm: ev[i + 1].hm }];
             } catch (_) { return null; }
         }
 
@@ -6173,17 +6179,36 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             } else {
                                 dSolar = { hourly: dAll.hourly };
                             }
-                            // Sun chip (8th corner chip): daily rise/set ISO strings,
-                            // location-local (timezone=auto). Sliced to 2 days to
-                            // keep the IndexedDB row small; old caches lack dDaily
-                            // and degrade to '--' via the dDaily=null default.
+                            // Sun chip (8th corner chip): daily rise/set, sliced to 2
+                            // days to keep the IndexedDB row small. SHAPE TRAP
+                            // (proven live): with &models= present, daily sun
+                            // times come back PER-MODEL suffixed
+                            // (sunrise_ecmwf_ifs025, ...) as unixtime NUMBERS —
+                            // not unsuffixed ISO strings. Synthesize unsuffixed
+                            // first-model picks (models agree to the minute);
+                            // unsuffixed arrays are honoured when present.
+                            // Old caches lack dDaily and degrade to '--' via
+                            // the dDaily=null default.
                             let dDaily = null;
                             if (dAll.daily && Array.isArray(dAll.daily.time)) {
-                                dDaily = { daily: {
-                                    time: dAll.daily.time.slice(0, 2),
-                                    sunrise: Array.isArray(dAll.daily.sunrise) ? dAll.daily.sunrise.slice(0, 2) : [],
-                                    sunset: Array.isArray(dAll.daily.sunset) ? dAll.daily.sunset.slice(0, 2) : []
-                                } };
+                                const nDays = Math.min(2, dAll.daily.time.length);
+                                const rise = [], set = [];
+                                for (let i = 0; i < nDays; i++) {
+                                    let rV = null, sV = null;
+                                    const rU = dAll.daily.sunrise, sU = dAll.daily.sunset;
+                                    if (Array.isArray(rU) && rU[i] !== null && rU[i] !== undefined) rV = rU[i];
+                                    if (Array.isArray(sU) && sU[i] !== null && sU[i] !== undefined) sV = sU[i];
+                                    if (rV === null || sV === null) {
+                                        for (const { m } of WeatherEnsemble._MI) {
+                                            const rA = dAll.daily['sunrise_' + m], sA = dAll.daily['sunset_' + m];
+                                            if (rV === null && rA && rA[i] !== null && rA[i] !== undefined) rV = rA[i];
+                                            if (sV === null && sA && sA[i] !== null && sA[i] !== undefined) sV = sA[i];
+                                            if (rV !== null && sV !== null) break;
+                                        }
+                                    }
+                                    rise.push(rV); set.push(sV);
+                                }
+                                dDaily = { daily: { time: dAll.daily.time.slice(0, nDays), sunrise: rise, sunset: set } };
                             }
                             // --- Minutely 15 synthesis (Win5) ---
                             // Open-Meteo minutely_15 becomes per-model suffixed when &models= is present (verified live:
