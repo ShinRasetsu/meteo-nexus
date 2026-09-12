@@ -7181,7 +7181,8 @@ function checkDependenciesAndRun() {
                     </div>
                 </div>
 
-                <div id="radar-dial-scaler" class="relative w-44 h-44 mt-6 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
+                <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center">
+                <div id="radar-dial-scaler" class="relative w-44 h-44 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
                     
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
                         <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
@@ -7210,6 +7211,7 @@ function checkDependenciesAndRun() {
                         </div>
                     </div>
                 </div>
+                </div>
 
                 <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end z-30 pointer-events-none">
                     <div>
@@ -7233,23 +7235,23 @@ function checkDependenciesAndRun() {
                     </div>
                 </div>
                 <div id="aero-row-top" class="aero-focus-only hidden absolute left-4 right-4 top-20 flex-row justify-between gap-2 pointer-events-none">
-                    <div id="aero-corner-tl" class="flex flex-col gap-2 w-32 md:w-36">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Pressure</div><div id="ui-radar-pressure" class="text-xs font-mono font-bold text-gray-300">-- hPa</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Humidity</div><div id="ui-radar-humidity" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
+                    <div id="aero-corner-tl" class="flex flex-col gap-2 w-36 md:w-40">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Pressure</div><div id="ui-radar-pressure" class="text-sm font-mono font-bold text-gray-300">-- hPa</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div></div>
                     </div>
-                    <div id="aero-corner-tr" class="flex flex-col gap-2 w-32 md:w-36">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Regime</div><div id="ui-radar-regime" class="text-[10px] font-mono font-bold text-brand-teal">--</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Spread</div><div id="ui-radar-spread" class="text-xs font-mono font-bold text-gray-300">--°</div></div>
+                    <div id="aero-corner-tr" class="flex flex-col gap-2 w-36 md:w-40">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Regime</div><div id="ui-radar-regime" class="text-xs font-mono font-bold text-brand-teal">--</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Spread</div><div id="ui-radar-spread" class="text-sm font-mono font-bold text-gray-300">--°</div></div>
                     </div>
                 </div>
                 <div id="aero-row-bottom" class="aero-focus-only hidden absolute left-4 right-4 bottom-24 flex-row justify-between gap-2 pointer-events-none">
-                    <div id="aero-corner-bl" class="flex flex-col gap-2 w-32 md:w-36">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Cloud</div><div id="ui-radar-cloud" class="text-xs font-mono font-bold text-gray-300">--%</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Visibility</div><div id="ui-radar-vis2" class="text-xs font-mono font-bold text-gray-300">--</div></div>
+                    <div id="aero-corner-bl" class="flex flex-col gap-2 w-36 md:w-40">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Cloud</div><div id="ui-radar-cloud" class="text-sm font-mono font-bold text-gray-300">--%</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
                     </div>
-                    <div id="aero-corner-br" class="flex flex-col gap-2 w-32 md:w-36">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Brier</div><div id="ui-radar-brier" class="text-[9px] font-mono text-gray-400 leading-tight">--</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded px-2 py-1.5"><div class="text-[8px] text-gray-500 uppercase tracking-widest">Sun</div><div id="ui-radar-sun-a" class="text-[10px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[10px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
+                    <div id="aero-corner-br" class="flex flex-col gap-2 w-36 md:w-40">
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Brier</div><div id="ui-radar-brier" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
                     </div>
                 </div>
             `;
@@ -7293,20 +7295,19 @@ function checkDependenciesAndRun() {
             const expandBtn  = radarCard?.querySelector('#radar-expand-btn');
             const dialScaler = radarCard?.querySelector('#radar-dial-scaler');
             let isRadarFullscreen = false;
-            // AERO mobile-fullscreen dial fit: the dial box is w-44 (176px);
-            // transform scale does NOT affect layout, so without margin
-            // compensation the enlarged dial visually bleeds over the header
-            // and rails. fitAeroDial sizes the dial to the viewport AND pads
-            // the layout box by the bleed so neighbours never overlap.
-            // Narrow (<768px, portrait convention): rails dock below the dial
-            // (see CSS), so the dial takes ~3/4 of the width. Wide: rails
-            // flank the dial — target minDim*0.66 renders byte-identical to
+            // AERO fullscreen dial fit: the dial box is w-44 (176px), centred
+            // by the flex-1 #aero-dial-stage while the corner rows pin to the
+            // top/bottom bands. Transform scale does NOT affect layout, so
+            // fitAeroDial pads the layout box by the bleed to stay honest.
+            // Narrow (<768px, portrait convention): rows flow above/below the
+            // dial, so it takes ~4/5 of the width. Wide: absolute corner rows
+            // flank it — target minDim*0.66 renders byte-identical to
             // the old (minDim*0.6)/160 formula (176 * 0.66/176 = 0.66).
             const fitAeroDial = () => {
                 if (!isRadarFullscreen || !dialScaler) return;
                 const W = window.innerWidth, H = window.innerHeight;
                 const target = (W < 768)
-                    ? Math.min(W * 0.74, H * 0.36)
+                    ? Math.min(W * 0.80, H * 0.38)
                     : Math.min(W, H) * 0.66;
                 dialScaler.style.transform = `scale(${target / 176})`;
                 const bleed = Math.max(0, (target - 176) / 2);
