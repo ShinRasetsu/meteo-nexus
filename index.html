@@ -268,6 +268,30 @@
         .aero-focus-only { display: none !important; }
         .aero-fullscreen .aero-focus-only { display: flex !important; }
         .aero-fullscreen .aero-focus-only.aero-focus-grid { display: grid !important; }
+        /* AERO mobile-fullscreen: on narrow viewports the side rails (2x w-36)
+           cannot flank the dial (390px < 144 + 144 + dial) — they overlapped
+           the ring. In fullscreen they dock as a 2-column grid under the dial
+           while the dial grows to fill the width (see fitAeroDial). Desktop
+           fullscreen keeps the flanking rails. Threshold 768px matches the
+           portrait convention used by the glance strip. */
+        @media (max-width: 767px) {
+            #aero-vector-card.aero-fullscreen #aero-radar-card {
+                justify-content: flex-start;
+                overflow-y: auto;
+                padding-top: max(4.5rem, env(safe-area-inset-top));
+                padding-bottom: max(6.5rem, env(safe-area-inset-bottom));
+            }
+            #aero-vector-card.aero-fullscreen #aero-focus-left,
+            #aero-vector-card.aero-fullscreen #aero-focus-right {
+                position: static !important;
+                width: auto !important;
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.5rem;
+                align-self: stretch;
+                margin: 0.5rem 1rem 0;
+            }
+        }
         @media (prefers-reduced-motion: reduce) {
             #radar-dial-scaler { transition: none !important; }
             #ui-radar-wind-ghost-1, #ui-radar-wind-ghost-2, #ui-radar-wind-ghost-3 { transition: none !important; }
@@ -7054,6 +7078,7 @@ function checkDependenciesAndRun() {
             aeroContainer.className = "w-full mt-2";
 
             const radarCard = document.createElement('div');
+            radarCard.id = 'aero-radar-card';
             radarCard.className = "bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 flex flex-col justify-center items-center relative overflow-hidden min-h-[220px] transition-all duration-300";
             radarCard.innerHTML = `
                 <div class="absolute top-3 left-4 flex justify-between items-start w-[calc(100%-2rem)] z-30 pointer-events-none">
@@ -7073,7 +7098,7 @@ function checkDependenciesAndRun() {
                                 <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">m</span>
                             </div>
                         </div>
-                        <button id="radar-expand-btn" class="text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Expand Aero HUD">
+                        <button id="radar-expand-btn" class="tap-48 text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Expand Aero HUD">
                             <i class="fa-solid fa-expand text-base"></i>
                         </button>
                     </div>
@@ -7180,6 +7205,29 @@ function checkDependenciesAndRun() {
             const expandBtn  = radarCard?.querySelector('#radar-expand-btn');
             const dialScaler = radarCard?.querySelector('#radar-dial-scaler');
             let isRadarFullscreen = false;
+            // AERO mobile-fullscreen dial fit: the dial box is w-44 (176px);
+            // transform scale does NOT affect layout, so without margin
+            // compensation the enlarged dial visually bleeds over the header
+            // and rails. fitAeroDial sizes the dial to the viewport AND pads
+            // the layout box by the bleed so neighbours never overlap.
+            // Narrow (<768px, portrait convention): rails dock below the dial
+            // (see CSS), so the dial takes ~3/4 of the width. Wide: rails
+            // flank the dial — target minDim*0.66 renders byte-identical to
+            // the old (minDim*0.6)/160 formula (176 * 0.66/176 = 0.66).
+            const fitAeroDial = () => {
+                if (!isRadarFullscreen || !dialScaler) return;
+                const W = window.innerWidth, H = window.innerHeight;
+                const target = (W < 768)
+                    ? Math.min(W * 0.74, H * 0.36)
+                    : Math.min(W, H) * 0.66;
+                dialScaler.style.transform = `scale(${target / 176})`;
+                const bleed = Math.max(0, (target - 176) / 2);
+                dialScaler.style.marginTop = (24 + bleed) + 'px';
+                dialScaler.style.marginBottom = bleed + 'px';
+            };
+            // Rotation / orientation change while open re-fits (single mount,
+            // single listener; no-op unless fullscreen).
+            window.addEventListener('resize', fitAeroDial);
             if (expandBtn && radarCard) {
                 expandBtn.addEventListener('click', () => {
                     isRadarFullscreen = !isRadarFullscreen;
@@ -7190,15 +7238,15 @@ function checkDependenciesAndRun() {
                     if (isRadarFullscreen) {
                         radarCard.classList.add('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
                         radarCard.classList.remove('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
-                        const minDim = Math.min(window.innerWidth, window.innerHeight);
-                        const scale  = (minDim * 0.6) / 160;
-                        dialScaler.style.transform = `scale(${scale})`;
+                        fitAeroDial();
                         expandBtn.innerHTML = '<i class="fa-solid fa-compress text-base"></i>';
                         document.body.classList.add('overflow-hidden');
                     } else {
                         radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
                         radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
                         dialScaler.style.transform = 'scale(1)';
+                        dialScaler.style.marginTop = '';
+                        dialScaler.style.marginBottom = '';
                         expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
                         document.body.classList.remove('overflow-hidden');
                     }
@@ -7213,6 +7261,8 @@ function checkDependenciesAndRun() {
                     radarCard.classList.remove('fixed', 'inset-0', 'z-[9999]', 'h-[100dvh]', 'rounded-none', 'bg-surface-900/95', 'backdrop-blur-md');
                     radarCard.classList.add('relative', 'rounded-2xl', 'min-h-[220px]', 'bg-surface-900', 'border-4');
                     dialScaler.style.transform = 'scale(1)';
+                    dialScaler.style.marginTop = '';
+                    dialScaler.style.marginBottom = '';
                     expandBtn.innerHTML = '<i class="fa-solid fa-expand text-base"></i>';
                     document.body.classList.remove('overflow-hidden');
                 };

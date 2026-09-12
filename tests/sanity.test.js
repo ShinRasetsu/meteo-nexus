@@ -314,6 +314,13 @@ assertIncludes(html, "document.getElementById('main-grid')", "index.html mounts 
 assert(!/querySelectorAll\('\.grid'\)/.test(html), "Aero HUD class-heuristic grid discovery removed (was mounting into the hidden Pit Stop modal)");
 assertIncludes(html, "closest('.hidden')", "index.html guards the Aero HUD mount target against hidden ancestors (loud warn instead of silent modal mount)");
 
+// Aero mobile-fullscreen: rails dock below the dial on narrow viewports,
+// dial fit is layout-honest (bleed margins), expand button is 48px
+assertIncludes(html, "aero-radar-card", "index.html ids the Aero radar card for fullscreen-mobile CSS");
+assertIncludes(html, "#aero-vector-card.aero-fullscreen #aero-focus-left", "index.html docks Aero side rails under the dial on narrow fullscreen");
+assertIncludes(html, "fitAeroDial", "index.html fits the Aero dial to the viewport with bleed compensation + resize re-fit");
+assertIncludes(html, 'id="radar-expand-btn" class="tap-48', "Aero expand button meets the 48px driving touch target");
+
 // Telemetry chart hour-strip: ALL THREE of (1) local-hour conversion from UTC
 // unix seconds, (2) Today/Tomorrow day label row via tick callback, (3) raw
 // unix-second sidecar on state.chart so the callback can recover the actual
