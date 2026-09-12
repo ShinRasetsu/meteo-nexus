@@ -7236,7 +7236,7 @@ function checkDependenciesAndRun() {
                     </div>
                 </div>
                 <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center">
-                <div id="radar-dial-scaler" class="relative w-44 h-44 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
+                <div id="radar-dial-scaler" class="relative w-32 h-32 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
                     
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
                         <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
@@ -7433,22 +7433,22 @@ function checkDependenciesAndRun() {
             const expandBtn  = radarCard?.querySelector('#radar-expand-btn');
             const dialScaler = radarCard?.querySelector('#radar-dial-scaler');
             let isRadarFullscreen = false;
-            // AERO fullscreen dial fit: the dial box is w-44 (176px), centred
+            // AERO fullscreen dial fit: the dial box is w-32 (128px), centred
             // by the flex-1 #aero-dial-stage while the corner rows pin to the
             // top/bottom bands. Transform scale does NOT affect layout, so
             // fitAeroDial pads the layout box by the bleed to stay honest.
             // Narrow (<768px, portrait convention): rows flow above/below the
             // dial, so it takes ~4/5 of the width. Wide: absolute corner rows
             // flank it — target minDim*0.66 renders byte-identical to
-            // the old (minDim*0.6)/160 formula (176 * 0.66/176 = 0.66).
+            // the old formula (128 * 0.66/128 = 0.66).
             const fitAeroDial = () => {
                 if (!isRadarFullscreen || !dialScaler) return;
                 const W = window.innerWidth, H = window.innerHeight;
                 const target = (W < 768)
                     ? Math.min(W * 0.80, H * 0.38)
                     : Math.min(W, H) * 0.66;
-                dialScaler.style.transform = `scale(${target / 176})`;
-                const bleed = Math.max(0, (target - 176) / 2);
+                dialScaler.style.transform = `scale(${target / 128})`;
+                const bleed = Math.max(0, (target - 128) / 2);
                 dialScaler.style.marginTop = (24 + bleed) + 'px';
                 dialScaler.style.marginBottom = bleed + 'px';
             };
