@@ -325,6 +325,8 @@ assertIncludes(html, "daily=sunrise,sunset", "index.html fetches daily sunrise/s
 assertIncludes(html, "nextSunPair", "index.html computes the upcoming rise/set pair for the Sun chip");
 assertIncludes(html, "fitAeroDial", "index.html fits the Aero dial to the viewport with bleed compensation + resize re-fit");
 assertIncludes(html, 'id="aero-dial-stage"', "index.html centres the Aero dial in a flex-1 stage with corner rows pinned top/bottom");
+assertIncludes(html, "aero-chip", "index.html pins Aero chip geometry in real CSS (immune to stale Tailwind builds)");
+assertIncludes(html, 'id="ui-radar-dewpoint"', "index.html enriches the humidity chip with a Magnus dew-point sub-line");
 assertIncludes(html, 'id="radar-expand-btn" class="tap-48', "Aero expand button meets the 48px driving touch target");
 
 // Telemetry chart hour-strip: ALL THREE of (1) local-hour conversion from UTC

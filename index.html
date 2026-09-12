@@ -274,7 +274,30 @@
            Wide screens keep absolute corner flanks; on narrow viewports the
            rows join the normal flow (row-top above the dial via order:-1)
            so nothing can overlap the ring. Threshold 768px matches the
-           portrait convention used by the glance strip. */
+           portrait convention used by the glance strip.
+           GEOMETRY PIN (real CSS, not Tailwind utilities): the HUD card is
+           injected at runtime and a stale tailwind.min.css (SW-cached) drops
+           new utilities silently — content-sized ragged chips were the
+           visible symptom. These rules hold corners/chips equal regardless
+           of which utilities survived the build. */
+        #aero-vector-card.aero-fullscreen #aero-corner-tl,
+        #aero-vector-card.aero-fullscreen #aero-corner-tr,
+        #aero-vector-card.aero-fullscreen #aero-corner-bl,
+        #aero-vector-card.aero-fullscreen #aero-corner-br { width: 9rem; }
+        @media (min-width: 768px) {
+            #aero-vector-card.aero-fullscreen #aero-corner-tl,
+            #aero-vector-card.aero-fullscreen #aero-corner-tr,
+            #aero-vector-card.aero-fullscreen #aero-corner-bl,
+            #aero-vector-card.aero-fullscreen #aero-corner-br { width: 10rem; }
+        }
+        #aero-vector-card.aero-fullscreen .aero-chip {
+            min-height: 4.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 0.5rem 0.625rem;
+            box-sizing: border-box;
+        }
         @media (max-width: 767px) {
             #aero-vector-card.aero-fullscreen #aero-radar-card {
                 justify-content: flex-start;
@@ -7236,22 +7259,22 @@ function checkDependenciesAndRun() {
                 </div>
                 <div id="aero-row-top" class="aero-focus-only hidden absolute left-4 right-4 top-20 flex-row justify-between gap-2 pointer-events-none">
                     <div id="aero-corner-tl" class="flex flex-col gap-2 w-36 md:w-40">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Pressure</div><div id="ui-radar-pressure" class="text-sm font-mono font-bold text-gray-300">-- hPa</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-gauge-high mr-1"></i>Pressure</div><div id="ui-radar-pressure" class="text-sm font-mono font-bold text-gray-300">-- hPa</div><div id="ui-radar-pressub" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-droplet mr-1"></i>Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-dewpoint" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                     </div>
                     <div id="aero-corner-tr" class="flex flex-col gap-2 w-36 md:w-40">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Regime</div><div id="ui-radar-regime" class="text-xs font-mono font-bold text-brand-teal">--</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Spread</div><div id="ui-radar-spread" class="text-sm font-mono font-bold text-gray-300">--°</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-globe mr-1"></i>Regime</div><div id="ui-radar-regime" class="text-xs font-mono font-bold text-brand-teal">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-chart-line mr-1"></i>Spread</div><div id="ui-radar-spread" class="text-sm font-mono font-bold text-gray-300">--°</div><div id="ui-radar-agreem" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                     </div>
                 </div>
                 <div id="aero-row-bottom" class="aero-focus-only hidden absolute left-4 right-4 bottom-24 flex-row justify-between gap-2 pointer-events-none">
                     <div id="aero-corner-bl" class="flex flex-col gap-2 w-36 md:w-40">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Cloud</div><div id="ui-radar-cloud" class="text-sm font-mono font-bold text-gray-300">--%</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-cloud mr-1"></i>Cloud</div><div id="ui-radar-cloud" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-oktas" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-eye mr-1"></i>Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
                     </div>
                     <div id="aero-corner-br" class="flex flex-col gap-2 w-36 md:w-40">
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Brier</div><div id="ui-radar-brier" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
-                        <div class="bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest">Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-scale-balanced mr-1"></i>Brier</div><div id="ui-radar-brier" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-sun mr-1"></i>Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
                     </div>
                 </div>
             `;
@@ -7277,11 +7300,15 @@ function checkDependenciesAndRun() {
                     document.getElementById('ui-radar-wind-ghost-3')
                 ],
                 focusPressure: document.getElementById('ui-radar-pressure'),
+                focusPressSub: document.getElementById('ui-radar-pressub'),
                 focusHumidity: document.getElementById('ui-radar-humidity'),
+                focusDewpoint: document.getElementById('ui-radar-dewpoint'),
                 focusCloud: document.getElementById('ui-radar-cloud'),
+                focusOktas: document.getElementById('ui-radar-oktas'),
                 focusVis2: document.getElementById('ui-radar-vis2'),
                 focusRegime: document.getElementById('ui-radar-regime'),
                 focusSpread: document.getElementById('ui-radar-spread'),
+                focusAgreem: document.getElementById('ui-radar-agreem'),
                 focusBrier: document.getElementById('ui-radar-brier'),
                 focusSunA: document.getElementById('ui-radar-sun-a'),
                 focusSunB: document.getElementById('ui-radar-sun-b'),
@@ -7427,10 +7454,12 @@ function checkDependenciesAndRun() {
                 glTrendKey: -Infinity,
                 focusPressureKey: -Infinity,
                 focusHumidityKey: -Infinity,
+                focusDpInKey: -999999,
                 focusCloudKey: -Infinity,
                 focusVis2Key: -Infinity,
                 focusRegimeKey: '',
                 focusSpreadKey: -Infinity,
+                focusAgreemKey: -1,
                 focusBrierKey: '',
                 focusSunKey: ''
             };
@@ -7685,6 +7714,10 @@ function checkDependenciesAndRun() {
                     if (_uiCache.focusPressureKey !== pKey) {
                         _uiCache.focusPressureKey = pKey;
                         _el.focusPressure.textContent = (pKey !== -999) ? (pKey + ' hPa') : '-- hPa';
+                        // Altimeter setting in inches of mercury — aviation
+                        // unit for the ALTIMETER-themed HUD. Pure conversion,
+                        // same gate as the hPa value above.
+                        if (_el.focusPressSub) _el.focusPressSub.textContent = (pKey !== -999) ? ((pKey * 0.02953).toFixed(2) + ' IN') : '--';
                     }
                 }
                 if (_el.focusHumidity) {
@@ -7694,11 +7727,33 @@ function checkDependenciesAndRun() {
                         _el.focusHumidity.textContent = (hKey !== -999) ? (hKey + '%') : '--%';
                     }
                 }
+                if (_el.focusDewpoint) {
+                    // Magnus dew point from air temp + RH (both already in
+                    // CORE_STATE — no new fetch). Numeric input key so the
+                    // Math.log runs only when the quantised inputs change,
+                    // never at 60fps.
+                    const tQ = (typeof st.temperature === 'number') ? Math.round(st.temperature * 10) : null;
+                    const hQ = (typeof st.humidity === 'number') ? Math.round(st.humidity) : null;
+                    const inKey = (tQ === null || hQ === null) ? -999999 : tQ * 1000 + hQ;
+                    if (_uiCache.focusDpInKey !== inKey) {
+                        _uiCache.focusDpInKey = inKey;
+                        let dpTxt = '--';
+                        if (tQ !== null && hQ !== null && hQ > 0) {
+                            const T = tQ / 10, a = 17.27, b = 237.7;
+                            const al = (a * T) / (b + T) + Math.log(hQ / 100);
+                            dpTxt = 'DP ' + ((b * al) / (a - al)).toFixed(1) + '°';
+                        }
+                        _el.focusDewpoint.textContent = dpTxt;
+                    }
+                }
                 if (_el.focusCloud) {
                     const cKey = (typeof st.cloudCover === 'number') ? Math.round(st.cloudCover) : -999;
                     if (_uiCache.focusCloudKey !== cKey) {
                         _uiCache.focusCloudKey = cKey;
                         _el.focusCloud.textContent = (cKey !== -999) ? (cKey + '%') : '--%';
+                        // Oktas (eighths of sky cover) — the aviation unit
+                        // for the same observation. Pure conversion.
+                        if (_el.focusOktas) _el.focusOktas.textContent = (cKey !== -999) ? (Math.round(cKey / 12.5) + '/8') : '--';
                     }
                 }
                 if (_el.focusVis2) {
@@ -7713,7 +7768,7 @@ function checkDependenciesAndRun() {
                         if (v2Key >= 0 && typeof st.visibility === 'number') {
                             const km = st.visibility / 1000;
                             _el.focusVis2.textContent = (km < 1 ? km.toFixed(2) : km.toFixed(1)) + ' km';
-                        } else _el.focusVis2.textContent = '--';
+                        } else _el.focusVis2.textContent = 'NO DATA';
                     }
                 }
                 if (_el.focusRegime) {
@@ -7732,6 +7787,15 @@ function checkDependenciesAndRun() {
                         _el.focusSpread.textContent = (sKey !== -999) ? ('±' + (sKey/10).toFixed(1) + '°') : '--°';
                     }
                 }
+                if (_el.focusAgreem) {
+                    // Model agreement % (0-100 scale, same as the outlook
+                    // chips) — the confidence behind the spread number.
+                    const agKey = (typeof st.agreement === 'number') ? Math.round(st.agreement) : -1;
+                    if (_uiCache.focusAgreemKey !== agKey) {
+                        _uiCache.focusAgreemKey = agKey;
+                        _el.focusAgreem.textContent = (agKey >= 0) ? (agKey + '% AGR') : '--';
+                    }
+                }
                 if (_el.focusBrier) {
                     const bKey = st.brierScores ? JSON.stringify(st.brierScores) : '';
                     if (_uiCache.focusBrierKey !== bKey) {
@@ -7739,7 +7803,7 @@ function checkDependenciesAndRun() {
                         if (st.brierScores) {
                             const parts = Object.entries(st.brierScores).map(([k,v])=> k.slice(0,2).toUpperCase()+':'+(v==null?'--':v.toFixed(2)));
                             _el.focusBrier.textContent = parts.join(' ');
-                        } else _el.focusBrier.textContent = '--';
+                        } else _el.focusBrier.textContent = 'LEARNING…';
                     }
                 }
                 if (_el.focusSunA) {
