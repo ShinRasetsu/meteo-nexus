@@ -283,19 +283,19 @@
         #aero-vector-card.aero-fullscreen #aero-corner-tl,
         #aero-vector-card.aero-fullscreen #aero-corner-tr,
         #aero-vector-card.aero-fullscreen #aero-corner-bl,
-        #aero-vector-card.aero-fullscreen #aero-corner-br { width: 9rem; }
+        #aero-vector-card.aero-fullscreen #aero-corner-br { width: 10rem; }
         @media (min-width: 768px) {
             #aero-vector-card.aero-fullscreen #aero-corner-tl,
             #aero-vector-card.aero-fullscreen #aero-corner-tr,
             #aero-vector-card.aero-fullscreen #aero-corner-bl,
-            #aero-vector-card.aero-fullscreen #aero-corner-br { width: 10rem; }
+            #aero-vector-card.aero-fullscreen #aero-corner-br { width: 11rem; }
         }
         #aero-vector-card.aero-fullscreen .aero-chip {
-            min-height: 4.5rem;
+            min-height: 4rem;
             display: flex;
             flex-direction: column;
             justify-content: center;
-            padding: 0.5rem 0.625rem;
+            padding: 0.375rem 0.625rem;
             box-sizing: border-box;
         }
         /* AERO TAPES (Garmin G3X-style) theme for JS-generated ticks/labels:
@@ -339,8 +339,8 @@
             #aero-vector-card.aero-fullscreen #aero-row-bottom {
                 position: static;
                 align-self: stretch;
-                margin-left: 1rem;
-                margin-right: 1rem;
+                margin-left: 0.75rem;
+                margin-right: 0.75rem;
             }
             #aero-vector-card.aero-fullscreen #aero-row-top {
                 order: -1;
@@ -7264,6 +7264,11 @@ function checkDependenciesAndRun() {
                             <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
                         </div>
                     </div>
+                    <div style="position:absolute;left:50%;top:63%;transform:translateX(-50%);text-align:center;z-index:20;pointer-events:none">
+                        <div class="font-mono font-bold text-brand-blue uppercase" style="font-size:8px;letter-spacing:0.2em">WIND</div>
+                        <div id="ui-radar-wind-speed" class="font-mono font-black text-brand-blue" style="font-size:20px;line-height:1.1;text-shadow:0 0 8px rgba(59,130,246,0.5)">--</div>
+                        <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
+                    </div>
                 </div>
                 <!-- SPEED TAPE (stage-left edge) — readout stacked BELOW the
                      strip (not beside it): side-by-side boxes cost ~100px per
@@ -7286,42 +7291,30 @@ function checkDependenciesAndRun() {
                     </div>
                     <div style="width:48px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:2px 0">
                         <div id="ui-tape-alt-num" class="font-mono text-sm font-black text-brand-orange" style="line-height:1.1">---</div>
-                        <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">M</div>
+                        <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">ALT M</div>
                     </div>
                 </div>
                 </div>
 
                 <div class="absolute bottom-4 left-4 right-4 flex justify-end items-end z-30 pointer-events-none">
-                    <div class="text-right flex flex-col items-end">
-                        <span class="text-[10px] font-bold text-brand-blue uppercase tracking-widest block mb-0.5">Wind Base</span>
-                        <div class="flex items-baseline gap-1 justify-end mb-1">
-                            <span id="ui-radar-wind-speed" class="font-mono text-2xl md:text-3xl font-black text-brand-blue drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">--</span>
-                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">km/h</span>
-                        </div>
-                        <div class="aero-focus-only flex gap-2 text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest bg-surface-800/80 px-2 py-0.5 rounded border border-surface-700">
-                            <span id="ui-radar-crosswind">CRS: 0</span>
-                            <span class="text-surface-600">|</span>
-                            <span id="ui-radar-headwind">HWD: 0</span>
-                        </div>
-                        <span id="ui-radar-visibility" class="aero-focus-only text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1 block opacity-0 transition-opacity">VIS 99 km</span>
-                    </div>
+                    <span id="ui-radar-visibility" class="aero-focus-only text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1 block opacity-0 transition-opacity">VIS 99 km</span>
                 </div>
                 <div id="aero-row-top" class="aero-focus-only hidden absolute left-4 right-4 top-20 flex-row justify-between gap-2 pointer-events-none">
-                    <div id="aero-corner-tl" class="flex flex-col gap-2 w-36 md:w-40">
+                    <div id="aero-corner-tl" class="flex flex-col gap-2 w-40 md:w-44">
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-gauge-high mr-1"></i>Pressure</div><div id="ui-radar-pressure" class="text-sm font-mono font-bold text-gray-300">-- hPa</div><div id="ui-radar-pressub" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-droplet mr-1"></i>Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-dewpoint" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                     </div>
-                    <div id="aero-corner-tr" class="flex flex-col gap-2 w-36 md:w-40">
+                    <div id="aero-corner-tr" class="flex flex-col gap-2 w-40 md:w-44">
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-globe mr-1"></i>Regime</div><div id="ui-radar-regime" class="text-xs font-mono font-bold text-brand-teal">--</div></div>
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-chart-line mr-1"></i>Spread</div><div id="ui-radar-spread" class="text-sm font-mono font-bold text-gray-300">--°</div><div id="ui-radar-agreem" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                     </div>
                 </div>
                 <div id="aero-row-bottom" class="aero-focus-only hidden absolute left-4 right-4 bottom-24 flex-row justify-between gap-2 pointer-events-none">
-                    <div id="aero-corner-bl" class="flex flex-col gap-2 w-36 md:w-40">
+                    <div id="aero-corner-bl" class="flex flex-col gap-2 w-40 md:w-44">
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-cloud mr-1"></i>Cloud</div><div id="ui-radar-cloud" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-oktas" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-eye mr-1"></i>Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
                     </div>
-                    <div id="aero-corner-br" class="flex flex-col gap-2 w-36 md:w-40">
+                    <div id="aero-corner-br" class="flex flex-col gap-2 w-40 md:w-44">
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-scale-balanced mr-1"></i>Brier</div><div id="ui-radar-brier" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-sun mr-1"></i>Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
                     </div>
@@ -7346,8 +7339,6 @@ function checkDependenciesAndRun() {
                 wxmIcon:      document.getElementById('ui-radar-wxm-icon'),
                 wxmText:      document.getElementById('ui-radar-wxm-text'),
                 visibility:   document.getElementById('ui-radar-visibility'),
-                cross:        document.getElementById('ui-radar-crosswind'),
-                head:         document.getElementById('ui-radar-headwind'),
                 ghost: [
                     document.getElementById('ui-radar-wind-ghost-1'),
                     document.getElementById('ui-radar-wind-ghost-2'),
@@ -7376,8 +7367,10 @@ function checkDependenciesAndRun() {
             // AERO TAPES (Garmin G3X-style): heading tape above the dial,
             // speed/altitude vertical tapes at viewport edges flanking the
             // centred compass. Geometry: HDG window responsive; SPD/ALT tapes
-            // fixed 40x140 dial-px at screen edges. Ticks/labels build ONCE
-            // at mount; per-frame cost is one gated transform per strip.
+            // fixed 34x140 real-px at the stage edges (stage is unscaled, so
+            // tape px need no scale compensation). Vertical tapes run 0/low
+            // at the BOTTOM (Garmin convention). Ticks/labels build ONCE at
+            // mount; per-frame cost is one gated transform per strip.
             const HDG_PPD = 4, HDG_COPY = 1440;
             const SPD_PPD = 2, SPD_MIN = 0, SPD_MAX = 350;
             const ALT_PPD = 0.4, ALT_MIN = -500, ALT_MAX = 6000;
@@ -7407,7 +7400,7 @@ function checkDependenciesAndRun() {
                 if (spd) {
                     let s = '';
                     for (let v = SPD_MIN; v <= SPD_MAX; v += 5) {
-                        const y = (v - SPD_MIN) * SPD_PPD, maj = (v % 10 === 0);
+                        const y = (SPD_MAX - v) * SPD_PPD, maj = (v % 10 === 0);
                         s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="left:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
                         if (maj) s += `<div class="tape-vlabel" style="left:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
                     }
@@ -7418,7 +7411,7 @@ function checkDependenciesAndRun() {
                 if (alt) {
                     let s = '';
                     for (let v = ALT_MIN; v <= ALT_MAX; v += 50) {
-                        const y = (v - ALT_MIN) * ALT_PPD, maj = (v % 200 === 0);
+                        const y = (ALT_MAX - v) * ALT_PPD, maj = (v % 200 === 0);
                         s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="right:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
                         if (maj) s += `<div class="tape-vlabel" style="right:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
                     }
@@ -7440,16 +7433,16 @@ function checkDependenciesAndRun() {
             // top/bottom bands. Transform scale does NOT affect layout, so
             // fitAeroDial pads the layout box by the bleed to stay honest.
             // Narrow (<768px): edge-anchored speed/alt tapes cost ~52px per
-            // side, so the dial takes ~3/5 of the width to clear them exactly
-            // (390px: 242px dial, 52px tapes + 22px gutters each side). Wide:
-            // absolute corner rows flank it — target minDim*0.66 renders
-            // byte-identical to
+            // side, so the dial takes ~0.56 of the width to clear them with
+            // gutters (390px: 218px dial ≈ heading-tape scale, 52px tapes +
+            // ~30px gutters each side). Wide: absolute corner rows flank it —
+            // target minDim*0.66 renders byte-identical to
             // the old formula (128 * 0.66/128 = 0.66).
             const fitAeroDial = () => {
                 if (!isRadarFullscreen || !dialScaler) return;
                 const W = window.innerWidth, H = window.innerHeight;
                 const target = (W < 768)
-                    ? Math.min(W * 0.62, H * 0.30)
+                    ? Math.min(W * 0.56, H * 0.28)
                     : Math.min(W, H) * 0.66;
                 dialScaler.style.transform = `scale(${target / 128})`;
                 const bleed = Math.max(0, (target - 128) / 2);
@@ -7547,11 +7540,6 @@ function checkDependenciesAndRun() {
                 hdgX: -Infinity, hdgNumKey: -Infinity,
                 spdY: -Infinity, spdNumKey: -Infinity,
                 altY: -Infinity, altNumKey: -Infinity,
-                // Headwind/tailwind chip: 1-bit head/tail + integer m/s.
-                headKey: -Infinity,
-                // Crosswind + lateral-g chip: 1-bit direction + crosswind m/s +
-                // discretised lateral-g (the gLabel threshold is 0.02).
-                crossKey: -Infinity,
                 // Ghost trail rotation per slot, 0.1 deg resolution.
                 ghostKey: [-Infinity, -Infinity, -Infinity],
                 // PERF-AERO-KEYS-2: numeric pre-keys for the remaining text/HTML
@@ -8091,7 +8079,7 @@ function checkDependenciesAndRun() {
                     const gs = (typeof st.groundSpeed === 'number') ? st.groundSpeed : null;
                     if (gs !== null) {
                         const vc = Math.min(SPD_MAX, Math.max(SPD_MIN, gs));
-                        const sy = Math.round(Math.min((SPD_MAX - SPD_MIN) * SPD_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (vc - SPD_MIN) * SPD_PPD - TAPE_CTR)));
+                        const sy = Math.round(Math.min((SPD_MAX - SPD_MIN) * SPD_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (SPD_MAX - vc) * SPD_PPD - TAPE_CTR)));
                         if (_uiCache.spdY !== sy) {
                             _uiCache.spdY = sy;
                             _el.spdStrip.style.transform = `translateY(${-sy}px)`;
@@ -8113,7 +8101,7 @@ function checkDependenciesAndRun() {
                     else if (typeof st.topoAltitude === 'number') altVal = st.topoAltitude;
                     if (altVal !== null) {
                         const vc = Math.min(ALT_MAX, Math.max(ALT_MIN, altVal));
-                        const ay = Math.round(Math.min((ALT_MAX - ALT_MIN) * ALT_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (vc - ALT_MIN) * ALT_PPD - TAPE_CTR)));
+                        const ay = Math.round(Math.min((ALT_MAX - ALT_MIN) * ALT_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (ALT_MAX - vc) * ALT_PPD - TAPE_CTR)));
                         if (_uiCache.altY !== ay) {
                             _uiCache.altY = ay;
                             _el.altStrip.style.transform = `translateY(${-ay}px)`;
@@ -8161,52 +8149,10 @@ function checkDependenciesAndRun() {
                         }
                     }
 
-                    // VECTOR DECOMPOSITION — kinematic force isolation
-                    // FIX-1.4.1c (L4): reuse the module-level _DEG2RAD — Math.PI / 180 was
-                    // recomputed every frame here (division is free-ish, but
-                    // the constant already exists at module scope).
-                    const rad        = relAngle * _DEG2RAD;
-                    const headForce  = Math.cos(rad) * st.windSpeed; // >0 headwind, <0 tailwind
-                    const crossForce = Math.sin(rad) * st.windSpeed; // >0 wind from right
-
-                    if (_el.head) {
-                        // PERF-AERO-KEYS — 1-bit head/tail sign + integer m/s force.
-                        // The chip displays integer km/h; windSpeed itself updates ~1 Hz
-                        // so the previous build-then-compare path was allocating 60
-                        // transient template strings per second between wind updates.
-                        const headSign = headForce > 0 ? 1 : 0;
-                        const headMag  = Math.abs(Math.round(headForce));
-                        const headKey  = (headSign * 100000) + headMag;
-                        if (_uiCache.headKey !== headKey) {
-                            const hStr = `<span class="${headSign ? 'text-brand-orange' : 'text-brand-success'}">${headSign ? 'HWD' : 'TAL'}: ${headMag}</span>`;
-                            _el.head.innerHTML = hStr;
-                            _uiCache.head = hStr;
-                            _uiCache.headKey = headKey;
-                        }
-                    }
-
-                    if (_el.cross) {
-                        const absCross = Math.abs(crossForce);
-                        const latMps    = absCross / 3.6;             // km/h → m/s
-                        const latG      = latMps / 9.81;          // lateral force in g
-                        // PERF-AERO-KEYS — 1-bit crosswind direction + integer crosswind
-                        // + quantised lateral-g (the gLabel threshold is 0.02; below
-                        // threshold the gLabel is empty, above it's two-decimal so we
-                        // round latG to 0.01 = 100 buckets). The build allocates the
-                        // nested gLabel template + the outer cStr template per frame
-                        // in the old path; both are skipped when the key is stable.
-                        const crossSign = crossForce > 0 ? 1 : 0;
-                        const crossMag  = Math.round(absCross);
-                        const gQuant    = latG >= 0.02 ? Math.round(latG * 100) : -1;
-                        const crossKey  = (crossSign * 100000000) + (crossMag * 1000) + gQuant;
-                        if (_uiCache.crossKey !== crossKey) {
-                            const gLabel = gQuant >= 0 ? `&#160;${(gQuant / 100).toFixed(2)}g` : '';
-                            const cStr   = `CRS: ${crossMag}${gLabel} <i class="fa-solid fa-arrow-${crossSign ? 'left' : 'right'}"></i>`;
-                            _el.cross.innerHTML = cStr;
-                            _uiCache.cross = cStr;
-                            _uiCache.crossKey = crossKey;
-                        }
-                    }
+                    // (CRS/TAL crosswind + head/tail chips retired with the
+                    // bottom wind bar — the wind readout now lives inside the
+                    // compass. The relAngle variable above still drives the
+                    // wind-vector EMA + ghost trail below.)
 
                     // TEMPORAL SHIFT TRAIL — ring buffer sampled at 10s intervals
                     if (now - lastHistoryTime > 10000) {

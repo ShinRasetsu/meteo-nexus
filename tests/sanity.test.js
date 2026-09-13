@@ -331,6 +331,10 @@ assertIncludes(html, 'id="aero-tape-alt"', "index.html renders a right vertical 
 assertIncludes(html, "buildTapeTicks", "index.html builds tape ticks once at mount (no per-frame allocation)");
 assertIncludes(html, "__METEO_CORE_STATE.groundSpeed", "index.html publishes smoothed ground speed for the speed tape");
 assert(
+  !html.includes('id="ui-radar-crosswind"') && !html.includes('id="ui-radar-headwind"'),
+  "retired CRS/TAL crosswind chips fully removed (wind readout lives inside the compass now)"
+);
+assert(
   !html.includes('id="ui-radar-alt-container"') && !html.includes('id="ui-radar-rel-angle"'),
   "retired header altimeter + bottom rel-angle readouts fully removed (tapes own that data now)"
 );
