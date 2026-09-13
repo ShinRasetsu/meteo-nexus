@@ -1398,3 +1398,34 @@ Patch bump 1.8.0 → 1.8.1. Single user-visible bug fix, no features. The Atmosp
 ### Blind spots considered (AGENTS.md §8)
 
 Races: none (sync clamps in fetch-cadence code). Leaks: none. Off-by-one/coercion: `Math.max(0, …)` preserves `0` and positives bit-identically; only negatives move (to 0). Unhandled rejections: none added. import(): none. Perf: 24 `Math.max`/fetch — negligible. A11y: unchanged. Visual compositing: proven live above, not just statically.
+
+---
+
+## 1.9.0 — 2026-09-13 (minor: glass-cockpit Aero HUD + GPS-accuracy honesty)
+
+### Bump rationale
+
+Minor bump 1.8.1 → 1.9.0. Prime mover was user-reported: after a week of unreleased Aero/GPS work every deploy still badged `1.8.1`, so screenshots were self-indistinguishable across builds. This release makes the badge meaningful again. Content is user-facing throughout: Garmin G3X-style heading/speed/altitude tapes, 8-corner chip layout with live Sun chip, enriched chip details, mobile-first Aero fullscreen — plus patch-class GPS-accuracy honesty fixes folded in (null guard, boot gate, truthful labels).
+
+### Changes (all `index.html` unless noted)
+
+- **GPS accuracy trio** — `accuracy === null` no longer misclassifies as `GNSS: HIGH (0m)` (`null <= 15` coercion); renders grey `GNSS: ACQUIRING`. Boot one-shot `getCurrentPosition` retries non-finite/>3000 m fixes within the existing 2-retry budget (mirrors the watch path), accepts as last resort, and no longer stomps a watch-rescued session (`if (state.autoCoords) return`). Misleading `LTE/A-GPS` label → honest `GNSS: LOW`. Sanity 152 → 154.
+- **Aero fullscreen mobile layout** — side rails (2×w-36) could never flank a dial on 390 px, so fullscreen docks rows above/below the dial on <768 px while desktop keeps flanks; dial fit is layout-honest (`fitAeroDial` bleed margins, byte-identical scale on desktop); resize re-fit; 48 px expand button; safe-area paddings with scroll fallback.
+- **8-corner layout + Sun chip** — rails regrouped to TL/TR/BL/BR × 2 (Pressure+Humidity / Regime+Spread / Cloud+Visibility / Brier+**Sun**). New `daily=sunrise,sunset` fetch param → `dDaily` split (2-day slice) → IndexedDB row → `nextSunPair` upcoming-first pair (`SET 18:41` then `RISE 06:11` afternoons; reverse mornings) in station-local wall time (no `Date.parse` TZ pitfalls). Old caches degrade to `--`.
+- **Live-shape trap found by hitting the real API (not by reading docs)** — with `&models=` present, daily sun times return **per-model suffixed as unixtime numbers** (`sunrise_ecmwf_ifs025`), not unsuffixed ISO. First draft read the unsuffixed shape → permanent `--`. Fixed with first-model synthesis + a dual-shape `nextSunPair`; proven by 11 executed fixtures incl. exact live epochs. Companion finding from the same live probe: `current.visibility` is genuinely `null` here, so `--`/`NO DATA` is data truth, not a bug; Brier `--`/`LEARNING…` is by design until observations accumulate.
+- **Chip enrichment** — FA icon per chip; computed sub-lines from on-board data only (zero new fetches): altimeter-setting `29.94 IN`, Magnus dew point `DP 24.8°` (6 arithmetic fixtures), oktas `6/8`, `82% AGR` agreement. Honest empties: `NO DATA`, `LEARNING…`.
+- **Tailwind-skew hardening** — ragged content-sized chips on device traced to utilities missing from a stale precompiled `tailwind.min.css`. Chip/corner/tape geometry now pinned in real CSS (`.aero-chip`, corner widths, `.tape-*`), immune to build skew.
+- **G3X tapes** — heading tape above the dial (3×360° wrap, same `visualHeading` as the ring: zero divergence), speed tape left (smoothed `groundSpeed` publish), altitude tape right (GNSS→topo fallback). Ticks build once at mount (~460 nodes); strips translate 1×/frame max behind pixel-rounded gates; digital boxes key-gated. Ranges run low-at-bottom (speed −40…350 with red-tinted dead band so rest reads dead-0 centred; alt −500…6000, sea level centred). Retired: header altimeter, rel-angle readout, CRS/TAL chips (+ dead force math) — negative-pair guards forbid return. Wind readout moved inside the compass.
+- `tests/sanity.test.js` — 152 → 175 (+23 guards incl. 3 negative-pair removals).
+- `VERSION` → `1.9.0`, `package.json` → `"version": "1.9.0"`, `AGENTS.md` §11 reference numbers synced, `HISTORY.md` — this chapter. No `sw.js`/`worker.js`/`fuel-stations.js` changes.
+
+### Gates run + evidence (at bump)
+
+- `npm run lint` 0 · `npm test` 175 sanity + 35 unit · `npm run audit` 8/8 PASS (extract+parse OK module 842..8225, TDZ 0, fp 0, brace depth=0/max=10, CSP 0 gaps, DOM-null 0, visual PASS inventory unchanged, shell PASS) · `npm run audit:verify` 24/24 · `npm run precheck` Tailwind v4.3.3 green · `node tests/audit-unified.mjs` 37 checks PASS, perfection PASS (0 stairs, 0 janks).
+- Live API proofs: daily suffixed-unixtime shape (see trap above); `current.visibility: null`; sun pair `RISE 05:44 / SET 17:59` PHT.
+- Fixture suites (temp scripts, since removed): sun 11/11, dewpoint/inHg/oktas 6/6, tape-structure 14/14 against the real file code.
+- **PENDING (user device):** tape tracking/centering vs ring, in-dial wind vs `S` badge clearance (~5 px computed — watch), 360 px corner fit (328 px rows vs 304 px content — conditional), SWR one-behind deploy lag (close fully + reopen twice after deploy).
+
+### Blind spots considered (§8)
+
+Races: single-threaded fetch-cadence writes; boot-retry guarded by `state.autoCoords`; tape strips single-writer. Leaks: one mount-once `resize` listener per tape subsystem (2 total); ~460 tick nodes built once, never rebuilt. Off-by-one/coercion: tape clamps derived from range constants (no magic rails); `-0 === 0` relied on for `-40 % 10` major ticks (verified in fixtures); `null <= 25` still passes in the `maxSpeed` gate — pre-existing, unchanged, noted. Unhandled rejections: none added (pure sync reads; fetch paths untouched). import(): none. Perf: strips 1 gated transform/frame; `Math.log` only on dewpoint-input change; tick builds mount-once. A11y: tap-48 expand; full pass still owed. Visual compositing: device pass listed pending above — the user is the runtime rig (no image input on this channel; geometry pre-computed per viewport instead).
