@@ -7235,7 +7235,7 @@ function checkDependenciesAndRun() {
                         <div class="tape-caret-down"></div>
                     </div>
                 </div>
-                <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center">
+                <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center relative">
                 <div id="radar-dial-scaler" class="relative w-32 h-32 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
                     
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
@@ -7265,29 +7265,30 @@ function checkDependenciesAndRun() {
                         </div>
                     </div>
                 </div>
-                </div>
-                <!-- SPEED TAPE (left screen edge) & ALTITUDE TAPE (right screen edge) -->
-                <!-- These live at the radarCard level (fixed inset-0 in fullscreen) so they
-                     flank the centred compass from the viewport edges. -->
-                <div id="aero-tape-spd" class="aero-focus-only" style="position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:15;pointer-events:none;padding-left:0.5rem">
-                    <div style="position:relative;width:40px;height:140px;overflow:hidden">
+                <!-- SPEED TAPE (stage-left edge) — readout stacked BELOW the
+                     strip (not beside it): side-by-side boxes cost ~100px per
+                     side and overlapped the compass on 390px screens. Stacked
+                     costs 48px; the shrunk dial target clears it exactly. -->
+                <div id="aero-tape-spd" class="aero-focus-only" style="position:absolute;left:4px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;flex-direction:column;align-items:center;gap:4px">
+                    <div style="position:relative;width:34px;height:140px;overflow:hidden">
                         <div id="ui-tape-spd-strip" class="tape-strip"></div>
                         <div class="tape-caret-right"></div>
                     </div>
-                    <div style="position:absolute;left:44px;top:50%;transform:translateY(-50%);width:52px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:2px 0;white-space:nowrap">
+                    <div style="width:48px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:2px 0">
                         <div id="ui-tape-spd-num" class="font-mono text-sm font-black text-brand-blue" style="line-height:1.1">---</div>
                         <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
-                <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:15;pointer-events:none;padding-right:0.5rem">
-                    <div style="position:relative;width:40px;height:140px;overflow:hidden">
+                <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;flex-direction:column;align-items:center;gap:4px">
+                    <div style="position:relative;width:34px;height:140px;overflow:hidden">
                         <div id="ui-tape-alt-strip" class="tape-strip"></div>
                         <div class="tape-caret-left"></div>
                     </div>
-                    <div style="position:absolute;right:44px;top:50%;transform:translateY(-50%);width:52px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:2px 0;white-space:nowrap">
+                    <div style="width:48px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:2px 0">
                         <div id="ui-tape-alt-num" class="font-mono text-sm font-black text-brand-orange" style="line-height:1.1">---</div>
                         <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">M</div>
                     </div>
+                </div>
                 </div>
 
                 <div class="absolute bottom-4 left-4 right-4 flex justify-end items-end z-30 pointer-events-none">
@@ -7438,15 +7439,17 @@ function checkDependenciesAndRun() {
             // by the flex-1 #aero-dial-stage while the corner rows pin to the
             // top/bottom bands. Transform scale does NOT affect layout, so
             // fitAeroDial pads the layout box by the bleed to stay honest.
-            // Narrow (<768px, portrait convention): rows flow above/below the
-            // dial, so it takes ~4/5 of the width. Wide: absolute corner rows
-            // flank it — target minDim*0.66 renders byte-identical to
+            // Narrow (<768px): edge-anchored speed/alt tapes cost ~52px per
+            // side, so the dial takes ~3/5 of the width to clear them exactly
+            // (390px: 242px dial, 52px tapes + 22px gutters each side). Wide:
+            // absolute corner rows flank it — target minDim*0.66 renders
+            // byte-identical to
             // the old formula (128 * 0.66/128 = 0.66).
             const fitAeroDial = () => {
                 if (!isRadarFullscreen || !dialScaler) return;
                 const W = window.innerWidth, H = window.innerHeight;
                 const target = (W < 768)
-                    ? Math.min(W * 0.80, H * 0.38)
+                    ? Math.min(W * 0.62, H * 0.30)
                     : Math.min(W, H) * 0.66;
                 dialScaler.style.transform = `scale(${target / 128})`;
                 const bleed = Math.max(0, (target - 128) / 2);
