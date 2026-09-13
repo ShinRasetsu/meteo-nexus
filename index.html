@@ -305,6 +305,8 @@
         .tape-strip { position: absolute; top: 0; left: 0; will-change: transform; }
         .tape-tick { position: absolute; background: #4b5563; }
         .tape-tick.tape-major { background: #9ca3af; }
+        .tape-tick.tape-neg { background: #7f1d1d; }
+        .tape-vlabel.tape-neg { color: #ef4444; }
         .tape-label, .tape-vlabel {
             position: absolute; color: #9ca3af; white-space: nowrap;
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700;
@@ -7372,7 +7374,7 @@ function checkDependenciesAndRun() {
             // at the BOTTOM (Garmin convention). Ticks/labels build ONCE at
             // mount; per-frame cost is one gated transform per strip.
             const HDG_PPD = 4, HDG_COPY = 1440;
-            const SPD_PPD = 2, SPD_MIN = 0, SPD_MAX = 350;
+            const SPD_PPD = 2, SPD_MIN = -40, SPD_MAX = 350;
             const ALT_PPD = 0.4, ALT_MIN = -500, ALT_MAX = 6000;
             const TAPE_WIN = 140, TAPE_CTR = 70; // vertical window px (dial-px)
             const HDG_CARDS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
@@ -7401,8 +7403,11 @@ function checkDependenciesAndRun() {
                     let s = '';
                     for (let v = SPD_MIN; v <= SPD_MAX; v += 5) {
                         const y = (SPD_MAX - v) * SPD_PPD, maj = (v % 10 === 0);
-                        s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="left:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
-                        if (maj) s += `<div class="tape-vlabel" style="left:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
+                        // Dead band: below-zero speeds are impossible — tint
+                        // them dark red so rest (0 centred) reads instantly.
+                        const neg = (v < 0) ? ' tape-neg' : '';
+                        s += `<div class="tape-tick${maj ? ' tape-major' : ''}${neg}" style="left:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
+                        if (maj) s += `<div class="tape-vlabel${neg}" style="left:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
                     }
                     spd.innerHTML = s;
                     spd.style.height = ((SPD_MAX - SPD_MIN) * SPD_PPD) + 'px';
