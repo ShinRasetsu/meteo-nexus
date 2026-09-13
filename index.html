@@ -7264,27 +7264,30 @@ function checkDependenciesAndRun() {
                             <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
                         </div>
                     </div>
-                    <div id="aero-tape-spd" class="aero-focus-only" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none">
-                        <div style="position:relative;width:34px;height:120px;overflow:hidden">
-                            <div id="ui-tape-spd-strip" class="tape-strip"></div>
-                            <div class="tape-caret-right"></div>
-                        </div>
-                        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:2px 0">
-                            <div id="ui-tape-spd-num" class="font-mono text-sm font-black text-brand-blue" style="line-height:1.1">---</div>
-                            <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
-                        </div>
+                </div>
+                </div>
+                <!-- SPEED TAPE (left screen edge) & ALTITUDE TAPE (right screen edge) -->
+                <!-- These live at the radarCard level (fixed inset-0 in fullscreen) so they
+                     flank the centred compass from the viewport edges. -->
+                <div id="aero-tape-spd" class="aero-focus-only" style="position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:15;pointer-events:none;padding-left:0.5rem">
+                    <div style="position:relative;width:40px;height:140px;overflow:hidden">
+                        <div id="ui-tape-spd-strip" class="tape-strip"></div>
+                        <div class="tape-caret-right"></div>
                     </div>
-                    <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none">
-                        <div style="position:relative;width:34px;height:120px;overflow:hidden">
-                            <div id="ui-tape-alt-strip" class="tape-strip"></div>
-                            <div class="tape-caret-left"></div>
-                        </div>
-                        <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:2px 0">
-                            <div id="ui-tape-alt-num" class="font-mono text-sm font-black text-brand-orange" style="line-height:1.1">---</div>
-                            <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">M</div>
-                        </div>
+                    <div style="position:absolute;left:44px;top:50%;transform:translateY(-50%);width:52px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:2px 0;white-space:nowrap">
+                        <div id="ui-tape-spd-num" class="font-mono text-sm font-black text-brand-blue" style="line-height:1.1">---</div>
+                        <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
+                <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:15;pointer-events:none;padding-right:0.5rem">
+                    <div style="position:relative;width:40px;height:140px;overflow:hidden">
+                        <div id="ui-tape-alt-strip" class="tape-strip"></div>
+                        <div class="tape-caret-left"></div>
+                    </div>
+                    <div style="position:absolute;right:44px;top:50%;transform:translateY(-50%);width:52px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:2px 0;white-space:nowrap">
+                        <div id="ui-tape-alt-num" class="font-mono text-sm font-black text-brand-orange" style="line-height:1.1">---</div>
+                        <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">M</div>
+                    </div>
                 </div>
 
                 <div class="absolute bottom-4 left-4 right-4 flex justify-end items-end z-30 pointer-events-none">
@@ -7370,16 +7373,14 @@ function checkDependenciesAndRun() {
             };
 
             // AERO TAPES (Garmin G3X-style): heading tape above the dial,
-            // speed/altitude vertical tapes overlaid inside the ring edges.
-            // Geometry constants mirror the template/CSS: HDG window is
-            // responsive (centre measured, not assumed); SPD/ALT windows are
-            // fixed 34x120 dial-px inside the scaler so no measurement is
-            // ever needed for them. Ticks/labels build ONCE here (innerHTML);
-            // per-frame cost is exactly one gated transform per strip.
+            // speed/altitude vertical tapes at viewport edges flanking the
+            // centred compass. Geometry: HDG window responsive; SPD/ALT tapes
+            // fixed 40x140 dial-px at screen edges. Ticks/labels build ONCE
+            // at mount; per-frame cost is one gated transform per strip.
             const HDG_PPD = 4, HDG_COPY = 1440;
             const SPD_PPD = 2, SPD_MIN = 0, SPD_MAX = 350;
             const ALT_PPD = 0.4, ALT_MIN = -500, ALT_MAX = 6000;
-            const TAPE_WIN = 120, TAPE_CTR = 60; // vertical window px (dial-px)
+            const TAPE_WIN = 140, TAPE_CTR = 70; // vertical window px (dial-px)
             const HDG_CARDS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
             let hdgCtr = 150;
             const measureTapes = () => {
