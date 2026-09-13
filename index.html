@@ -7241,10 +7241,10 @@ function checkDependenciesAndRun() {
                 <div id="radar-dial-scaler" class="relative w-32 h-32 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
                     
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
-                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
-                        <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[10px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
-                        <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
-                        <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[10px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
+                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-brand-red font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
+                        <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[8px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
+                        <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[8px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
+                        <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[8px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
                     </div>
                     <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
                         <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
@@ -7261,14 +7261,14 @@ function checkDependenciesAndRun() {
                     </div>
                     <div id="ui-radar-wind-layer" class="absolute inset-0 flex items-start justify-center z-30 pointer-events-none">
                         <div class="flex flex-col items-center">
-                            <i class="fa-solid fa-wind text-brand-blue text-sm -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
-                            <div class="w-[2px] h-6 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
-                            <div class="w-0 h-0 border-l-[3px] border-r-[3px] border-t-[5px] border-transparent border-t-brand-blue"></div>
+                            <i class="fa-solid fa-wind text-brand-blue text-xs -mt-6 mb-0.5 drop-shadow-[0_0_5px_rgba(59,130,246,0.8)]"></i>
+                            <div class="w-[2px] h-4 bg-brand-blue shadow-[0_0_8px_rgba(59,130,246,1)]"></div>
+                            <div class="w-0 h-0 border-l-[2px] border-r-[2px] border-t-[4px] border-transparent border-t-brand-blue"></div>
                         </div>
                     </div>
                     <div style="position:absolute;left:50%;top:63%;transform:translateX(-50%);text-align:center;z-index:20;pointer-events:none">
                         <div class="font-mono font-bold text-brand-blue uppercase" style="font-size:8px;letter-spacing:0.2em">WIND</div>
-                        <div id="ui-radar-wind-speed" class="font-mono font-black text-brand-blue" style="font-size:20px;line-height:1.1;text-shadow:0 0 8px rgba(59,130,246,0.5)">--</div>
+                        <div id="ui-radar-wind-speed" class="font-mono font-black text-brand-blue" style="font-size:16px;line-height:1.1;text-shadow:0 0 8px rgba(59,130,246,0.5)">--</div>
                         <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
@@ -7415,8 +7415,8 @@ function checkDependenciesAndRun() {
                 const alt = document.getElementById('ui-tape-alt-strip');
                 if (alt) {
                     let s = '';
-                    for (let v = ALT_MIN; v <= ALT_MAX; v += 50) {
-                        const y = (ALT_MAX - v) * ALT_PPD, maj = (v % 200 === 0);
+                    for (let v = ALT_MIN; v <= ALT_MAX; v += 25) {
+                        const y = (ALT_MAX - v) * ALT_PPD, maj = (v % 50 === 0);
                         s += `<div class="tape-tick${maj ? ' tape-major' : ''}" style="right:0;top:${y}px;width:${maj ? 12 : 7}px;height:2px"></div>`;
                         if (maj) s += `<div class="tape-vlabel" style="right:14px;top:${y - 6}px;font-size:8px">${v}</div>`;
                     }
