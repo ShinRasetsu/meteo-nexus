@@ -75,7 +75,8 @@
             cloudCover: null, pressure: null, visibility: null,
             temperature: null, apparentTemp: null, tempTrend: null,
             sunPair: null, groundSpeed: null,
-            aq: null, marine: null, routeElev: null
+            aq: null, marine: null, routeElev: null,
+            units: 'kmh', nav: null, rainEta: null
         };
     </script>
 
@@ -1930,6 +1931,29 @@
         // against fixed cutoffs (1500 / 2000 m) only, never the absolute figure,
         // so the ±few-% error relative to true haversine is acceptable.
         // Hot path: called 100+ times per GPS fix (per-node distance evaluation).
+        // Initial bearing (degrees 0..360) between two WGS84 points.
+        // Standard great-circle formula; verified by fixtures (N/E/S/W +
+        // diagonal), not by inspection.
+        function bearingTo(lat1, lon1, lat2, lon2) {
+            const r = Math.PI / 180;
+            const dLon = (lon2 - lon1) * r;
+            const y = Math.sin(dLon) * Math.cos(lat2 * r);
+            const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) -
+                      Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos(dLon);
+            return (Math.atan2(y, x) / r + 360) % 360;
+        }
+
+        // Signed cross-track error in km: lateral distance of P from the
+        // great-circle path A→B. Sign convention (fixture-derived): positive
+        // = RIGHT of the direction of travel, negative = LEFT.
+        function crossTrackKm(latP, lonP, lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const d13 = fastDistance(lat1, lon1, latP, lonP) / R;
+            const t13 = bearingTo(lat1, lon1, latP, lonP) * Math.PI / 180;
+            const t12 = bearingTo(lat1, lon1, lat2, lon2) * Math.PI / 180;
+            return Math.asin(Math.sin(d13) * Math.sin(t13 - t12)) * R / 1000;
+        }
+
         const _DEG2M = 111320;
         function fastDistanceSqMeters(lat1, lon1, lat2, lon2) {
             const dLat = (lat2 - lat1) * _DEG2M;
@@ -3806,6 +3830,37 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // the routeNodes pass already wrote — skip the label loops (the
                 // cursor advance + passed-flags still run on both lists).
                 processNodes(lat, lon, state.originalRouteNodes, 'originalRouteNodesCursor', false);
+
+                // COG waypoint steering → CORE_STATE.nav {brg, distKm,
+                // xteKm} at 1 Hz GPS cadence (never per frame). Active
+                // leg = previous node (or own fix at start) → next
+                // unpassed node. Null = no route; {arrived:true} when
+                // the cursor runs past the last node. NaN inputs collapse
+                // to null so the writer below can never print NaN° (a NaN
+                // key would mismatch every frame and thrash the DOM).
+                let _nav = null;
+                const _tC = state.targetCoords, _rN = state.routeNodes;
+                if (_tC && Number.isFinite(lat) && Number.isFinite(lon) &&
+                    Number.isFinite(_tC.lat) && Number.isFinite(_tC.lon)) {
+                    const _cursor = state.routeNodesCursor || 0;
+                    if (_rN && _rN.length && _cursor < _rN.length) {
+                        const _nx = _rN[_cursor];
+                        const _nxLon = (_nx.lon !== undefined ? _nx.lon : _nx.lng);
+                        const _pv = _cursor > 0 ? _rN[_cursor - 1] : null;
+                        let _xte = 0;
+                        if (_pv) {
+                            const _pvLon = (_pv.lon !== undefined ? _pv.lon : _pv.lng);
+                            _xte = crossTrackKm(lat, lon, _pv.lat, _pvLon, _nx.lat, _nxLon);
+                        }
+                        _nav = { brg: Math.round(bearingTo(lat, lon, _nx.lat, _nxLon)), distKm: fastDistance(lat, lon, _nx.lat, _nxLon) / 1000, xteKm: _xte };
+                    } else if (!_rN || !_rN.length) {
+                        _nav = { brg: Math.round(bearingTo(lat, lon, _tC.lat, _tC.lon)), distKm: fastDistance(lat, lon, _tC.lat, _tC.lon) / 1000, xteKm: 0 };
+                    } else {
+                        _nav = { arrived: true };
+                    }
+                    if (_nav && !_nav.arrived && (!Number.isFinite(_nav.brg) || !Number.isFinite(_nav.distKm) || !Number.isFinite(_nav.xteKm))) _nav = null;
+                }
+                window.__METEO_CORE_STATE.nav = _nav;
 
                         const isMoving = state.currentSpeed >= 2;
                         // --- Heading pipeline (was: hard override) ---
@@ -6093,6 +6148,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // content must NOT rebuild the chart). Per-fetch cost: ~14 array reads.
         let _lastPayloadSig = null;
         let _lastChartSig = null;
+        // Rain countdown: first minutely_15 cell ≥0.1 mm (measurable, same
+        // convention as the route timeline) → minutes out. Clean 12-cell
+        // window → -1 (DRY 3H); no minutely data → null ('---'). Computed
+        // at fetch cadence where minutely is published, never per frame.
+        function computeRainEta() {
+            try {
+                const m = window.__METEO_CORE_STATE.minutely;
+                const arr = (m && Array.isArray(m.precipitation)) ? m.precipitation : null;
+                if (!arr || !arr.length) { window.__METEO_CORE_STATE.rainEta = null; return; }
+                for (let k = 0; k < arr.length; k++) {
+                    if (typeof arr[k] === 'number' && arr[k] >= 0.1) { window.__METEO_CORE_STATE.rainEta = k * 15; return; }
+                }
+                window.__METEO_CORE_STATE.rainEta = -1;
+            } catch (e) { console.debug('[aero] rainEta compute failed:', e && e.message); window.__METEO_CORE_STATE.rainEta = null; }
+        }
+
         // Sun-chip helper: next two rise/set events from the daily block,
         // ordered upcoming-first (afternoon -> SET then RISE; morning ->
         // RISE then SET). Accepts unixtime NUMBERS (what &models= returns
@@ -6482,6 +6553,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     }
                                 }
                                 try { window.__METEO_CORE_STATE.minutely = dMinutely.minutely_15; window.__METEO_CORE_STATE.minutelyTime = Date.now(); } catch(_) {}
+                                computeRainEta();
                             }
                             const now = Date.now();
                             // FIX-1.4.1 (P6): render BEFORE the awaited disk writes.
@@ -6571,7 +6643,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 // Restore minutely from cache if present (backward compat: old caches have no dMinutely)
                                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
-                                }
+                                    computeRainEta();
+                                } else { window.__METEO_CORE_STATE.rainEta = null; }
                                 // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
                                 try {
                                     const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
@@ -7430,6 +7503,9 @@ function checkDependenciesAndRun() {
                         <button id="radar-expand-btn" class="tap-48 text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Expand Aero HUD">
                             <i class="fa-solid fa-expand text-base"></i>
                         </button>
+                        <button id="radar-units-btn" class="tap-48 text-brand-blue hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Toggle knots">
+                            <span id="radar-units-label" class="text-xs font-black tracking-widest">KM/H</span>
+                        </button>
                     </div>
                 </div>
 
@@ -7439,6 +7515,8 @@ function checkDependenciesAndRun() {
                         <div id="ui-tape-hdg-strip" class="tape-strip"></div>
                         <div class="tape-caret-down"></div>
                     </div>
+                    <div id="ui-tape-steer" class="font-mono text-[11px] font-bold text-gray-300 tracking-widest" style="min-height:1rem">NO ROUTE</div>
+                    <div id="ui-tape-rain" class="font-mono text-[11px] font-bold text-gray-500 tracking-widest" style="min-height:1rem">---</div>
                 </div>
                 <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center relative">
                 <div id="radar-dial-scaler" class="relative w-32 h-32 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
@@ -7472,7 +7550,7 @@ function checkDependenciesAndRun() {
                     <div style="position:absolute;left:50%;top:63%;transform:translateX(-50%);text-align:center;z-index:20;pointer-events:none">
                         <div class="font-mono font-bold text-brand-blue uppercase" style="font-size:8px;letter-spacing:0.2em">WIND</div>
                         <div id="ui-radar-wind-speed" class="font-mono font-black text-brand-blue" style="font-size:16px;line-height:1.1;text-shadow:0 0 8px rgba(59,130,246,0.5)">--</div>
-                        <div class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
+                        <div id="ui-tape-wind-unit" class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
                 <!-- SPEED TAPE (stage-left edge) — readout stacked BELOW the
@@ -7486,7 +7564,7 @@ function checkDependenciesAndRun() {
                     </div>
                     <div style="width:56px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:3px 0">
                         <div id="ui-tape-spd-num" class="font-mono text-base font-black text-brand-blue" style="line-height:1.1">---</div>
-                        <div class="font-mono font-bold text-gray-500" style="font-size:8px;letter-spacing:0.1em">KM/H</div>
+                        <div id="ui-tape-spd-unit" class="font-mono font-bold text-gray-500" style="font-size:8px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
                 <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:-1rem;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;flex-direction:column;align-items:center;gap:4px">
@@ -7538,6 +7616,11 @@ function checkDependenciesAndRun() {
                 hdgWin:       document.getElementById('aero-tape-hdg-win'),
                 spdStrip:     document.getElementById('ui-tape-spd-strip'),
                 spdNum:       document.getElementById('ui-tape-spd-num'),
+                spdUnit:      document.getElementById('ui-tape-spd-unit'),
+                windUnit:     document.getElementById('ui-tape-wind-unit'),
+                unitsLabel:   document.getElementById('radar-units-label'),
+                steer:        document.getElementById('ui-tape-steer'),
+                rain:         document.getElementById('ui-tape-rain'),
                 altStrip:     document.getElementById('ui-tape-alt-strip'),
                 altNum:       document.getElementById('ui-tape-alt-num'),
                 gust:         document.getElementById('ui-radar-gust'),
@@ -7577,7 +7660,28 @@ function checkDependenciesAndRun() {
             // at the BOTTOM (Garmin convention). Ticks/labels build ONCE at
             // mount; per-frame cost is one gated transform per strip.
             const HDG_PPD = 4, HDG_COPY = 1440;
-            const SPD_PPD = 2, SPD_MIN = -50, SPD_MAX = 350;
+            // Speed-tape unit configs. Knots shortens the domain (190 kt ≈
+            // 352 km/h) so the tape keeps full travel; MIN -50 centres rest
+            // in both units. Ticks/labels stay every 5/10 in the ACTIVE unit.
+            const SPD_KMH = { min: -50, max: 350, ppd: 2 };
+            const SPD_KT = { min: -50, max: 190, ppd: 2 };
+            const spdCfg = () => ((window.__METEO_CORE_STATE.units === 'kt') ? SPD_KT : SPD_KMH);
+            function buildSpdTape() {
+                const cfg = spdCfg();
+                const spd = document.getElementById('ui-tape-spd-strip');
+                if (!spd) return;
+                let s = '';
+                for (let v = cfg.min; v <= cfg.max; v += 5) {
+                    const y = (cfg.max - v) * cfg.ppd, maj = (v % 10 === 0);
+                    // Dead band: below-zero speeds are impossible — tint
+                    // them dark red so rest (0 centred) reads instantly.
+                    const neg = (v < 0) ? ' tape-neg' : '';
+                    s += `<div class="tape-tick${maj ? ' tape-major' : ''}${neg}" style="left:0;top:${y}px;width:${maj ? 16 : 10}px;height:2px"></div>`;
+                    if (maj) s += `<div class="tape-vlabel${neg}" style="left:19px;top:${y - 7}px;font-size:10px">${v}</div>`;
+                }
+                spd.innerHTML = s;
+                spd.style.height = ((cfg.max - cfg.min) * cfg.ppd) + 'px';
+            }
             const ALT_PPD = 0.4, ALT_MIN = -500, ALT_MAX = 6000;
             const TAPE_WIN = 180, TAPE_CTR = 90; // vertical window px, matches template
             const HDG_CARDS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' };
@@ -7601,20 +7705,7 @@ function checkDependenciesAndRun() {
                     hdg.innerHTML = s;
                     hdg.style.width = (3 * 360 * HDG_PPD) + 'px';
                 }
-                const spd = document.getElementById('ui-tape-spd-strip');
-                if (spd) {
-                    let s = '';
-                    for (let v = SPD_MIN; v <= SPD_MAX; v += 5) {
-                        const y = (SPD_MAX - v) * SPD_PPD, maj = (v % 10 === 0);
-                        // Dead band: below-zero speeds are impossible — tint
-                        // them dark red so rest (0 centred) reads instantly.
-                        const neg = (v < 0) ? ' tape-neg' : '';
-                        s += `<div class="tape-tick${maj ? ' tape-major' : ''}${neg}" style="left:0;top:${y}px;width:${maj ? 16 : 10}px;height:2px"></div>`;
-                        if (maj) s += `<div class="tape-vlabel${neg}" style="left:19px;top:${y - 7}px;font-size:10px">${v}</div>`;
-                    }
-                    spd.innerHTML = s;
-                    spd.style.height = ((SPD_MAX - SPD_MIN) * SPD_PPD) + 'px';
-                }
+                buildSpdTape();
                 const alt = document.getElementById('ui-tape-alt-strip');
                 if (alt) {
                     let s = '';
@@ -7632,6 +7723,34 @@ function checkDependenciesAndRun() {
             // keeps the last good centre when hidden — no forward reference
             // to isRadarFullscreen, which is declared below).
             window.addEventListener('resize', measureTapes);
+
+            // Units toggle (km/h ↔ kt, Aero-local, persisted). Repaints the
+            // two unit captions immediately and rebuilds the speed tape in
+            // the new unit; render keys flip on their own since displayed
+            // values convert. The tracking card stays km/h (driving view) —
+            // documented split, not an oversight.
+            const paintUnitCaptions = () => {
+                const kt = window.__METEO_CORE_STATE.units === 'kt';
+                if (_el.unitsLabel) _el.unitsLabel.textContent = kt ? 'KT' : 'KM/H';
+                if (_el.spdUnit) _el.spdUnit.textContent = kt ? 'KT' : 'KM/H';
+                if (_el.windUnit) _el.windUnit.textContent = kt ? 'KT' : 'KM/H';
+            };
+            paintUnitCaptions();
+            const unitsBtn = radarCard?.querySelector('#radar-units-btn');
+            if (unitsBtn) unitsBtn.addEventListener('click', async () => {
+                const nxt = (window.__METEO_CORE_STATE.units === 'kt') ? 'kmh' : 'kt';
+                window.__METEO_CORE_STATE.units = nxt;
+                try { await localforage.setItem('aero_units', nxt); }
+                catch (e) { console.debug('[aero] units persist failed:', e && e.message); }
+                paintUnitCaptions();
+                buildSpdTape();
+            });
+            localforage.getItem('aero_units').then(v => {
+                if (v !== 'kt' && v !== 'kmh') return;
+                window.__METEO_CORE_STATE.units = v;
+                paintUnitCaptions();
+                buildSpdTape();
+            }).catch(e => console.debug('[aero] units restore failed:', e && e.message));
 
             const expandBtn  = radarCard?.querySelector('#radar-expand-btn');
             const dialScaler = radarCard?.querySelector('#radar-dial-scaler');
@@ -7748,6 +7867,7 @@ function checkDependenciesAndRun() {
                 hdgX: -Infinity, hdgNumKey: -Infinity,
                 spdY: -Infinity, spdNumKey: -Infinity,
                 altY: -Infinity, altNumKey: -Infinity,
+                steerKey: '', rainKey: -Infinity,
                 // Ghost trail rotation per slot, 0.1 deg resolution.
                 ghostKey: [-Infinity, -Infinity, -Infinity],
                 // PERF-AERO-KEYS-2: numeric pre-keys for the remaining text/HTML
@@ -7817,11 +7937,26 @@ function checkDependenciesAndRun() {
                 // WIND SPEED — numeric pre-key: the toString build only runs when
                 // the rounded value actually changes (fetch-rate, not frame-rate).
                 if (_el.windSpeed) {
-                    const wsKey = (typeof st.windSpeed === 'number') ? Math.round(st.windSpeed) : -999;
-                    if (_uiCache.wsKey !== wsKey) {
-                        const wsStr = (wsKey !== -999) ? String(wsKey) : '--';
-                        _el.windSpeed.textContent = wsStr;
-                        _uiCache.windSpeed = wsStr; _uiCache.wsKey = wsKey;
+                    // Marine format: base speed with gust factor appended
+                    // (9G15) when gusts exceed base by 5+. Unit-aware like
+                    // the speed tape. Inline-styled span (not Tailwind) so a
+                    // stale precompiled stylesheet can't eat the suffix.
+                    const ws = (typeof st.windSpeed === 'number') ? Math.round(st.windSpeed) : null;
+                    const gf = (typeof st.windGust === 'number') ? Math.round(st.windGust) : null;
+                    const wKt = st.units === 'kt';
+                    const wConv = (v) => wKt ? Math.round(v / 1.852) : v;
+                    const showG = (ws !== null && gf !== null && (gf - ws) >= 5);
+                    const wKey = ws === null ? -1 : (wConv(ws) + 1) * 100000 + (showG ? wConv(gf) : 9999);
+                    if (_uiCache.wsKey !== wKey) {
+                        _uiCache.wsKey = wKey;
+                        if (ws === null) { _el.windSpeed.textContent = '--'; _uiCache.windSpeed = '--'; }
+                        else {
+                            const wStr = showG
+                                ? `${wConv(ws)}<span style="font-size:0.55em;color:#ef4444">G${wConv(gf)}</span>`
+                                : String(wConv(ws));
+                            _el.windSpeed.innerHTML = wStr;
+                            _uiCache.windSpeed = wStr;
+                        }
                     }
                 }
 
@@ -8279,22 +8414,67 @@ function checkDependenciesAndRun() {
                     }
                 }
 
+                // STEER LINE — COG waypoint steering from the 1 Hz GPS tick
+                // (CORE_STATE.nav): bearing + distance to the next unpassed
+                // node + cross-track error with R/L side. Fully numeric key:
+                // bearing 0..359, dist quantised 0.1 km (capped), XTE ±0.1 km
+                // window with ARRIVED/NO-ROUTE sentinels outside the range.
+                if (_el.steer) {
+                    const nv = st.nav;
+                    let stKey = -3;
+                    if (nv) {
+                        if (nv.arrived) stKey = -2;
+                        else {
+                            const dQ = Math.min(19999, Math.round(nv.distKm * 10));
+                            const xQ = Math.max(-999, Math.min(999, Math.round(nv.xteKm * 10))) + 999;
+                            stKey = nv.brg * 40000000 + dQ * 2000 + xQ;
+                        }
+                    }
+                    if (_uiCache.steerKey !== stKey) {
+                        _uiCache.steerKey = stKey;
+                        if (!nv) _el.steer.textContent = 'NO ROUTE';
+                        else if (nv.arrived) _el.steer.textContent = 'ARRIVED';
+                        else {
+                            const d = nv.distKm < 10 ? nv.distKm.toFixed(1) : String(Math.round(nv.distKm));
+                            const ax = Math.abs(nv.xteKm);
+                            const x = ax < 0.05 ? '' : ` X${ax < 10 ? ax.toFixed(1) : Math.round(ax)}${nv.xteKm >= 0 ? 'R' : 'L'}`;
+                            _el.steer.textContent = `→${nv.brg}° ${d}KM${x}`;
+                        }
+                    }
+                }
+
+                // RAIN COUNTDOWN — minutely_15 precip already in CORE_STATE
+                // (fetch cadence). First ≥0.1 mm cell → minutes out; clean
+                // window → DRY 3H (12 cells × 15 min); no data → '---'.
+                if (_el.rain) {
+                    const re = st.rainEta;
+                    const rKey = (typeof re === 'number') ? (re < 0 ? -1 : Math.round(re)) : -2;
+                    if (_uiCache.rainKey !== rKey) {
+                        _uiCache.rainKey = rKey;
+                        _el.rain.textContent = (rKey === -2) ? '---' : (rKey < 0 ? 'DRY 3H' : `RAIN ~${rKey} MIN`);
+                        _el.rain.className = `font-mono text-[11px] font-bold tracking-widest ${rKey >= 0 ? 'text-brand-warning' : 'text-gray-500'}`;
+                    }
+                }
+
                 // SPEED + ALTITUDE TAPES — linear (no wrap): value clamped to
                 // the strip range, caret pins at the rail end past it while
                 // the digital readout keeps showing the true value. Same
                 // pixel-rounded single-transform discipline as the ring.
                 if (_el.spdStrip) {
                     const gs = (typeof st.groundSpeed === 'number') ? st.groundSpeed : null;
-                    if (gs !== null) {
-                        const vc = Math.min(SPD_MAX, Math.max(SPD_MIN, gs));
-                        const sy = Math.round(Math.min((SPD_MAX - SPD_MIN) * SPD_PPD - TAPE_WIN, Math.max(-TAPE_CTR, (SPD_MAX - vc) * SPD_PPD - TAPE_CTR)));
+                    const kt = st.units === 'kt';
+                    const cfg = kt ? SPD_KT : SPD_KMH;
+                    const gv = (gs !== null) ? (kt ? gs / 1.852 : gs) : null;
+                    if (gv !== null) {
+                        const vc = Math.min(cfg.max, Math.max(cfg.min, gv));
+                        const sy = Math.round(Math.min((cfg.max - cfg.min) * cfg.ppd - TAPE_WIN, Math.max(-TAPE_CTR, (cfg.max - vc) * cfg.ppd - TAPE_CTR)));
                         if (_uiCache.spdY !== sy) {
                             _uiCache.spdY = sy;
                             _el.spdStrip.style.transform = `translateY(${-sy}px)`;
                         }
                     }
                     if (_el.spdNum) {
-                        const snKey = (gs !== null) ? Math.round(gs) : -1;
+                        const snKey = (gv !== null) ? Math.round(gv) : -1;
                         if (_uiCache.spdNumKey !== snKey) {
                             _uiCache.spdNumKey = snKey;
                             _el.spdNum.textContent = (snKey >= 0) ? String(snKey) : '---';

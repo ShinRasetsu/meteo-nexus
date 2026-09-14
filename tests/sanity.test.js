@@ -341,7 +341,14 @@ assertIncludes(html, 'id="ui-tape-hdg-strip"', "index.html renders a digital hea
 assertIncludes(html, 'id="aero-tape-spd"', "index.html renders a left vertical speed tape");
 assertIncludes(html, 'id="aero-tape-alt"', "index.html renders a right vertical altitude tape");
 assertIncludes(html, "buildTapeTicks", "index.html builds tape ticks once at mount (no per-frame allocation)");
-assertIncludes(html, "SPD_MIN = -50", "speed tape extends below zero so rest reads dead-0 centred with a visible dead band");
+assertIncludes(html, "SPD_KMH", "speed tape keeps a km/h domain (knots shortens its own)");
+assertIncludes(html, "SPD_KT", "speed tape rebuilds in knots with a centred dead-0");
+assertIncludes(html, "bearingTo(lat1, lon1, lat2, lon2)", "COG steering has a great-circle bearing helper");
+assertIncludes(html, "crossTrackKm", "COG steering has a signed cross-track helper");
+assertIncludes(html, 'id="radar-units-btn"', "Aero header has a knots toggle");
+assertIncludes(html, 'id="ui-tape-steer"', "heading band renders the waypoint steering line");
+assertIncludes(html, 'id="ui-tape-rain"', "heading band renders the rain countdown line");
+assertIncludes(html, "computeRainEta", "rain countdown derives from minutely_15 at fetch cadence");
 assertIncludes(html, "tape-neg", "sub-zero speed ticks are tinted as dead zone");
 assertIncludes(html, ".tape-strip { position: absolute; top: 0; left: 0; width: 100%;", "tape strips span their window so right-anchored alt ticks resolve inside it (zero-width strip clipped them)");
 assertIncludes(html, 'text-brand-red font-black bg-surface-900 px-1 rounded border border-surface-700">N', "compass North badge renders red");
