@@ -122,6 +122,9 @@ assertIncludes(html, 'id="metric-aq"', "telemetry card renders the Air Quality r
 assertIncludes(html, 'id="sec-sea"', "telemetry card renders the Sea State section (hidden over land)");
 assertIncludes(html, 'id="geo-search-input"', "map header has a place-name search box");
 assertIncludes(html, "grid-cols-5", "map toolbar lays buttons in an even portrait grid (search takes its own full row)");
+assertIncludes(html, "enableHighAccuracy: false", "boot takes a fast coarse fix first instead of waiting on GNSS TTFF");
+assertIncludes(html, "_bootVersion", "update-available detector baselines the boot version");
+assertIncludes(html, "TAP TO RELOAD", "deploys surface a one-tap reload pill instead of sitting stale");
 
 // Mobile-first pass: portrait is the primary viewport, desktop variants preserved
 assertIncludes(html, "text-xl sm:text-2xl md:text-3xl", "header title scales down so 360px never overflows");

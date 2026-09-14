@@ -7294,6 +7294,31 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     updateText(DOM.weatherDesc, desc);
                     updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> ${badge}`);
                 };
+                // Coarse-first fix: a fast low-accuracy one-shot (4 s, stale
+                // OK) paints map + weather immediately; the high-accuracy
+                // watch refines after. Previously boot waited on the 10 s
+                // high-accuracy one-shot (+retries), so cold GNSS TTFF left
+                // the app dead on the SEARCH card for minutes. Accepts ANY
+                // fix (even kilometre-scale — the weather grid is ~10 km and
+                // the accuracy pill shows the truth); rejects only null
+                // island / out-of-range garbage. No status taxonomy here —
+                // the precise path below owns that; this is pure bootstrap.
+                if (!state.autoCoords && navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (p) => {
+                            if (state.autoCoords) return;
+                            const cLat = p.coords.latitude, cLon = p.coords.longitude;
+                            if (!Number.isFinite(cLat) || !Number.isFinite(cLon)) return;
+                            if (cLat === 0 && cLon === 0) return;
+                            if (cLat < -90 || cLat > 90 || cLon < -180 || cLon > 180) return;
+                            state.autoCoords = { lat: cLat, lon: cLon };
+                            initMap(cLat, cLon);
+                            fetchData(cLat, cLon, false);
+                        },
+                        () => { /* best-effort only; the precise path below owns error taxonomy */ },
+                        { timeout: 4000, maximumAge: 60000, enableHighAccuracy: false }
+                    );
+                }
                 const GPS_BOOT_RETRIES = 2;
                 const attemptGpsFix = (attempt) => {
                     if (state.autoCoords) return;
@@ -7362,6 +7387,48 @@ function checkDependenciesAndRun() {
                 });
                 let refreshing = false;
                 navigator.serviceWorker.addEventListener('controllerchange', () => { if (!refreshing) { refreshing = true; window.location.reload(); } });
+                // Update-available detector: ./VERSION is the release marker.
+                // Polled (no-store, so neither HTTP nor SW cache can lie) at
+                // boot + every 5 min while visible + on foreground. A mismatch
+                // with the boot-time version means a deploy landed while the
+                // app was open — installed PWAs rarely re-navigate, so without
+                // this the SWR shell sits stale indefinitely. One-tap reload
+                // pill (JS-created inline styles like the toast, so no build
+                // dependency); shown once per version, tap reloads into it.
+                let _bootVersion = null, _updateSeen = null, _updateEl = null;
+                async function checkAppUpdate() {
+                    try {
+                        const r = await fetch('./VERSION', { cache: 'no-store' });
+                        if (!r.ok) return;
+                        const v = (await r.text()).trim();
+                        if (!v) return;
+                        if (!_bootVersion) { _bootVersion = v; return; }
+                        if (v !== _bootVersion && _updateSeen !== v) {
+                            _updateSeen = v;
+                            if (!_updateEl) {
+                                _updateEl = document.createElement('button');
+                                _updateEl.style.cssText = [
+                                    'position:fixed', 'bottom:5.5rem', 'left:50%', 'transform:translateX(-50%)',
+                                    'z-index:10001', 'padding:0.75rem 1.25rem', 'border-radius:9999px',
+                                    'border:2px solid #14b8a6', 'background:rgba(10,10,10,0.95)', 'color:#14b8a6',
+                                    'font:bold 12px JetBrains Mono, monospace', 'letter-spacing:0.08em',
+                                    'box-shadow:0 8px 32px rgba(20,184,166,0.4)', 'cursor:pointer', 'display:none'
+                                ].join(';');
+                                _updateEl.addEventListener('click', () => window.location.reload());
+                                document.body.appendChild(_updateEl);
+                            }
+                            _updateEl.textContent = `UPDATE ${v} AVAILABLE — TAP TO RELOAD`;
+                            _updateEl.style.display = 'block';
+                        }
+                    } catch (e) { /* offline — ignore, retry next cycle */ }
+                }
+                checkAppUpdate();
+                const scheduleUpdateCheck = () => setTimeout(async () => {
+                    if (document.visibilityState === 'visible') await checkAppUpdate();
+                    scheduleUpdateCheck();
+                }, 300000);
+                scheduleUpdateCheck();
+                document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkAppUpdate(); });
                 // Listen for cache-stats replies from the SW. The SW counts map-cache
                 // tiles and byte usage; the page renders it as a compact gauge pill.
                 navigator.serviceWorker.addEventListener('message', (e) => {

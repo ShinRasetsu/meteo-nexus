@@ -247,7 +247,10 @@ From HISTORY.md "How to bump version in a new session":
    run with their recorded evidence (sec 6 step 6), and which blind spots
    (sec 8) were considered with a one-line dismissal or mitigation each.
 5. Run the full pipeline + precheck. deploy.bat re-runs it before git add.
-6. Optional: git tag vX.Y.Z for deployment tracking.
+6. Bump `sw.js` `APP_CACHE` (`vN` → `vN+1`) so the SW update detector fires
+   and installed clients fetch the new shell — without it, no index.html
+   change ever reaches them (the in-page update pill only helps once seen).
+7. Optional: git tag vX.Y.Z for deployment tracking.
 
 ## 10. Prohibitions
 
