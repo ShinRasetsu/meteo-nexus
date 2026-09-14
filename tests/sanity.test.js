@@ -329,11 +329,12 @@ assertIncludes(html, 'id="ui-tape-hdg-strip"', "index.html renders a digital hea
 assertIncludes(html, 'id="aero-tape-spd"', "index.html renders a left vertical speed tape");
 assertIncludes(html, 'id="aero-tape-alt"', "index.html renders a right vertical altitude tape");
 assertIncludes(html, "buildTapeTicks", "index.html builds tape ticks once at mount (no per-frame allocation)");
-assertIncludes(html, "SPD_MIN = -40", "speed tape extends below zero so rest reads dead-0 with a visible dead band");
+assertIncludes(html, "SPD_MIN = -50", "speed tape extends below zero so rest reads dead-0 centred with a visible dead band");
 assertIncludes(html, "tape-neg", "sub-zero speed ticks are tinted as dead zone");
 assertIncludes(html, ".tape-strip { position: absolute; top: 0; left: 0; width: 100%;", "tape strips span their window so right-anchored alt ticks resolve inside it (zero-width strip clipped them)");
 assertIncludes(html, 'text-brand-red font-black bg-surface-900 px-1 rounded border border-surface-700">N', "compass North badge renders red");
 assertIncludes(html, "v % 50 === 0", "altitude tape labels every 50 m (speed-density parity)");
+assertIncludes(html, "width:44px;height:180px", "vertical tapes scaled to heading-tape presence (44x180 windows)");
 assertIncludes(html, "__METEO_CORE_STATE.groundSpeed", "index.html publishes smoothed ground speed for the speed tape");
 assert(
   !html.includes('id="ui-radar-crosswind"') && !html.includes('id="ui-radar-headwind"'),
