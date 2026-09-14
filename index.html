@@ -944,8 +944,9 @@
             const c = dAQ && dAQ.current ? dAQ.current : null;
             const aqi = c && typeof c.us_aqi === 'number' ? Math.round(c.us_aqi) : null;
             const pm = c && typeof c.pm2_5 === 'number' ? c.pm2_5 : null;
+            const pm10 = c && typeof c.pm10 === 'number' ? c.pm10 : null;
             const o3 = c && typeof c.ozone === 'number' ? c.ozone : null;
-            window.__METEO_CORE_STATE.aq = (aqi === null && pm === null && o3 === null) ? null : { aqi, pm25: pm, o3 };
+            window.__METEO_CORE_STATE.aq = (aqi === null && pm === null && pm10 === null && o3 === null) ? null : { aqi, pm25: pm, pm10, o3 };
             if (!DOM.metricAq) return;
             if (aqi === null) {
                 updateText(DOM.metricAq, 'AQI --');
@@ -953,7 +954,7 @@
                 return;
             }
             const band = aqi <= 50 ? 'GOOD' : aqi <= 100 ? 'MODERATE' : aqi <= 150 ? 'USG' : 'UNHEALTHY';
-            updateText(DOM.metricAq, `AQI ${aqi} ${band} · PM2.5 ${pm !== null ? pm.toFixed(0) : '--'}`);
+            updateText(DOM.metricAq, `AQI ${aqi} ${band} · PM2.5 ${pm !== null ? pm.toFixed(0) : '--'} · PM10 ${pm10 !== null ? pm10.toFixed(0) : '--'}`);
             DOM.metricAq.title = `US AQI ${aqi} (${band}) · O3 ${o3 !== null ? o3.toFixed(0) : '--'} µg/m³ — CAMS via Open-Meteo`;
         }
 
@@ -1028,7 +1029,14 @@
                     if (arr[k] > mx) mx = arr[k];
                     if (k > 0 && arr[k] > arr[k - 1]) gain += arr[k] - arr[k - 1];
                 }
-                state.routeElev = { min: Math.round(mn), max: Math.round(mx), gain: Math.round(gain) };
+                // Keep a downsampled profile (≈50 pts) for the timeline
+                // sparkline — the full array is fetch-rate transient, the
+                // profile survives on state for re-renders.
+                const prof = [];
+                const pStep = Math.max(1, Math.floor(arr.length / 48));
+                for (let k = 0; k < arr.length; k += pStep) prof.push(Math.round(arr[k]));
+                if (prof[prof.length - 1] !== Math.round(arr[arr.length - 1])) prof.push(Math.round(arr[arr.length - 1]));
+                state.routeElev = { min: Math.round(mn), max: Math.round(mx), gain: Math.round(gain), profile: prof };
                 window.__METEO_CORE_STATE.routeElev = state.routeElev;
             } catch (e) { console.debug('[sibling:elev] failed:', e && e.message); state.routeElev = null; }
         }
@@ -4690,7 +4698,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // on first load, failed fetch, or cleared route — never blocks).
             if (state.routeElev) {
                 const re = state.routeElev;
-                htmlBuffer += `<div class="w-full text-center py-1.5 mb-2 text-brand-teal font-mono font-bold uppercase tracking-widest text-xs bg-brand-teal/10 border-2 border-brand-teal/30 rounded-lg"><i class="fa-solid fa-mountain mr-2"></i> ELEV &#9650;${re.max} m &#9660;${re.min} m &middot; CLIMB +${re.gain} m</div>`;
+                // Climb-profile sparkline from the kept elevation samples —
+                // block elements, zero deps, no canvas. Flat routes (max==min)
+                // render a level mid-line instead of dividing by zero.
+                let spark = '';
+                if (re.profile && re.profile.length > 1) {
+                    const blocks = ['▁','▂','▃','▄','▅','▆','▇','█'];
+                    const span = (re.max > re.min) ? (re.max - re.min) : 1;
+                    spark = `<div class="font-mono text-brand-teal" style="font-size:10px;line-height:1.2;letter-spacing:0">` +
+                        re.profile.map(v => blocks[Math.min(7, Math.max(0, Math.round((v - re.min) / span * 7)))]).join('') + `</div>`;
+                }
+                htmlBuffer += `<div class="w-full text-center py-1.5 mb-2 text-brand-teal font-mono font-bold uppercase tracking-widest text-xs bg-brand-teal/10 border-2 border-brand-teal/30 rounded-lg"><i class="fa-solid fa-mountain mr-2"></i> ELEV &#9650;${re.max} m &#9660;${re.min} m &middot; CLIMB +${re.gain} m${spark}</div>`;
             }
             htmlBuffer += `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto gap-3 pb-4 pt-2 vertical-scroll scroll-smooth w-full relative max-h-[50vh] pr-2">`;
 
@@ -6576,22 +6594,33 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // paints its own UI row. A sick sibling degrades its
                             // row while telemetry stays live (fetchSiblingJSON
                             // never throws, so no try/catch needed here).
-                            const [jAQ, jMar] = await Promise.all([
-                                fetchSiblingJSON('aq', `${CONFIG.aqApi}?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10,ozone&timezone=auto&forecast_days=1`),
-                                fetchSiblingJSON('marine', `${CONFIG.marineApi}?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,ocean_current_velocity,sea_surface_temperature&timezone=auto&forecast_days=2&timeformat=unixtime`)
-                            ]);
-                            if (jAQ && jAQ.current) {
-                                const dAQ = { current: jAQ.current };
-                                publishAirQuality(dAQ);
-                                try { await localforage.setItem('sibling_aq', { dAQ, timestamp: now }); }
-                                catch (e) { console.debug('Sibling AQ persist failed:', e && e.message); }
-                            } else { publishAirQuality(null); }
-                            if (jMar && jMar.hourly) {
-                                const dMarine = { hourly: jMar.hourly };
-                                publishMarine(dMarine);
-                                try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
-                                catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
-                            } else { publishMarine(null); }
+                            // 10-MIN TTL: both siblings update hourly upstream —
+                            // refetching every ~2-min telemetry tick wastes
+                            // ~80% of these requests (battery + data). Refresh
+                            // when stale OR when the user moved >5 km. First
+                            // boot always fetches (no timestamp yet).
+                            const _sibStale = !state._lastSiblingTs || (now - state._lastSiblingTs > 600000);
+                            const _sibMoved = state._lastSiblingLat === undefined ||
+                                fastDistance(lat, lon, state._lastSiblingLat, state._lastSiblingLon) > 5000;
+                            if (_sibStale || _sibMoved) {
+                                state._lastSiblingTs = now; state._lastSiblingLat = lat; state._lastSiblingLon = lon;
+                                const [jAQ, jMar] = await Promise.all([
+                                    fetchSiblingJSON('aq', `${CONFIG.aqApi}?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10,ozone&timezone=auto&forecast_days=1`),
+                                    fetchSiblingJSON('marine', `${CONFIG.marineApi}?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,ocean_current_velocity,sea_surface_temperature&timezone=auto&forecast_days=2&timeformat=unixtime`)
+                                ]);
+                                if (jAQ && jAQ.current) {
+                                    const dAQ = { current: jAQ.current };
+                                    publishAirQuality(dAQ);
+                                    try { await localforage.setItem('sibling_aq', { dAQ, timestamp: now }); }
+                                    catch (e) { console.debug('Sibling AQ persist failed:', e && e.message); }
+                                } else { publishAirQuality(null); }
+                                if (jMar && jMar.hourly) {
+                                    const dMarine = { hourly: jMar.hourly };
+                                    publishMarine(dMarine);
+                                    try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
+                                    catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
+                                } else { publishMarine(null); }
+                            } // end sibling TTL gate — rows keep last values between refreshes
                             // Rate-limit localforage writes to every 60s — writing to disk on
                             // every 2-min fetch is unnecessary; the in-memory state is updated
                             // live. The cache only needs to survive a page reload, and 60s

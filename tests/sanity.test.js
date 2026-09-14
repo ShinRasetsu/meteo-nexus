@@ -124,6 +124,9 @@ assertIncludes(html, 'id="geo-search-input"', "map header has a place-name searc
 assertIncludes(html, "handleGeoSearch", "search results route through activateLiveNavigation");
 assertIncludes(html, "fetchRouteElevation", "route elevation batch fetch present");
 assertIncludes(html, "CLIMB +", "route timeline renders the elevation strip");
+assertIncludes(html, "PM10 ${", "telemetry card renders PM10 (fetched-but-unused no more)");
+assertIncludes(html, "_lastSiblingTs", "sibling APIs refresh on a 10-minute TTL, not every telemetry tick");
+assertIncludes(html, "profile: prof", "route elevation keeps its climb profile for the sparkline");
 
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");
