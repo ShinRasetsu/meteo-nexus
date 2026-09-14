@@ -121,6 +121,14 @@ assertIncludes(html, "geocoding-api.open-meteo.com/v1/search", "Geocoding siblin
 assertIncludes(html, 'id="metric-aq"', "telemetry card renders the Air Quality row");
 assertIncludes(html, 'id="sec-sea"', "telemetry card renders the Sea State section (hidden over land)");
 assertIncludes(html, 'id="geo-search-input"', "map header has a place-name search box");
+assertIncludes(html, "grid-cols-5", "map toolbar lays buttons in an even portrait grid (search takes its own full row)");
+
+// Mobile-first pass: portrait is the primary viewport, desktop variants preserved
+assertIncludes(html, "text-xl sm:text-2xl md:text-3xl", "header title scales down so 360px never overflows");
+assertIncludes(html, 'Focus Telemetry" class="tap-48', "telemetry expand button meets the 48px touch target");
+assertIncludes(html, "flex flex-col sm:flex-row gap-3 sm:justify-end", "modal footers stack full-width on portrait");
+assertIncludes(html, "text-base md:text-sm font-bold text-white placeholder-gray-500", "search input stays 16px on mobile (no iOS focus zoom)");
+assertIncludes(html, "flex flex-wrap items-center gap-x-3 gap-y-1", "telemetry sub-line wraps instead of clipping on narrow screens");
 assertIncludes(html, "handleGeoSearch", "search results route through activateLiveNavigation");
 assertIncludes(html, "fetchRouteElevation", "route elevation batch fetch present");
 assertIncludes(html, "CLIMB +", "route timeline renders the elevation strip");

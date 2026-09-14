@@ -371,8 +371,8 @@
     <body class="safe-body text-gray-100 font-sans min-h-screen p-2 md:p-6 lg:p-8 selection:bg-brand-teal selection:text-black flex flex-col gap-4 max-w-7xl mx-auto no-select">
 
     <header class="flex items-center justify-between gap-3 py-2 px-2 border-b-4 border-surface-800">
-        <h1 class="text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-            <i class="fa-solid fa-satellite-dish text-brand-teal text-3xl"></i>
+            <h1 class="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-2 sm:gap-3">
+                <i class="fa-solid fa-satellite-dish text-brand-teal text-2xl sm:text-3xl"></i>
             METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
             <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
         </h1>
@@ -395,7 +395,7 @@
         <div class="flex justify-center -mb-1"><div onclick="toggleFocus('sec-telemetry')" class="w-10 h-1 bg-surface-600 rounded-full cursor-pointer hover:bg-brand-teal transition-colors" title="Swipe to expand diagnostics"></div></div>
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
-            <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
+            <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="tap-48 w-11 h-11 flex items-center justify-center text-brand-teal hover:text-white transition-colors"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
         <div id="main-grid" class="grid grid-cols-1 gap-4">
 
@@ -464,7 +464,7 @@
                                     </div>
                                 </div>
                                 <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
-                                <div class="flex items-center gap-3 mt-1.5">
+                                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
                                     <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- hPa</span>
                                     <span class="text-gray-600 text-[10px]">|</span>
                                     <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- km</span>
@@ -536,7 +536,7 @@
                 <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> <span id="gps-acc-text">Tracking</span></span>
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
-            <div class="flex flex-row items-center gap-2 shrink-0">
+            <div class="grid grid-cols-5 justify-items-center gap-2 sm:flex sm:flex-row sm:items-center shrink-0">
                     <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all hover:scale-[1.03] active:scale-[0.97] hover:shadow-[0_0_15px_rgba(245,158,11,0.4)] flex items-center gap-0 sm:gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)] will-change-transform">
                     <i class="fa-solid fa-gas-pump text-base sm:text-sm"></i> <span class="hidden sm:inline">Pit Stop</span>
                 </button>
@@ -546,12 +546,12 @@
                 <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-sm">
                     <i class="fa-solid fa-bolt text-base sm:text-sm"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
-                <div class="relative flex items-center gap-2">
-                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place…" aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl px-3 text-xs md:text-sm font-bold text-white placeholder-gray-500 w-32 sm:w-44 focus:border-brand-teal" />
-                    <button id="geo-search-btn" onclick="handleGeoSearch()" aria-label="Search place" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 flex items-center justify-center rounded-xl text-xs md:text-sm transition-all shadow-sm">
+                <div class="relative col-span-5 order-first sm:order-none sm:col-span-1 flex items-center gap-2 w-full sm:w-auto">
+                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place…" aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl px-3 text-base md:text-sm font-bold text-white placeholder-gray-500 flex-1 min-w-0 sm:flex-none sm:w-44 focus:border-brand-teal" />
+                    <button id="geo-search-btn" onclick="handleGeoSearch()" aria-label="Search place" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 flex items-center justify-center rounded-xl text-xs md:text-sm transition-all shadow-sm shrink-0">
                         <i class="fa-solid fa-magnifying-glass text-base sm:text-sm"></i>
                     </button>
-                    <div id="geo-search-results" class="hidden absolute top-full mt-1 left-0 min-w-[12rem] max-w-[80vw] max-h-56 overflow-y-auto bg-surface-900 border-2 border-surface-700 rounded-xl shadow-xl z-[1001]"></div>
+                    <div id="geo-search-results" class="hidden absolute top-full mt-1 left-0 right-0 sm:right-auto sm:min-w-[12rem] sm:max-w-[80vw] max-h-56 overflow-y-auto bg-surface-900 border-2 border-surface-700 rounded-xl shadow-xl z-[1001]"></div>
                 </div>
                 <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-sm">
                     <i class="fa-solid fa-xmark text-base sm:text-sm"></i> <span class="hidden sm:inline">Clear</span>
@@ -599,7 +599,7 @@
             <div id="tracking-recenter-chip" class="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-4 md:px-3 py-2 md:py-1 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
                 <i class="fa-solid fa-location-crosshairs animate-pulse"></i>
                 <span id="tracking-recenter-text">RECENTER IN 5s</span>
-                <button onclick="window.applyTacticalMode && window.applyTacticalMode(); state.isMapLocked=true;" class="ml-2 bg-black/20 px-3 md:px-2 py-1 md:py-0.5 rounded-full text-xs md:text-[9px]">NOW</button>
+                <button onclick="window.applyTacticalMode && window.applyTacticalMode(); state.isMapLocked=true;" class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs">NOW</button>
             </div>
 
             <!-- Quick-glance summary strip — single condensed line for driving mode.
@@ -650,7 +650,7 @@
                 <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
                     <i class="fa-solid fa-compass text-lg md:text-xl"></i>
                 </button>
-                <button onclick="openMagCalModal()" id="magcal-btn" class="bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-purple hover:border-brand-purple w-10 h-10 md:w-11 md:h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Calibrate Compass (figure-8 pattern)">
+                <button onclick="openMagCalModal()" id="magcal-btn" class="tap-48 bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-purple hover:border-brand-purple w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Calibrate Compass (figure-8 pattern)">
                     <i class="fa-solid fa-compass text-base md:text-lg"></i>
                 </button>
             </div>
@@ -662,7 +662,7 @@
     <div id="sec-intel" class="hidden w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300 overflow-hidden">
         <div class="mb-4 flex items-center justify-between">
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
-            <button onclick="toggleFocus('sec-intel')" aria-label="Focus Intel" class="text-brand-teal hover:text-white transition-colors p-2"><i class="fa-solid fa-expand text-lg" id="icon-sec-intel"></i></button>
+            <button onclick="toggleFocus('sec-intel')" aria-label="Focus Intel" class="tap-48 w-11 h-11 flex items-center justify-center text-brand-teal hover:text-white transition-colors"><i class="fa-solid fa-expand text-lg" id="icon-sec-intel"></i></button>
         </div>
         <div id="timeline-container" class="pb-2 no-select w-full"></div>
     </div>
@@ -799,9 +799,9 @@
                     </button>
                 </div>
             </div>
-            <div class="flex gap-3 justify-end mt-6">
-                <button onclick="closeModal('fuel-settings-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
-                <button id="save-fuel-btn" class="px-4 py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Save Config</button>
+            <div class="flex flex-col sm:flex-row gap-3 sm:justify-end mt-6">
+                <button onclick="closeModal('fuel-settings-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
+                <button id="save-fuel-btn" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-orange text-black font-black rounded-lg hover:bg-orange-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(245,158,11,0.5)]">Save Config</button>
             </div>
         </div>
     </div>
@@ -810,9 +810,9 @@
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
             <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations, clear all cached data, and restart the system. Proceed?</p>
-            <div class="flex gap-3 justify-end">
-                <button onclick="closeModal('custom-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
-                <button onclick="executePurge()" class="px-4 py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
+            <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                <button onclick="closeModal('custom-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
+                <button onclick="executePurge()" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
             </div>
         </div>
     </div>
@@ -846,11 +846,11 @@
                 <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-brand-purple pt-2 border-t border-surface-700"><span>Quality</span><span id="magcal-quality">UNCALIBRATED</span></div>
             </div>
 
-            <div class="flex gap-3 justify-between mt-2">
-                <button onclick="closeModal('magcal-modal')" class="px-4 py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
+            <div class="flex flex-col sm:flex-row gap-3 sm:justify-between mt-2">
+                <button onclick="closeModal('magcal-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Close</button>
                 <div class="flex gap-2">
-                    <button id="magcal-clear-btn" onclick="clearMagCalibration()" class="px-4 py-2 bg-surface-800 text-brand-red font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Clear</button>
-                    <button id="magcal-go-btn" onclick="startMagCalCapture()" class="px-5 py-2 bg-brand-purple text-white font-black rounded-lg hover:opacity-90 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(168,85,247,0.5)]">Start</button>
+                    <button id="magcal-clear-btn" onclick="clearMagCalibration()" class="flex-1 sm:flex-none px-4 py-3 sm:py-2 bg-surface-800 text-brand-red font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Clear</button>
+                    <button id="magcal-go-btn" onclick="startMagCalCapture()" class="flex-1 sm:flex-none px-5 py-3 sm:py-2 bg-brand-purple text-white font-black rounded-lg hover:opacity-90 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(168,85,247,0.5)]">Start</button>
                 </div>
             </div>
         </div>
@@ -6999,10 +6999,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 <div class="mb-2">${matchBadgeUI}</div>
                                 ${hoursBadgeUI}
                                 <div class="flex gap-1.5 mb-2 w-full">
-                                    <button aria-label="Official Source Verification" class="verify-official-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600"><i class="fa-solid fa-globe text-brand-orange mb-0.5 block text-xs"></i>Official</button>
-                                    <button aria-label="Google Maps Verification" class="verify-gmaps-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-1.5 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600"><i class="fa-solid fa-map-location-dot text-brand-blue mb-0.5 block text-xs"></i>GMaps</button>
+                                    <button aria-label="Official Source Verification" class="verify-official-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-3 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600"><i class="fa-solid fa-globe text-brand-orange mb-0.5 block text-xs"></i>Official</button>
+                                    <button aria-label="Google Maps Verification" class="verify-gmaps-btn bg-surface-700 text-gray-300 font-bold text-[9px] py-3 rounded uppercase tracking-widest flex-1 hover:bg-surface-600 transition-colors border border-surface-600"><i class="fa-solid fa-map-location-dot text-brand-blue mb-0.5 block text-xs"></i>GMaps</button>
                                 </div>
-                                <button aria-label="Route to Pit Stop" class="set-pitstop-btn bg-brand-orange text-black font-black text-[10px] px-3 py-2 rounded-md uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.4)] w-full hover:bg-orange-400 transition-colors"><i class="fa-solid fa-route mr-1"></i> Route Here</button>
+                                <button aria-label="Route to Pit Stop" class="set-pitstop-btn bg-brand-orange text-black font-black text-[10px] px-3 py-3 rounded-md uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.4)] w-full hover:bg-orange-400 transition-colors"><i class="fa-solid fa-route mr-1"></i> Route Here</button>
                             </div>
                         `;
                         marker.bindPopup(popupContent, { className: 'custom-popup-dark', offset: [0, -10] });
