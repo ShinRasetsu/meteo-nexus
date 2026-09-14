@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com https://marine-api.open-meteo.com https://geocoding-api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
@@ -74,7 +74,8 @@
             precipitation: null, rain: null, showers: null, snowfall: null,
             cloudCover: null, pressure: null, visibility: null,
             temperature: null, apparentTemp: null, tempTrend: null,
-            sunPair: null, groundSpeed: null
+            sunPair: null, groundSpeed: null,
+            aq: null, marine: null, routeElev: null
         };
     </script>
 
@@ -466,6 +467,8 @@
                                     <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- hPa</span>
                                     <span class="text-gray-600 text-[10px]">|</span>
                                     <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- km</span>
+                                    <span class="text-gray-600 text-[10px]">|</span>
+                                    <span id="metric-aq" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest" title="Air quality">-- AQI</span>
                                 </div>
                             </div>
                             <div class="text-right">
@@ -473,6 +476,13 @@
                                 <div id="metric-uv-val" class="font-mono text-3xl md:text-4xl font-black text-brand-purple leading-none">--</div>
                                 <div id="metric-uv-band" class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">--</div>
                                 <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
+                            </div>
+                        </div>
+
+                        <div id="sec-sea" class="hidden justify-between items-end border-b-2 border-surface-800 pb-4">
+                            <div>
+                                <span class="text-sm font-bold text-brand-blue uppercase tracking-widest block mb-1"><i class="fa-solid fa-water mr-2"></i>Sea State</span>
+                                <div id="metric-sea" class="font-mono text-sm md:text-base font-bold text-gray-200">--</div>
                             </div>
                         </div>
 
@@ -535,6 +545,13 @@
                 <button id="gmaps-paste-btn" onclick="handlePasteAndLoad()" aria-label="Paste Location Link" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-sm">
                     <i class="fa-solid fa-bolt text-base sm:text-sm"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
+                <div class="relative flex items-center gap-2">
+                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place…" aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl px-3 text-xs md:text-sm font-bold text-white placeholder-gray-500 w-32 sm:w-44 focus:border-brand-teal" />
+                    <button id="geo-search-btn" onclick="handleGeoSearch()" aria-label="Search place" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 flex items-center justify-center rounded-xl text-xs md:text-sm transition-all shadow-sm">
+                        <i class="fa-solid fa-magnifying-glass text-base sm:text-sm"></i>
+                    </button>
+                    <div id="geo-search-results" class="hidden absolute top-full mt-1 left-0 min-w-[12rem] max-w-[80vw] max-h-56 overflow-y-auto bg-surface-900 border-2 border-surface-700 rounded-xl shadow-xl z-[1001]"></div>
+                </div>
                 <button id="nav-clear-btn" onclick="resetToAuto()" aria-label="Clear Route" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-white font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all flex items-center gap-0 sm:gap-2 shadow-sm">
                     <i class="fa-solid fa-xmark text-base sm:text-sm"></i> <span class="hidden sm:inline">Clear</span>
                 </button>
@@ -903,6 +920,117 @@
             }
             throw new Error(`Fetch failed after ${retries} retries: ${url}`);
         };
+
+        // --- SIBLING APIs (Open-Meteo family: air-quality, marine, geocoding,
+        // elevation) ---
+        // Same conventions as the forecast API (free, keyless, same JSON
+        // shapes) on their own hosts (see CONFIG + CSP connect-src).
+        // fetchSiblingJSON NEVER throws — a sick sibling resolves null so it
+        // can never break the main telemetry render. Each sibling publishes
+        // to __METEO_CORE_STATE, persists its own IndexedDB row, and paints
+        // its own UI row directly (siblings land after the main render; they
+        // don't ride processTelemetryPayload).
+        async function fetchSiblingJSON(label, url, timeoutMs = 10000) {
+            try {
+                const r = await fetchWithRetry(url, { priority: 'low', timeout: timeoutMs }, 1, 500);
+                return await r.json();
+            } catch (e) { console.debug(`[sibling:${label}] unavailable:`, e && e.message); return null; }
+        }
+
+        // Air Quality: US AQI + PM2.5 + ozone → telemetry sub-line. Null-safe:
+        // uncovered regions, failed fetch, and old caches all render '--'.
+        function publishAirQuality(dAQ) {
+            const c = dAQ && dAQ.current ? dAQ.current : null;
+            const aqi = c && typeof c.us_aqi === 'number' ? Math.round(c.us_aqi) : null;
+            const pm = c && typeof c.pm2_5 === 'number' ? c.pm2_5 : null;
+            const o3 = c && typeof c.ozone === 'number' ? c.ozone : null;
+            window.__METEO_CORE_STATE.aq = (aqi === null && pm === null && o3 === null) ? null : { aqi, pm25: pm, o3 };
+            if (!DOM.metricAq) return;
+            if (aqi === null) {
+                updateText(DOM.metricAq, 'AQI --');
+                DOM.metricAq.title = 'Air quality unavailable for this area';
+                return;
+            }
+            const band = aqi <= 50 ? 'GOOD' : aqi <= 100 ? 'MODERATE' : aqi <= 150 ? 'USG' : 'UNHEALTHY';
+            updateText(DOM.metricAq, `AQI ${aqi} ${band} · PM2.5 ${pm !== null ? pm.toFixed(0) : '--'}`);
+            DOM.metricAq.title = `US AQI ${aqi} (${band}) · O3 ${o3 !== null ? o3.toFixed(0) : '--'} µg/m³ — CAMS via Open-Meteo`;
+        }
+
+        // Marine: wave height/dir/period + swell + current + SST → sea-state
+        // row, shown ONLY when the ocean model reports (null over land and
+        // on failed fetch → row stays hidden, never a lying '--').
+        // NOTE: marine hourly.time is ISO8601 even with timeformat=unixtime
+        // (verified live), so the unix binary-search helper does NOT apply —
+        // a tiny ascending scan finds the now-index (≤168 iterations at
+        // fetch cadence, negligible).
+        function publishMarine(dMarine) {
+            const h = dMarine && dMarine.hourly ? dMarine.hourly : null;
+            let m = null;
+            if (h && Array.isArray(h.time) && h.time.length > 0) {
+                const nowMs = Date.now();
+                let idx = 0;
+                for (let k = 0; k < h.time.length; k++) {
+                    const t = Date.parse(h.time[k]);
+                    if (!Number.isFinite(t) || t > nowMs) break;
+                    idx = k;
+                }
+                const num = (arr) => (Array.isArray(arr) && typeof arr[idx] === 'number') ? arr[idx] : null;
+                const wv = num(h.wave_height);
+                if (wv !== null) {
+                    m = {
+                        h: wv, dir: num(h.wave_direction), period: num(h.wave_period),
+                        swellH: num(h.swell_wave_height), swellDir: num(h.swell_wave_direction),
+                        curr: num(h.ocean_current_velocity), sst: num(h.sea_surface_temperature)
+                    };
+                }
+            }
+            window.__METEO_CORE_STATE.marine = m;
+            if (DOM.secSea) {
+                DOM.secSea.classList.toggle('hidden', m === null);
+                DOM.secSea.classList.toggle('flex', m !== null);
+            }
+            if (DOM.metricSea) {
+                if (!m) { updateText(DOM.metricSea, '--'); return; }
+                const seg = [];
+                seg.push(`${m.h.toFixed(1)}m @ ${m.period !== null ? m.period.toFixed(0) + 's' : '--'} ${m.dir !== null ? getWindDirection(m.dir) : '--'}`);
+                if (m.swellH !== null) seg.push(`swell ${m.swellH.toFixed(1)}m${m.swellDir !== null ? ' ' + getWindDirection(m.swellDir) : ''}`);
+                if (m.curr !== null) seg.push(`cur ${m.curr.toFixed(1)} km/h`);
+                if (m.sst !== null) seg.push(`SST ${m.sst.toFixed(1)}°`);
+                updateText(DOM.metricSea, seg.join(' · '));
+            }
+        }
+
+        // Elevation: batch heights for the active route → min/max/ascent.
+        // Route-gated (NOT telemetry-gated): keyed by route signature so
+        // re-renders don't refetch. Null-safe: the timeline renders fine
+        // without the strip.
+        async function fetchRouteElevation() {
+            try {
+                const nodes = state.routeNodes;
+                if (!nodes || nodes.length < 2) { state.routeElev = null; return; }
+                const first = nodes[0], last = nodes[nodes.length - 1];
+                const lonOf = (n) => (n.lon !== undefined ? n.lon : n.lng);
+                const sig = nodes.length + ':' + first.lat.toFixed(3) + ',' + lonOf(first).toFixed(3) + ':' + last.lat.toFixed(3) + ',' + lonOf(last).toFixed(3);
+                if (sig === state._lastElevSig) return;
+                state._lastElevSig = sig;
+                const step = Math.max(1, Math.floor(nodes.length / 100));
+                const lats = [], lons = [];
+                for (let k = 0; k < nodes.length; k += step) { lats.push(nodes[k].lat); lons.push(lonOf(nodes[k])); }
+                const ln = nodes[nodes.length - 1];
+                if (lats[lats.length - 1] !== ln.lat) { lats.push(ln.lat); lons.push(lonOf(ln)); }
+                const j = await fetchSiblingJSON('elev', `${CONFIG.elevApi}?latitude=${lats.join(',')}&longitude=${lons.join(',')}`);
+                const arr = (j && Array.isArray(j.elevation) ? j.elevation : []).filter(v => typeof v === 'number');
+                if (!arr.length) { state.routeElev = null; return; }
+                let mn = Infinity, mx = -Infinity, gain = 0;
+                for (let k = 0; k < arr.length; k++) {
+                    if (arr[k] < mn) mn = arr[k];
+                    if (arr[k] > mx) mx = arr[k];
+                    if (k > 0 && arr[k] > arr[k - 1]) gain += arr[k] - arr[k - 1];
+                }
+                state.routeElev = { min: Math.round(mn), max: Math.round(mx), gain: Math.round(gain) };
+                window.__METEO_CORE_STATE.routeElev = state.routeElev;
+            } catch (e) { console.debug('[sibling:elev] failed:', e && e.message); state.routeElev = null; }
+        }
 
         // --- REGEXP INSTANCES ---
         const RX_NUM = "([+-]?\\d+(?:\\.\\d+)?)";
@@ -1444,6 +1572,10 @@
         // sonarThreshold references WeatherEnsemble so they stay in sync if WET_LIKELY_PCT is tuned.
         const CONFIG = {
             weatherApi: 'https://api.open-meteo.com/v1/forecast',
+            elevApi: 'https://api.open-meteo.com/v1/elevation',
+            aqApi: 'https://air-quality-api.open-meteo.com/v1/air-quality',
+            marineApi: 'https://marine-api.open-meteo.com/v1/marine',
+            geoApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
             sonarThreshold: WeatherEnsemble.WET_LIKELY_PCT,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
@@ -1876,6 +2008,9 @@
             codeAgreementBadge: document.getElementById('code-agreement-badge'),
             metricWindSpeed: document.getElementById('metric-wind-speed'), metricWindDir: document.getElementById('metric-wind-dir'),
             metricPressure: document.getElementById('metric-pressure'), metricVisibility: document.getElementById('metric-visibility'),
+            metricAq: document.getElementById('metric-aq'),
+            secSea: document.getElementById('sec-sea'), metricSea: document.getElementById('metric-sea'),
+            geoSearchInput: document.getElementById('geo-search-input'), geoSearchResults: document.getElementById('geo-search-results'),
             metricUvVal: document.getElementById('metric-uv-val'), metricUvTime: document.getElementById('metric-uv-time'),
             metricUvBand: document.getElementById('metric-uv-band'),
             lowConfDot: document.getElementById('low-conf-dot'),
@@ -4011,6 +4146,36 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
         };
 
+        // Geocoding search (Open-Meteo sibling, keyless): type a place name,
+        // pick a result, and it enters the SAME activateLiveNavigation path
+        // as a pasted link. Null-safe throughout; a failed search just shows
+        // NO MATCHES and never touches navigation state.
+        window.handleGeoSearch = async function() {
+            const input = DOM.geoSearchInput, box = DOM.geoSearchResults;
+            if (!input || !box) return;
+            const q = (input.value || '').trim();
+            if (q.length < 2) { box.classList.add('hidden'); return; }
+            updateHTML(box, `<div class="px-3 py-2 text-gray-500 text-xs font-bold uppercase tracking-widest">SEARCHING…</div>`);
+            box.classList.remove('hidden');
+            const j = await fetchSiblingJSON('geo', `${CONFIG.geoApi}?name=${encodeURIComponent(q)}&count=5&language=en&format=json`);
+            const list = (j && Array.isArray(j.results) ? j.results : [])
+                .filter(r => typeof r.latitude === 'number' && typeof r.longitude === 'number')
+                .slice(0, 5);
+            if (!list.length) {
+                updateHTML(box, `<div class="px-3 py-2 text-brand-warning text-xs font-bold uppercase tracking-widest">NO MATCHES</div>`);
+                return;
+            }
+            updateHTML(box, list.map((r, i) => {
+                const label = sanitizeHTML([r.name, r.admin1, r.country].filter(Boolean).join(', '));
+                return `<button data-geo-i="${i}" class="block w-full text-left px-3 py-2 text-xs font-bold text-gray-200 uppercase tracking-widest hover:bg-surface-800 border-b border-surface-800 last:border-0">${label}</button>`;
+            }).join(''));
+            box.querySelectorAll('[data-geo-i]').forEach(b => b.addEventListener('click', () => {
+                const r = list[Number(b.getAttribute('data-geo-i'))];
+                box.classList.add('hidden'); input.value = '';
+                if (r) window.activateLiveNavigation(r.latitude, r.longitude);
+            }));
+        };
+
         async function processGMapLink(url) {
             updateText(DOM.statusEl, "DECRYPTING TARGET...");
             updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
@@ -4286,6 +4451,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // `originalRouteNodes || routeNodes`) and scanned the wrong path.
                 state.originalRouteNodes = state.routeNodes.map(node => ({ ...node }));
                 state.originalRouteNodesCursor = 0;
+                // Route elevation profile (Open-Meteo elevation sibling):
+                // one batched call per NEW route signature; repeats are free
+                // via the sig gate inside. Renders into the timeline header.
+                await fetchRouteElevation();
             }
 
             let unpassedNodes = [];
@@ -4461,6 +4630,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             let htmlBuffer = '';
             if (isOffline) {
                 htmlBuffer += `<div class="w-full text-center py-2 mb-2 text-brand-orange font-mono font-bold uppercase tracking-widest text-xs bg-brand-orange/10 border-2 border-brand-orange/30 rounded-lg"><i class="fa-solid fa-triangle-exclamation mr-2"></i> OFFLINE — LAST KNOWN ROUTE WEATHER</div>`;
+            }
+            // Route elevation strip (batch-fetched per route signature; absent
+            // on first load, failed fetch, or cleared route — never blocks).
+            if (state.routeElev) {
+                const re = state.routeElev;
+                htmlBuffer += `<div class="w-full text-center py-1.5 mb-2 text-brand-teal font-mono font-bold uppercase tracking-widest text-xs bg-brand-teal/10 border-2 border-brand-teal/30 rounded-lg"><i class="fa-solid fa-mountain mr-2"></i> ELEV &#9650;${re.max} m &#9660;${re.min} m &middot; CLIMB +${re.gain} m</div>`;
             }
             htmlBuffer += `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto gap-3 pb-4 pt-2 vertical-scroll scroll-smooth w-full relative max-h-[50vh] pr-2">`;
 
@@ -6323,6 +6498,28 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // start meant a failed fetch still looked "fresh" and
                             // suppressed the next attempt for the whole cacheTTL.
                             state.telemetryCache.timestamp = now;
+                            // --- Sibling APIs (AQ + marine): parallel, null-safe, never
+                            // block the latch beyond their own short timeouts. Each
+                            // publishes to CORE_STATE, persists its own row, and
+                            // paints its own UI row. A sick sibling degrades its
+                            // row while telemetry stays live (fetchSiblingJSON
+                            // never throws, so no try/catch needed here).
+                            const [jAQ, jMar] = await Promise.all([
+                                fetchSiblingJSON('aq', `${CONFIG.aqApi}?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10,ozone&timezone=auto&forecast_days=1`),
+                                fetchSiblingJSON('marine', `${CONFIG.marineApi}?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,ocean_current_velocity,sea_surface_temperature&timezone=auto&forecast_days=2&timeformat=unixtime`)
+                            ]);
+                            if (jAQ && jAQ.current) {
+                                const dAQ = { current: jAQ.current };
+                                publishAirQuality(dAQ);
+                                try { await localforage.setItem('sibling_aq', { dAQ, timestamp: now }); }
+                                catch (e) { console.debug('Sibling AQ persist failed:', e && e.message); }
+                            } else { publishAirQuality(null); }
+                            if (jMar && jMar.hourly) {
+                                const dMarine = { hourly: jMar.hourly };
+                                publishMarine(dMarine);
+                                try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
+                                catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
+                            } else { publishMarine(null); }
                             // Rate-limit localforage writes to every 60s — writing to disk on
                             // every 2-min fetch is unnecessary; the in-memory state is updated
                             // live. The cache only needs to survive a page reload, and 60s
@@ -6375,6 +6572,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
                                 }
+                                // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
+                                try {
+                                    const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
+                                    publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
+                                    publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
+                                } catch (sibErr) { console.debug('Sibling cache restore failed:', sibErr && sibErr.message); }
                             }
                         } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }
                     }

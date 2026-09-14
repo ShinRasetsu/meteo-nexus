@@ -113,6 +113,18 @@ assertIncludes(html, 'err.code === err.PERMISSION_DENIED', "index.html reserves 
 assertIncludes(html, 'GNSS: ACQUIRING', "null/non-finite accuracy renders ACQUIRING, not a false HIGH (0m)");
 assertIncludes(html, 'GNSS: LOW (', "degraded >60m fixes are labelled LOW, not the misleading LTE/A-GPS");
 
+// Sibling APIs (Open-Meteo family): never-throwing helper + four integrations
+assertIncludes(html, "fetchSiblingJSON", "sibling-API helper never throws so a sick sibling can't break telemetry");
+assertIncludes(html, "air-quality-api.open-meteo.com/v1/air-quality", "Air Quality sibling fetch present");
+assertIncludes(html, "marine-api.open-meteo.com/v1/marine", "Marine sibling fetch present");
+assertIncludes(html, "geocoding-api.open-meteo.com/v1/search", "Geocoding sibling fetch present");
+assertIncludes(html, 'id="metric-aq"', "telemetry card renders the Air Quality row");
+assertIncludes(html, 'id="sec-sea"', "telemetry card renders the Sea State section (hidden over land)");
+assertIncludes(html, 'id="geo-search-input"', "map header has a place-name search box");
+assertIncludes(html, "handleGeoSearch", "search results route through activateLiveNavigation");
+assertIncludes(html, "fetchRouteElevation", "route elevation batch fetch present");
+assertIncludes(html, "CLIMB +", "route timeline renders the elevation strip");
+
 // Critical CDN libs
 assertIncludes(html, 'unpkg.com/leaflet@1.9.4/dist/leaflet.js', "Leaflet 1.9.4 loaded");
 assertIncludes(html, 'cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js', "Chart.js 4.4.1 loaded");
