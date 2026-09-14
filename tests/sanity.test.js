@@ -334,7 +334,7 @@ assertIncludes(html, "closest('.hidden')", "index.html guards the Aero HUD mount
 assertIncludes(html, "aero-radar-card", "index.html ids the Aero radar card for fullscreen-mobile CSS");
 assertIncludes(html, 'id="aero-row-top"', "index.html groups Aero fullscreen chips into top corners around the centered dial");
 assertIncludes(html, 'id="aero-row-bottom"', "index.html groups Aero fullscreen chips into bottom corners around the centered dial");
-assertIncludes(html, 'id="aero-corner-br"', "index.html balances 8 chips as 4 corners x 2 (Brier + Sun bottom-right)");
+assertIncludes(html, 'id="aero-corner-br"', "index.html balances 8 chips as 4 corners x 2 (Rain + Sun bottom-right)");
 assertIncludes(html, 'id="ui-radar-sun-a"', "index.html declares the 8th Sun chip (upcoming rise/set)");
 assertIncludes(html, "daily=sunrise,sunset", "index.html fetches daily sunrise/sunset for the Sun chip");
 assertIncludes(html, "nextSunPair", "index.html computes the upcoming rise/set pair for the Sun chip");
@@ -348,9 +348,15 @@ assertIncludes(html, "SPD_KMH", "speed tape keeps a km/h domain (knots shortens 
 assertIncludes(html, "SPD_KT", "speed tape rebuilds in knots with a centred dead-0");
 assertIncludes(html, "bearingTo(lat1, lon1, lat2, lon2)", "COG steering has a great-circle bearing helper");
 assertIncludes(html, "crossTrackKm", "COG steering has a signed cross-track helper");
-assertIncludes(html, 'id="radar-units-btn"', "Aero header has a knots toggle");
-assertIncludes(html, 'id="ui-tape-steer"', "heading band renders the waypoint steering line");
-assertIncludes(html, 'id="ui-tape-rain"', "heading band renders the rain countdown line");
+assertIncludes(html, 'id="ui-tape-spd-box"', "knots toggle lives on the speed-tape readout box");
+assertIncludes(html, 'id="ui-tape-steer"', "heading band renders the waypoint steering line (hidden when idle)");
+assertIncludes(html, 'id="ui-radar-temp"', "Temp corner chip replaces Regime");
+assertIncludes(html, 'id="ui-radar-winddir"', "Wind corner chip replaces Spread");
+assertIncludes(html, 'id="ui-radar-rain"', "Rain corner chip replaces Brier");
+assert(
+  !html.includes('id="ui-radar-regime"') && !html.includes('id="ui-radar-spread"') && !html.includes('id="ui-radar-brier"') && !html.includes('NO ROUTE'),
+  "retired Regime/Spread/Brier chips + NO ROUTE placeholder fully removed"
+);
 assertIncludes(html, "computeRainEta", "rain countdown derives from minutely_15 at fetch cadence");
 assertIncludes(html, "tape-neg", "sub-zero speed ticks are tinted as dead zone");
 assertIncludes(html, ".tape-strip { position: absolute; top: 0; left: 0; width: 100%;", "tape strips span their window so right-anchored alt ticks resolve inside it (zero-width strip clipped them)");

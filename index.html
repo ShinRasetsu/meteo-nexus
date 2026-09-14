@@ -7532,9 +7532,6 @@ function checkDependenciesAndRun() {
                         <button id="radar-expand-btn" class="tap-48 text-brand-teal hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Expand Aero HUD">
                             <i class="fa-solid fa-expand text-base"></i>
                         </button>
-                        <button id="radar-units-btn" class="tap-48 text-brand-blue hover:text-white transition-colors p-2 bg-surface-800 border-2 border-surface-700 rounded-lg flex items-center justify-center pointer-events-auto shadow-sm" aria-label="Toggle knots">
-                            <span id="radar-units-label" class="text-xs font-black tracking-widest">KM/H</span>
-                        </button>
                     </div>
                 </div>
 
@@ -7544,8 +7541,7 @@ function checkDependenciesAndRun() {
                         <div id="ui-tape-hdg-strip" class="tape-strip"></div>
                         <div class="tape-caret-down"></div>
                     </div>
-                    <div id="ui-tape-steer" class="font-mono text-[11px] font-bold text-gray-300 tracking-widest" style="min-height:1rem">NO ROUTE</div>
-                    <div id="ui-tape-rain" class="font-mono text-[11px] font-bold text-gray-500 tracking-widest" style="min-height:1rem">---</div>
+                    <div id="ui-tape-steer" class="font-mono text-[11px] font-bold text-gray-300 tracking-widest" style="min-height:1rem"></div>
                 </div>
                 <div id="aero-dial-stage" class="w-full flex-1 flex items-center justify-center relative">
                 <div id="radar-dial-scaler" class="relative w-32 h-32 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] origin-center">
@@ -7591,7 +7587,7 @@ function checkDependenciesAndRun() {
                         <div id="ui-tape-spd-strip" class="tape-strip"></div>
                         <div class="tape-caret-right"></div>
                     </div>
-                    <div style="width:56px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:3px 0">
+                    <div id="ui-tape-spd-box" title="Toggle km/h · knots" style="width:56px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:3px 0;cursor:pointer;pointer-events:auto">
                         <div id="ui-tape-spd-num" class="font-mono text-base font-black text-brand-blue" style="line-height:1.1">---</div>
                         <div id="ui-tape-spd-unit" class="font-mono font-bold text-gray-500" style="font-size:8px;letter-spacing:0.1em">KM/H</div>
                     </div>
@@ -7617,8 +7613,8 @@ function checkDependenciesAndRun() {
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-droplet mr-1"></i>Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-dewpoint" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                     </div>
                     <div id="aero-corner-tr" class="flex flex-col gap-2 w-40 md:w-44">
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-globe mr-1"></i>Regime</div><div id="ui-radar-regime" class="text-xs font-mono font-bold text-brand-teal">--</div></div>
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-chart-line mr-1"></i>Spread</div><div id="ui-radar-spread" class="text-sm font-mono font-bold text-gray-300">--°</div><div id="ui-radar-agreem" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-temperature-half mr-1"></i>Temp</div><div id="ui-radar-temp" class="text-sm font-mono font-bold text-gray-300">--°</div><div id="ui-radar-feels" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-wind mr-1"></i>Wind</div><div id="ui-radar-winddir" class="text-sm font-mono font-bold text-gray-300">--</div><div id="ui-radar-windgust" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
                     </div>
                 </div>
                 <div id="aero-row-bottom" class="aero-focus-only hidden absolute left-4 right-4 bottom-24 flex-row justify-between gap-2 pointer-events-none">
@@ -7627,7 +7623,7 @@ function checkDependenciesAndRun() {
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-eye mr-1"></i>Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
                     </div>
                     <div id="aero-corner-br" class="flex flex-col gap-2 w-40 md:w-44">
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-scale-balanced mr-1"></i>Brier</div><div id="ui-radar-brier" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-cloud-rain mr-1"></i>Rain</div><div id="ui-radar-rain" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">---</div></div>
                         <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-sun mr-1"></i>Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
                     </div>
                 </div>
@@ -7646,10 +7642,7 @@ function checkDependenciesAndRun() {
                 spdStrip:     document.getElementById('ui-tape-spd-strip'),
                 spdNum:       document.getElementById('ui-tape-spd-num'),
                 spdUnit:      document.getElementById('ui-tape-spd-unit'),
-                windUnit:     document.getElementById('ui-tape-wind-unit'),
-                unitsLabel:   document.getElementById('radar-units-label'),
                 steer:        document.getElementById('ui-tape-steer'),
-                rain:         document.getElementById('ui-tape-rain'),
                 altStrip:     document.getElementById('ui-tape-alt-strip'),
                 altNum:       document.getElementById('ui-tape-alt-num'),
                 gust:         document.getElementById('ui-radar-gust'),
@@ -7668,10 +7661,11 @@ function checkDependenciesAndRun() {
                 focusCloud: document.getElementById('ui-radar-cloud'),
                 focusOktas: document.getElementById('ui-radar-oktas'),
                 focusVis2: document.getElementById('ui-radar-vis2'),
-                focusRegime: document.getElementById('ui-radar-regime'),
-                focusSpread: document.getElementById('ui-radar-spread'),
-                focusAgreem: document.getElementById('ui-radar-agreem'),
-                focusBrier: document.getElementById('ui-radar-brier'),
+                focusTemp: document.getElementById('ui-radar-temp'),
+                focusFeels: document.getElementById('ui-radar-feels'),
+                focusWindDir: document.getElementById('ui-radar-winddir'),
+                focusWindGust: document.getElementById('ui-radar-windgust'),
+                focusRain: document.getElementById('ui-radar-rain'),
                 focusSunA: document.getElementById('ui-radar-sun-a'),
                 focusSunB: document.getElementById('ui-radar-sun-b'),
                 glanceRain: document.getElementById('hud-glance-rain'),
@@ -7753,20 +7747,16 @@ function checkDependenciesAndRun() {
             // to isRadarFullscreen, which is declared below).
             window.addEventListener('resize', measureTapes);
 
-            // Units toggle (km/h ↔ kt, Aero-local, persisted). Repaints the
-            // two unit captions immediately and rebuilds the speed tape in
-            // the new unit; render keys flip on their own since displayed
-            // values convert. The tracking card stays km/h (driving view) —
-            // documented split, not an oversight.
+            // Units toggle lives ON the speed-tape readout box (tap to flip
+            // km/h ↔ kt, persisted). Only the tape + its caption follow; the
+            // in-dial wind readout stays km/h always (helm decision) and the
+            // tracking card stays km/h (driving view) — documented splits.
             const paintUnitCaptions = () => {
-                const kt = window.__METEO_CORE_STATE.units === 'kt';
-                if (_el.unitsLabel) _el.unitsLabel.textContent = kt ? 'KT' : 'KM/H';
-                if (_el.spdUnit) _el.spdUnit.textContent = kt ? 'KT' : 'KM/H';
-                if (_el.windUnit) _el.windUnit.textContent = kt ? 'KT' : 'KM/H';
+                if (_el.spdUnit) _el.spdUnit.textContent = (window.__METEO_CORE_STATE.units === 'kt') ? 'KT' : 'KM/H';
             };
             paintUnitCaptions();
-            const unitsBtn = radarCard?.querySelector('#radar-units-btn');
-            if (unitsBtn) unitsBtn.addEventListener('click', async () => {
+            const spdBox = radarCard?.querySelector('#ui-tape-spd-box');
+            if (spdBox) spdBox.addEventListener('click', async () => {
                 const nxt = (window.__METEO_CORE_STATE.units === 'kt') ? 'kmh' : 'kt';
                 window.__METEO_CORE_STATE.units = nxt;
                 try { await localforage.setItem('aero_units', nxt); }
@@ -7896,7 +7886,7 @@ function checkDependenciesAndRun() {
                 hdgX: -Infinity, hdgNumKey: -Infinity,
                 spdY: -Infinity, spdNumKey: -Infinity,
                 altY: -Infinity, altNumKey: -Infinity,
-                steerKey: '', rainKey: -Infinity,
+                steerKey: '',
                 // Ghost trail rotation per slot, 0.1 deg resolution.
                 ghostKey: [-Infinity, -Infinity, -Infinity],
                 // PERF-AERO-KEYS-2: numeric pre-keys for the remaining text/HTML
@@ -7920,10 +7910,9 @@ function checkDependenciesAndRun() {
                 focusDpInKey: -999999,
                 focusCloudKey: -Infinity,
                 focusVis2Key: -Infinity,
-                focusRegimeKey: '',
-                focusSpreadKey: -Infinity,
-                focusAgreemKey: -1,
-                focusBrierKey: '',
+                focusTempKey: -Infinity,
+                focusWindKey: -Infinity,
+                focusRainKey: '',
                 focusSunKey: ''
             };
 
@@ -7967,22 +7956,22 @@ function checkDependenciesAndRun() {
                 // the rounded value actually changes (fetch-rate, not frame-rate).
                 if (_el.windSpeed) {
                     // Marine format: base speed with gust factor appended
-                    // (9G15) when gusts exceed base by 5+. Unit-aware like
-                    // the speed tape. Inline-styled span (not Tailwind) so a
-                    // stale precompiled stylesheet can't eat the suffix.
+                    // (9G15) when gusts exceed base by 5+. Wind readout is
+                    // ALWAYS km/h (helm decision) — only the speed tape
+                    // follows the knots toggle. Inline-styled span (not
+                    // Tailwind) so a stale precompiled stylesheet can't eat
+                    // the suffix.
                     const ws = (typeof st.windSpeed === 'number') ? Math.round(st.windSpeed) : null;
                     const gf = (typeof st.windGust === 'number') ? Math.round(st.windGust) : null;
-                    const wKt = st.units === 'kt';
-                    const wConv = (v) => wKt ? Math.round(v / 1.852) : v;
                     const showG = (ws !== null && gf !== null && (gf - ws) >= 5);
-                    const wKey = ws === null ? -1 : (wConv(ws) + 1) * 100000 + (showG ? wConv(gf) : 9999);
+                    const wKey = ws === null ? -1 : (ws + 1) * 100000 + (showG ? gf : 9999);
                     if (_uiCache.wsKey !== wKey) {
                         _uiCache.wsKey = wKey;
                         if (ws === null) { _el.windSpeed.textContent = '--'; _uiCache.windSpeed = '--'; }
                         else {
                             const wStr = showG
-                                ? `${wConv(ws)}<span style="font-size:0.55em;color:#ef4444">G${wConv(gf)}</span>`
-                                : String(wConv(ws));
+                                ? `${ws}<span style="font-size:0.55em;color:#ef4444">G${gf}</span>`
+                                : String(ws);
                             _el.windSpeed.innerHTML = wStr;
                             _uiCache.windSpeed = wStr;
                         }
@@ -8218,39 +8207,27 @@ function checkDependenciesAndRun() {
                         } else _el.focusVis2.textContent = 'NO DATA';
                     }
                 }
-                if (_el.focusRegime) {
-                    const rKey = (st.wmoLabel || '') + '|' + (st.regime || '');
-                    if (_uiCache.focusRegimeKey !== rKey) {
-                        _uiCache.focusRegimeKey = rKey;
-                        const regimeRaw = (typeof window.WeatherEnsemble !== 'undefined' && window.WeatherEnsemble.getActiveRegime) ? window.WeatherEnsemble.getActiveRegime() : (st.regime || '');
-                        const regimeTxt = regimeRaw ? regimeRaw.replace(/_/g,' ').toUpperCase() : '--';
-                        _el.focusRegime.textContent = regimeTxt;
+                if (_el.focusTemp) {
+                    // Temp chip: observed air temp + feels-like, both already
+                    // in CORE_STATE. Single numeric key over the pair.
+                    const tS = (typeof st.temperature === 'number') ? Math.round(st.temperature) : null;
+                    const fS = (typeof st.apparentTemp === 'number') ? Math.round(st.apparentTemp) : null;
+                    const tfKey = (tS === null ? 9999 : tS + 200) * 1000 + (fS === null ? 9999 : fS + 200);
+                    if (_uiCache.focusTempKey !== tfKey) {
+                        _uiCache.focusTempKey = tfKey;
+                        _el.focusTemp.textContent = (tS !== null) ? (tS + '°') : '--°';
+                        if (_el.focusFeels) _el.focusFeels.textContent = (fS !== null) ? ('FEELS ' + fS + '°') : '--';
                     }
                 }
-                if (_el.focusSpread) {
-                    const sKey = (typeof st.tempSpread === 'number') ? Math.round(st.tempSpread*10) : -999;
-                    if (_uiCache.focusSpreadKey !== sKey) {
-                        _uiCache.focusSpreadKey = sKey;
-                        _el.focusSpread.textContent = (sKey !== -999) ? ('±' + (sKey/10).toFixed(1) + '°') : '--°';
-                    }
-                }
-                if (_el.focusAgreem) {
-                    // Model agreement % (0-100 scale, same as the outlook
-                    // chips) — the confidence behind the spread number.
-                    const agKey = (typeof st.agreement === 'number') ? Math.round(st.agreement) : -1;
-                    if (_uiCache.focusAgreemKey !== agKey) {
-                        _uiCache.focusAgreemKey = agKey;
-                        _el.focusAgreem.textContent = (agKey >= 0) ? (agKey + '% AGR') : '--';
-                    }
-                }
-                if (_el.focusBrier) {
-                    const bKey = st.brierScores ? JSON.stringify(st.brierScores) : '';
-                    if (_uiCache.focusBrierKey !== bKey) {
-                        _uiCache.focusBrierKey = bKey;
-                        if (st.brierScores) {
-                            const parts = Object.entries(st.brierScores).map(([k,v])=> k.slice(0,2).toUpperCase()+':'+(v==null?'--':v.toFixed(2)));
-                            _el.focusBrier.textContent = parts.join(' ');
-                        } else _el.focusBrier.textContent = 'LEARNING…';
+                if (_el.focusWindDir) {
+                    // Wind chip: compass direction + gust from CORE_STATE.
+                    const wd = (typeof st.windDir === 'number') ? Math.round(st.windDir) % 360 : null;
+                    const wg = (typeof st.windGust === 'number') ? Math.round(st.windGust) : null;
+                    const wdKey = (wd === null ? 9999 : wd) * 100000 + (wg === null ? 99999 : wg + 1000);
+                    if (_uiCache.focusWindKey !== wdKey) {
+                        _uiCache.focusWindKey = wdKey;
+                        _el.focusWindDir.textContent = (wd !== null) ? (`${getWindDirection(wd)} ${wd}°`) : '--';
+                        if (_el.focusWindGust) _el.focusWindGust.textContent = (wg !== null) ? ('GUST ' + wg) : '--';
                     }
                 }
                 if (_el.focusSunA) {
@@ -8461,13 +8438,16 @@ function checkDependenciesAndRun() {
                     }
                     if (_uiCache.steerKey !== stKey) {
                         _uiCache.steerKey = stKey;
-                        if (!nv) _el.steer.textContent = 'NO ROUTE';
-                        else if (nv.arrived) _el.steer.textContent = 'ARRIVED';
+                        if (!nv) { _el.steer.textContent = ''; _el.steer.style.display = 'none'; }
                         else {
-                            const d = nv.distKm < 10 ? nv.distKm.toFixed(1) : String(Math.round(nv.distKm));
-                            const ax = Math.abs(nv.xteKm);
-                            const x = ax < 0.05 ? '' : ` X${ax < 10 ? ax.toFixed(1) : Math.round(ax)}${nv.xteKm >= 0 ? 'R' : 'L'}`;
-                            _el.steer.textContent = `→${nv.brg}° ${d}KM${x}`;
+                            _el.steer.style.display = '';
+                            if (nv.arrived) _el.steer.textContent = 'ARRIVED';
+                            else {
+                                const d = nv.distKm < 10 ? nv.distKm.toFixed(1) : String(Math.round(nv.distKm));
+                                const ax = Math.abs(nv.xteKm);
+                                const x = ax < 0.05 ? '' : ` X${ax < 10 ? ax.toFixed(1) : Math.round(ax)}${nv.xteKm >= 0 ? 'R' : 'L'}`;
+                                _el.steer.textContent = `→${nv.brg}° ${d}KM${x}`;
+                            }
                         }
                     }
                 }
@@ -8475,13 +8455,16 @@ function checkDependenciesAndRun() {
                 // RAIN COUNTDOWN — minutely_15 precip already in CORE_STATE
                 // (fetch cadence). First ≥0.1 mm cell → minutes out; clean
                 // window → DRY 3H (12 cells × 15 min); no data → '---'.
-                if (_el.rain) {
+                if (_el.focusRain) {
+                    // Rain chip (moved here from the heading band): countdown
+                    // text with urgency color. Chip base classes live in the
+                    // template; only the tone class swaps here.
                     const re = st.rainEta;
                     const rKey = (typeof re === 'number') ? (re < 0 ? -1 : Math.round(re)) : -2;
-                    if (_uiCache.rainKey !== rKey) {
-                        _uiCache.rainKey = rKey;
-                        _el.rain.textContent = (rKey === -2) ? '---' : (rKey < 0 ? 'DRY 3H' : `RAIN ~${rKey} MIN`);
-                        _el.rain.className = `font-mono text-[11px] font-bold tracking-widest ${rKey >= 0 ? 'text-brand-warning' : 'text-gray-500'}`;
+                    if (_uiCache.focusRainKey !== rKey) {
+                        _uiCache.focusRainKey = rKey;
+                        _el.focusRain.textContent = (rKey === -2) ? '---' : (rKey < 0 ? 'DRY 3H' : `RAIN ~${rKey} MIN`);
+                        _el.focusRain.className = `text-[11px] font-mono font-bold leading-tight ${rKey >= 0 ? 'text-brand-warning' : 'text-gray-400'}`;
                     }
                 }
 

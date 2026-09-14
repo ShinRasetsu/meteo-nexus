@@ -1429,3 +1429,43 @@ Minor bump 1.8.1 → 1.9.0. Prime mover was user-reported: after a week of unrel
 ### Blind spots considered (§8)
 
 Races: single-threaded fetch-cadence writes; boot-retry guarded by `state.autoCoords`; tape strips single-writer. Leaks: one mount-once `resize` listener per tape subsystem (2 total); ~460 tick nodes built once, never rebuilt. Off-by-one/coercion: tape clamps derived from range constants (no magic rails); `-0 === 0` relied on for `-40 % 10` major ticks (verified in fixtures); `null <= 25` still passes in the `maxSpeed` gate — pre-existing, unchanged, noted. Unhandled rejections: none added (pure sync reads; fetch paths untouched). import(): none. Perf: strips 1 gated transform/frame; `Math.log` only on dewpoint-input change; tick builds mount-once. A11y: tap-48 expand; full pass still owed. Visual compositing: device pass listed pending above — the user is the runtime rig (no image input on this channel; geometry pre-computed per viewport instead).
+
+---
+
+## 1.10.0 — 2026-09-14 (minor: sibling APIs + focus-mode helm instruments)
+
+### Bump rationale
+
+Minor bump 1.9.0 → 1.10.0. Two tracks: (1) four Open-Meteo siblings integrated (Air Quality, Marine, Geocoding, Elevation) — each behind the never-throwing `fetchSiblingJSON` contract so a sick sibling can never break telemetry; (2) the Aero focus-mode helm set proposed earlier (knots, COG steering, gust wind, rain countdown) plus a user-directed revision round (corners re-crewed, toggle relocated, wind locked, NO ROUTE hidden) and tape refinements (alt strip fix, red North, density parity, upscale, edge flush). No breaking changes; no `sw.js`/`worker.js`/ensemble-math changes.
+
+### Sibling integrations (all `index.html` unless noted)
+
+- **Air Quality** — `current=us_aqi,pm2_5,pm10,ozone` joins the telemetry sub-line (`AQI 55 MODERATE · PM2.5 22 · PM10 35`, O3 in tooltip). PM10 was requested from day one and discarded — now shown.
+- **Marine sea-state** — conditional `SEA STATE` row (`0.5m @ 5s W · swell · current · SST`), rendered ONLY when the ocean model reports; over land it stays hidden, never a lying `--`. Now-index found by scan: marine `hourly.time` is ISO8601 even with `timeformat=unixtime` (verified live, coded around — the same shape-trap class as the 1.9.0 daily finding).
+- **Geocoding search** — map-header search box + top-5 dropdown entering the exact `activateLiveNavigation` path as pasted links. Failed search shows NO MATCHES, never touches nav state.
+- **Elevation** — one batched call (≤100 sampled nodes) per new route signature; timeline header strip (`ELEV ▲/▼/CLIMB`) plus a block-element climb sparkline from the kept ~50-pt profile (mapping fixture-verified incl. flat-route edge).
+- **Sibling 10-min TTL** — AQ/marine refresh when stale >10 min OR moved >5 km (first boot always fetches). Both update hourly upstream; ~80% fewer requests for zero information loss.
+- **Lapse-rate verdict (shipped as a non-change)** — the proposal was to cold-correct route temps by −6.5 °C/km. Live A/B killed it: same summit, default DEM (2609 m) → **10.0 °C** vs `elevation=100` override → **25.5 °C** (6.2 °C/km) — the API already corrects to terrain, so the proposal would have double-corrected a ~15 °C error onto mountain routes. Documented here so nobody re-proposes it.
+- 3 new CSP origins (`air-quality-`, `marine-`, `geocoding-api.open-meteo.com`); `csp-audit` confirms 0 gaps. Separate IndexedDB rows per sibling with old-install backward compat.
+
+### Focus-mode helm set + revision round
+
+- **Knots toggle** — tap the speed-tape digital box (moved off the retired header button); tape rebuilds in −50…190 kt with dead-0 still centred; persisted. Tracking card stays km/h (documented split: driving vs helm view).
+- **COG steering** — `→brg dist XTE-R/L` under the heading tape from 1 Hz GPS tick (`bearingTo`/`crossTrackKm`, 9/9 fixtures incl. R/L sign proof); `ARRIVED` terminal state; NaN collapses to hidden (never prints, never thrashes).
+- **Gust wind** — in-dial readout appends red `G15` when gusts exceed base by 5+; **locked to km/h always** per user (helm decision is final in SI).
+- **Rain countdown** — first ≥0.1 mm minutely cell → `RAIN ~N MIN`, clean window → `DRY 3H`, computed at fetch cadence.
+- **Corners re-crewed** — Regime/Spread/Brier (+ dead force math) removed; TR is now Temp (air + feels) and Wind (compass + gust), BR's spare slot is the Rain countdown moved down from the band. Still 8 balanced chips, zero new fetches. NO ROUTE placeholder removed (line hides when idle).
+- **Tape refinements** — alt strip zero-width fix (the real defect behind "box but no ladder": `right:`-anchored ticks resolved against a zero-width strip into the clipped region; one-line `width:100%` + guard); red North + 8 px cardinals; smaller wind readout/arrow; alt density to speed parity (25/50 m, 261/131 nodes verified); verticals upscaled to 44×180 and flushed to the glass (`-1rem` cancels card padding); dial 0.56.
+- `tests/sanity.test.js` — 175 → 202 (+27 incl. 4th negative-pair removal set).
+- `VERSION` → `1.10.0`, `package.json` → `"version": "1.10.0"`, `AGENTS.md` §11 synced, `HISTORY.md` — this chapter.
+
+### Gates run + evidence (at bump)
+
+- `npm run lint` 0 · `npm test` 202 sanity + 35 unit · `npm run audit` 8/8 PASS (extract+parse OK module 860..8620, TDZ 0, fp 0, brace depth=0/max=10, CSP 0 gaps, DOM-null 0, visual PASS inventory unchanged, shell PASS) · `npm run audit:verify` 24/24 · `npm run precheck` Tailwind v4.3.3 green · `node tests/audit-unified.mjs` 37 checks PASS, perfection PASS (0 stairs, 0 janks).
+- Live API proofs: air-quality sample (AQI 55/PM2.5 21.7/O₃ 40 Manila); marine sample (0.5 m @ 272°/5.4 s, 1.2 km/h current); lapse A/B above; elevation endpoint shape assumed standard (probe on first device round if strip misbehaves).
+- Fixture suites (temp scripts, since removed): bearing/XTE 9/9, sparkline mapping 5/5 (an earlier draft caught 2 of my own test-expectation slips — round-half-up, downsample cap — code re-verified correct, comment corrected, re-greened), alt-density 4/4, tape-scale/centering 8/8.
+- **PENDING (user device):** sibling rows live values + 10-min cadence, search→route, elevation strip/sparkline on a hilly route, knots persistence + tape rebuild, steering on a real route (side correctness, ARRIVED), gust suffix, countdown flip, edge-flush tapes, Fetch Gate on the 4 new origins (first 200s).
+
+### Blind spots considered (§8)
+
+Races: sibling `Promise.all` resolves independently; toggle/restore both funnel through `paintUnitCaptions`+`buildSpdTape` (idempotent); GPS nav single-writer at 1 Hz. Leaks: no new listeners (toggle reuses mount scope; results buttons GC with dropdown innerHTML). Off-by-one/coercion: steer key field packing verified collision-free by construction (brg×4e7 + dist×2000 + xte, ranges disjoint); `-50 % 10` → `-0 === 0` major-tick reliance re-verified after the −50 floor; `catch(_){}` precedents left untouched, new catches all log. Unhandled rejections: sibling helper never throws; toggle/restore paths caught; geocoding awaited in handler. import(): none. Perf: two extra fetches per 10 min (parallel, off the latch critical path); steer math ~6 transcendentals per GPS fix (1 Hz, negligible); sparkline ≤51 chars per timeline render. A11y: search input labelled; tape-box toggle is pointer-only (keyboard path owed). Visual compositing: device pass listed pending above.
