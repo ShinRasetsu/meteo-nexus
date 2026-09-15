@@ -126,6 +126,11 @@ assertIncludes(html, "enableHighAccuracy: false", "boot takes a fast coarse fix 
 assertIncludes(html, "_bootVersion", "update-available detector baselines the boot version");
 assertIncludes(html, "TAP TO RELOAD", "deploys surface a one-tap reload pill instead of sitting stale");
 assertIncludes(html, "closest('#geo-search-results')", "search dropdown dismisses on outside tap (once-bound)");
+assertIncludes(html, "swReg.update()", "update tap chains through SW update for exactly one reload");
+assertIncludes(html, "utc_offset_seconds: jMar.utc_offset_seconds", "marine keeps its UTC offset for traveler-safe hour picks");
+assertIncludes(html, "Number.isFinite(state.renderAccuracy)", "coarse fixes can't seed max speed");
+assertIncludes(html, "nodes[Math.floor(nodes.length / 2)]", "elevation signature covers the route middle");
+assertIncludes(html, "mySeq !== _geoSeq", "stale geocoding responses lose to newer searches");
 
 // Mobile-first pass: portrait is the primary viewport, desktop variants preserved
 assertIncludes(html, "text-xl sm:text-2xl md:text-3xl", "header title scales down so 360px never overflows");

@@ -967,12 +967,25 @@
         // fetch cadence, negligible).
         function publishMarine(dMarine) {
             const h = dMarine && dMarine.hourly ? dMarine.hourly : null;
+            // Location-UTC offset carried on the split (marine responses
+            // include utc_offset_seconds). ISO cells without a zone suffix
+            // parse as DEVICE-local — without this a traveler whose phone TZ
+            // differs from the viewed coast picks the wrong hourly cell.
+            // Falls back to the old device-local parse when absent (old
+            // caches), plus raw unixtime numbers if the shape ever changes.
+            const _mOff = (dMarine && typeof dMarine.utc_offset_seconds === 'number') ? dMarine.utc_offset_seconds : null;
+            const _offStr = (() => {
+                if (_mOff === null) return '';
+                const s = _mOff < 0 ? '-' : '+', a = Math.abs(_mOff);
+                return s + String(Math.floor(a / 3600)).padStart(2, '0') + ':' + String(Math.floor((a % 3600) / 60)).padStart(2, '0');
+            })();
+            const _mTime = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v * 1000 : Date.parse(String(v) + _offStr);
             let m = null;
             if (h && Array.isArray(h.time) && h.time.length > 0) {
                 const nowMs = Date.now();
                 let idx = 0;
                 for (let k = 0; k < h.time.length; k++) {
-                    const t = Date.parse(h.time[k]);
+                    const t = _mTime(h.time[k]);
                     if (!Number.isFinite(t) || t > nowMs) break;
                     idx = k;
                 }
@@ -1012,7 +1025,8 @@
                 if (!nodes || nodes.length < 2) { state.routeElev = null; return; }
                 const first = nodes[0], last = nodes[nodes.length - 1];
                 const lonOf = (n) => (n.lon !== undefined ? n.lon : n.lng);
-                const sig = nodes.length + ':' + first.lat.toFixed(3) + ',' + lonOf(first).toFixed(3) + ':' + last.lat.toFixed(3) + ',' + lonOf(last).toFixed(3);
+                const mid = nodes[Math.floor(nodes.length / 2)];
+                const sig = nodes.length + ':' + first.lat.toFixed(3) + ',' + lonOf(first).toFixed(3) + ':' + last.lat.toFixed(3) + ',' + lonOf(last).toFixed(3) + ':' + mid.lat.toFixed(3) + ',' + lonOf(mid).toFixed(3);
                 if (sig === state._lastElevSig) return;
                 state._lastElevSig = sig;
                 const step = Math.max(1, Math.floor(nodes.length / 100));
@@ -2313,7 +2327,7 @@ try {
             if (state.renderSpeed !== null) {
                 const spd3 = String(state.renderSpeed).padStart(3, '0');
                 updateText(DOM.liveSpeed, spd3);
-                if (state.renderSpeed > state.maxSpeed && state.renderSpeed < 350 && state.renderAccuracy <= 25) {
+                if (state.renderSpeed > state.maxSpeed && state.renderSpeed < 350 && Number.isFinite(state.renderAccuracy) && state.renderAccuracy <= 25) {
                     state.maxSpeed = state.renderSpeed; updateText(DOM.maxSpeed, String(state.maxSpeed).padStart(3, '0'));
                 }
                 state.renderSpeed = null;
@@ -4213,7 +4227,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // pick a result, and it enters the SAME activateLiveNavigation path
         // as a pasted link. Null-safe throughout; a failed search just shows
         // NO MATCHES and never touches navigation state.
+        let _geoSeq = 0;
         window.handleGeoSearch = async function() {
+            const mySeq = ++_geoSeq;
             const input = DOM.geoSearchInput, box = DOM.geoSearchResults;
             if (!input || !box) return;
             const q = (input.value || '').trim();
@@ -4221,6 +4237,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             updateHTML(box, `<div class="px-3 py-2 text-gray-500 text-xs font-bold uppercase tracking-widest">SEARCHING…</div>`);
             box.classList.remove('hidden');
             const j = await fetchSiblingJSON('geo', `${CONFIG.geoApi}?name=${encodeURIComponent(q)}&count=5&language=en&format=json`);
+            if (mySeq !== _geoSeq) return; // stale response loses to the newer search
             const list = (j && Array.isArray(j.results) ? j.results : [])
                 .filter(r => typeof r.latitude === 'number' && typeof r.longitude === 'number')
                 .slice(0, 5);
@@ -6629,7 +6646,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     catch (e) { console.debug('Sibling AQ persist failed:', e && e.message); }
                                 } else { publishAirQuality(null); }
                                 if (jMar && jMar.hourly) {
-                                    const dMarine = { hourly: jMar.hourly };
+                                    const dMarine = { hourly: jMar.hourly, utc_offset_seconds: jMar.utc_offset_seconds };
                                     publishMarine(dMarine);
                                     try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
                                     catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
