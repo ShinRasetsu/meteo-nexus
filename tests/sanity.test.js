@@ -125,6 +125,7 @@ assertIncludes(html, "grid-cols-5", "map toolbar lays buttons in an even portrai
 assertIncludes(html, "enableHighAccuracy: false", "boot takes a fast coarse fix first instead of waiting on GNSS TTFF");
 assertIncludes(html, "_bootVersion", "update-available detector baselines the boot version");
 assertIncludes(html, "TAP TO RELOAD", "deploys surface a one-tap reload pill instead of sitting stale");
+assertIncludes(html, "closest('#geo-search-results')", "search dropdown dismisses on outside tap (once-bound)");
 
 // Mobile-first pass: portrait is the primary viewport, desktop variants preserved
 assertIncludes(html, "text-xl sm:text-2xl md:text-3xl", "header title scales down so 360px never overflows");
@@ -374,6 +375,8 @@ assertIncludes(html, ".tape-strip { position: absolute; top: 0; left: 0; width: 
 assertIncludes(html, 'text-brand-red font-black bg-surface-900 px-1 rounded border border-surface-700">N', "compass North badge renders red");
 assertIncludes(html, "v % 50 === 0", "altitude tape labels every 50 m (speed-density parity)");
 assertIncludes(html, "width:44px;height:180px", "vertical tapes scaled to heading-tape presence (44x180 windows)");
+assertIncludes(html, "if (jAQ || jMar)", "sibling TTL stamps only on partial success (total failure retries next tick)");
+assertIncludes(html, "_depTries", "boot dependency wait is bounded with an honest terminal state");
 assertIncludes(html, "__METEO_CORE_STATE.groundSpeed", "index.html publishes smoothed ground speed for the speed tape");
 assert(
   !html.includes('id="ui-radar-crosswind"') && !html.includes('id="ui-radar-headwind"'),

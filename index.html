@@ -4238,6 +4238,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (r) window.activateLiveNavigation(r.latitude, r.longitude);
             }));
         };
+        // Outside-dismiss for the results dropdown, bound ONCE at module eval
+        // (not per search — the nodes are replaced each render and GC with
+        // their per-result listeners). The search button/input/result clicks
+        // are excluded so opening or picking never instantly self-closes.
+        document.addEventListener('click', (e) => {
+            const bx = DOM.geoSearchResults;
+            if (!bx || bx.classList.contains('hidden')) return;
+            const t = e.target;
+            if (t && t.closest && (t.closest('#geo-search-results') || t.closest('#geo-search-input') || t.closest('#geo-search-btn'))) return;
+            bx.classList.add('hidden');
+        });
 
         async function processGMapLink(url) {
             updateText(DOM.statusEl, "DECRYPTING TARGET...");
@@ -6572,7 +6583,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 }
                                 try { window.__METEO_CORE_STATE.minutely = dMinutely.minutely_15; window.__METEO_CORE_STATE.minutelyTime = Date.now(); } catch(_) {}
                                 computeRainEta();
-                            }
+                            } else { window.__METEO_CORE_STATE.rainEta = null; }
                             const now = Date.now();
                             // FIX-1.4.1 (P6): render BEFORE the awaited disk writes.
                             // Previously localforage.setItem was awaited first; a
@@ -6603,11 +6614,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             const _sibMoved = state._lastSiblingLat === undefined ||
                                 fastDistance(lat, lon, state._lastSiblingLat, state._lastSiblingLon) > 5000;
                             if (_sibStale || _sibMoved) {
-                                state._lastSiblingTs = now; state._lastSiblingLat = lat; state._lastSiblingLon = lon;
                                 const [jAQ, jMar] = await Promise.all([
                                     fetchSiblingJSON('aq', `${CONFIG.aqApi}?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10,ozone&timezone=auto&forecast_days=1`),
                                     fetchSiblingJSON('marine', `${CONFIG.marineApi}?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,ocean_current_velocity,sea_surface_temperature&timezone=auto&forecast_days=2&timeformat=unixtime`)
                                 ]);
+                                // Stamp ONLY on partial success: a total failure
+                                // leaves the timestamp alone so the next tick
+                                // retries instead of showing '--' for 10 min.
+                                if (jAQ || jMar) { state._lastSiblingTs = now; state._lastSiblingLat = lat; state._lastSiblingLon = lon; }
                                 if (jAQ && jAQ.current) {
                                     const dAQ = { current: jAQ.current };
                                     publishAirQuality(dAQ);
@@ -7363,8 +7377,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
         }
 
+        let _depTries = 0;
 function checkDependenciesAndRun() {
             if (typeof localforage === 'undefined' || typeof Chart === 'undefined' || typeof L === 'undefined' || typeof L.Routing === 'undefined') {
+                // Bounded boot wait: a dead CDN used to poll 20x/sec forever
+                // on a dead boot screen with no message. After ~10 s, paint
+                // an honest terminal state instead.
+                _depTries++;
+                if (_depTries > 200) {
+                    console.warn('[boot] CDN libraries failed to load; giving up after ~10 s.');
+                    const _st = document.getElementById('status-text');
+                    if (_st) _st.textContent = 'LOAD FAILED';
+                    const _wd = document.getElementById('weather-desc');
+                    if (_wd) _wd.textContent = 'A LIBRARY FAILED TO LOAD. CHECK CONNECTION AND RELOAD.';
+                    return;
+                }
                 setTimeout(checkDependenciesAndRun, 50); return;
             }
             runApp();
@@ -7374,8 +7401,10 @@ function checkDependenciesAndRun() {
         (function initPWA() {
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
+                    let swReg = null;
                     navigator.serviceWorker.register('./sw.js', { scope: './' })
                         .then(registration => {
+                            swReg = registration;
                             registration.addEventListener('updatefound', () => {
                                 const newWorker = registration.installing;
                                 newWorker.addEventListener('statechange', () => {
@@ -7409,12 +7438,30 @@ function checkDependenciesAndRun() {
                                 _updateEl = document.createElement('button');
                                 _updateEl.style.cssText = [
                                     'position:fixed', 'bottom:5.5rem', 'left:50%', 'transform:translateX(-50%)',
-                                    'z-index:10001', 'padding:0.75rem 1.25rem', 'border-radius:9999px',
+                                    'z-index:9999', 'padding:0.75rem 1.25rem', 'border-radius:9999px',
                                     'border:2px solid #14b8a6', 'background:rgba(10,10,10,0.95)', 'color:#14b8a6',
                                     'font:bold 12px JetBrains Mono, monospace', 'letter-spacing:0.08em',
                                     'box-shadow:0 8px 32px rgba(20,184,166,0.4)', 'cursor:pointer', 'display:none'
                                 ].join(';');
-                                _updateEl.addEventListener('click', () => window.location.reload());
+                                _updateEl.addEventListener('click', () => {
+                                    // Single-reload path: ask the SW for an update and
+                                    // let the existing updatefound→skipWaiting→
+                                    // controllerchange chain do exactly ONE reload
+                                    // onto the new shell. Blind location.reload()
+                                    // here double-reloads whenever sw.js changed
+                                    // (reload serves stale cache, then the new SW
+                                    // fires controllerchange and reloads again).
+                                    // Fallback reloads after 15 s if no update
+                                    // exists (e.g. index-only push with an
+                                    // unchanged sw.js).
+                                    let _done = false;
+                                    const _doReload = () => { if (!_done) { _done = true; window.location.reload(); } };
+                                    if (swReg && typeof swReg.update === 'function') {
+                                        const _fb = setTimeout(_doReload, 15000);
+                                        navigator.serviceWorker.addEventListener('controllerchange', () => clearTimeout(_fb), { once: true });
+                                        swReg.update().catch(() => { clearTimeout(_fb); _doReload(); });
+                                    } else { _doReload(); }
+                                });
                                 document.body.appendChild(_updateEl);
                             }
                             _updateEl.textContent = `UPDATE ${v} AVAILABLE — TAP TO RELOAD`;
