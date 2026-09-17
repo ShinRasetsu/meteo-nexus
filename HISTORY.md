@@ -1469,3 +1469,57 @@ Minor bump 1.9.0 → 1.10.0. Two tracks: (1) four Open-Meteo siblings integrated
 ### Blind spots considered (§8)
 
 Races: sibling `Promise.all` resolves independently; toggle/restore both funnel through `paintUnitCaptions`+`buildSpdTape` (idempotent); GPS nav single-writer at 1 Hz. Leaks: no new listeners (toggle reuses mount scope; results buttons GC with dropdown innerHTML). Off-by-one/coercion: steer key field packing verified collision-free by construction (brg×4e7 + dist×2000 + xte, ranges disjoint); `-50 % 10` → `-0 === 0` major-tick reliance re-verified after the −50 floor; `catch(_){}` precedents left untouched, new catches all log. Unhandled rejections: sibling helper never throws; toggle/restore paths caught; geocoding awaited in handler. import(): none. Perf: two extra fetches per 10 min (parallel, off the latch critical path); steer math ~6 transcendentals per GPS fix (1 Hz, negligible); sparkline ≤51 chars per timeline render. A11y: search input labelled; tape-box toggle is pointer-only (keyboard path owed). Visual compositing: device pass listed pending above.
+
+---
+
+## 1.10.1 — 2026-09-17 (patch: tracking-ETA / prefetch / GPS / fuel correctness follow-ups)
+
+### Bump rationale
+
+Patch bump 1.10.0 → 1.10.1. No features; no ensemble-math or API-surface changes. Two layers ship together: (A) an uncommitted batch found sitting in the working tree (route/fetch/GPS/fuel fixes — each hand-verified before adoption); (B) a session audit of that batch (three parallel review passes) that caught 4 medium + 8 low follow-up defects, all fixed on top. Sanity reports 219 at HEAD vs 202 quoted at the 1.10.0 bump — that delta landed via the auto-update commits since 1.10.0, not this session (`tests/` untouched in this diff).
+
+### Layer A — inherited batch (as found, verified correct unless noted)
+
+`index.html`:
+- **Valhalla single-fetch** — the "redundant" pair were byte-identical POSTs to the same host (correlated failures at 2× load for a `totalTime` winner decision needing no comparison). One `fetchValhallaMeta`; OSRM fallback intact.
+- **Tracking-ETA perf (P1–P4)** — static-element cache (`state._trackingEls`, 8 ids), `_distKey` quantization (~11 m), `_minsQ` quantization (ICU build 60×/s → 1×/min), `_progKey` int-pair, rounded compass writes (`_cmpR`/`_visR`).
+- **Stationary pre-exit narrowing** — parked-with-route runs full frames by design (fixes frozen ETA/recenter/compass); cost is key-compares only.
+- **Prefetch rework** — queue-on-busy, abort controller, 1500-URL cap, per-batch abort check, unconditional routesfound call.
+- **GPS honesty** — finite/`0,0` guards, publishes + stamp moved below reject gates, `MagHeadingFuser.sync` null-accuracy guard, `lastCssHeading=null` on tactical reset, intel 60 s `setTimeout` refresh loop.
+- **Await fixes** — `processTelemetryPayload` awaited on live + cache paths; stamp-after-render preserved.
+- **Fuel generation counter, boot finite/range guards, Aero latch fix, popup dist numeric, reverse-geocode seq guard (success path).**
+
+`fuel-stations.js`:
+- **Shell `raw.fuels` fallback** — pricing is null in 1124/1124 live rows, so the old block never fired and every station fell back to `['Fuel']` (local variant search always missed). Vocabulary mapped from the populated `raw.fuels` array, description-backed.
+- **Shell amenities-array-first** — top-level `standard_toilet`/`shop`/`atm` keys exist in 0/1124 live rows, so old `!== null` was always true (every station advertised toilet+shop+atm+bakery). Real signals read from the `amenities` array; `!= null` top-level fallback kept for legacy shapes.
+- **Shell `is24_7` via `open_status` / amenities token** (`twenty_four_hour` top-level key in 0/1124 rows); **Caltex `fuelid_` prefix removal** (shared numeric namespace turned diesel fuel tokens into toilet/ev).
+
+### Layer B — this session's audit fixes (all `index.html`)
+
+- **M1 stale NEXT/ETA on re-route** — `_distKey` gains node identity (`id,lat,lon`); ETA cache keyed on `(_minsQ, _rKmQ)` so a same-minutes new route rebuilds the wall-clock instead of reusing the old `Date.now()` base.
+- **M2 stale ETA after stops** — slow branch clears `_trackingEtaKeys.minsQ`, forcing a fresh `Date.now()` base on resume.
+- **M3 prefetch abort de-deaded** — abort moved before the busy check (was unreachable — queue+return fired first); `AbortError` no longer counted in `failedTiles`; `_prefetchAbort` nulled in `finally`; chained call `void`-ed.
+- **M4 GPS gates** — teleport gate treats non-finite accuracy as untrusted (`null > 10` was false → bypass); watch gains `±90/±180` range guard (matches boot); `>3000 m` reject moved above the accuracy-pill repaint so discarded fixes no longer repaint the pill.
+- **L1 geocode `.catch` seq guard** — a slow failed lookup can no longer overwrite a fresh city (success path already had it).
+- **L2 fuel flicker** — marker clear deferred until post-await gen checks pass; stale searches change nothing visible.
+- **Floaters** — both `fetchRouteIntelligence` calls `void … .catch(debug)`; `_lastRoute` cleared in `resetToAuto` + pitstop reroute (was retained forever, one 60 s wake + route object); abort guard before the TARGET-REACHED banner (aborted node-compute flashed a false terminal).
+
+### Explicitly NOT applied (deferred LOWs, rationale)
+
+Sibling-latch scope (redesign; stale-coalescing bounded ~20 s on flaky AQ/marine). Ensemble-NaN hardening (no live NaN source — JSON never emits it). `observedBestMatch` sentinel preference (Brier-only; needs weight-renorm thinking). `distTxt` keying (60 trivial strings/s). Valhalla retry bump + summary-finiteness validation. Prefetch per-zoom cap (current slice drops the route tail on >1500-tile routes — needs stride-sampling design). Shell pricing dead-variant names + Caltex key-provenance comment. Re-lock unrounded-seed one-write. Pre-declaring ad-hoc `state.*` fields.
+
+### Files changed
+
+- `VERSION` → `1.10.1`, `package.json` → `"version": "1.10.1"`, `sw.js` `APP_CACHE` `v8` → `v9` (SW update detector must fire — `index.html` changed)
+- `index.html`, `fuel-stations.js` — layers A+B above
+- `HISTORY.md` — this chapter; `AGENTS.md` §11 reference numbers synced
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` 219 sanity + 35 unit · `npm run audit` 8/8 PASS (extract+parse OK module 860..8932, TDZ 0, fp 0, brace depth=0/max=10, CSP 0 gaps, DOM-null 0, visual PASS inventory unchanged, shell PASS) · `npm run audit:verify` 24/24 · `npm run precheck` Tailwind v4.3.3 green · `node tests/audit-unified.mjs` 37 checks PASS, perfection PASS (0 stairs, 0 janks).
+- Layer B triggered no Fetch Gate re-run by §2 (no fetch URLs/triggers changed — consumers/math only); layer A is adjacent to `fetchData` paths, so the first device round should still confirm the 5-model `models=` 200 + non-`--` telemetry + `#hud-glance-temp` numeric + 0 red console errors, recorded per §6.6.
+- **PENDING (user device):** re-route NEXT/ETA freshness, stop→resume ETA wall-clock, swap-mid-download prefetch chaining, null-accuracy GPS behavior, fuel double-tap flicker, plus the standing 1.10.0 runtime list (sibling rows, search→route, elevation strip, knots, steering, gust, countdown, tapes).
+
+### Blind spots considered (§8)
+
+Races: ETA keys self-correcting (no cross-assignment invalidation to race); prefetch abort-then-queue ordering single-threaded; fuel gen monotonic; intel abort-then-refetch guarded; geocode/fuel seq/gen guards verified live. Leaks: no new listeners/timers (intel loop is one perpetual 60 s chain; `_lastRoute` null on reset releases the route object). Off-by-one/coercion: `_nodeSig`/`_rKmQ` quantization matched to display resolutions (10 m / 0.1 km / 1 min); `progCached || 0` falsy-safe (0 is the correct fallback). Unhandled rejections: floaters caught (`void` + `.catch`); prefetch internal catch preserved; `processTelemetryPayload` awaits inside try/catch. import(): none. Perf: parked-with-route cost unchanged (key-compares, zero DOM writes); prefetch abort strictly reduces wasted tile fetches; GPS gates are two comparisons per 1 Hz fix. A11y: untouched patterns. Visual compositing: no rotation surfaces touched (scanner PASS); device pass listed pending above.
