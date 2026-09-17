@@ -381,7 +381,7 @@
             <button id="pwa-install-btn" aria-label="Install App" class="hidden w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 items-center gap-2 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
-            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm select-none" title="Purge caches and storage (confirm)">
+            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm select-none" title="Purge caches and storage + retry GPS (confirm)">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
             <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-6 md:py-3 flex items-center gap-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-surface-400 hover:text-white transition-all" title="Sonar audio alerts">
@@ -810,6 +810,7 @@
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
             <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations, clear all cached data, and restart the system. Proceed?</p>
+            <p id="purge-gps-hint" class="hidden"></p>
             <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
                 <button onclick="closeModal('custom-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
                 <button onclick="executePurge()" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
@@ -2064,6 +2065,7 @@
             focusOutlook: document.getElementById('focus-outlook'),
             focusEnvelope: document.getElementById('focus-envelope'),
             focusIncoming: document.getElementById('focus-incoming'),
+            purgeGpsHint: document.getElementById('purge-gps-hint'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
             tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
@@ -3821,6 +3823,86 @@ let delta = heading - state.lastHeading;
             state[cursorKey] = cursor;
         }
 
+        // GPS re-request helper (PURGE flow + denied-boot recovery): one
+        // best-effort one-shot wrapped as a promise. Resolves {lat, lon,
+        // accuracy} or null — never throws. Browser mechanics: when permission
+        // is in "prompt" state this re-shows the browser prompt; when denied it
+        // fails fast with PERMISSION_DENIED (only a site-settings flip resets
+        // a denial — no in-page API can). Finite/range guards mirror the boot
+        // path so garbage never resolves as a fix.
+        function requestGpsFixOnce(timeoutMs = 10000) {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) { resolve(null); return; }
+                let settled = false;
+                const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        (p) => {
+                            const la = p.coords.latitude, lo = p.coords.longitude;
+                            if (!Number.isFinite(la) || !Number.isFinite(lo)) { done(null); return; }
+                            if (la === 0 && lo === 0) { done(null); return; }
+                            if (la < -90 || la > 90 || lo < -180 || lo > 180) { done(null); return; }
+                            done({ lat: la, lon: lo, accuracy: p.coords.accuracy });
+                        },
+                        () => done(null),
+                        { timeout: timeoutMs, enableHighAccuracy: true }
+                    );
+                    setTimeout(() => done(null), timeoutMs + 2000);
+                } catch (e) { console.debug('requestGpsFixOnce failed:', e && e.message); done(null); }
+            });
+        }
+
+        // First-run denial self-recovery: nothing in-page can reset a DENIED
+        // geolocation permission — only the browser's site-settings flip can.
+        // But the flip IS observable: Permissions API onchange fires when the
+        // user re-enables location (e.g. via the address-bar lock icon) while
+        // the app is open, so the app boots into a fix without a reload. The
+        // one-shot (not the watch) does the rescue because a watchPosition
+        // that errored PERMISSION_DENIED is not guaranteed to resume on every
+        // engine. initMap is idempotent (mapObj guard) and fetchData is
+        // single-flight, so a racing live watch is harmless. One listener per
+        // session; fires only on real state transitions.
+        function watchGeoPermissionRecovery() {
+            if (!navigator.permissions || !navigator.permissions.query) return;
+            navigator.permissions.query({ name: 'geolocation' }).then(perm => {
+                perm.onchange = () => {
+                    if (perm.state === 'denied' || state.autoCoords) return;
+                    void requestGpsFixOnce(10000).then(fix => {
+                        if (!fix || state.autoCoords) return;
+                        state.autoCoords = { lat: fix.lat, lon: fix.lon };
+                        initMap(fix.lat, fix.lon);
+                        fetchData(fix.lat, fix.lon, false);
+                    }).catch(e => console.debug('GPS recovery fix failed:', e && e.message));
+                };
+            }).catch(e => console.debug('Geolocation permission query unsupported:', e && e.message));
+        }
+
+        // Denied-boot cache fallback: permission denied means fetchData can
+        // never run (it needs lat/lon), so without this the app sits on the
+        // BLOCKED card with zero weather even when a payload is on disk.
+        // Mirrors the fetchData offline fallback exactly (payload + minutely +
+        // siblings). The isOffline=true render path paints cached values with
+        // an "OFFLINE: RTC INTERPOLATION" desc, and the GPS BLOCKED location
+        // badge survives (the render never writes it — only fetchData does),
+        // so the card stays honest about both halves. Never throws.
+        async function renderDeniedCacheFallback() {
+            try {
+                if (!window.localforage) return;
+                const cached = await localforage.getItem('telemetry_payload');
+                if (!cached) return;
+                await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
+                if (cached.dMinutely && cached.dMinutely.minutely_15) {
+                    try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch (e) { console.debug('Denied-cache minutely restore failed:', e && e.message); }
+                    computeRainEta();
+                } else { window.__METEO_CORE_STATE.rainEta = null; }
+                try {
+                    const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
+                    publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
+                    publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
+                } catch (sibErr) { console.debug('Denied-cache sibling restore failed:', sibErr && sibErr.message); }
+            } catch (cacheErr) { console.debug('Denied-cache render failed:', cacheErr && cacheErr.message); }
+        }
+
         // --- GPS TRACKING ENGINE ---
         // Visibility-gated: pauses geolocation when the tab is hidden to save
         // ~15-25% battery/hour. Resumes on visibilitychange → visible via
@@ -5176,7 +5258,38 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             return WIND_DIR_ARR[idx];
         }
 
-        window.purgeSystem = function() { DOM.modals.custom.classList.remove('hidden'); };
+        window.purgeSystem = function() {
+            DOM.modals.custom.classList.remove('hidden');
+            // GPS-aware purge: executePurge re-requests a fix via
+            // requestGpsFixOnce, but that only re-prompts while the browser
+            // permission is still "prompt" — a DENIED permission lives in the
+            // site-settings store, not the caches we wipe, so purging would
+            // boot straight back onto the blocked card. The modal must say
+            // which world the user is in BEFORE they commit the wipe.
+            const hint = DOM.purgeGpsHint;
+            if (!hint) return;
+            if (!navigator.permissions || !navigator.permissions.query) {
+                updateText(hint, ''); updateClass(hint, 'hidden');
+                return;
+            }
+            updateText(hint, 'GPS: CHECKING PERMISSION…');
+            updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-gray-500');
+            navigator.permissions.query({ name: 'geolocation' }).then(p => {
+                if (p.state === 'granted') {
+                    updateText(hint, 'GPS: PERMISSION OK — RE-VERIFIED DURING RESET.');
+                    updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-brand-success');
+                } else if (p.state === 'prompt') {
+                    updateText(hint, 'GPS: BROWSER WILL RE-ASK — TAP PURGE ALL, THEN ALLOW.');
+                    updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-brand-warning');
+                } else {
+                    updateText(hint, 'GPS: BLOCKED BY BROWSER — ONLY SITE SETTINGS RESET THIS; PURGE ALONE WILL NOT RESTORE GPS.');
+                    updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-brand-red');
+                }
+            }).catch(e => {
+                console.debug('Geolocation permission query failed:', e && e.message);
+                updateText(hint, ''); updateClass(hint, 'hidden');
+            });
+        };
         window.closeModal = function(modalId) {
             // FIX-1.4.1c (LOW-2): MODAL_BY_ID answers the lookup in one property
             // read; getElementById remains only as a degraded fallback for ids
@@ -5194,6 +5307,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         };
 
         window.executePurge = async function() {
+            // GPS re-request FIRST: if the browser permission is still in
+            // "prompt" state this re-shows the browser prompt; if denied it
+            // fails fast (only a site-settings flip resets a denial — no
+            // in-page API can). Granted → the reload below boots straight into
+            // a fix. Best-effort: the purge+reload proceeds regardless.
+            try { await requestGpsFixOnce(10000); } catch (e) { console.debug('Pre-purge GPS re-request failed:', e && e.message); }
             try {
                 localStorage.clear(); sessionStorage.clear();
                 if (window.localforage) await localforage.clear();
@@ -7456,6 +7575,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             await loadMagCalibration();
             initializeCloudServices();
             startBackgroundTracking();
+            watchGeoPermissionRecovery();
             await FuelManager.init();
 
             // Restore persisted navigation target — fires activateLiveNavigation()
@@ -7488,13 +7608,30 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // TIMEOUT / POSITION_UNAVAILABLE = still acquiring → retry,
                 // because startBackgroundTracking's watchPosition may deliver
                 // the first fix at any moment and rescue this card anyway.
-                const paintGpsDown = (desc, badge) => {
+                const paintGpsDownFace = (desc, badge) => {
                     updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
                     updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
                     updateText(DOM.statusText, "SEARCH LOCATION");
                     updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase');
                     updateText(DOM.weatherDesc, desc);
                     updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-crosshairs text-brand-red"></i> ${badge}`);
+                };
+                // Failed/denied boot still shows last-known weather when a
+                // cache exists. The isOffline render relabels the face with
+                // weather tone (renderTelemetryUI owns mainCard/statusText/
+                // weatherDesc classes), so the blocked face is RE-ASSERTED
+                // after the render completes — the data columns keep the
+                // cached values while the status face keeps telling the user
+                // WHY nothing is live. The location badge survives the render
+                // untouched (only the reverse-geocode path in fetchData writes
+                // it). paintGpsDownFace is pure idempotent DOM writes, so the
+                // re-assert can never loop (repeat fallback renders are no-ops
+                // via the payloadSig guard).
+                const paintGpsDown = (desc, badge) => {
+                    paintGpsDownFace(desc, badge);
+                    void renderDeniedCacheFallback()
+                        .then(() => paintGpsDownFace(desc, badge))
+                        .catch(e => console.debug('Denied-cache fallback failed:', e && e.message));
                 };
                 // Coarse-first fix: a fast low-accuracy one-shot (4 s, stale
                 // OK) paints map + weather immediately; the high-accuracy
@@ -7554,7 +7691,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         (err) => {
                             if (state.autoCoords) return;
                             if (err && err.code === err.PERMISSION_DENIED) {
-                                paintGpsDown("GPS BLOCKED.", "GPS BLOCKED");
+                                paintGpsDown("LOCATION BLOCKED. ENABLE IN SITE SETTINGS — APP RESUMES AUTOMATICALLY, OR TAP PURGE.", "GPS BLOCKED");
                                 return;
                             }
                             if (attempt <= GPS_BOOT_RETRIES) {

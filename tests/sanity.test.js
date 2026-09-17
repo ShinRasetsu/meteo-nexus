@@ -109,6 +109,18 @@ assertIncludes(html, 'sec-telemetry\' && state.chart', "focus-open resizes the h
 assertIncludes(html, 'ACQUIRING GPS', "index.html shows ACQUIRING GPS while the one-shot fix retries");
 assertIncludes(html, 'err.code === err.PERMISSION_DENIED', "index.html reserves GPS BLOCKED for real permission denials");
 
+// GPS-denied recovery: PURGE re-requests a fix, denied boot renders last-known cache
+assertIncludes(html, 'requestGpsFixOnce', "PURGE flow re-requests a GPS fix before wipe+reload (re-prompts when permission is in prompt state)");
+assertIncludes(html, 'renderDeniedCacheFallback', "denied boot renders the cached telemetry payload instead of sitting on an empty card");
+assertIncludes(html, 'paintGpsDownFace', "blocked face is a pure painter re-asserted after the cached render (weather repaint cannot erase GPS BLOCKED)");
+
+// GPS first-run denial recovery: purge modal is GPS-aware + permission watcher self-recovers
+assertIncludes(html, 'id="purge-gps-hint"', "purge modal carries a GPS-permission status line (purging cannot reset a hard denial)");
+assertIncludes(html, 'watchGeoPermissionRecovery', "geolocation permission watcher self-recovers when the user flips site settings");
+assertIncludes(html, "query({ name: 'geolocation' })", "Permissions API geolocation query present (purge hint + recovery watcher)");
+assertIncludes(html, 'BLOCKED BY BROWSER', "purge modal says plainly when only a site-settings flip can restore GPS");
+assertIncludes(html, 'APP RESUMES AUTOMATICALLY', "denied-boot card tells the user the app self-recovers after the settings flip");
+
 // GPS accuracy audit (1.8.2): null-safe, honest accuracy taxonomy
 assertIncludes(html, 'GNSS: ACQUIRING', "null/non-finite accuracy renders ACQUIRING, not a false HIGH (0m)");
 assertIncludes(html, 'GNSS: LOW (', "degraded >60m fixes are labelled LOW, not the misleading LTE/A-GPS");
