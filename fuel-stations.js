@@ -138,6 +138,28 @@ export const BrandAdapters = {
     if (pricing.fuelsave_diesel != null) fuels.push('FuelSave Diesel');
     if (pricing.shell_regular_diesel != null) fuels.push('Diesel');
     if (pricing.premium_diesel != null) fuels.push('Premium Diesel');
+    // FIX: live pricing values are null in 1124/1124 rows, so the block above
+    // never fires and every station fell back to ['Fuel'] — variant search
+    // always missed locally (offline Shell broken for variants). The same
+    // vocabulary lives populated in raw.fuels; map it to catalog names.
+    // Mapping is description-backed (co-occurrence counts, 2026-09-17 probe):
+    // premium_gasoline 386/386 with "V-Power Gasoline", premium_diesel 917/917
+    // with "V-Power Diesel", fuelsave_regular_diesel 720/720 with "FuelSave
+    // Diesel", fuelsave_midgrade_gasoline 980/980 with "FuelSave Unleaded",
+    // shell_regular_diesel 70/70 with "Diesoline", super_premium_gasoline 4/4
+    // + super98 4/4 with "V-Power Racing" (4 descs); unleaded_super overlaps
+    // fuelsave_midgrade 361/378 (regional alias). Pricing stays authoritative
+    // when non-null (checked above); this only fills gaps.
+    if (!fuels.length && Array.isArray(raw.fuels)) {
+      const rf = raw.fuels;
+      const push = (v) => { if (!fuels.includes(v)) fuels.push(v); };
+      if (rf.includes('fuelsave_98') || rf.includes('super_premium_gasoline') || rf.includes('super98')) push('V-Power Racing');
+      if (rf.includes('premium_gasoline')) push('V-Power Gasoline');
+      if (rf.includes('premium_diesel')) push('V-Power Diesel');
+      if (rf.includes('fuelsave_midgrade_gasoline') || rf.includes('unleaded_super') || rf.includes('midgrade_gasoline')) push('FuelSave Gasoline');
+      if (rf.includes('fuelsave_regular_diesel')) push('FuelSave Diesel');
+      if (rf.includes('shell_regular_diesel')) push('Diesel');
+    }
     if (!fuels.length) fuels.push('Fuel'); // fallback
 
     return {
@@ -148,13 +170,19 @@ export const BrandAdapters = {
       address: raw.formatted_address,
       fuels,
       amenities: {
-        toilet: raw.standard_toilet !== null || raw.childs_toilet !== null,
-        shop: raw.shop !== null,
-        atm: raw.atm !== null,
-        ev: raw.ev_charging !== null,
-        hydrogen: raw.hydrogen_offering !== null,
-        carwash: raw.carwash_opening_hours !== null,
-        bakery: raw.shop === 'bakery_shop' || raw.bakery_shop !== null
+        // FIX: top-level standard_toilet/shop/atm/bakery keys exist in 0/1124
+        // live rows (real signals live in the `amenities` ARRAY) — `!== null`
+        // on a missing key is always true, so every station advertised
+        // toilet+shop+atm+bakery. Read the array first; keep a `!= null`
+        // top-level fallback for legacy shapes. `!= null` rejects both null
+        // and undefined (the pricing-block fix class).
+        toilet: (raw.amenities || []).includes('standard_toilet') || (raw.amenities || []).includes('childs_toilet') || raw.standard_toilet != null || raw.childs_toilet != null,
+        shop: (raw.amenities || []).includes('shop') || (raw.amenities || []).includes('selectshop') || raw.shop != null,
+        atm: (raw.amenities || []).includes('atm') || (raw.amenities || []).includes('atm_in') || (raw.amenities || []).includes('atm_out') || raw.atm != null,
+        ev: raw.ev_charging != null,
+        hydrogen: raw.hydrogen_offering != null,
+        carwash: raw.carwash_opening_hours != null,
+        bakery: (raw.amenities || []).includes('bakery_shop') || raw.shop === 'bakery_shop' || raw.bakery_shop != null
       },
       hours: {
         forecourt: raw.forecourt_opening_hours,
@@ -168,7 +196,10 @@ export const BrandAdapters = {
         hoursKnown: ['open', 'closed', 'twenty_four_hour'].includes(raw.open_status) ||
                     raw.twenty_four_hour === true
       },
-      is24_7: raw.twenty_four_hour === true
+      // FIX: `twenty_four_hour` top-level key exists in 0/1124 live rows;
+      // the live signal is open_status === 'twenty_four_hour' (741/1124)
+      // plus a `twenty_four_hour` token in the amenities array.
+      is24_7: raw.open_status === 'twenty_four_hour' || (raw.amenities || []).includes('twenty_four_hour') || raw.twenty_four_hour === true
     };
   },
 
@@ -213,7 +244,11 @@ function parseCaltexAmenities(filterIds, amenityIds) {
   const tokens = new Set(
     String(filterIds || '').split(',').concat(String(amenityIds || '').split(','))
   );
-  const has = (id) => tokens.has(id) || tokens.has('amenityid_' + id) || tokens.has('fuelid_' + id);
+  // FIX: fuel ids share the numeric namespace with amenity ids
+  // (filter_ids mixes fuelid_3001 with amenityid_3002) — matching the
+  // fuelid_ prefix turned diesel fuel tokens into ev/toilet=true.
+  // Match bare tokens (amenity_ids) + amenityid_ prefix only.
+  const has = (id) => tokens.has(id) || tokens.has('amenityid_' + id);
   return {
     toilet: has(_caltexAmenityKeys.toilet),
     shop: has(_caltexAmenityKeys.shop),

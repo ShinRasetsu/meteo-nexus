@@ -2272,12 +2272,12 @@
                 }
 
 try {
-                    const promises = [fetchValhallaMeta('https://valhalla1.openstreetmap.de/route'), fetchValhallaMeta('https://valhalla1.openstreetmap.de/route')];
-                    const results = await Promise.allSettled(promises);
-                    const successfulRoutes = results.filter(r => r.status === 'fulfilled').map(r => r.value);
-                    if (successfulRoutes.length === 0) throw new Error("All Valhalla routing requests failed.");
-                    successfulRoutes.sort((a, b) => a.totalTime - b.totalTime);
-                    const optimal = successfulRoutes[0];
+                    // FIX: the "redundant" pair were byte-identical POSTs to the
+                    // SAME host — correlated failures (host down = both fail)
+                    // at 2x load for a winner decision (totalTime) that needs
+                    // no comparison. Single fetch; the OSRM-fallback catch
+                    // below still covers failure.
+                    const optimal = await fetchValhallaMeta('https://valhalla1.openstreetmap.de/route');
                     // FIX-1.4.1c (M1): decode only the winning route's legs now.
                     let coords = [];
                     for (const leg of optimal.data.trip.legs) {
@@ -2405,7 +2405,13 @@ let delta = heading - state.lastHeading;
 
             // Cheap stationary pre-exit. Compass can still drift while stopped, so
             // allow a small accumulated-heading delta to fall through.
-            if (state.currentSpeed < 2 && state.rawSensorHeading === null) {
+            // FIX: narrowed — the old unconditional return froze the
+            // tracking-ETA block, the recenter countdown, and the compass
+            // text while parked with an active route (cursor advances and the
+            // deadline ticks, but the display never updated). Skip only when
+            // no tracking UI can be visible.
+            const _needTrackingUi = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0)) || (!state.isMapLocked && !!state.autoCoords);
+            if (!_needTrackingUi && state.currentSpeed < 2 && state.rawSensorHeading === null) {
                 if (state.visual.heading !== null &&
                     Math.abs(state.cumulativeHeading - state.visual.heading) <= 0.5) {
                     return;
@@ -2529,8 +2535,21 @@ let delta = heading - state.lastHeading;
             // Tracking ETA bar — Google Maps level sticky header (ETA + remaining + next maneuver).
             // Visible only when a route exists; gated on rounded values so 60fps loop stays cheap.
             {
-                const etaBar = document.getElementById('tracking-eta-bar');
-                const recenterChip = document.getElementById('tracking-recenter-chip');
+                // FIX (P1): static-element cache — 5 unconditional
+                // getElementById/frame (~300/s) for nodes that never
+                // re-render. Lazy-init once; all eight ids are static markup.
+                const _te = state._trackingEls || (state._trackingEls = {
+                    bar: document.getElementById('tracking-eta-bar'),
+                    chip: document.getElementById('tracking-recenter-chip'),
+                    pbar: document.getElementById('tracking-progress-bar'),
+                    pfill: document.getElementById('tracking-progress-fill'),
+                    rtxt: document.getElementById('tracking-recenter-text'),
+                    next: document.getElementById('tracking-eta-next'),
+                    dist: document.getElementById('tracking-eta-dist'),
+                    eta: document.getElementById('tracking-eta-eta')
+                });
+                const etaBar = _te.bar;
+                const recenterChip = _te.chip;
                 if (etaBar) {
                     const hasRoute = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0));
                     const shouldShow = hasRoute && state.autoCoords;
@@ -2544,43 +2563,74 @@ let delta = heading - state.lastHeading;
                         // Next node — same cursor logic Drive Mode uses, distance via fastDistanceSqMeters
                         const curIdx = state.routeNodesCursor || 0;
                         const n = (state.routeNodes && state.routeNodes[curIdx]) ? state.routeNodes[curIdx] : null;
+                        // FIX (P4): key the sqrt+cos distance math on (cursor,
+                        // quantized position) — inputs move at 1 Hz GPS, not
+                        // 60 fps; display resolution is 10 m / 0.1 km.
+                        const _qLat = state.visual.lat ?? state.autoCoords.lat;
+                        const _qLon = state.visual.lon ?? state.autoCoords.lon;
+                        const _nodeSig = n ? (n.id != null ? n.id : '') + ',' + Math.round(n.lat * 10000) + ',' + Math.round(n.lon * 10000) : 'x';
+                        const _distKey = curIdx + '|' + Math.round(_qLat * 10000) + '|' + Math.round(_qLon * 10000) + '|' + (state.targetCoords ? Math.round(state.targetCoords.lat * 10000) + '|' + Math.round(state.targetCoords.lon * 10000) : '') + '|' + _nodeSig;
                         let nextTxt = 'NEXT --';
-                        if (n && state.autoCoords) {
-                            const displayLat = state.visual.lat ?? state.autoCoords.lat;
-                            const displayLon = state.visual.lon ?? state.autoCoords.lon;
-                            const displayDistance = Math.sqrt(fastDistanceSqMeters(displayLat, displayLon, n.lat, n.lon));
-                            if (Number.isFinite(displayDistance)) {
-                                const distStr = displayDistance >= 1000 ? (displayDistance/1000).toFixed(1)+'KM' : Math.round(displayDistance/10)*10+'M';
-                                nextTxt = (n.id!=null ? 'N-'+n.id+' ' : '') + distStr;
+                        if (_distKey !== _trackingEtaKeys.distKey) {
+                            _trackingEtaKeys.distKey = _distKey;
+                            if (n && state.autoCoords) {
+                                const displayLat = state.visual.lat ?? state.autoCoords.lat;
+                                const displayLon = state.visual.lon ?? state.autoCoords.lon;
+                                const displayDistance = Math.sqrt(fastDistanceSqMeters(displayLat, displayLon, n.lat, n.lon));
+                                if (Number.isFinite(displayDistance)) {
+                                    const distStr = displayDistance >= 1000 ? (displayDistance/1000).toFixed(1)+'KM' : Math.round(displayDistance/10)*10+'M';
+                                    nextTxt = (n.id!=null ? 'N-'+n.id+' ' : '') + distStr;
+                                }
+                            } else if (state.targetCoords && state.autoCoords) {
+                                const displayLat2 = state.visual.lat ?? state.autoCoords.lat;
+                                const displayLon2 = state.visual.lon ?? state.autoCoords.lon;
+                                const displayDistance2 = Math.sqrt(fastDistanceSqMeters(displayLat2, displayLon2, state.targetCoords.lat, state.targetCoords.lon));
+                                if (Number.isFinite(displayDistance2)) nextTxt = displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+'KM' : Math.round(displayDistance2/10)*10+'M';
                             }
-                        } else if (state.targetCoords && state.autoCoords) {
-                            const displayLat2 = state.visual.lat ?? state.autoCoords.lat;
-                            const displayLon2 = state.visual.lon ?? state.autoCoords.lon;
-                            const displayDistance2 = Math.sqrt(fastDistanceSqMeters(displayLat2, displayLon2, state.targetCoords.lat, state.targetCoords.lon));
-                            if (Number.isFinite(displayDistance2)) nextTxt = displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+'KM' : Math.round(displayDistance2/10)*10+'M';
+                            _trackingEtaKeys.nextCached = nextTxt;
+                        } else {
+                            nextTxt = _trackingEtaKeys.nextCached || 'NEXT --';
                         }
-                        if (_trackingEtaKeys.next !== nextTxt) { _trackingEtaKeys.next = nextTxt; const el=document.getElementById('tracking-eta-next'); if(el) el.textContent=nextTxt; }
+                        if (_trackingEtaKeys.next !== nextTxt) { _trackingEtaKeys.next = nextTxt; const el=_te.next; if(el) el.textContent=nextTxt; }
                         // Remaining distance + ETA from driveRouteKm
                         const rKm2 = (typeof state.driveRouteKm === 'number') ? state.driveRouteKm : null;
                         const distTxt = rKm2!==null ? rKm2.toFixed(1)+' KM' : '-- KM';
-                        if (_trackingEtaKeys.dist !== distTxt) { _trackingEtaKeys.dist = distTxt; const el=document.getElementById('tracking-eta-dist'); if(el) el.textContent=distTxt; }
+                        if (_trackingEtaKeys.dist !== distTxt) { _trackingEtaKeys.dist = distTxt; const el=_te.dist; if(el) el.textContent=distTxt; }
+                        // FIX (P2): quantize minutes BEFORE the Date/ICU build —
+                        // the old code ran `new Date` + toLocaleTimeString (+ a
+                        // fresh options literal) 60x/s for a string that flips
+                        // 1x/min, then discarded it in the key compare below.
+                        const _minsQ = (rKm2 !== null && state.currentSpeed >= 5) ? Math.max(1, Math.round((rKm2 / state.currentSpeed) * 60)) : -1;
+                        const _rKmQ = rKm2 !== null ? Math.round(rKm2 * 10) : -1;
                         let etaTxt2 = '--:--';
-                        if (rKm2!==null && state.currentSpeed >= 5) {
-                            const mins = (rKm2 / state.currentSpeed)*60;
-                            const etaDate = new Date(Date.now() + mins*60000);
-                            etaTxt2 = etaDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) + ' · ' + (mins>=60 ? Math.floor(mins/60)+'H '+Math.round(mins%60)+'M' : Math.max(1,Math.round(mins))+'M');
-                        } else if (rKm2!==null && state.driveRouteMin!==null) {
-                            etaTxt2 = Math.round(state.driveRouteMin) + 'M';
+                        if (_minsQ >= 0 && (_minsQ !== _trackingEtaKeys.minsQ || _rKmQ !== _trackingEtaKeys.etaRkm)) {
+                            _trackingEtaKeys.minsQ = _minsQ;
+                            _trackingEtaKeys.etaRkm = _rKmQ;
+                            const etaDate = new Date(Date.now() + _minsQ * 60000);
+                            _trackingEtaKeys.etaCached = etaDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) + ' · ' + (_minsQ>=60 ? Math.floor(_minsQ/60)+'H '+Math.round(_minsQ%60)+'M' : _minsQ+'M');
                         }
-                        if (_trackingEtaKeys.eta !== etaTxt2) { _trackingEtaKeys.eta = etaTxt2; const el=document.getElementById('tracking-eta-eta'); if(el) el.textContent=etaTxt2; }
+                        if (_minsQ < 0) {
+                            _trackingEtaKeys.minsQ = -1;
+                            if (rKm2 !== null && state.driveRouteMin !== null) etaTxt2 = Math.round(state.driveRouteMin) + 'M';
+                        } else {
+                            etaTxt2 = _trackingEtaKeys.etaCached;
+                        }
+                        if (_trackingEtaKeys.eta !== etaTxt2) { _trackingEtaKeys.eta = etaTxt2; const el=_te.eta; if(el) el.textContent=etaTxt2; }
                         // Progress bar — Google Maps remaining/total tape in telemetry header
                         const totalNodes = (state.routeNodes && state.routeNodes.length) ? state.routeNodes.length : 0;
                         const curCursor = state.routeNodesCursor || 0;
-                        const prog = totalNodes ? Number(((curCursor/totalNodes)*100).toFixed(1)) : 0;
-                        const bar = document.getElementById('tracking-progress-bar');
-                        const fill = document.getElementById('tracking-progress-fill');
-                        if (!bar) {}
-                        if (!fill) {}
+                        // FIX (P4): key on the int pair before the toFixed —
+                        // cursor moves at GPS rate, not frame rate.
+                        const _progKey = curCursor + '/' + totalNodes;
+                        let prog = 0;
+                        if (_progKey !== _trackingEtaKeys.progKey) {
+                            _trackingEtaKeys.progKey = _progKey;
+                            prog = _trackingEtaKeys.progCached = totalNodes ? Number(((curCursor/totalNodes)*100).toFixed(1)) : 0;
+                        } else {
+                            prog = _trackingEtaKeys.progCached || 0;
+                        }
+                        const bar = _te.pbar;
+                        const fill = _te.pfill;
                         if (bar && fill) {
                             const shouldShowBar = shouldShow && totalNodes>0;
                             bar.classList.toggle('hidden', !shouldShowBar);
@@ -2602,7 +2652,7 @@ let delta = heading - state.lastHeading;
                         // We store the deadline in state._recenterDeadline when scheduling
                         let secs = 5;
                         if (state._recenterDeadline) secs = Math.max(0, Math.ceil((state._recenterDeadline - Date.now())/1000));
-                        const txtEl = document.getElementById('tracking-recenter-text');
+                        const txtEl = _te.rtxt;
                         if (txtEl) {
                             const t = `RECENTER IN ${secs}s`;
                             if (txtEl.textContent !== t) txtEl.textContent = t;
@@ -2618,9 +2668,13 @@ let delta = heading - state.lastHeading;
                 // the text gate, 0.1 deg for the compass icon). Pre-declared
                 // `_lastCmpRot` / `_lastHeadText` seed values (-999) guarantee the
                 // first frame triggers a write.
-                if (DOM.liveCompassIcon && Math.round(aeroHeading * 10) / 10 !== state._lastCmpRot) {
-                    DOM.liveCompassIcon.style.transform = `rotate(${aeroHeading}deg)`;
-                    state._lastCmpRot = Math.round(aeroHeading * 10) / 10;
+                // FIX (P3): gate compared rounded but wrote the raw float —
+                // sub-0.1-degree strings forced compositor work the gate was
+                // built to suppress. Write the rounded value.
+                const _cmpR = Math.round(aeroHeading * 10) / 10;
+                if (DOM.liveCompassIcon && _cmpR !== state._lastCmpRot) {
+                    DOM.liveCompassIcon.style.transform = `rotate(${_cmpR}deg)`;
+                    state._lastCmpRot = _cmpR;
                 }
                 const aeroHeadingInt = Math.round(aeroHeading);
                 if (aeroHeadingInt !== state._lastHeadText) {
@@ -2630,9 +2684,11 @@ let delta = heading - state.lastHeading;
                 }
             } else if (state.visual.heading !== null) {
                 // Boot fallback: Aero HUD not yet mounted, use local visual heading
-                if (DOM.liveCompassIcon && Math.round(state.visual.heading * 10) / 10 !== state._lastCmpRot) {
-                    DOM.liveCompassIcon.style.transform = `rotate(${state.visual.heading}deg)`;
-                    state._lastCmpRot = Math.round(state.visual.heading * 10) / 10;
+                // FIX (P3): same rounded-write fix as the primary branch above.
+                const _visR = Math.round(state.visual.heading * 10) / 10;
+                if (DOM.liveCompassIcon && _visR !== state._lastCmpRot) {
+                    DOM.liveCompassIcon.style.transform = `rotate(${_visR}deg)`;
+                    state._lastCmpRot = _visR;
                 }
                 const visHeadingInt = Math.round(state.visual.heading);
                 if (visHeadingInt !== state._lastHeadText) {
@@ -2654,9 +2710,22 @@ let delta = heading - state.lastHeading;
         function lat2tile(lat, zoom) { return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)); }
 
         window.downloadMapCache = async function() {
-            if (state.isCachingMap) return;
+            // FIX: swap-during-download chain — previously a route swap while a
+            // download ran stamped lastAutoCacheSig at routesfound but the 5s
+            // timer saw isCachingMap and dropped the new route silently (never
+            // prefetched). Now the loser queues one chained run instead.
+            // Abort first so the in-flight run exits at its next batch check;
+            // the queued chained run below then fetches the new route.
+            if (state._prefetchAbort) state._prefetchAbort.abort();
+            if (state.isCachingMap) { state._prefetchQueued = true; return; }
             if (!state.currentRouteCoords || state.currentRouteCoords.length === 0) return;
             if (!navigator.onLine) return;
+            // FIX: abort the previous run's fetches on re-entry (route swap) —
+            // the catch below already ignored AbortError; nothing sent one.
+            // (Abort now happens before the busy check above; this just mints
+            // the fresh controller for this run.)
+            state._prefetchAbort = new AbortController();
+            const prefetchSignal = state._prefetchAbort.signal;
             state.isCachingMap = true;
             try {
                 if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
@@ -2670,11 +2739,20 @@ let delta = heading - state.lastHeading;
                         for(let dx = -1; dx <= 1; dx++) { for(let dy = -1; dy <= 1; dy++) { tileSet.add(`https://${s}.tile.openstreetmap.org/${z}/${x+dx}/${y+dy}.png`); } }
                     });
                 });
-                const urls = Array.from(tileSet);
+                // FIX: budget cap — dense geometry x 3 zooms x 9 tiles could
+                // exceed ~10k URLs (~150 MB attempted into a 50 MB LRU,
+                // put/evict churn mid-download). Cap at 1500 highest-value
+                // tiles (insertion order = route order x zoom).
+                let urls = Array.from(tileSet);
+                if (urls.length > 1500) {
+                    console.info(`Offline tiles: route needs ${urls.length}, capping at 1500 (50 MB LRU budget).`);
+                    urls = urls.slice(0, 1500);
+                }
                 const cache = await caches.open('meteonexus-map-cache');
                 let failedTiles = 0;  // Tally of tiles whose fetch/cache.put failed
                 const concurrency = 5;
                 for (let i = 0; i < urls.length; i += concurrency) {
+                    if (prefetchSignal.aborted) { console.info('Offline tiles: superseded by a newer route, stopping.'); break; }
                     const batch = urls.slice(i, i + concurrency);
                     await Promise.all(batch.map(async (url) => {
                         // Individual tile errors never block the batch; they are
@@ -2682,11 +2760,12 @@ let delta = heading - state.lastHeading;
                         try {
                             const res = await cache.match(url);
                             if (!res) {
-                                const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit' });
+                                const fetchRes = await fetch(url, { mode: 'no-cors', credentials: 'omit', signal: prefetchSignal });
                                 if (fetchRes.ok || fetchRes.type === 'opaque') await cache.put(url, fetchRes.clone());
                             }
                         } catch (e) {
-                            if (e && e.name !== 'AbortError') console.debug('tile fetch failed:', url, e && e.message);
+                            if (e && e.name === 'AbortError') return;
+                            console.debug('tile fetch failed:', url, e && e.message);
                             failedTiles++;
                         }
                     }));
@@ -2702,6 +2781,10 @@ let delta = heading - state.lastHeading;
                 console.warn('Background tile cache failed:', err && err.message);
             } finally {
                 state.isCachingMap = false;
+                state._prefetchAbort = null;
+                // FIX: run the chained request queued while this run held the
+                // latch (route swap during download) instead of dropping it.
+                if (state._prefetchQueued) { state._prefetchQueued = false; void window.downloadMapCache(); }
             }
         };
 
@@ -3585,7 +3668,10 @@ let delta = heading - state.lastHeading;
             // Sync — learn residual between mag and gnss when both reliable.
             // Called from the GPS tick when gpsHeading is non-null AND speed is solid.
             sync(gnssHeading, speedKmh, accuracyM) {
-                if (speedKmh < 12 || accuracyM > 15) { this.syncAccumulatorGain = 0; return; }
+                // FIX: null-accuracy training — `null > 15` is false, so a
+                // platform omitting accuracy passed the gate and EMA-learned
+                // the mag offset from a coarse fix. Train only on finite data.
+                if (speedKmh < 12 || !Number.isFinite(accuracyM) || accuracyM > 15) { this.syncAccumulatorGain = 0; return; }
                 // We require 3 consecutive fixes of high-quality data before
                 // trusting the offset — artefact guard against single-fix glitches.
                 this.syncAccumulatorGain++;
@@ -3751,10 +3837,15 @@ let delta = heading - state.lastHeading;
                     const accuracy = pos.coords.accuracy;
                     const now = Date.now();
 
-                    window.__METEO_CORE_STATE.altitude = pos.coords.altitude;
-                    if (speed !== null) window.__METEO_CORE_STATE.speed = speed;
-                    window.__METEO_CORE_STATE.lastGnssUpdate = now;
-                    if (gpsHeading !== null && !isNaN(gpsHeading)) window.__METEO_CORE_STATE.gnssHeading = gpsHeading;
+                    // FIX: finite-coordinate guard (mirrors the coarse-boot
+                    // path) — NaN flows through every numeric comparison as
+                    // false, poisoning autoCoords → initMap → fetchData.
+                    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+                    if (lat === 0 && lon === 0) return;
+                    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+                    // FIX: cross-module publishes moved BELOW the reject gates
+                    // (were here) — a glitch/>3km fix poisoned Aero/tape
+                    // consumers while the local path correctly discarded it.
 
                     let timeDeltaSec = (now - state.lastLocationTimestamp) / 1000;
                     if (timeDeltaSec === 0 || timeDeltaSec > 10) timeDeltaSec = 1;
@@ -3762,11 +3853,15 @@ let delta = heading - state.lastHeading;
                     if (state.lastHudLat !== 0) {
                         const distMovedM = fastDistance(state.lastHudLat, state.lastHudLon, lat, lon);
                         const impliedSpeedKmh = (distMovedM / timeDeltaSec) * 3.6;
-                        if (impliedSpeedKmh > 350 && accuracy > 10) return;
+                        if (impliedSpeedKmh > 350 && (!Number.isFinite(accuracy) || accuracy > 10)) return;
                     }
-                    state.lastHudLat = lat; state.lastHudLon = lon;
-                    state.lastLocationTimestamp = now;
+                    // FIX: lastHudLat/lastLocationTimestamp stamped here
+                    // unconditionally (before the >3000m reject below), so a
+                    // bad fix corrupted the next fix's teleport check and the
+                    // `lastHudLat !== 0` clause was always true post-stamp.
+                    // Stamping now happens after the gate (see below).
 
+                    if (accuracy > 3000 && state.lastHudLat !== 0) return;
                     state.renderAccuracy = accuracy;
                     // accuracy can be null on some platforms (the trust model in
                     // MagHeadingFuser already treats non-finite accuracy as neutral);
@@ -3789,7 +3884,14 @@ let delta = heading - state.lastHeading;
                         state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
                     }
 
-                    if (accuracy > 3000 && state.lastHudLat !== 0) return;
+                    // FIX (see above): stamp only accepted fixes; publish to
+                    // cross-module state only for accepted fixes.
+                    state.lastHudLat = lat; state.lastHudLon = lon;
+                    state.lastLocationTimestamp = now;
+                    window.__METEO_CORE_STATE.altitude = pos.coords.altitude;
+                    if (speed !== null) window.__METEO_CORE_STATE.speed = speed;
+                    window.__METEO_CORE_STATE.lastGnssUpdate = now;
+                    if (gpsHeading !== null && !isNaN(gpsHeading)) window.__METEO_CORE_STATE.gnssHeading = gpsHeading;
                     triggerRenderPipeline();
                     state.autoCoords = { lat, lon };
 
@@ -3988,6 +4090,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // previously the panes kept the stale rotate(lastHeading) after
                 // leaving tactical mode, tilting popups on a north-up map.
                 applyHudCssRotation(0);
+                // FIX: null the CSS gate alongside the reset — lastCssHeading
+                // still held e.g. 45.2, so re-entering tactical at the same
+                // heading skipped the write (gate false) and the map sat at
+                // 0deg until the next 0.1-degree heading change.
+                state.lastCssHeading = null;
                 updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-route text-lg md:text-xl"></i>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono");
                 if (state.currentRouteCoords && state.currentRouteCoords.length > 0) {
@@ -4463,7 +4570,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (navigator.onLine && routeSig !== state.lastAutoCacheSig) {
                 state.lastAutoCacheSig = routeSig;
                 setTimeout(() => {
-                    if (navigator.onLine && !state.isCachingMap) window.downloadMapCache();
+                    // FIX: call unconditionally — downloadMapCache self-guards
+                    // (online/coords) and chains when busy instead of dropping.
+                    if (navigator.onLine) window.downloadMapCache();
                 }, 5000);
             }
             const conf = FuelManager.getConfig();
@@ -4487,7 +4596,33 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 state.lastIntelFetch = now;
                 if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
                 state.intelFetchAbortController = new AbortController();
-                fetchRouteIntelligence(route, state.intelFetchAbortController.signal);
+                void fetchRouteIntelligence(route, state.intelFetchAbortController.signal).catch(e => console.debug('intel fetch failed:', e && e.message));
+            }
+            // FIX: time-cadence intel refresh — updateRouteStatus fires only on
+            // routesfound, so the 5-min gate above never re-fired mid-drive and
+            // the timeline showed departure-time weather for the whole leg.
+            // A visibility-aware 60s-poll chain re-runs the gate with the last
+            // route handle; processNodes' `lastIntelFetch = 0` reset now arms a
+            // real refresh instead of dead state. setTimeout recursion (never
+            // setInterval) so tab-hide pauses cleanly per charter.
+            state._lastRoute = route;
+            if (!state._intelLoopStarted) {
+                state._intelLoopStarted = true;
+                const _intelTick = () => {
+                    setTimeout(() => {
+                        if (!document.hidden && state._lastRoute && state.routeNodes && state.routeNodes.length > 0) {
+                            const now2 = Date.now();
+                            if (!state.lastIntelFetch || now2 - state.lastIntelFetch > 300000) {
+                                state.lastIntelFetch = now2;
+                                if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
+                                state.intelFetchAbortController = new AbortController();
+                                void fetchRouteIntelligence(state._lastRoute, state.intelFetchAbortController.signal).catch(e => console.debug('intel refresh failed:', e && e.message));
+                            }
+                        }
+                        _intelTick();
+                    }, 60000);
+                };
+                _intelTick();
             }
 
             // Nav-button click handler bound once at init time (see
@@ -4605,6 +4740,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const MAX_API_NODES = 99;
             for (let i = 0; i < Math.min(MAX_API_NODES, unpassedNodes.length); i++) waypoints.push(unpassedNodes[i]);
 
+            if (signal && signal.aborted) return;
             if (waypoints.length <= 1) {
                 updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`);
                 return;
@@ -5703,8 +5839,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                      // (1 hour ahead) minus blend at nowIndex. Null when no models
                      // contribute (all null/down). Used by the HUD glance strip as a
                      // compact trend badge (+3° in 1h / --°).
-                     temperatureTrend: (() => {
-                         if (!h || !h.temperature_2m || nowIndex + 1 >= Math.min(maxSlice, h.temperature_2m.length)) return null;
+                      temperatureTrend: (() => {
+                          // FIX: with &models= present, hourly carries only SUFFIXED
+                          // temp arrays — h.temperature_2m never exists, so the old
+                          // guard returned null on every fetch (dead trend badge).
+                          // Size the window off totalLen (authoritative h.time.length).
+                          if (!h || !h.time || nowIndex + 1 >= Math.min(maxSlice, totalLen)) return null;
                          // FIX-1.4.1b (F3): blendNow is the hoisted call above — the
                          // IIFE previously re-ran weightedValueAt(tempModels, nowIndex).
                          const blendNext = WeatherEnsemble.weightedValueAt(tempModels, nowIndex + 1);
@@ -6106,7 +6246,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // of models is still meaningful because every model is now re-forecasted
             // by the same engine. With a real weather station pluggable later we'd
             // swap observation source here.
-            const observedBestMatch = h.precipitation || null;
+            // FIX: with &models= present, hourly carries only SUFFIXED precip
+            // arrays (precipitation_ecmwf_ifs025, ...) — unsuffixed
+            // h.precipitation never exists, so the old probe left nowIdx at
+            // -1 and observations never recorded ("LEARNING..." forever).
+            // Prefer the legacy unsuffixed array (old caches), else the first
+            // available suffixed model array as the observation proxy.
+            const observedBestMatch = h.precipitation
+                || WeatherEnsemble.models.map((_m) => h[`precipitation_${_m}`]).find((a) => Array.isArray(a))
+                || null;
             let nowIdx = -1;
             if (observedBestMatch) {
                 // O(log n) binary search of the sorted-ascending h.time array;
@@ -6429,14 +6577,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         // the gate fired on every small GPS jitter, defeating the
                         // 80%-reduction intent. 1e-4 ≈ 0.01 deg per axis ≈ 1.1 km.
                         if ((dLat * dLat + dLon * dLon) > 1e-4 || !_lastGeoName) { // ~1 km²
+                            // FIX: out-of-order race — fire-and-forget lookup with
+                            // no sequence guard, so fetch N's slow geo could
+                            // resolve after fetch N+1's and repaint the badge
+                            // with the older city (regressing _lastGeoLat/Lon
+                            // and causing a redundant refetch). Stale loses.
+                            const myGeoSeq = (state._revGeoSeq = (state._revGeoSeq || 0) + 1);
                             fetchWithRetry(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 }, 2, 500)
                                 .then(r => r.json())
                                 .then(d => {
+                                    if (myGeoSeq !== state._revGeoSeq) return;
                                     const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
                                     _lastGeoLat = lat; _lastGeoLon = lon; _lastGeoName = city;
                                     updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${sanitizeHTML(city)}`);
                                 })
 .catch(e => {
+                                     if (myGeoSeq !== state._revGeoSeq) return;
                                      if (e && e.name === 'AbortError') return;
                                      updateHTML(DOM.locationBadge, `<i class="fa-solid fa-location-dot"></i> ${lat.toFixed(2)},${lon.toFixed(2)}`);
                                  });
@@ -6608,8 +6764,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // network catch below, mislabeled "Network Error", and
                             // the user was served STALE cached telemetry despite
                             // fresh bytes already in hand.
+                            // FIX: processTelemetryPayload is async — without await
+                            // the catch above caught only sync throws; a render
+                            // throw escaped as an unhandled rejection AND the
+                            // timestamp/cache writes below still proceeded.
                             try {
-                                processTelemetryPayload(dCurr, dFore, dSolar, false, null, dDaily);
+                                await processTelemetryPayload(dCurr, dFore, dSolar, false, null, dDaily);
                             } catch (renderErr) { console.error('Telemetry render failed:', renderErr); }
                             // FIX-1.4.1 (B5): stamp success only NOW — the GPS freshness
                             // gate reads telemetryCache.timestamp; stamping at fetch
@@ -6699,7 +6859,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         try {
                             const cached = await localforage.getItem('telemetry_payload');
                             if (cached) {
-                                processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
+                                // FIX: same missing-await as the live path above —
+                                // an async render throw must land in this catch,
+                                // not escape as an unhandled rejection.
+                                await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
                                 // Restore minutely from cache if present (backward compat: old caches have no dMinutely)
                                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
@@ -6734,6 +6897,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (state.mapObj) for (let item of state.interceptMarkers) { if (item.marker) state.mapObj.removeLayer(item.marker); }
             state.interceptMarkers = [];
             state.lastIntelFetch = 0; state.currentRouteCoords = null; state.isFuelOnlyRoute = false;
+            state._lastRoute = null;
             // U2: clear the Drive Mode route snapshot with the route itself.
             state.driveRouteKm = null; state.driveRouteMin = null;
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
@@ -6981,16 +7145,23 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     return;
                 }
                 if (!state.mapObj) return;
-                if (state.fuelMarkers && state.fuelMarkers.length > 0) { if (state.mapObj) state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); }
-                state.fuelMarkers = [];
+                // FIX: double-tap / route-swap race — two overlapping searches
+                // interleaved marker pushes (tap 2 clears, tap 1 resolves late
+                // and pushes stale-config results over tap 2's). Generation
+                // counter drops every superseded search after its awaits.
+                const myGen = (state._fuelSearchGen = (state._fuelSearchGen || 0) + 1);
                 updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite-dish fa-fade mr-2"></i> SCANNING FOR ${this.getConfig().brand}...`);
                 updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-orange uppercase tracking-widest bg-brand-orange/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-orange/50 animate-pulse whitespace-nowrap");
                 let searchNodes = state.originalRouteNodes || state.routeNodes;
                 let payload = { stations: [], isStrict: false };
                 if (searchNodes && searchNodes.some(n => !n.passed)) {
                     payload = await this.findAllAlongRoute(state.autoCoords.lat, state.autoCoords.lon, searchNodes);
+                    if (myGen !== state._fuelSearchGen) return;
                     if (!payload.stations || payload.stations.length === 0) payload = await this.findAllNearest(state.autoCoords.lat, state.autoCoords.lon);
                 } else { payload = await this.findAllNearest(state.autoCoords.lat, state.autoCoords.lon); }
+                if (myGen !== state._fuelSearchGen) return;
+                if (state.fuelMarkers && state.fuelMarkers.length > 0) { if (state.mapObj) state.fuelMarkers.forEach(m => state.mapObj.removeLayer(m)); }
+                state.fuelMarkers = [];
 
                 if (payload.stations && payload.stations.length > 0) {
                     const strictBadgeTxt = payload.isStrict
@@ -7026,7 +7197,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         popupContent.innerHTML = `
                             <div class="text-center font-sans w-44">
                                 <b class="text-brand-orange text-xs uppercase tracking-widest block mb-1 truncate" title="${sanitizeHTML(station.name)}">${sanitizeHTML(station.name)}</b>
-                                <div class="text-[10px] text-gray-400 font-mono mb-2">${sanitizeHTML(this.getConfig().variant)} &bull; ${sanitizeHTML(station.dist)}km</div>
+                                <div class="text-[10px] text-gray-400 font-mono mb-2">${sanitizeHTML(this.getConfig().variant)} &bull; ${sanitizeHTML(Number(station.dist).toFixed(1))}km</div>
                                 <div class="mb-2">${matchBadgeUI}</div>
                                 ${hoursBadgeUI}
                                 <div class="flex gap-1.5 mb-2 w-full">
@@ -7069,7 +7240,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         let wps = state.routeCtrl.getWaypoints();
                         const origin = wps[0].latLng || L.latLng(state.autoCoords.lat, state.autoCoords.lon);
                         const dest = wps[wps.length - 1].latLng;
-                        state.routeNodes = null; state.originalRouteNodes = null; state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0; state.lastIntelFetch = 0;
+                        state.routeNodes = null; state.originalRouteNodes = null; state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0; state.lastIntelFetch = 0; state._lastRoute = null;
                         if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
                         state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
                     }
@@ -7369,9 +7540,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 setTimeout(() => attemptGpsFix(attempt + 1), 3000);
                                 return;
                             }
-                            state.autoCoords = { lat: p.coords.latitude, lon: p.coords.longitude };
-                            initMap(p.coords.latitude, p.coords.longitude);
-                            fetchData(p.coords.latitude, p.coords.longitude, false);
+                            // FIX: finite/range guard (mirrors the coarse path
+                            // above) — NaN/0,0/out-of-range never becomes boot
+                            // autoCoords → initMap → fetchData.
+                            const pLat = p.coords.latitude, pLon = p.coords.longitude;
+                            if (!Number.isFinite(pLat) || !Number.isFinite(pLon)) return;
+                            if (pLat === 0 && pLon === 0) return;
+                            if (pLat < -90 || pLat > 90 || pLon < -180 || pLon > 180) return;
+                            state.autoCoords = { lat: pLat, lon: pLon };
+                            initMap(pLat, pLon);
+                            fetchData(pLat, pLon, false);
                         },
                         (err) => {
                             if (state.autoCoords) return;
@@ -8072,7 +8250,10 @@ function checkDependenciesAndRun() {
                 // FIX-1.4.1c (B-3): the ring guard ran AFTER the rAF was
                 // re-scheduled — a failed mount (missing #main-grid) left a
                 // no-op 60 fps loop spinning for the whole session. Guard first.
-                if (!_el.ring) return;
+                // FIX: clear the latch on mount failure — otherwise the flag
+                // stays true forever and the visibilitychange rescheduler
+                // (if (!aeroRafScheduled)) never revives the HUD until reload.
+                if (!_el.ring) { aeroRafScheduled = false; return; }
                 requestAnimationFrame(renderAero);
 
                 const now = Date.now();
