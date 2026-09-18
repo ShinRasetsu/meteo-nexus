@@ -74,29 +74,41 @@ test('caltex adapter hoursKnown: operating hours or 24-7 known, else unknown (A3
 
 // ---------- BrandAdapters.caltex ----------
 
-test('caltex adapter parses amenity tokens and joins address parts', () => {
+test('caltex adapter maps amenity ids per the live-dataset-proven table', () => {
+  // Id semantics proven against all 731 rows of caltex_stations.json:
+  // 3002=Toilet, 3003=Disabled Friendly Toilet, 3000=Convenience Store,
+  // 3001=7-11, 3007=Car Wash, 3006=Lube Bay (NOT carwash), 66043=CaltexGO
+  // Rewards (NOT atm), 66030=Power Diesel (fuel_ids only, NOT ev).
   const s = BrandAdapters.caltex({
     id: 'cx1', name: 'Caltex Central', lat: -33.8, lng: 151.2,
     street: '1 George St', city: 'Sydney', state: 'NSW',
-    filter_ids: '3002', amenity_ids: '66043,66030',
+    filter_ids: 'amenityid_3007', amenity_ids: '3002,3000,66043',
     fuels: ['Diesel'], operating_hours: 'Open 24/7'
   });
   assert.equal(s.address, '1 George St, Sydney, NSW');
   assert.deepEqual(
     { toilet: s.amenities.toilet, shop: s.amenities.shop, carwash: s.amenities.carwash, atm: s.amenities.atm, ev: s.amenities.ev },
-    { toilet: false, shop: true, carwash: false, atm: true, ev: true }
+    { toilet: true, shop: true, carwash: true, atm: false, ev: false }
   );
   assert.equal(s.is24_7, true);
 });
 
-test('caltex adapter accepts prefixed amenity tokens and rejects non-24-7 hours', () => {
+test('caltex adapter: prefixed tokens, disabled-toilet id, no false atm/ev', () => {
   const s = BrandAdapters.caltex({
     id: 'cx2', name: 'C', lat: 0, lng: 0,
-    filter_ids: 'amenityid_3001,fuelid_x', amenity_ids: '',
+    filter_ids: 'amenityid_3003,fuelid_66030', amenity_ids: '',
     operating_hours: 'Mon-Sun 06:00-22:00'
   });
-  assert.equal(s.amenities.toilet, true);
+  assert.equal(s.amenities.toilet, true);   // 3003 = Disabled Friendly Toilet
+  assert.equal(s.amenities.shop, false);    // 3001 (7-11) NOT present here
+  assert.equal(s.amenities.ev, false);      // fuelid_66030 must not leak into ev
+  assert.equal(s.amenities.atm, false);     // no ATM id exists in the dataset
   assert.equal(s.is24_7, false);
+});
+
+test('caltex adapter recognises the "24 hours" spelling', () => {
+  const s = BrandAdapters.caltex({ id: 'cx3', name: 'C', lat: 0, lng: 0, operating_hours: 'Open 24 hours' });
+  assert.equal(s.is24_7, true);
 });
 
 // ---------- BrandAdapters.generic ----------

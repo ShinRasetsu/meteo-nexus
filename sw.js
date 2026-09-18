@@ -3,7 +3,7 @@
 // the old shell indefinitely — no index.html change alone ever reaches an
 // installed client. MAP/API/CDN names stay fixed so tiles + telemetry
 // survive version bumps (activate purges only unknown names).
-const APP_CACHE = 'meteonexus-app-v9';
+const APP_CACHE = 'meteonexus-app-v10';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
@@ -91,6 +91,16 @@ self.addEventListener('activate', (e) => {
         // the counter resets to 0 and the cache grows unbounded until the
         // eviction logic catches up from scratch.
         await seedMapCacheBytes();
+        // FIX: runtime tile traffic is opaque/no-cors (Leaflet <img> without
+        // crossOrigin) so putTileInCache's `netRes.ok` gate NEVER fires and
+        // the in-fetch LRU evict was dead code — the map cache grew unbounded
+        // (page-side prefetch is the only writer). Evict post-seed so the
+        // budget holds on every activate. evictOldestTiles has its own
+        // _tileEvicting latch.
+        if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) {
+            try { await evictOldestTiles(await caches.open(MAP_CACHE)); }
+            catch { /* eviction failure is non-fatal — next activate retries */ }
+        }
         // Same seeding for the API byte counter (entries carry content-length
         // headers, so no body cloning is needed).
         try {
@@ -360,17 +370,27 @@ self.addEventListener('fetch', (e) => {
             e.respondWith((async () => {
                 const cache = await caches.open(APP_CACHE);
                 const cached = await cache.match('./index.html');
-                // Background refresh — never blocks the response; failures are
-                // swallowed (offline boots fall through to the cached shell).
-                fetch(e.request).then(async (response) => {
+                if (cached) {
+                    // Background refresh — never blocks the response; failures are
+                    // swallowed (offline boots fall through to the cached shell).
+                    fetch(e.request).then(async (response) => {
+                        if (response && response.status === 200 &&
+                            (response.headers.get('content-type') || '').includes('text/html')) {
+                            await cache.put('./index.html', response.clone());
+                        }
+                    }).catch(() => { /* offline — cached shell already served */ });
+                    return cached;
+                }
+                // FIX: on a cache MISS the old code fired the background refresh
+                // (above) AND then awaited a second identical fetch — two GET
+                // /index.html on the very first post-purge boot. On miss, one
+                // fetch serves AND seeds the cache.
+                try {
+                    const response = await fetch(e.request);
                     if (response && response.status === 200 &&
                         (response.headers.get('content-type') || '').includes('text/html')) {
                         await cache.put('./index.html', response.clone());
                     }
-                }).catch(() => { /* offline — cached shell already served */ });
-                if (cached) return cached;
-                try {
-                    const response = await fetch(e.request);
                     return response || Response.error();
                 } catch {
                     return Response.error();
@@ -397,17 +417,14 @@ self.addEventListener('fetch', (e) => {
         return;
     }
 
-    // All other cross-origin requests: try network, fall back to cache.
+    // All other cross-origin requests: network only. FIX: the old code ended
+    // with a caches.match fallback across ALL caches on these origins — but
+    // NO code path ever cache.put()s them (identitytoolkit / firestore REST /
+    // misc), so every unmatched cross-origin GET paid a guaranteed-miss
+    // lookup before failing. Dead fallback removed.
     e.respondWith((async () => {
-        try {
-            const response = await fetch(e.request);
-            if (!response || (response.status !== 200 && response.status !== 0)) return response;
-            return response;
-        } catch (err) {
-            const cached = await caches.match(e.request);
-            if (cached) return cached;
-            throw err;
-        }
+        const response = await fetch(e.request);
+        return response;
     })());
 });
 
@@ -420,22 +437,38 @@ self.addEventListener('fetch', (e) => {
 // mutate the on-disk cache the SW never sees via fetch) — the counter is
 // re-seeded from disk before the reply so the gauge and LRU budget never
 // drift from reality.
-self.addEventListener('message', async (e) => {
+self.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'CACHE_STATS') {
-        if (e.data.resync) {
-            _mapCacheBytes = 0;
-            await seedMapCacheBytes();
-        }
-        let tileCount;
-        try {
-            const c = await caches.open(MAP_CACHE);
-            tileCount = (await c.keys()).length;
-        } catch (_err) { tileCount = -1; } // eslint-disable-line no-unused-vars
-        e.source.postMessage({
-            type: 'CACHE_STATS_REPLY',
-            mapCacheBytes: _mapCacheBytes,
-            mapCacheMax: MAP_CACHE_MAX_BYTES,
-            tileCount
-        });
+        // FIX: keep the SW alive across the resync — previously this ran as a
+        // detached async listener; Chrome may terminate the SW mid-seed
+        // (thousands of sequential cache.match reads after a large prefetch),
+        // silently dropping the reply and leaving the gauge stale.
+        e.waitUntil((async () => {
+            if (e.data.resync) {
+                _mapCacheBytes = 0;
+                await seedMapCacheBytes();
+                // FIX: runtime tile traffic is opaque/no-cors (Leaflet <img>
+                // without crossOrigin) so putTileInCache's `netRes.ok` gate
+                // NEVER fires and the in-fetch LRU evict is dead code — the
+                // cache grew unbounded (page-side prefetch is the only
+                // writer). Evict post-seed here + at activate so the budget
+                // holds. evictOldestTiles has its own _tileEvicting latch.
+                if (_mapCacheBytes > MAP_CACHE_MAX_BYTES) {
+                    try { await evictOldestTiles(await caches.open(MAP_CACHE)); }
+                    catch { /* eviction failure is non-fatal — next resync retries */ }
+                }
+            }
+            let tileCount;
+            try {
+                const c = await caches.open(MAP_CACHE);
+                tileCount = (await c.keys()).length;
+            } catch (_err) { tileCount = -1; } // eslint-disable-line no-unused-vars
+            e.source.postMessage({
+                type: 'CACHE_STATS_REPLY',
+                mapCacheBytes: _mapCacheBytes,
+                mapCacheMax: MAP_CACHE_MAX_BYTES,
+                tileCount
+            });
+        })());
     }
 });

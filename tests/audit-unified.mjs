@@ -389,16 +389,18 @@ function inlineChecks() {
   }
 
   // 19. Motion + HIG references — lively spring (Motion) and glanceable HUD (HIG) for 390x844
+  // Contract revision (1.10.1+ tooling): Magic MCP (mcp.21st.dev) removed from opencode.json —
+  // it contributed no audited design value (user-confirmed no-op). The design contract is
+  // carried by the motion + hig references; MCP servers are tooling, not design sources.
   {
     let hasMotionRef = false; let hasHigRef = false
     try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); hasMotionRef = !!(cfg.references && cfg.references.motion); hasHigRef = !!(cfg.references && cfg.references.hig) } catch { void 0 }
-    const hasMagicMcp = (() => { try { const cfg = JSON.parse(fs.readFileSync(path.join(repo, 'opencode.json'), 'utf8')); return !!(cfg.mcp && cfg.mcp.magic) } catch { return false } })()
-    const ok = hasMotionRef && hasHigRef && hasMagicMcp
-    const msg = ok ? 'Motion + HIG references + Magic MCP present — lively spring (Motion) and glanceable 390x844 (HIG) available' : `references motion=${hasMotionRef} hig=${hasHigRef} mcp.magic=${hasMagicMcp} — add all three for lively HUD beyond Figma/Playwright`
-    addResult('E5', 'motion-hig', 'Motion.dev + Apple HIG references + Magic MCP for lively spring and glanceable HUD', ok, {
+    const ok = hasMotionRef && hasHigRef
+    const msg = ok ? 'Motion + HIG references present — lively spring (Motion) and glanceable 390x844 (HIG) available' : `references motion=${hasMotionRef} hig=${hasHigRef} — add both for lively HUD beyond Figma/Playwright`
+    addResult('E5', 'motion-hig', 'Motion.dev + Apple HIG references for lively spring and glanceable HUD', ok, {
       exit: ok ? 0 : 2,
       out: msg,
-      err: ok ? '' : 'Add references.motion https://motion.dev + references.hig https://developer.apple.com/design/human-interface-guidelines + mcp.magic https://mcp.21st.dev/mcp to opencode.json',
+      err: ok ? '' : 'Add references.motion https://motion.dev + references.hig https://developer.apple.com/design/human-interface-guidelines to opencode.json',
       ms: 0,
     })
   }
@@ -560,11 +562,14 @@ async function main() {
 
   // Collate lint/sanity/unit into results
   addResult('E1', 'eslint', 'E1 Parse — eslint 10 flat config (no-empty allowEmptyCatch:false)', lintRes.code === 0, { exit: lintRes.code, out: (lintRes.out + lintRes.err).slice(0, 800) || 'eslint ok', err: lintRes.code ? (lintRes.out + lintRes.err).slice(0, 500) : '', ms: 0 })
-  // sanity + unit are combined `npm test` — split by looking for "sanity OK" and unit pass (check both out+err, npm may intermix; node --test prints "pass 35" / "tests 35" not "35 passed")
+  // sanity + unit are combined `npm test` — split by looking for "sanity OK" and unit pass (check both out+err, npm may intermix; node --test prints "pass N" / "tests N" not "N passed")
+  // FIX: counts are CONTRACT PINS, not moving targets — the suite size pins at
+  // the current fixture count so an accidental test deletion fails loudly.
+  // Bump BOTH pins (+label) when a test is intentionally added/removed.
   const testCombined = sanityRes.out + sanityRes.err
   const testOk = sanityRes.code === 0
   addResult('E3', 'sanity.test.js', 'E3 Shape — feature substrings survive edits (presence)', testOk && /sanity OK/.test(testCombined), { exit: sanityRes.code, out: (testCombined.match(/150 passed|146 passed/) || [''])[0] || testCombined.slice(0, 500), err: testOk ? '' : testCombined.slice(0, 500), ms: 0 })
-  addResult('E5', 'unit suite', 'E5 Behaviour — worker kernel, codec, route-node, overpass, brand adapters + fastDistance parity (35 fixtures)', testOk && /(?:pass 35|tests 35|35 passed)/.test(testCombined), { exit: sanityRes.code, out: (testCombined.match(/(?:pass 35|tests 35|35 passed)/) || [''])[0] || testCombined.slice(0, 500), err: testOk ? '' : testCombined.slice(0, 500), ms: 0 })
+  addResult('E5', 'unit suite', 'E5 Behaviour — worker kernel, codec, route-node, overpass, brand adapters + fastDistance parity (36 fixtures)', testOk && /(?:pass 36|tests 36|36 passed)/.test(testCombined), { exit: sanityRes.code, out: (testCombined.match(/(?:pass 36|tests 36|36 passed)/) || [''])[0] || testCombined.slice(0, 500), err: testOk ? '' : testCombined.slice(0, 500), ms: 0 })
 
   // Map scanner results to tier
   const tierMap = {

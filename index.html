@@ -1029,15 +1029,27 @@
                 const mid = nodes[Math.floor(nodes.length / 2)];
                 const sig = nodes.length + ':' + first.lat.toFixed(3) + ',' + lonOf(first).toFixed(3) + ':' + last.lat.toFixed(3) + ',' + lonOf(last).toFixed(3) + ':' + mid.lat.toFixed(3) + ',' + lonOf(mid).toFixed(3);
                 if (sig === state._lastElevSig) return;
-                state._lastElevSig = sig;
-                const step = Math.max(1, Math.floor(nodes.length / 100));
+                // FIX: Open-Meteo elevation caps at 100 coordinates per call;
+                // Math.floor(N/100) sent ALL N coords for N=101..199 (and 125+
+                // for N=250 etc.) → HTTP 400 → fetchSiblingJSON → null → the
+                // strip silently died on exactly the long routes it exists
+                // for. ceil(N/99) keeps sampled ≤ 99 so the tail append can
+                // never push past 100. Tail-inclusion is INDEX-based (the
+                // value compare skipped a true tail whose lat coincidentally
+                // equaled the previous sample).
+                const step = Math.max(1, Math.ceil(nodes.length / 99));
                 const lats = [], lons = [];
-                for (let k = 0; k < nodes.length; k += step) { lats.push(nodes[k].lat); lons.push(lonOf(nodes[k])); }
+                let lastSampledIdx = -1;
+                for (let k = 0; k < nodes.length; k += step) { lats.push(nodes[k].lat); lons.push(lonOf(nodes[k])); lastSampledIdx = k; }
                 const ln = nodes[nodes.length - 1];
-                if (lats[lats.length - 1] !== ln.lat) { lats.push(ln.lat); lons.push(lonOf(ln)); }
+                if (lastSampledIdx !== nodes.length - 1) { lats.push(ln.lat); lons.push(lonOf(ln)); }
                 const j = await fetchSiblingJSON('elev', `${CONFIG.elevApi}?latitude=${lats.join(',')}&longitude=${lons.join(',')}`);
                 const arr = (j && Array.isArray(j.elevation) ? j.elevation : []).filter(v => typeof v === 'number');
                 if (!arr.length) { state.routeElev = null; return; }
+                // FIX: _lastElevSig was stamped BEFORE the fetch — a failed
+                // (capped/over-limit) request permanently suppressed retries
+                // for the whole route. Stamp only on a usable result.
+                state._lastElevSig = sig;
                 let mn = Infinity, mx = -Infinity, gain = 0;
                 for (let k = 0; k < arr.length; k++) {
                     if (arr[k] < mn) mn = arr[k];
@@ -1049,8 +1061,11 @@
                 // profile survives on state for re-renders.
                 const prof = [];
                 const pStep = Math.max(1, Math.floor(arr.length / 48));
-                for (let k = 0; k < arr.length; k += pStep) prof.push(Math.round(arr[k]));
-                if (prof[prof.length - 1] !== Math.round(arr[arr.length - 1])) prof.push(Math.round(arr[arr.length - 1]));
+                let profLastIdx = -1;
+                for (let k = 0; k < arr.length; k += pStep) { prof.push(Math.round(arr[k])); profLastIdx = k; }
+                // Index-based tail inclusion (was a VALUE compare — a tail whose
+                // elevation equalled the previous sample got silently dropped).
+                if (profLastIdx !== arr.length - 1) prof.push(Math.round(arr[arr.length - 1]));
                 state.routeElev = { min: Math.round(mn), max: Math.round(mx), gain: Math.round(gain), profile: prof };
                 window.__METEO_CORE_STATE.routeElev = state.routeElev;
             } catch (e) { console.debug('[sibling:elev] failed:', e && e.message); state.routeElev = null; }
@@ -1901,6 +1916,7 @@
             _panRotateHookInstalled: false,
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
+            appliedHudRot: 0,  // rotation actually written to the map (predrag compensation base)
             driveRouteKm: null, driveRouteMin: null, lastAutoCacheSig: null,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
@@ -2134,7 +2150,7 @@
         const updateHTML = (el, val) => { if (el && el.innerHTML !== String(val)) el.innerHTML = val; };
         const updateClass = (el, val) => { if (el && el.className !== val) el.className = val; };
 
-        updateText(DOM.maxSpeed, state.maxSpeed);
+        updateText(DOM.maxSpeed, String(state.maxSpeed).padStart(3, '0'));
 
         window.reportRoutingFallback = function() {
             updateText(DOM.statusEl, "ROUTE EXCLUSIONS FAILED. FALLING BACK...");
@@ -2390,6 +2406,13 @@ let delta = heading - state.lastHeading;
         // of three style writes + two querySelector calls.
         function applyHudCssRotation(deg) {
             DOM.hudMap.style.setProperty('--hud-rot', `${deg}deg`);
+            // Track the rotation ACTUALLY APPLIED to the map subtree. The
+            // predrag hook must compensate with this, not with live
+            // state.visual.heading: on dragstart the lock releases and
+            // --hud-rot freezes (writes are gated on isMapLocked), so reading
+            // the live heading during a drag rotates finger deltas by a
+            // growing error (heading delta accumulated since dragstart).
+            state.appliedHudRot = deg;
         }
 
         function smoothVisualsLoop(time) {
@@ -2678,7 +2701,7 @@ let delta = heading - state.lastHeading;
                     DOM.liveCompassIcon.style.transform = `rotate(${_cmpR}deg)`;
                     state._lastCmpRot = _cmpR;
                 }
-                const aeroHeadingInt = Math.round(aeroHeading);
+                const aeroHeadingInt = Math.round(aeroHeading) % 360;
                 if (aeroHeadingInt !== state._lastHeadText) {
                     updateText(DOM.liveHeadingDeg, aeroHeadingInt.toString().padStart(3, '0') + '°');
                     updateText(DOM.liveHeadingTxt, getWindDirection(aeroHeading));
@@ -2692,7 +2715,7 @@ let delta = heading - state.lastHeading;
                     DOM.liveCompassIcon.style.transform = `rotate(${_visR}deg)`;
                     state._lastCmpRot = _visR;
                 }
-                const visHeadingInt = Math.round(state.visual.heading);
+                const visHeadingInt = Math.round(state.visual.heading) % 360;
                 if (visHeadingInt !== state._lastHeadText) {
                     updateText(DOM.liveHeadingDeg, visHeadingInt.toString().padStart(3, '0') + '°');
                     updateText(DOM.liveHeadingTxt, getWindDirection(state.visual.heading));
@@ -3872,6 +3895,13 @@ let delta = heading - state.lastHeading;
                         state.autoCoords = { lat: fix.lat, lon: fix.lon };
                         initMap(fix.lat, fix.lon);
                         fetchData(fix.lat, fix.lon, false);
+                        // Re-arm the live tracking watch — the original watch
+                        // died on PERMISSION_DENIED (its id was nulled in the
+                        // error callback, so this passes the self-block at the
+                        // top of startBackgroundTracking). Without this the
+                        // recovery paints the map/weather once but speed, ETA,
+                        // and route-node processing stay dead until a reload.
+                        startBackgroundTracking();
                     }).catch(e => console.debug('GPS recovery fix failed:', e && e.message));
                 };
             }).catch(e => console.debug('Geolocation permission query unsupported:', e && e.message));
@@ -4115,6 +4145,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 (err) => {
                     updateText(DOM.statusEl, "GPS SIGNAL LOST");
                     updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30 whitespace-nowrap");
+                    if (err && err.code === err.PERMISSION_DENIED) {
+                        // A PERMISSION_DENIED watch is DEAD — per spec the error
+                        // callback fires once and no positions ever arrive (the
+                        // watch only resurrects via a NEW watchPosition after the
+                        // user flips the site permission). Leaving the handle
+                        // truthy latches every restart path off: the visibility
+                        // resume below (`if (!state.gpsWatchId)`) and the recovery
+                        // watcher's startBackgroundTracking() self-block on
+                        // `if (state.gpsWatchId) return`. Clear the handle so
+                        // recovery can actually re-arm. TIMEOUT/POSITION_-
+                        // UNAVAILABLE are transient — the watch keeps trying —
+                        // so the id stays for those.
+                        if (state.gpsWatchId) { navigator.geolocation.clearWatch(state.gpsWatchId); state.gpsWatchId = null; }
+                    }
                 },
                 { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
             );
@@ -4243,8 +4287,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // interaction, so we install the hook here on first dragstart.
                 if (!state._panRotateHookInstalled && state.mapObj.dragging && state.mapObj.dragging._draggable) {
                     state.mapObj.dragging._draggable.on('predrag', (e) => {
-                        const h = state.visual.heading;
-                        if (state.tacticalMode < 1 || h === null || h === 0) return;
+                        // FIX: compensate with the rotation ACTUALLY APPLIED to
+                        // the map (frozen at dragstart when isMapLocked is
+                        // released) — NOT the live lerped heading, which keeps
+                        // tracking the vehicle during the drag and would steer
+                        // the map away from the finger by the accumulated
+                        // heading delta.
+                        const h = state.appliedHudRot || 0;
+                        if (state.tacticalMode < 1 || h === 0) return;
                         const d = state.mapObj.dragging._draggable;
                         // _newPos = _startPos + (finger delta). Recompute the delta,
                         // rotate it by +h, re-add _startPos so Leaflet still owns
@@ -4614,6 +4664,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // waypoints while routeNodes was null, returning stations off-path.
             state.routeNodes = null; state.originalRouteNodes = null;
             state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0;
+            // FIX: reset the 5-min intel gate too. Previously a NEW destination
+            // set within 5 min of the last intel fetch skipped the fetch in
+            // updateRouteStatus → routeNodes stayed null → the 60 s intel loop
+            // (gated on routeNodes.length > 0) could never bootstrap it. Result:
+            // no node compute, no intercept markers, no timeline, no arrival
+            // detection — permanently for that route.
+            state.lastIntelFetch = 0;
             state.isFuelOnlyRoute = isFuelOnly;
             persistNavTarget();
             DOM.navBtn.classList.remove('hidden');
@@ -4670,7 +4727,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             updateClass(DOM.statusEl, statusClass);
 
             if (route.coordinates && Array.isArray(route.coordinates)) {
-                state.currentRouteCoords = route.coordinates.map(c => c.lat ? c : L.latLng(c[0], c[1]));
+                // FIX: `c.lat ?` is a falsy-zero trap — an equator-crossing node
+                // (lat exactly 0) fell into the array-literal path and produced
+                // L.latLng(undefined, undefined) → NaN → NaN route nodes.
+                state.currentRouteCoords = route.coordinates.map(c => (c.lat !== undefined && c.lat !== null) ? c : L.latLng(c[0], c[1]));
             }
 
             const now = Date.now();
@@ -4824,7 +4884,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             if (signal && signal.aborted) return;
             if (waypoints.length <= 1) {
-                updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`);
+                // FIX: empty waypoints after a node-compute FAILURE (worker error
+                // path above sets routeNodes = []) also landed here and painted a
+                // false "TARGET REACHED" on a route the engine never built. The
+                // arrival banner is only honest when nodes exist and every one
+                // was passed.
+                if (state.routeNodes && state.routeNodes.length > 0) {
+                    updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-4 text-brand-success uppercase tracking-widest font-black"><i class="fa-solid fa-flag-checkered mr-2"></i> TARGET REACHED / FINAL APPROACH</div>`);
+                } else {
+                    updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-4 text-brand-red uppercase tracking-widest font-black"><i class="fa-solid fa-triangle-exclamation mr-2"></i> ROUTE NODE COMPUTE FAILED</div>`);
+                }
                 return;
             }
 
@@ -4857,6 +4926,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     baseResOk ? results[0].value.json() : Promise.resolve(null),
                     modelResOk ? results[1].value.json() : Promise.resolve(null)
                 ]);
+
+                // FIX: also drop the render if the route was superseded DURING
+                // the JSON parse — the last abort check ran before it, so a
+                // route swap landing inside .json() still painted the old
+                // route's timeline + cache row.
+                if (signal && signal.aborted) return;
 
                 // Write to cache before rendering — if offline fallback fires later, this is what it reads.
                 // PERF: gated on a payload signature so byte-identical SW-cached refreshes skip the
@@ -5307,6 +5382,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         };
 
         window.executePurge = async function() {
+            // Re-entry guard: the purge+GPS wait holds the modal open for up
+            // to ~12 s; a frustrated second tap would run the whole wipe+reload
+            // chain twice (idempotent writes, but a doubled raced reload).
+            if (window._purgeRunning) return;
+            window._purgeRunning = true;
+            // Freeze writers BEFORE the wipe: the background tile prefetcher
+            // holds OPEN Cache handles (caches.open survives caches.delete —
+            // the name is recreated on the next put), so a mid-purge prefetch
+            // batch could RE-LAND tiles into the map cache after we delete it.
+            // Abort kills the in-flight batches at the next 5-tile boundary;
+            // clearing the queue flag stops the finally-chain from reviving it.
+            try { if (state._prefetchAbort) state._prefetchAbort.abort(); state._prefetchQueued = false; }
+            catch (e) { console.debug('Pre-purge prefetch abort failed:', e && e.message); }
             // GPS re-request FIRST: if the browser permission is still in
             // "prompt" state this re-shows the browser prompt; if denied it
             // fails fast (only a site-settings flip resets a denial — no
@@ -5351,7 +5439,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (!state.audioEnabled) return;
             if (Date.now() - state.lastPing < 60000) return;
             const ctx = getAudioContext();
-            if (ctx.state === 'suspended') {
+            if (ctx.state !== 'running') {
+                // Covers 'suspended' AND 'interrupted' (iOS Safari sets the
+                // context to 'interrupted' on calls/Siri/route changes — the
+                // old suspended-only check let an interrupted context play a
+                // silent oscillator AND stamp lastPing, losing the alert and
+                // suppressing the next 60 s).
                 // Do NOT set lastPing — we didn't actually fire. The ping scheduler
                 // will retry at the next opportunity (~5 seconds later). On the
                 // first user gesture the context will be resumed and the still-
@@ -6470,8 +6563,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const m = window.__METEO_CORE_STATE.minutely;
                 const arr = (m && Array.isArray(m.precipitation)) ? m.precipitation : null;
                 if (!arr || !arr.length) { window.__METEO_CORE_STATE.rainEta = null; return; }
-                for (let k = 0; k < arr.length; k++) {
-                    if (typeof arr[k] === 'number' && arr[k] >= 0.1) { window.__METEO_CORE_STATE.rainEta = k * 15; return; }
+                // FIX: anchor cells to their absolute times. Live cells are
+                // ~now, but the offline/denied-cache replay paths hand over
+                // cells anchored at the ORIGINAL fetch time — the old code read
+                // cell k as k*15 min from NOW, so a 2 h-old cache promised
+                // "RAIN ~45 MIN" for rain already past. Skip cells in the past.
+                const t0 = (m && Array.isArray(m.time) && typeof m.time[0] === 'number') ? m.time[0] * 1000 : null;
+                const offset = t0 ? Math.max(0, Math.round((Date.now() - t0) / 900000)) : 0;
+                if (offset >= arr.length) { window.__METEO_CORE_STATE.rainEta = null; return; } // fully stale window — honesty over a wrong number
+                for (let k = offset; k < arr.length; k++) {
+                    if (typeof arr[k] === 'number' && arr[k] >= 0.1) { window.__METEO_CORE_STATE.rainEta = (k - offset) * 15; return; }
                 }
                 window.__METEO_CORE_STATE.rainEta = -1;
             } catch (e) { console.debug('[aero] rainEta compute failed:', e && e.message); window.__METEO_CORE_STATE.rainEta = null; }
@@ -6524,7 +6625,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // crossing a probe cell) slipped past the sig and the chart kept stale
             // data. Probe every model's arrays now (2 probes x N models).
             const chartSig = (_hC && _hC.time ? _hC.time[0] + '|' + _hC.time[_hC.time.length - 1] : '') + '|' +
-                             WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null)).join('|') + '|' +
+                             // FIX: chart window anchor — h.time is pinned to
+                             // local midnight all day, so without a now-bucket
+                             // the window [nowIndex, +24) silently stopped
+                             // sliding between model runs (chart showed hours
+                             // in the past at its left edge). One extra read
+                             // per fetch; re-render ≤ 1/hour.
+                             Math.floor(Date.now() / 3600000) + '|' +
+                             // FIX: hourly wind arrays (windEnsemble → Aero HUD)
+                             // were unprobed — a model run touching only wind
+                             // left rendered wind stale until the next 15-min
+                             // current-block roll. +5 array reads per fetch.
+                             WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_speed_10m_' + _m] : null)).join('|') + '|' +
                              probeCells(_hS ? _hS.shortwave_radiation : null) + '|' +
                              probeCells(_hS ? _hS.uv_index : null);
             const payloadSig = String(dCurr?.current?.time ?? '') + '|' +
@@ -6550,7 +6662,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                (state.telemetryCache ? state.telemetryCache.lon : '') + '|' +
                                chartSig;
             if (payloadSig === _lastPayloadSig) return;
-            _lastPayloadSig = payloadSig;
+            // NOTE: _lastPayloadSig is stamped AFTER normalize+render below —
+            // never here. A throw mid-normalize leaves the gate OPEN so the
+            // identical payload is retried next fetch, not skipped forever.
 
             // FIX-1.4.1b (F1): compute the chart-need decision BEFORE normalize so
             // the chart-only pipeline inside it can be skipped when chartSig is
@@ -6661,6 +6775,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // Refresh tile-cache gauge — SW reply renders the #cache-gauge pill
             // asynchronously. Fire-and-forget; no delay introduced.
             if (typeof window.requestCacheStats === 'function') window.requestCacheStats();
+            // FIX: stamp AFTER the render succeeds. Stamping before normalize
+            // meant a throw mid-render pinned the sig — every identical retry
+            // early-returned, and telemetryCache.timestamp kept the fetch gate
+            // happy with nothing actually on screen (the 1.4.1 stamp-before
+            // class, one surface over).
+            _lastPayloadSig = payloadSig;
         }
 
         // --- FETCH DATA ---
@@ -6842,35 +6962,34 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 const m15 = dAll.minutely_15;
                                 const hasUnsuffixedMin = Array.isArray(m15.precipitation) && m15.precipitation !== undefined;
                                 if (hasUnsuffixedMin) {
-                                    dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: m15.precipitation.slice(), temperature_2m: (m15.temperature_2m||[]).slice(), wind_speed_10m: (m15.wind_speed_10m||[]).slice(), wind_gusts_10m: (m15.wind_gusts_10m||[]).slice(), weather_code: (m15.weather_code||[]).slice() } };
+                                    // PERF: synthesize time + precipitation only
+                                    // — computeRainEta is the sole consumer of
+                                    // minutely.* and reads precipitation alone
+                                    // (grep-verified); the temp/wind/gust/wc
+                                    // lanes were 3 weightedValueAll + 12
+                                    // weightedMajorityAt calls per fetch plus
+                                    // bytes in every telemetry_payload IDB
+                                    // write, all unread.
+                                    dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: m15.precipitation.slice() } };
                                 } else {
                                     try {
-                                        const mm = WeatherEnsemble.extractAllModelArrays(m15, ['precipitation','temperature_2m','wind_speed_10m','wind_gusts_10m','weather_code']);
+                                        const mm = WeatherEnsemble.extractAllModelArrays(m15, ['precipitation']);
                                         const tLen = m15.time.length;
                                         const pArr = WeatherEnsemble.weightedValueAll(mm.precipitation, 0, tLen);
-                                        const tArr = WeatherEnsemble.weightedValueAll(mm.temperature_2m, 0, tLen);
-                                        const wsArr = WeatherEnsemble.weightedValueAll(mm.wind_speed_10m, 0, tLen);
-                                        const wgArr = WeatherEnsemble.weightedValueAll(mm.wind_gusts_10m, 0, tLen);
-                                        const wcArr = new Array(tLen);
-                                        for (let i = 0; i < tLen; i++) wcArr[i] = WeatherEnsemble.weightedMajorityAt(mm.weather_code, i).code;
-                                        dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: pArr.map(v=> (v===null||v===undefined)?0:v), temperature_2m: tArr.map(v=> (v===null||v===undefined)?0:v), wind_speed_10m: wsArr.map(v=> (v===null||v===undefined)?0:v), wind_gusts_10m: wgArr.map(v=> (v===null||v===undefined)?0:v), weather_code: wcArr } };
+                                        dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: pArr.map(v=> (v===null||v===undefined)?0:v) } };
                                     } catch (minErr) {
                                         console.warn('Minutely synthesis failed, falling back to first-model pick:', minErr);
                                         const tLen = m15.time.length;
-                                        const pFix = new Array(tLen), tFix = new Array(tLen), wsFix = new Array(tLen), wgFix = new Array(tLen), wcFix = new Array(tLen);
+                                        const pFix = new Array(tLen);
                                         for (let i = 0; i < tLen; i++) {
-                                            let pV=null,tV=null,wsV=null,wgV=null,wcV=null;
+                                            let pV=null;
                                             for (const { m } of WeatherEnsemble._MI) {
-                                                const pA=m15[`precipitation_${m}`], tA=m15[`temperature_2m_${m}`], wsA=m15[`wind_speed_10m_${m}`], wgA=m15[`wind_gusts_10m_${m}`], wcA=m15[`weather_code_${m}`];
+                                                const pA=m15[`precipitation_${m}`];
                                                 if (pV===null && pA && pA[i]!==null && pA[i]!==undefined) pV=pA[i];
-                                                if (tV===null && tA && tA[i]!==null && tA[i]!==undefined) tV=tA[i];
-                                                if (wsV===null && wsA && wsA[i]!==null && wsA[i]!==undefined) wsV=wsA[i];
-                                                if (wgV===null && wgA && wgA[i]!==null && wgA[i]!==undefined) wgV=wgA[i];
-                                                if (wcV===null && wcA && wcA[i]!==null && wcA[i]!==undefined) wcV=wcA[i];
                                             }
-                                            pFix[i]=pV!==null?pV:0; tFix[i]=tV!==null?tV:0; wsFix[i]=wsV!==null?wsV:0; wgFix[i]=wgV!==null?wgV:0; wcFix[i]=wcV;
+                                            pFix[i]=pV!==null?pV:0;
                                         }
-                                        dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: pFix, temperature_2m: tFix, wind_speed_10m: wsFix, wind_gusts_10m: wgFix, weather_code: wcFix } };
+                                        dMinutely = { minutely_15: { time: m15.time.slice(), precipitation: pFix } };
                                     }
                                 }
                                 try { window.__METEO_CORE_STATE.minutely = dMinutely.minutely_15; window.__METEO_CORE_STATE.minutelyTime = Date.now(); } catch(_) {}
@@ -6923,13 +7042,25 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     publishAirQuality(dAQ);
                                     try { await localforage.setItem('sibling_aq', { dAQ, timestamp: now }); }
                                     catch (e) { console.debug('Sibling AQ persist failed:', e && e.message); }
-                                } else { publishAirQuality(null); }
+                                } else {
+                                    // FIX: partial-failure backfill — a failed
+                                    // refresh used to null the row even when a
+                                    // ≤10-min-old good row sat in IndexedDB;
+                                    // the TTL stamp above then suppressed the
+                                    // retry for the full window. Fall back to
+                                    // the cached row before going blank.
+                                    try { const cAQ = await localforage.getItem('sibling_aq'); publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null); }
+                                    catch (e) { console.debug('Sibling AQ backfill failed:', e && e.message); publishAirQuality(null); }
+                                }
                                 if (jMar && jMar.hourly) {
                                     const dMarine = { hourly: jMar.hourly, utc_offset_seconds: jMar.utc_offset_seconds };
                                     publishMarine(dMarine);
                                     try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
                                     catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
-                                } else { publishMarine(null); }
+                                } else {
+                                    try { const cMar = await localforage.getItem('sibling_marine'); publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null); }
+                                    catch (e) { console.debug('Sibling marine backfill failed:', e && e.message); publishMarine(null); }
+                                }
                             } // end sibling TTL gate — rows keep last values between refreshes
                             // Rate-limit localforage writes to every 60s — writing to disk on
                             // every 2-min fetch is unnecessary; the in-memory state is updated
@@ -7084,7 +7215,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     e.currentTarget.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Downloading...';
                     try {
                         const mod = await getFuelStationsModule();
-                        await mod.StationLoader.load(brand);
+                        // force: the button literally says Refresh/Update —
+                        // without it a fresh-cache tap was a silent no-op
+                        // (load() early-returns while within the TTL).
+                        await mod.StationLoader.load(brand, { force: true });
                     } catch (err) {
                         console.error(`Download ${brand} failed:`, err);
                     } finally {
@@ -7153,7 +7287,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             radiusKm: 3.5
                         }));
                         const results = await Promise.all(searchPromises);
-                        
+
+                        // FIX: findNearby swallows StationLoader.load failures
+                        // into a success-shaped { stations: [], error } result —
+                        // brands with NO local dataset (8 of 10 catalog brands)
+                        // rendered "NO … DETECTED" under a LOCAL badge while
+                        // Overpass sat reachable. Treat an all-errors sweep as
+                        // a load failure and take the fallback below.
+                        if (results.length && results.every(r => r.error)) throw new Error(`Local dataset unavailable: ${results[0].error}`);
+
                         // Merge and deduplicate results
                         const allStations = new Map();
                         for (const result of results) {
@@ -7176,7 +7318,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 let sampled = [], step = Math.max(1, Math.floor(upcoming.length / 15));
                 for(let i=0; i<upcoming.length; i+=step) sampled.push(upcoming[i]);
                 if(sampled[sampled.length-1] !== upcoming[upcoming.length-1]) sampled.push(upcoming[upcoming.length-1]);
-                const cacheKey = `fuel_route_all_${conf.brand}_${sampled[0].lat.toFixed(2)}_${sampled[0].lon.toFixed(2)}_${sampled[sampled.length - 1].lat.toFixed(2)}_${sampled[sampled.length - 1].lon.toFixed(2)}`;
+                // FIX: variant in the key — the cached payload embeds the
+                // strict `isExact` filter for the REQUESTED variant (reqOsmTag);
+                // switching variant within the 1h TTL used to silently serve
+                // the previous variant's list.
+                const cacheKey = `fuel_route_all_${conf.brand}_${conf.variant || ''}_${sampled[0].lat.toFixed(2)}_${sampled[0].lon.toFixed(2)}_${sampled[sampled.length - 1].lat.toFixed(2)}_${sampled[sampled.length - 1].lon.toFixed(2)}`;
                 try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 3600000)) return cached.data; } catch(e) { console.debug('fuel findAllAlong cache read failed (intentional silencer):', e && e.message); }
                 let queryParts = [];
                 sampled.forEach(node => {
@@ -7225,13 +7371,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             openingMode: conf.openingMode || 'all',
                             radiusKm: 20
                         });
+                        // FIX: same swallow as findAllAlongRoute — a load
+                        // failure arrives success-shaped ({ error }), so
+                        // rethrow it INTO this try's catch → Overpass fallback.
+                        if (result.error) throw new Error(`Local dataset unavailable: ${result.error}`);
                         return { stations: result.stations, isStrict: false, source: 'local' };
                     } catch (e) {
                         console.warn('[FuelManager] Local search failed, falling back to Overpass:', e);
                     }
                 }
                 // Fallback to Overpass
-                const cacheKey = `fuel_nearest_all_${conf.brand}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+                const cacheKey = `fuel_nearest_all_${conf.brand}_${conf.variant || ''}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
                 try { const cached = await localforage.getItem(cacheKey); if (cached && (Date.now() - cached.timestamp < 86400000)) return cached.data; } catch(e) { console.debug('fuel findAllNearest cache read failed (intentional silencer):', e && e.message); }
                 const query = `[out:json][timeout:15];(node["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon});way["amenity"="fuel"]["brand"~"${conf.brand}",i](around:20000,${lat},${lon}););out center;`;
                 const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
@@ -7362,6 +7512,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         state.routeNodes = null; state.originalRouteNodes = null; state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0; state.lastIntelFetch = 0; state._lastRoute = null;
                         if (state.intelFetchAbortController) state.intelFetchAbortController.abort();
                         state.routeCtrl.setWaypoints([origin, L.latLng(station.lat, station.lon), dest]);
+                        // FIX: persist the inserted waypoint — a reload mid-
+                        // pitstop ended in restoreNavTarget replaying the
+                        // PRE-pitstop target and silently dropping the stop.
+                        state.customRouteWaypoints = [origin, L.latLng(station.lat, station.lon), dest];
+                        persistNavTarget();
                     }
                 } else { window.activateLiveNavigation(station.lat, station.lon, true); }
             },
@@ -7556,15 +7711,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // forget sweep per boot. TTLs are deliberately generous relative
                 // to the read-side TTLs: route_intel_ has NO read TTL, so
                 // 7 days of history stays available for restored nav sessions.
-                localforage.iterate((val, key) => {
-                    if (key.startsWith('fuel_route_all_')) {
-                        if (val && val.timestamp && (Date.now() - val.timestamp > 3600000)) localforage.removeItem(key).catch(() => {});
-                    } else if (key.startsWith('fuel_nearest_all_')) {
-                        if (val && val.timestamp && (Date.now() - val.timestamp > 86400000)) localforage.removeItem(key).catch(() => {});
-                    } else if (key.startsWith('route_intel_')) {
-                        if (val && val.timestamp && (Date.now() - val.timestamp > 604800000)) localforage.removeItem(key).catch(() => {});
-                    }
-                }).catch(e => console.warn('Fuel cache sweep failed (non-fatal):', e && e.message));
+                // FIX: keys()-first sweep. localforage.iterate DESERIALIZES
+                // every stored value just to hand us the key — including the
+                // fuel_stations_shell (~2.8 MB) and caltex (~0.65 MB) datasets —
+                // per boot, competing with boot-rendering on the main thread.
+                // Read the cheap key list, then getItem only the 3 swept prefixes.
+                localforage.keys()
+                    .then(ks => Promise.all(ks
+                        .filter(k => k.startsWith('fuel_route_all_') || k.startsWith('fuel_nearest_all_') || k.startsWith('route_intel_'))
+                        .map(async k => {
+                            const val = await localforage.getItem(k);
+                            const ttl = k.startsWith('fuel_route_all_') ? 3600000 : k.startsWith('fuel_nearest_all_') ? 86400000 : 604800000;
+                            if (val && val.timestamp && (Date.now() - val.timestamp > ttl)) localforage.removeItem(k).catch(() => {});
+                        })))
+                    .catch(e => console.warn('Fuel cache sweep failed (non-fatal):', e && e.message));
             }
         };
 
@@ -7789,7 +7949,24 @@ function checkDependenciesAndRun() {
                                     let _done = false;
                                     const _doReload = () => { if (!_done) { _done = true; window.location.reload(); } };
                                     if (swReg && typeof swReg.update === 'function') {
-                                        const _fb = setTimeout(_doReload, 15000);
+                                        // Fallback reload (no SW update found — e.g. an
+                                        // index-only deploy that skipped the sw.js bump):
+                                        // the SWR shell serves the CACHED index.html while
+                                        // the no-store VERSION fetch already read the new
+                                        // version — _bootVersion would adopt it on that
+                                        // stale load and the pill would vanish with the
+                                        // update never applied. Evict the cached shell
+                                        // first so the reload truly fetches the new one.
+                                        const _fb = setTimeout(async () => {
+                                            try {
+                                                const ks = await caches.keys();
+                                                await Promise.all(ks.filter(k => k.startsWith('meteonexus-app')).map(async k => {
+                                                    try { const c = await caches.open(k); await c.delete('./index.html'); }
+                                                    catch (e2) { console.debug('shell evict failed:', k, e2 && e2.message); }
+                                                }));
+                                            } catch (e) { console.debug('Update fallback cache clear failed:', e && e.message); }
+                                            _doReload();
+                                        }, 15000);
                                         navigator.serviceWorker.addEventListener('controllerchange', () => clearTimeout(_fb), { once: true });
                                         swReg.update().catch(() => { clearTimeout(_fb); _doReload(); });
                                     } else { _doReload(); }
@@ -8284,9 +8461,10 @@ function checkDependenciesAndRun() {
                     document.body.classList.remove('overflow-hidden');
                 };
                 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitAeroFocus(); });
-                // Map dragstart lives in main module; listen on #hud-map wrapper if present
-                const _hudMapEl = document.getElementById('hud-map');
-                if (_hudMapEl) _hudMapEl.addEventListener('dragstart', exitAeroFocus);
+                // NOTE: the old `#hud-map` DOM 'dragstart' listener was dead —
+                // Leaflet fires dragstart on the MAP object (L.Evented), not as
+                // a DOM event, and the fullscreen overlay covers the map anyway.
+                // Escape + the expand button remain the exit paths.
                 // Expose for manual close from other focus toggles
                 window.exitAeroFocus = exitAeroFocus;
             }
@@ -8861,7 +9039,9 @@ function checkDependenciesAndRun() {
                         }
                     }
                     if (_el.hdgNum) {
-                        const hnKey = Math.round(visualHeading);
+                        // % 360: rounding 359.6° yields 360 — a one-frame "360°"
+                        // flash on every north crossing before the fix.
+                        const hnKey = Math.round(visualHeading) % 360;
                         if (_uiCache.hdgNumKey !== hnKey) {
                             _uiCache.hdgNumKey = hnKey;
                             _el.hdgNum.textContent = hnKey + '°';

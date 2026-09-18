@@ -44,15 +44,19 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 // into one network/disk pass — losers await the winner's promise.
 const _loadInFlight = new Map(); // brandKey -> Promise<raw>
 export const StationLoader = {
-  async load(brand) {
+  // opts.force: skip the mem + IndexedDB TTL early-returns (the Offline tab's
+  // Refresh button must actually hit the network — without this a tap on
+  // "Refresh" into a fresh cache is a silent no-op).
+  async load(brand, opts = {}) {
+    const force = opts.force === true;
     const key = `fuel_stations_${brand.toLowerCase()}`;
     const mem = _stationCache.get(brand.toLowerCase());
-    if (mem && Date.now() - mem.ts < CACHE_TTL_MS) return mem.raw;
+    if (!force && mem && Date.now() - mem.ts < CACHE_TTL_MS) return mem.raw;
     const inflight = _loadInFlight.get(brand.toLowerCase());
     if (inflight) return inflight;
 
     const p = (async () => {
-      try {
+      if (!force) try {
         const cached = await localforage.getItem(key);
         if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
           _stationCache.set(brand.toLowerCase(), { raw: cached.data, adapted: null, ts: cached.ts });
@@ -218,7 +222,8 @@ export const BrandAdapters = {
         openStatus: raw.operating_hours ? 'unknown' : 'unknown',
         hoursKnown: raw.operating_hours != null || raw.twenty_four_hour === true
       },
-      is24_7: /24[/\\-]?7|twenty.four.hour/i.test(raw.operating_hours || '')
+      // "24 hours"/"24hours" spellings appear in 4 live rows alongside 24/7.
+      is24_7: /24[/\\-]?7|24\s*hours|twenty.four.hour/i.test(raw.operating_hours || '')
     };
   },
 
@@ -237,8 +242,19 @@ export const BrandAdapters = {
 };
 
 // ─── Optimized Caltex amenity parser (single pass, no array concat) ───
+// id table PROVEN against all 731 rows of caltex_stations.json by
+// positional co-occurrence of amenity_ids[] with amenities[] (100%
+// consistent, zero collisions):
+//   3000 = Convenience Store (58)   3001 = 7-11 (92)
+//   3002 = Toilet (152)             3003 = Disabled Friendly Toilet (13)
+//   3006 = Lube Bay (110)           3007 = Car Wash (75)
+//   66030 = Power Diesel  — fuel_ids ONLY, never amenity_ids (NOT an EV id)
+//   66043 = Caltex Rewards / CaltexGO (567 rows — NOT an ATM id)
+// No ATM/EV id exists in the local dataset: those filters honestly match
+// nothing instead of lying, and the UI's source badge stays LOCAL with an
+// empty list rather than a wrong one. (Multi-id per amenity = array.)
 const _caltexAmenityKeys = {
-  toilet: '3001', shop: '3002', carwash: '3006', atm: '66043', ev: '66030'
+  toilet: ['3002', '3003'], shop: ['3000', '3001'], carwash: ['3007'], atm: [], ev: []
 };
 function parseCaltexAmenities(filterIds, amenityIds) {
   const tokens = new Set(
@@ -248,7 +264,7 @@ function parseCaltexAmenities(filterIds, amenityIds) {
   // (filter_ids mixes fuelid_3001 with amenityid_3002) — matching the
   // fuelid_ prefix turned diesel fuel tokens into ev/toilet=true.
   // Match bare tokens (amenity_ids) + amenityid_ prefix only.
-  const has = (id) => tokens.has(id) || tokens.has('amenityid_' + id);
+  const has = (ids) => ids.some(id => tokens.has(id) || tokens.has('amenityid_' + id));
   return {
     toilet: has(_caltexAmenityKeys.toilet),
     shop: has(_caltexAmenityKeys.shop),

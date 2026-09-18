@@ -8,13 +8,18 @@
       "command": ["npx", "-y", "@playwright/mcp"],
       "enabled": true
     },
-    "magic": {
+    "github": {
       "type": "remote",
-      "url": "https://mcp.21st.dev/mcp",
+      "url": "https://api.githubcopilot.com/mcp/",
       "enabled": true,
       "headers": {
-        "Authorization": "Bearer {env:MAGIC_API_KEY}"
+        "Authorization": "Bearer {env:GITHUB_TOKEN}"
       }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+      "enabled": true
     }
   },
   "references": {

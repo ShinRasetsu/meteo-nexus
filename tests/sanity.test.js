@@ -121,6 +121,17 @@ assertIncludes(html, "query({ name: 'geolocation' })", "Permissions API geolocat
 assertIncludes(html, 'BLOCKED BY BROWSER', "purge modal says plainly when only a site-settings flip can restore GPS");
 assertIncludes(html, 'APP RESUMES AUTOMATICALLY', "denied-boot card tells the user the app self-recovers after the settings flip");
 
+// Bug+perf audit round (post-1.10.x): verified against source before applying
+assertIncludes(html, 'state.appliedHudRot = deg;', "predrag hook compensates with the rotation ACTUALLY applied to the map, not the live heading that keeps lerping during a drag");
+assertIncludes(html, 'Math.ceil(nodes.length / 99)', "elevation sampler stays within Open-Meteo's 100-coordinate cap on long routes");
+assertIncludes(html, 'Math.round(aeroHeading) % 360', "heading readouts wrap 360→0 instead of flashing '360°'");
+assertIncludes(html, 'window._purgeRunning', "purge has a re-entry guard (modal stays open through the ≤12s GPS wait)");
+assertIncludes(html, 'Local dataset unavailable', "local fuel dataset failure falls through to the Overpass fallback instead of a fake LOCAL empty");
+assertIncludes(html, 'Math.floor(Date.now() / 3600000)', "chartSig carries a now-anchor so the 24h window slides across hour boundaries");
+assertIncludes(html, 'Math.round((Date.now() - t0) / 900000)', "rain ETA anchors cached minutely cells to their absolute times");
+assertIncludes(html, 'Re-arm the live tracking watch', "permission recovery re-arms the dead PERMISSION_DENIED watch (else tracking stays dead until reload)");
+assert(!html.includes('wind_gusts_10m: (m15.wind_gusts_10m'), "minutely synthesis no longer materializes unread temp/wind/gust/wc lanes");
+
 // GPS accuracy audit (1.8.2): null-safe, honest accuracy taxonomy
 assertIncludes(html, 'GNSS: ACQUIRING', "null/non-finite accuracy renders ACQUIRING, not a false HIGH (0m)");
 assertIncludes(html, 'GNSS: LOW (', "degraded >60m fixes are labelled LOW, not the misleading LTE/A-GPS");

@@ -282,19 +282,23 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.10.1, 2026-09-17)
+## 11. Reference numbers (verified v1.10.2, 2026-09-18)
 
-- sanity.test.js - 222 substring assertions / 0 failing (incl. 4 negative-pair
-  removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE)
-- tests/unit/ - 35 executable fixtures / 0 failing (worker kernel, fuel
-  search funnel, WGS84 distance arcs, fastDistance mirror parity)
+- sanity.test.js - 236 substring assertions / 0 failing (incl. 4 negative-pair
+  removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
+  +9 from the 1.10.2 audit round, +5 from GPS-denial recovery)
+- tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
+  search funnel + Caltex id-table proven against live JSON, WGS84 distance
+  arcs, fastDistance mirror parity). The unified audit's fixture count is a
+  PIN (catches accidental deletion) — bump it when intentionally adding
+  tests; see tests/audit-unified.mjs:569.
 - audit:verify - 24 self-test controls, all passing (incl. PHASE V var-era
   layer contracts + PHASE S shell integrity)
 - Scanners: 8 mandatory (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
   + 1 plug-in (fluidity: G0-G4 perfection gate) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 37 checks, E1-E6)
-- index.html - ~8956 lines / ~610 KB; inline module lines 860-8932 (~540 KB)
-- worker.js - 272 lines; sw.js - 442 lines; fuel-stations.js - 342 lines
+- index.html - ~9273 lines / ~647 KB; inline module lines 861-9249 (~561 KB)
+- worker.js - 272 lines; sw.js - 475 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.
