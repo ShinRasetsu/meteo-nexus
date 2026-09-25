@@ -62,6 +62,7 @@ it - never earlier.
 | Markers, panes, popups, any transform/rotation writer | Pipeline + Visual Audit runtime pass (sec 7) |
 | Live DOM / interpolator / RAF bar / progress-fill | Pipeline + Fluidity Audit (sec 5.6) |
 | processTelemetryPayload / normalizeTelemetryData / fetchData / fetch triggers | Pipeline + Fetch Gate (sec 6) |
+| manifest.json / PWA install surfaces (icons, screenshots, install prompt) | Full pipeline + PWA standards gate: the unified audit's `pwa-manifest` check enforces the `/progressive-web-app` skill's Checklist Before Shipping (all icons maskable, install screenshots with narrow+wide form factors, name/short_name/local icons/display=standalone). Load the skill when touching these surfaces. |
 | Version bump requested | Release Gate (sec 9) |
 
 ## 3. Canonical pipelines
@@ -76,7 +77,9 @@ With Tailwind build (CSS changed):
 Unified (single-extract, parallel, project-matched — preferred for /audit):
   npm run audit:unified            # or node tests/audit-unified.mjs
   # does ONE extract reused for every E2-E4 scanner, runs lint/sanity/unit + tdz/fp/brace/csp/dom/visual/shell/fluidity in parallel,
-  # plus inline project checks legacy missed: VERSION sync, SRI, no-setInterval, unsafe-inline load-bearing, worker mirror, tailwind freshness, deploy guard
+  # plus inline project checks legacy missed: VERSION sync, SRI, no-setInterval, unsafe-inline load-bearing,
+  # worker mirror, tailwind freshness, deploy guard, PWA standards (pwa-manifest: maskable icons +
+  # install screenshots — rubric: /progressive-web-app skill, proven both directions at 1.10.3)
 
 Individual scanners (each re-extracts the module itself):
   audit:extract  E1 parse        audit:fp     E4 floating promises

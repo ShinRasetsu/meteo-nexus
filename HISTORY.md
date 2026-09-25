@@ -263,6 +263,59 @@ app truth until the auditor proved the failure layer — three probes proved the
 data layer innocent and the tie-breaking layer guilty, and the fix was aimed
 at the guilty layer only.
 
+### Post-bump additions (part of the same unreleased 1.10.3 batch — 2026-09-25)
+
+User request: wire the `/progressive-web-app` skill (installed via skillfish from
+`nimoqup046-collab/agora` into `~/.config/opencode/skills/`) into the Audit Pass
+Routine, then execute its checklist against the app. The skill is now the
+**PWA-standards rubric**, enforced mechanically — not as prose:
+
+- **`tests/audit-unified.mjs` `pwa-manifest` gate hardened** — beyond the
+  existing name/short_name/local-icons/display=standalone checks it now
+  enforces the skill's Checklist Before Shipping items: EVERY icon
+  `purpose` includes `maskable`, and a non-empty `screenshots` array with
+  src/sizes/type/form_factor (`narrow`|`wide`). Negative control proven both
+  directions against `git show HEAD:manifest.json` (old shape → FAIL,
+  fixed shape → PASS). Still 1 check — unified count stays 37; check count
+  deliberately not inflated.
+- **`manifest.json` fixed** — icon-192 `purpose: "any"` → `"any maskable"`
+  (icon-512 was already compliant); `screenshots` array added with two REAL
+  product captures taken from the running app (Playwright, mocked GPS at the
+  user's pin): `screenshot-phone.png` 390x844 (narrow) + `screenshot-desktop.png`
+  1280x720 (wide) — required for Chrome's richer install dialog. Screenshots
+  intentionally NOT added to `sw.js` STATIC_ASSETS (install dialog fetches them
+  online; precache stays lean). `APP_CACHE` stays `v11` — the whole batch is
+  unreleased, so the pending bump covers it (1.10.1 precedent).
+- **`AGENTS.md`** — §2 trigger matrix gains the PWA row (manifest/install
+  surfaces → pipeline + PWA standards gate; load the skill when touching them);
+  §3 unified description names the rubric source. Future sessions inherit the
+  standard by charter, not memory.
+- **PWA runtime pass (checklist items, measured)** — Playwright against the
+  local server: SW **active + controlling the page** (scope `/`) · manifest
+  fetch 200 + valid (name/short_name/standalone/icons/screenshots) ·
+  **offline reload proof**: `context.setOffline(true)` → `page.reload()` →
+  shell survived (title + `#status-text` rendered from cache — "NO RAIN",
+  the honest post-storm verdict). This is checklist item "app shell loads
+  from cache when Offline" proven end-to-end — stronger evidence than a
+  score.
+- **Lighthouse attempts, recorded honestly** (§6.6-style evidence
+  bookkeeping): the chrome-devtools MCP lighthouse wrapper audited
+  `chrome-error://chromewebdata/` twice (its navigation misses the app;
+  scores were of an error page — discarded as invalid) and returns no PWA
+  category; `npx lighthouse` CLI failed twice on this Windows box (latest:
+  `\\?\`-path `fs.rm` cleanup bug; 11.7.0: checkForQuiet evaluateAsync
+  throw). The unified audit's lighthouse item remains warn-only
+  ("no lighthouserc") — a future session with a working CI runner may close
+  that; the runtime PWA pass above is the shipped evidence.
+- **Skill relocation note** — skillfish wrote the skill to `~/.opencode/skills/`
+  which opencode does not scan; moved to `~/.config/opencode/skills/progressive-web-app/`
+  where it registers correctly (verified by in-session load after restart).
+
+Gates re-run after every edit above, before this doc pass: `npm run lint` 0 ·
+sanity 240/240 · unit 36/36 · `audit:verify` 24/24 · unified 37/37 PASS
+(pwa-manifest now describing maskable + screenshots) · perfection PASS.
+
+
 ---
 
 ## 1.3.10 — 2026-08-11 (performance pass: rAF hot-path + fetch-layer + WeatherEnsemble)

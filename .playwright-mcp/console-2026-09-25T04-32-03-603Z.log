@@ -1,0 +1,13 @@
+[     372ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:2841
+[     441ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3999/favicon.ico:0
+[     880ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  619834ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:2841
+[  619891ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  619969ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[  619977ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:2841
+[  619978ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[  620006ms] [WARNING] Network Error. Failing over to IndexedDB LocalForage cache. Error: Browser is offline.
+    at http://localhost:3999/:6931:54
+    at fetchData (http://localhost:3999/:7218:15)
+    at runApp (http://localhost:3999/:7844:17) @ http://localhost:3999/:7190
+[  620007ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0

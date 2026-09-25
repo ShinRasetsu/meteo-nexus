@@ -12,13 +12,29 @@
             "src": "./icon-192.png",
             "sizes": "192x192",
             "type": "image/png",
-            "purpose": "any"
+            "purpose": "any maskable"
         },
         {
             "src": "./icon-512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "any maskable"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "./screenshot-phone.png",
+            "sizes": "390x844",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Tactical driving HUD — live telemetry, ETA and route intelligence"
+        },
+        {
+            "src": "./screenshot-desktop.png",
+            "sizes": "1280x720",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "MeteoNexus dashboard — multi-model ensemble and atmospheric plot"
         }
     ]
 }

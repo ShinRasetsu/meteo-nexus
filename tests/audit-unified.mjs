@@ -241,7 +241,11 @@ function inlineChecks() {
     })
   }
 
-  // 11. PWA manifest — required fields, icons local, display standalone (offline suitability)
+  // 11. PWA manifest — required fields, icons local, display standalone (offline
+  //     suitability) + PWA-standards rubric (1.10.3): every icon maskable and a
+  //     non-empty screenshots array with src/sizes/type/form_factor. Rubric source:
+  //     /progressive-web-app skill "Checklist Before Shipping" — wired into the
+  //     audit routine so manifest regressions fail the pipeline, not just review.
   {
     let ok; let msg; let err = ''
     try {
@@ -250,11 +254,16 @@ function inlineChecks() {
       const hasShort = typeof mf.short_name === 'string' && mf.short_name.length > 0
       const hasIcons = Array.isArray(mf.icons) && mf.icons.length > 0 && mf.icons.every(i => i.src && i.src.startsWith('./'))
       const hasDisplay = mf.display === 'standalone'
-      ok = hasName && hasShort && hasIcons && hasDisplay
-      msg = ok ? `manifest: ${mf.name} / ${mf.short_name}, ${mf.icons.length} local icons, display=${mf.display}` : `manifest missing: name=${hasName} short=${hasShort} iconsLocal=${hasIcons} display=${mf.display}`
-      if (!ok) err = 'PWA manifest must have name, short_name, local icons, display=standalone (offline install)'
+      const maskable = Array.isArray(mf.icons) && mf.icons.length > 0 && mf.icons.every(i => typeof i.purpose === 'string' && i.purpose.split(/\s+/).includes('maskable'))
+      const shots = Array.isArray(mf.screenshots) && mf.screenshots.length > 0 &&
+        mf.screenshots.every(s => s.src && s.src.startsWith('./') && typeof s.sizes === 'string' && typeof s.type === 'string' && (s.form_factor === 'narrow' || s.form_factor === 'wide'))
+      ok = hasName && hasShort && hasIcons && hasDisplay && maskable && shots
+      msg = ok
+        ? `manifest: ${mf.name} / ${mf.short_name}, ${mf.icons.length} maskable icons, ${mf.screenshots.length} screenshots, display=${mf.display}`
+        : `manifest missing: name=${hasName} short=${hasShort} iconsLocal=${hasIcons} display=${mf.display} maskable=${maskable} screenshots=${shots}`
+      if (!ok) err = 'PWA manifest must have name, short_name, local icons, display=standalone, ALL icons purpose maskable, screenshots[narrow|wide] (rubric: /progressive-web-app skill)'
     } catch (e) { msg = String(e); err = 'manifest.json parse failed' }
-    addResult('E4', 'pwa-manifest', 'PWA manifest has name, short_name, local icons, display standalone', ok, { exit: ok ? 0 : 2, out: msg, err, ms: 0 })
+    addResult('E4', 'pwa-manifest', 'PWA manifest: name, short_name, local icons, display standalone, maskable icons, install screenshots', ok, { exit: ok ? 0 : 2, out: msg, err, ms: 0 })
   }
 
   // 12. Viewport accessibility — must not lock zoom (WCAG 1.4.4, sanity also checks)
