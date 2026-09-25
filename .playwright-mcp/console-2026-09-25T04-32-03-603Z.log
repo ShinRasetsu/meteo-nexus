@@ -11,3 +11,12 @@
     at fetchData (http://localhost:3999/:7218:15)
     at runApp (http://localhost:3999/:7844:17) @ http://localhost:3999/:7190
 [  620007ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  919973ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1219989ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1519994ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1826621ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:2841
+[ 1826671ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[ 1878871ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:2841
+[ 1878919ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[ 2178868ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2478871ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0

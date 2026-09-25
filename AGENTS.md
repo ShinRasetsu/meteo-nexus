@@ -285,12 +285,12 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.10.3, 2026-09-24)
+## 11. Reference numbers (verified v1.10.4, 2026-09-25)
 
-- sanity.test.js - 240 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 242 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
-  1.10.3 headline-consensus overhaul)
+  1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate)
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a

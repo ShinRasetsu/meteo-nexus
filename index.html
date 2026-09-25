@@ -6040,6 +6040,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // contradict every model it fetches.
             const rainByCurrentCode = !!(wmoDetail && wmoDetail.isPrecip);
             const rainByCurrentValue = !rainByCurrentCode && !!(curr && hasMeasurablePrecip(curr));
+            let maxObsPrec = 0;
+            if (curr) {
+                maxObsPrec = Math.max(
+                    (typeof curr.precipitation === 'number') ? curr.precipitation : 0,
+                    (typeof curr.rain === 'number') ? curr.rain : 0,
+                    (typeof curr.showers === 'number') ? curr.showers : 0,
+                    (typeof curr.snowfall === 'number') ? curr.snowfall : 0
+                );
+            }
             let rainByMinutely = false, minutelyNowMm = null;
             const _m15 = window.__METEO_CORE_STATE.minutely;
             if (_m15 && Array.isArray(_m15.time) && Array.isArray(_m15.precipitation) && _m15.time.length) {
@@ -6067,10 +6076,38 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 }
             }
             const rainByConsensus = consensusCount >= 2;
-            const isRainingNow = rainByCurrentCode || rainByCurrentValue || rainByMinutely || rainByConsensus;
+            // CORROBORATION GATE (2026-09-25 mirror incident: "very sunny" on the
+            // ground, card amber "LIGHT DRIZZLE" — the ECMWF current block carried
+            // 0.1 mm post-storm residual drizzle against 3/5 models dry, a 0.04 mm
+            // minutely now-slot and its own 38% cloud cover). A MARGINAL (<0.5 mm)
+            // precip claim from the current block alone no longer fires the full
+            // rain state: it must be corroborated by a second independent signal —
+            // the minutely now-slot, the >=2-model value consensus, or a >=30%
+            // ensemble wetness vote. Substantial claims (>=0.5 mm) and TRACE
+            // (already muted) stand alone. Symmetric lesson to the four-way OR:
+            // yesterday the block's dry veto hid real rain; today its lone wet
+            // cell invented rain. Neither direction may act uncorroborated at the
+            // margin.
+            const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30;
+            const obsStrong = maxObsPrec >= 0.5;
+            const codeClaimStands = rainByCurrentCode && (obsStrong || wmoDetail.isTrace === true || corroborated);
+            const valueClaimStands = rainByCurrentValue && (obsStrong || corroborated);
+            const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutely || rainByConsensus;
             let headlineDetail = wmoDetail;
             let rainSourcesNote = null;
-            if (!rainByCurrentCode && (rainByCurrentValue || rainByMinutely || rainByConsensus)) {
+            if (rainByCurrentCode && !codeClaimStands) {
+                // Marginal, uncorroborated observed claim → surface it hedged, not
+                // alarmed: same amber / no-sonar / no-haptic treatment as TRACE,
+                // with an explicit (UNCONFIRMED) suffix so the card never reads as
+                // a confident rain verdict on one model's residual-drizzle cell.
+                headlineDetail = {
+                    label: wmoDetail.label + ' (UNCONFIRMED)',
+                    tone: 'warning',
+                    isPrecip: true,
+                    isTrace: true,
+                    unconfirmed: true
+                };
+            } else if (!rainByCurrentCode && (valueClaimStands || rainByMinutely || rainByConsensus)) {
                 const src = [];
                 if (rainByCurrentValue && curr) {
                     src.push('obs ' + Math.max(
@@ -6413,7 +6450,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // the confusion that read as garbage data).
                 const parts = (wmoDetail && wmoDetail.byEnsemble && rainSourcesNote)
                     ? [rainSourcesNote, wmoLabel + ' (cell avg)']
-                    : [wmoLabel];
+                    : (wmoDetail && wmoDetail.unconfirmed)
+                        ? [wmoLabel + ' — unconfirmed by ensemble']
+                        : [wmoLabel];
                 if (isRainingNow && prec !== null && prec >= 0.1) {
                     parts.push(`${prec.toFixed(1)}mm`);
                     let typeParts = [];

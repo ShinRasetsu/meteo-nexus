@@ -118,6 +118,84 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.10.4 — 2026-09-25 (patch: corroboration gate — the mirror incident)
+
+### Bump rationale
+
+Patch bump 1.10.3 → 1.10.4. Discovered mid-session that `deploy.bat` had
+shipped 1.10.3 (auto-commits 937d43e 11:57 + 0046e70 12:46 — headline overhaul
++ PWA standards batch both LIVE), so the follow-up fix cannot ride the
+unreleased batch: it gets its own release, and `sw.js` `APP_CACHE` `v11` →
+`v12` so the SW update detector delivers it to installed clients.
+
+The trigger was the user's mirror report, one day after the storm miss:
+**"it says light drizzle, it's very sunny"** at the same pin. Live probe
+(2026-09-25 ~12:45 PHT): current block = code 51 + 0.1 mm + **38% cloud**
+(post-storm residual drizzle in the ECMWF cell) while GFS/ICON/GEM reported
+0.0, the minutely_15 now-slot 0.04 mm, and the ensemble wetness vote 9.5-15%.
+Yesterday the observed-code veto HID real rain; today a lone marginal wet
+cell INVENTED rain — 0.1 mm sits exactly at PRECIP_MIN_MM, where the ensemble
+ramp counts the same value as ZERO contribution while the observed gate
+treated it as a full rain state with sonar + haptic. The current block is a
+~25 km model cell, not an observation — it may not act uncorroborated at the
+margin in EITHER direction.
+
+### Changes
+
+- `index.html` (`normalizeTelemetryData`, headline verdict block): a
+  MARGINAL (<0.5 mm) precip claim from the current block — code path or
+  value path — now requires a second independent signal before it can fire
+  the full rain state: minutely now-slot ≥0.1 mm, the ≥2-model ≥0.3 mm
+  value consensus, or a wetness vote ≥30%. Uncorroborated marginal code
+  claims render hedged: `label + ' (UNCONFIRMED)'`, tone warning,
+  `isTrace: true` (no sonar, no haptic), `isRainingNow: false` so the glance
+  strip and Aero chip no longer claim rain either. Uncorroborated marginal
+  value claims do not fire at all (the code-3+0.2 mm case shows its sky
+  state; yesterday's code-3+2.0 mm case still fires — substantial claims
+  ≥0.5 mm and TRACE stand alone). Corroborated claims behave exactly as
+  1.10.3 shipped them. Route nodes unchanged (forecast surface).
+- `index.html` (`renderTelemetryUI` desc builder): the hedged state reads
+  `"<wmoLabel> — unconfirmed by ensemble"` so the card explains itself.
+- `tests/sanity.test.js` — +2 guards (240 → 242): the corroboration line +
+  the `' (UNCONFIRMED)'` hedge.
+- `VERSION` → 1.10.4, `package.json` → `"version": "1.10.4"`, `sw.js`
+  `APP_CACHE` `v11` → `v12` (deployed clients must receive this — index.html
+  changed), `AGENTS.md` §11 synced (sanity 242, verified v1.10.4),
+  `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **242/242** + unit 36/36 ·
+  `npm run audit:verify` 24/24 · `node tests/audit-unified.mjs` 37/37 PASS,
+  perfection PASS (0 stairs, 0 janks).
+- **Fetch Gate §6 + runtime proof EXECUTED** — local `npx serve` + Playwright
+  with mocked geolocation at the user's pin, live API still reporting
+  code 51/0.1 mm at the time of the pass: `#status-text` = **"LIGHT DRIZZLE
+  (UNCONFIRMED)"**, desc "Light Drizzle — unconfirmed by ensemble · 41%
+  Cloud", card amber, `__METEO_CORE_STATE.isRainingNow: false`, 0 red
+  console errors. Screenshot: `headline-1.10.3b-sunny-unconfirmed.png`.
+  (First reload served the SWR-cached previous shell — the documented
+  one-load-behind; second reload took the refreshed shell.)
+- Visual runtime pass §7 not triggered: no transform/rotation surfaces
+  touched.
+
+### Blind spots considered (§8)
+
+Races: single-threaded fetch-cadence writes; the gate reads only values
+already computed on the same chain (currentAgreement, minutely, consensus).
+Leaks: none added. Off-by-one/coercion: the 0.5 mm stand-alone floor and the
+0.1/0.3 corroboration thresholds are explicit constants with typed checks;
+`maxObsPrec` mixes rain mm with snowfall cm (a 0.5 cm/h snow floor is a
+rougher but safe analogue — snow is not marginal at 5 mm/h water-equivalent).
+Unhandled rejections: none added (pure sync). Perf: ~6 comparisons per fetch.
+A11y: unchanged surfaces. Residual honesty: a genuine hyper-local sun-shower
+that ONLY the current block sees would now render as (UNCONFIRMED) — the
+hedged amber is the honest presentation of a 1-source claim contradicted by
+every other signal we fetch; when a second source sees it, the full rain
+state returns.
+
+---
+
 ## 1.10.3 — 2026-09-24 (patch: headline overhaul — active-rain four-way consensus)
 
 ### Bump rationale
@@ -314,6 +392,7 @@ Routine, then execute its checklist against the app. The skill is now the
 Gates re-run after every edit above, before this doc pass: `npm run lint` 0 ·
 sanity 240/240 · unit 36/36 · `audit:verify` 24/24 · unified 37/37 PASS
 (pwa-manifest now describing maskable + screenshots) · perfection PASS.
+
 
 
 ---
