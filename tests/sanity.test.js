@@ -330,7 +330,7 @@ assertIncludes(html, "rainByMinutely", "index.html gates headline rain on the mi
 assertIncludes(html, "rainByConsensus", "index.html gates headline rain on multi-model value consensus");
 assertIncludes(html, "'RAIN NOW · MODELS'", "index.html labels ensemble-triggered rain source-honestly");
 assertIncludes(html, "window.__METEO_CORE_STATE.isRainingNow = !!(data && data.isRainingNow);", "Aero/glance publish uses the consensus verdict, not a code-only recompute");
-assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar;", "index.html corroboration gate: marginal observed claims need a second independent signal (minutely, consensus, wetness vote, or radar measurement)");
+assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar || rainByMetar;", "index.html corroboration gate: marginal observed claims need a second independent signal (minutely, consensus, wetness vote, radar, or METAR)");
 assertIncludes(html, "' (POSSIBLE ' + unconfirmedClaim + ')'", "index.html 1.10.5: consensus verdict owns the headline; uncorroborated single-source claims ride as a (POSSIBLE …) parenthetical");
 assertIncludes(html, "single-source claim, unconfirmed by ensemble", "index.html desc explains the demoted claim instead of letting the card contradict itself");
 assertIncludes(html, "const quorumMet = !lowConfidence || radarClear;", "index.html quorum rule: silence is not a dry vote — demotion requires the authoritative reporting quorum OR a clear radar measurement (a measurement beats a vote)");
@@ -345,6 +345,28 @@ assertIncludes(html, "RADAR_CORE_PALETTE", "index.html embeds the live-extracted
 assertIncludes(html, "/v2/coverage/0/256/7/", "index.html radar coverage-mask guard: missing coverage is NOT clear — no-data regions abstain, never vote dry");
 assertIncludes(html, "https://api.rainviewer.com", "index.html Layer-2 radar origins present (CONFIG + CSP connect-src)");
 assertIncludes(html, "refuted by clear radar", "index.html desc: a clear radar measurement refutes marginal model claims — the 'sunny drizzle' incident resolves by measurement");
+// 1.12.0 — two-mode redesign (Drive Mode / Map Mode, user-directed Google-style)
+// + zoom-aware rotation + radar map overlay.
+assertIncludes(html, "state.tacticalMode = (state.tacticalMode + 1) % 2;", "index.html two-mode cycle: Drive Mode <-> Map Mode (old 3-mode ladder collapsed)");
+assertIncludes(html, "const DRIVE_NORTH_Z = 15;", "index.html Drive Mode overview threshold: below z15 the map eases to north-up (the zoomed-out upside-down report)");
+assertIncludes(html, "const overviewNorth = state.mapObj.getZoom() < DRIVE_NORTH_Z;", "index.html heading-follow honors the overview threshold — zoomed-out Drive Mode is north-up, never upside-down");
+assertIncludes(html, "fa-car-side", "index.html Drive Mode icon (heading-up mode)");
+assertIncludes(html, "fa-map text-lg", "index.html Map Mode icon (north-up mode)");
+assertIncludes(html, "refreshRadarOverlay", "index.html radar map overlay: RainViewer frames as a Leaflet layer, frame-swapped each refresh");
+assertIncludes(html, "radar-overlay-btn", "index.html radar overlay toggle chip present in the map button stack");
+assertIncludes(html, "const target = (overviewNorth || state.visual.heading === null) ? 0 : state.visual.heading;", "index.html zoomend re-evaluates Drive Mode rotation immediately — independent of rAF loop liveness (stationary pre-exit)");
+assertIncludes(html, "const entryRot = (state.visual.heading !== null) ? state.visual.heading : 0;", "index.html Drive Mode entry seeds the rotation at once — never a north-up map claimed as Drive Mode");
+// 1.13.0 — per-route-node radar: WET NOW per node via tile-batch sampling.
+assertIncludes(html, "async function fetchRadarRouteSample(nodes)", "index.html route radar sampler: one decoded tile batch covers a whole route (spatial radar, not 99 point calls)");
+assertIncludes(html, "const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls);", "index.html per-node tier-0: a radar echo at a node outranks the model vote");
+assertIncludes(html, "'WET NOW · RADAR'", "index.html radar-wet nodes are source-labelled with intensity (measurement, not model consensus)");
+assertIncludes(html, "routeNodesRadarSummary = {", "index.html publishes the route-radar diagnostic summary to CORE_STATE (nodes sampled + wet count)");
+// 1.13.0 — METAR ground truth via the user's Cloudflare Worker proxy
+// (aviationweather.gov is CORS-blocked; /metar route deployed 2026-09-25, verified live).
+assertIncludes(html, "async function fetchMetarObs(lat, lon)", "index.html METAR fetch helper: nearest station from the live-proven table, via the proxy origin already in CSP");
+assertIncludes(html, "const rainByMetar = metarFresh && _mt.wet === true;", "index.html METAR wet-side corroborator: a station reporting precip corroborates rain; a clear station NEVER refutes (displacement honesty)");
+assertIncludes(html, "METAR_STATIONS", "index.html embeds the live-proven PH station table (coords verified against the API 2026-09-25)");
+assertIncludes(html, "`${CONFIG.edgeProxy}/metar?ids=${best.id}`", "index.html METAR rides the existing proxy origin — zero CSP changes");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently
@@ -372,7 +394,7 @@ assertIncludes(html, "d._newPos.y = d._startPos.y + (dx * sin + dy * cos);", "in
 // Route timeline nodes: observed weather_code must drive wetness status, not
 // the ensemble forecast vote — same granular override as the dashboard applies.
 assertIncludes(html, "getWmoStatus(code,", "index.html route nodes derive granular status via getWmoStatus");
-assertIncludes(html, "isRainingNowNode ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct)", "index.html route nodes elevate to RAIN_NOW when observation reports active precip");
+assertIncludes(html, "(isRainingNowNode || isWetNowByRadar) ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct)", "index.html route nodes elevate to RAIN_NOW on observed precip OR a radar echo at the node (tier-0 measurement)");
 assertIncludes(html, "status === 'RAIN_NOW'", "index.html route node path icon/color distinguishes RAIN_NOW tier");
 
 // Aero-Vector HUD: surface the observed current.weather_code (and active-rain

@@ -1,0 +1,104 @@
+[     408ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:2998
+[     468ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3999/favicon.ico:0
+[     476ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[    2081ms] [ERROR] Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet: https://www.chromestatus.com/feature/5644273861001216. @ http://localhost:3999/:6591
+[    2951ms] [INFO] BrierSkill (n=12): ecmwf_ifs025=0.336  gfs_seamless=1.000  icon_seamless=0.812  jma_seamless=0.410  gem_seamless=0.833 @ http://localhost:3999/:6839
+[    4570ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3054
+[    4618ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  613557ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3054
+[  613626ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  615659ms] [ERROR] Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet: https://www.chromestatus.com/feature/5644273861001216. @ http://localhost:3999/:6681
+[  617701ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3054
+[  617769ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  831757ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3054
+[  831830ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  832535ms] [ERROR] Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet: https://www.chromestatus.com/feature/5644273861001216. @ http://localhost:3999/:6702
+[  832592ms] [INFO] BrierSkill (n=16): ecmwf_ifs025=0.450  gfs_seamless=1.000  icon_seamless=0.859  jma_seamless=0.505  gem_seamless=0.625 @ http://localhost:3999/:6950
+[  835851ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3054
+[  835904ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[ 1735858ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2035876ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2335881ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2635885ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2935893ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 3235899ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 3535908ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 3835918ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 4135948ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 4435954ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 4735964ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5035971ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5335974ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5635978ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5935983ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6235986ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6535993ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6836001ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 7136010ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 7436021ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 7736301ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 8036315ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 8336321ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 8636326ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 8936347ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 9236367ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 9536379ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 9836387ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[10136396ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[10436416ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[10736431ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[11036437ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[11336447ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[11636453ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[12006907ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3054
+[12006963ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[12008936ms] [ERROR] Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet: https://www.chromestatus.com/feature/5644273861001216. @ http://localhost:3999/:6702
+[12009847ms] [INFO] BrierSkill (n=18): ecmwf_ifs025=0.400  gfs_seamless=1.000  icon_seamless=0.763  jma_seamless=0.449  gem_seamless=0.667 @ http://localhost:3999/:6950
+[12011029ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[12011145ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[12013077ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[12045952ms] [INFO] Offline tiles: 1197/1197 cached for the active route. @ http://localhost:3999/:3149
+[13699190ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[13699234ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[13699260ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[13701220ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3999/:1169
+[13702072ms] [ERROR] Blocked call to navigator.vibrate because user hasn't tapped on the frame or any embedded frame yet: https://www.chromestatus.com/feature/5644273861001216. @ http://localhost:3999/:6864
+[13703316ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[13703372ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[13703384ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[13703623ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3999/:1169
+[13705848ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[13706048ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3999/:1169
+[13723892ms] [INFO] Offline tiles: 1197/1197 cached for the active route. @ http://localhost:3999/:3149

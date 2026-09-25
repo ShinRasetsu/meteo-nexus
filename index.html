@@ -71,7 +71,7 @@
             smoothedHeading: null,
             brierScores: null,
             weatherCode: null, isDay: null, isRainingNow: false,
-            radarNow: null,
+            radarNow: null, routeNodesRadarSummary: null, metarObs: null,
             precipitation: null, rain: null, showers: null, snowfall: null,
             cloudCover: null, pressure: null, visibility: null,
             temperature: null, apparentTemp: null, tempTrend: null,
@@ -648,8 +648,11 @@
             </div>
 
             <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto overlay-safe">
-                <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Tactical View Control">
+                <button onclick="toggleTacticalMode()" id="tactical-btn" class="bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono" title="Drive Mode / Map Mode">
                     <i class="fa-solid fa-compass text-lg md:text-xl"></i>
+                </button>
+                <button onclick="window.radarOverlayToggle && window.radarOverlayToggle()" id="radar-overlay-btn" class="tap-48 bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-blue hover:border-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Rain Radar Overlay — live precipitation cells on the map (RainViewer)">
+                    <i class="fa-solid fa-cloud-rain text-base md:text-lg"></i>
                 </button>
                 <button onclick="openMagCalModal()" id="magcal-btn" class="tap-48 bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-purple hover:border-brand-purple w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm" title="Calibrate Compass (figure-8 pattern)">
                     <i class="fa-solid fa-compass text-base md:text-lg"></i>
@@ -1090,6 +1093,187 @@
                 return { covered: true, cls: m.cls, mmh: m.mmh, frameTime: frame.time, ts: Date.now() };
             } catch (e) { console.debug('[radar] sample failed:', e && e.message); return null; }
         }
+
+        // --- PER-ROUTE-NODE RADAR (1.13.0) — "WET NOW per node" ---
+        // The radar is SPATIAL: one decoded tile batch covers a whole route,
+        // so every node's rain check costs ~2-9 tile fetches total (not 99
+        // point API calls). Samples are keyed by rounded lat/lon so the
+        // timeline renderer aligns by geography, not array order. A radar
+        // echo at a node is a MEASUREMENT — tier-0 on the node verdict, same
+        // doctrine as the pin. Transparent pixels never claim "dry" — radar
+        // only ADDS wetness to nodes (missing ≠ clear, per node).
+        // Adaptive zoom: z7 (~1.2 km/px) when the route fits ≤9 tiles, else
+        // z6, else z5; spans beyond 9 tiles at z5 (~2800 km, flight-class)
+        // are skipped honestly.
+        async function fetchRadarRouteSample(nodes) {
+            try {
+                if (!nodes || !nodes.length || !state.mapObj) return null;
+                const frames = (_radarFramesCache && _radarFramesCache.json && _radarFramesCache.json.radar &&
+                    Array.isArray(_radarFramesCache.json.radar.past)) ? _radarFramesCache.json.radar.past : null;
+                if (!frames || !frames.length) return null;
+                const frame = frames[frames.length - 1];
+                let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+                for (const n of nodes) {
+                    if (typeof n.lat !== 'number' || typeof n.lon !== 'number') continue;
+                    if (n.lat < minLat) minLat = n.lat;
+                    if (n.lat > maxLat) maxLat = n.lat;
+                    if (n.lon < minLon) minLon = n.lon;
+                    if (n.lon > maxLon) maxLon = n.lon;
+                }
+                const tileFor = (lat, lon, z) => {
+                    const n2 = Math.pow(2, z);
+                    const tx = Math.floor((lon + 180) / 360 * n2);
+                    const latRad = lat * Math.PI / 180;
+                    const ty = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n2);
+                    return { tx, ty, n2 };
+                };
+                let z = 7, t0 = null;
+                for (const zc of [7, 6, 5]) {
+                    const a = tileFor(maxLat, minLon, zc), b = tileFor(minLat, maxLon, zc);
+                    const span = (b.tx - a.tx + 1) * (b.ty - a.ty + 1);
+                    if (span <= 9) { z = zc; t0 = { x0: a.tx, y0: a.ty, x1: b.tx, y1: b.ty }; break; }
+                }
+                if (!t0) { console.debug('[radar] route span exceeds tile budget — skipping route sample'); return null; }
+                // Fetch + decode the tile batch once.
+                const tileCanvases = new Map();
+                for (let tx = t0.x0; tx <= t0.x1; tx++) {
+                    for (let ty = t0.y0; ty <= t0.y1; ty++) {
+                        const url = `${CONFIG.radarTileHost}${frame.path}/256/${z}/${tx}/${ty}/2/1_1.png`;
+                        try {
+                            const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
+                            const blob = await r.blob();
+                            const bmp = await createImageBitmap(blob);
+                            const cv = document.createElement('canvas');
+                            cv.width = bmp.width; cv.height = bmp.height;
+                            const cx = cv.getContext('2d');
+                            cx.drawImage(bmp, 0, 0);
+                            bmp.close && bmp.close();
+                            tileCanvases.set(tx + ',' + ty, cx);
+                        } catch (e) { console.debug('[radar] route tile fetch failed:', e && e.message); }
+                    }
+                }
+                if (!tileCanvases.size) return null;
+                // Sample every node: 3x3 max-alpha window around its pixel.
+                const samples = new Map();
+                const n2 = Math.pow(2, z);
+                for (const n of nodes) {
+                    if (typeof n.lat !== 'number' || typeof n.lon !== 'number') continue;
+                    const gxF = (n.lon + 180) / 360 * n2 * 256;
+                    const latRad = n.lat * Math.PI / 180;
+                    const gyF = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n2 * 256;
+                    const tx = Math.floor(gxF / 256), ty = Math.floor(gyF / 256);
+                    const cx = tileCanvases.get(tx + ',' + ty);
+                    if (!cx) continue;   // tile fetch failed — node abstains, never claims dry
+                    const lx = Math.floor(gxF) - tx * 256, ly = Math.floor(gyF) - ty * 256;
+                    let bestA = 0, bi = -1;
+                    try {
+                        const img = cx.getImageData(Math.max(0, lx - 1), Math.max(0, ly - 1), 3, 3).data;
+                        for (let i = 0; i < 12; i += 4) { if (img[i + 3] > bestA) { bestA = img[i + 3]; bi = i; } }
+                    } catch (_) { continue; }
+                    const key = Math.round(n.lat * 10000) + ',' + Math.round(n.lon * 10000);
+                    if (bestA >= 100) {
+                        const m = radarClassForPixel(img[bi], img[bi + 1], img[bi + 2]);
+                        samples.set(key, { cls: m.cls, mmh: m.mmh });
+                    } else {
+                        samples.set(key, { cls: null, mmh: 0 });
+                    }
+                }
+                return { frameTime: frame.time, ts: Date.now(), map: samples };
+            } catch (e) { console.debug('[radar] route sample failed:', e && e.message); return null; }
+        }
+
+        // --- METAR GROUND TRUTH (1.13.0) — the human/instrument observation ---
+        // aviationweather.gov serves no CORS headers, so the browser cannot
+        // fetch it directly — the user's Cloudflare Worker proxies it
+        // (/metar route, deployed 2026-09-25, verified live). Station table
+        // coords verified against the live API. METAR is a REGIONAL truth
+        // (nearest station may be tens of km away), so it participates on the
+        // WET side only — corroborating rain claims — and never refutes:
+        // a 40 km-away clear observation cannot dry a real drizzle at the pin
+        // (the same displacement honesty as the quorum rule).
+        const METAR_STATIONS = [
+            { id: 'RPLL', lat: 14.507, lon: 121.004, name: 'Manila/Aquino Intl' },
+            { id: 'RPLB', lat: 14.794, lon: 120.271, name: 'Subic Bay Intl' },
+            { id: 'RPLI', lat: 18.178, lon: 120.532, name: 'Laoag Intl' },
+            { id: 'RPVM', lat: 10.308, lon: 123.978, name: 'Mactan-Cebu Intl' },
+            { id: 'RPMZ', lat: 6.92,  lon: 122.063, name: 'Zamboanga Intl' }
+        ];
+        async function fetchMetarObs(lat, lon) {
+            try {
+                let best = null, bestD = Infinity;
+                for (const s of METAR_STATIONS) {
+                    const d = fastDistance(lat, lon, s.lat, s.lon);
+                    if (d < bestD) { bestD = d; best = s; }
+                }
+                if (!best || bestD > 150000) return null; // >150 km — no representative station
+                const r = await fetchWithRetry(`${CONFIG.edgeProxy}/metar?ids=${best.id}`, { priority: 'low', timeout: 5000 }, 1, 500);
+                const j = await r.json();
+                const m = Array.isArray(j) ? j[0] : (j && j.icaoId ? j : null);
+                if (!m || !m.icaoId) return null;
+                const obsTime = (typeof m.obsTime === 'number') ? m.obsTime * 1000 : null;
+                // Freshness: METARs publish hourly (+SPECI on changes); older than
+                // 100 min = stale — publish for diagnostics but never vote.
+                if (!obsTime) return null;
+                const fresh = (Date.now() - obsTime) <= 100 * 60 * 1000;
+                const wx = Array.isArray(m.wx) ? m.wx.join(' ') : '';
+                // Present-weather precip groups (RA/DZ/TS/SH/SN/UP/GR/GS) as
+                // substrings of the joined codes — 'TSRA' hits RA+TS, '-RA' hits RA,
+                // non-precip codes (BR/HZ/FU/FG) never match.
+                const wet = /RA|DZ|TS|SH|SN|UP|GR|GS/.test(wx);
+                const cb = (typeof m.rawOb === 'string') && /\bCB\b/.test(m.rawOb); // cumulonimbus reported
+                return {
+                    station: best.id, name: best.name,
+                    distKm: Math.round(bestD / 1000),
+                    fresh, wet, cb,
+                    wx: wx || 'none', cover: (typeof m.cover === 'string' ? m.cover : null),
+                    raw: (typeof m.rawOb === 'string' ? m.rawOb : null),
+                    obsTime
+                };
+            } catch (e) { console.debug('[metar] fetch failed:', e && e.message); return null; }
+        }
+
+        // --- RADAR MAP OVERLAY (1.12.0) — "see the rain on the actual map" ---
+        // The same RainViewer frames rendered as a Leaflet tile layer so the
+        // driver sees precipitation cells ahead on the road, not just a verdict
+        // number. WORLD-LOCKED by construction (it lives INSIDE #hud-map, so it
+        // rotates with the map in Drive Mode — rain cells are geography).
+        // Frame-swapped every refresh (frames are 10-min); toggled by the
+        // cloud-rain chip in the map button stack; preference persisted.
+        let _radarOverlayLayer = null;
+        let _radarOverlayFramePath = null;
+        function refreshRadarOverlay() {
+            try {
+                if (!state.mapObj) return;
+                if (!state.radarOverlayOn) {
+                    if (_radarOverlayLayer) { state.mapObj.removeLayer(_radarOverlayLayer); _radarOverlayLayer = null; _radarOverlayFramePath = null; }
+                    return;
+                }
+                const frames = (_radarFramesCache && _radarFramesCache.json && _radarFramesCache.json.radar &&
+                    Array.isArray(_radarFramesCache.json.radar.past)) ? _radarFramesCache.json.radar.past : null;
+                if (!frames || !frames.length) return;
+                const frame = frames[frames.length - 1];
+                if (_radarOverlayLayer && _radarOverlayFramePath === frame.path) return;
+                if (_radarOverlayLayer) { state.mapObj.removeLayer(_radarOverlayLayer); _radarOverlayLayer = null; }
+                _radarOverlayLayer = L.tileLayer(`${CONFIG.radarTileHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+                    opacity: 0.55,
+                    maxNativeZoom: 7,   // docs max — Leaflet upscales beyond without new fetches
+                    maxZoom: 22,
+                    zIndex: 350,       // above the base OSM layer, below marker panes (600+)
+                    className: 'radar-overlay'
+                }).addTo(state.mapObj);
+                _radarOverlayFramePath = frame.path;
+            } catch (e) { console.debug('[radar] overlay refresh failed:', e && e.message); }
+        }
+        window.radarOverlayToggle = function() {
+            state.radarOverlayOn = !state.radarOverlayOn;
+            try { localforage.setItem('radar_overlay_on', state.radarOverlayOn); } catch (_) { /* best-effort */ }
+            if (DOM.radarOverlayBtn) {
+                updateClass(DOM.radarOverlayBtn, state.radarOverlayOn
+                    ? "tap-48 bg-surface-800 border-2 border-brand-blue text-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-[0_0_12px_rgba(59,130,246,0.45)]"
+                    : "tap-48 bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-blue hover:border-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm");
+            }
+            refreshRadarOverlay();
+        };
 
         // Air Quality: US AQI + PM2.5 + ozone → telemetry sub-line. Null-safe:
         // uncovered regions, failed fetch, and old caches all render '--'.
@@ -2077,7 +2261,7 @@
             driveRouteKm: null, driveRouteMin: null, lastAutoCacheSig: null,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
-            tacticalMode: 1, scaleCtrl: null, currentRouteCoords: null, focusedSection: null,
+            tacticalMode: 1, scaleCtrl: null, radarOverlayOn: false, routeNodesRadar: null, currentRouteCoords: null, focusedSection: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null,
@@ -2241,7 +2425,7 @@
             purgeGpsHint: document.getElementById('purge-gps-hint'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
-            tacticalBtn: document.getElementById('tactical-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
+            tacticalBtn: document.getElementById('tactical-btn'), radarOverlayBtn: document.getElementById('radar-overlay-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'),
             modals: { custom: document.getElementById('custom-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
@@ -2572,6 +2756,13 @@ let delta = heading - state.lastHeading;
             state.appliedHudRot = deg;
         }
 
+        // DRIVE MODE zoom contract (1.12.0, user-directed — the "zoomed out
+        // map is upside down" report): at/above this zoom the Drive Mode map
+        // is heading-up (turn detail); below it the map eases to NORTH-UP so
+        // the whole-city overview reads like a map, not like a windshield.
+        // Same threshold class as Google Maps' navigation overview behavior.
+        const DRIVE_NORTH_Z = 15;
+
         function smoothVisualsLoop(time) {
             // Do not reschedule when hidden — idle ~15% battery/hour saved.
             // The visibilitychange listener restarts the loop when the tab is visible.
@@ -2681,7 +2872,9 @@ let delta = heading - state.lastHeading;
                     _lastPanLat = state.visual.lat; _lastPanLon = state.visual.lon;
                 }
                 // Pinch-zoom works freely without breaking lock — panTo doesn't touch zoom.
-                // Modes 1 & 2 rotate map to heading
+                // Drive Mode rotates map to heading, EXCEPT below DRIVE_NORTH_Z
+                // where the overview eases to north-up (1.12.0 — the zoomed-out
+                // map must never read upside-down while driving south).
                 if (state.tacticalMode >= 1) {
                     // PERF-4: gate on the *rounded* heading (0.1 deg discretization).
                     // The previous gate `Math.abs(heading - lastCssHeading) > 0.1`
@@ -2693,8 +2886,9 @@ let delta = heading - state.lastHeading;
                     // write — ~10x fewer style writes during steady-state driving
                     // with no perceptible difference (the user-visible resolution
                     // was already 0.1 deg at the dashboard layer).
+                    const overviewNorth = state.mapObj.getZoom() < DRIVE_NORTH_Z;
                     const cssRotRounded = state.visual.heading !== null
-                        ? Math.round(state.visual.heading * 10) / 10
+                        ? Math.round((overviewNorth ? 0 : state.visual.heading) * 10) / 10
                         : null;
                     if (cssRotRounded !== null && cssRotRounded !== state.lastCssHeading) {
                         // Single writer: map + popup pane + upright marker pane
@@ -4342,7 +4536,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
             if (!state.isMapLocked) { state.tacticalMode = 1; window.applyTacticalMode(); return; }
-            state.tacticalMode = (state.tacticalMode + 1) % 3;
+            // 1.12.0 (user-directed, Google-style): TWO modes, one cycle —
+            // Drive Mode (heading-up, GPS-follow, free pinch zoom) and
+            // Map Mode (north-up, free pan/zoom). The old 3-mode ladder
+            // (ROUTE/NAVIGATION z17/TACTICAL z19) collapsed into one Drive
+            // Mode: pinch covers the whole zoom range, and the overview
+            // threshold (DRIVE_NORTH_Z) auto-eases rotation to north-up so a
+            // zoomed-out map is never upside-down while driving south.
+            state.tacticalMode = (state.tacticalMode + 1) % 2;
             window.applyTacticalMode();
         };
 
@@ -4351,13 +4552,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (state.tacticalMode > 0) {
                 state.isMapLocked = true;
                 if (state.scaleCtrl) state.scaleCtrl.addTo(state.mapObj);
-                const targetZoom = [0, 17, 19][state.tacticalMode];
-                const scaleIcons = ["", "fa-compass", "fa-crosshairs"];
-                const borderColors = ["", "border-brand-teal", "border-brand-red"];
-                const shadowColors = ["", "rgba(20,184,166,0.3)", "rgba(239,68,68,0.3)"];
-                const textColors = ["", "text-brand-teal", "text-brand-red"];
-                updateHTML(DOM.tacticalBtn, `<i class="fa-solid ${scaleIcons[state.tacticalMode]} text-lg md:text-xl"></i>`);
-                updateClass(DOM.tacticalBtn, `bg-surface-800 border-4 ${borderColors[state.tacticalMode]} ${textColors[state.tacticalMode]} w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_${shadowColors[state.tacticalMode]}] transition-all font-mono`);
+                // DRIVE MODE — heading-up, GPS-locked, continuous pinch zoom
+                // (entry zoom 17; the DRIVE_NORTH_Z threshold in the heading
+                // follow eases rotation to north-up when the driver zooms out).
+                const targetZoom = 17;
+                updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-car-side text-lg md:text-xl"></i>`);
+                updateClass(DOM.tacticalBtn, `bg-surface-800 border-4 border-brand-teal text-brand-teal w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(20,184,166,0.3)] transition-all font-mono`);
                 if (state.visual.lat !== null) {
                     state.mapObj.setView([state.visual.lat, state.visual.lon], targetZoom, { animate: false });
                     state.lastSetViewLat = state.visual.lat; state.lastSetViewLon = state.visual.lon; state._lastSetViewTS = performance.now();
@@ -4366,7 +4566,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     state.mapObj.setView([state.autoCoords.lat, state.autoCoords.lon], targetZoom, { animate: false });
                     state.lastSetViewLat = state.autoCoords.lat; state.lastSetViewLon = state.autoCoords.lon; state._lastSetViewTS = performance.now();
                 }
+                // 1.12.0: seed the rotation on ENTRY — the rAF follow block may
+                // be dormant (stationary pre-exit when parked without a route);
+                // a driver entering Drive Mode must never see a north-up map
+                // with a heading present. Same single-writer helper; honors the
+                // overview threshold the same way the follow block does.
+                const entryRot = (state.visual.heading !== null) ? state.visual.heading : 0;
+                const entryRotR = Math.round(entryRot * 10) / 10;
+                if (entryRotR !== state.lastCssHeading) {
+                    applyHudCssRotation(entryRotR);
+                    state.lastCssHeading = entryRotR;
+                }
             } else {
+                // MAP MODE — north-up, free pan/zoom, route fit-bounds.
                 state.isMapLocked = false;
                 if (state.scaleCtrl) state.scaleCtrl.remove();
                 // Reset also clears the popup + upright pane counter-rotation —
@@ -4378,7 +4590,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // heading skipped the write (gate false) and the map sat at
                 // 0deg until the next 0.1-degree heading change.
                 state.lastCssHeading = null;
-                updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-route text-lg md:text-xl"></i>`);
+                updateHTML(DOM.tacticalBtn, `<i class="fa-solid fa-map text-lg md:text-xl"></i>`);
                 updateClass(DOM.tacticalBtn, "bg-surface-800 border-4 border-brand-purple text-brand-purple w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all font-mono");
                 if (state.currentRouteCoords && state.currentRouteCoords.length > 0) {
                     const bounds = L.latLngBounds(state.currentRouteCoords);
@@ -4497,8 +4709,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 // heading change. Seeding from the live visual
                                 // heading forces one honest write up-front.
                                 if (state.visual.heading !== null) {
-                                    applyHudCssRotation(state.visual.heading);
-                                    state.lastCssHeading = state.visual.heading;
+                                    // 1.12.0: the re-lock seed honors the Drive Mode
+                                    // overview threshold — re-locking below DRIVE_NORTH_Z
+                                    // seeds NORTH-UP, not the live heading (the zoomed-out
+                                    // map must not snap upside-down on re-lock).
+                                    const seedRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z) ? 0 : state.visual.heading;
+                                    applyHudCssRotation(seedRot);
+                                    state.lastCssHeading = seedRot;
                                 }
                                 window.applyTacticalMode();
                                 // FIX-1.4.1b (F4): self-clear the tracked id on fire —
@@ -4511,6 +4728,38 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     }, 5000);
                 }
             });
+            // 1.12.0: crossing the Drive Mode overview threshold must re-evaluate
+            // the rotation IMMEDIATELY. Writing via the single-writer helper
+            // (applyHudCssRotation) keeps the visual-audit V1 contract — and it
+            // must not depend on the rAF loop staying alive: the stationary
+            // pre-exit in smoothVisualsLoop can skip the follow block entirely
+            // when parked without a route, which would leave the zoomed-out map
+            // upside-down until the next heading change.
+            state.mapObj.on('zoomend', () => {
+                if (state.tacticalMode > 0) {
+                    const overviewNorth = state.mapObj.getZoom() < DRIVE_NORTH_Z;
+                    const target = (overviewNorth || state.visual.heading === null) ? 0 : state.visual.heading;
+                    const targetR = Math.round(target * 10) / 10;
+                    if (targetR !== state.lastCssHeading) {
+                        applyHudCssRotation(targetR);
+                        state.lastCssHeading = targetR;
+                    }
+                }
+            });
+            // Restore the radar-overlay preference from last session and apply
+            // as soon as a frame is available (frames cache fills on the first
+            // radar fetch; refreshRadarOverlay is a cheap no-op until then).
+            try {
+                localforage.getItem('radar_overlay_on').then(on => {
+                    if (on === true) {
+                        state.radarOverlayOn = true;
+                        if (DOM.radarOverlayBtn) {
+                            updateClass(DOM.radarOverlayBtn, "tap-48 bg-surface-800 border-2 border-brand-blue text-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-[0_0_12px_rgba(59,130,246,0.45)]");
+                        }
+                        refreshRadarOverlay();
+                    }
+                }).catch(() => {});
+            } catch (_) { /* best-effort */ }
             DOM.hudMap.classList.add('hud-idle');
             visualLastMarkerTX = lat; visualLastMarkerTY = lon;
             state.userMarker = L.marker([lat, lon], {
@@ -4968,6 +5217,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     } catch (e) { console.warn('Route node calculation failed:', e); state.routeNodes = []; }
                 } else { state.routeNodes = []; }
                 state.routeNodesCursor = 0;
+                // 1.13.0: fire the per-node radar sample the moment nodes exist —
+                // a route activated mid-session must not wait up to one radar TTL
+                // (10 min) for its WET NOW sampling. Fire-and-forget; the 10-min
+                // frame TTL in fetchData keeps it fresh afterwards.
+                if (state.routeNodes && state.routeNodes.length > 0) {
+                    fetchRadarRouteSample(state.routeNodes).then(rs => {
+                        if (!rs) return;
+                        state.routeNodesRadar = rs;
+                        try {
+                            let _wet = 0;
+                            for (const v of rs.map.values()) if (v.cls) _wet++;
+                            window.__METEO_CORE_STATE.routeNodesRadarSummary = { nodes: rs.map.size, wet: _wet, frameTime: rs.frameTime };
+                        } catch (_) { /* best-effort */ }
+                    }).catch(() => {});
+                }
                 // Always refresh originalRouteNodes to mirror the freshly-computed
                 // routeNodes — the previous `fuelMarkers.length === 0` guard skipped
                 // this when fuel markers were on screen, which left originalRouteNodes
@@ -5300,11 +5564,25 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const _nodeCurr = { precipitation: prec, rain: prec, showers: prec, snowfall: prec, weather_code: code };
                 const _nodeWmo = getWmoStatus(code, _nodeCurr);
                 const isRainingNowNode = !!(_nodeWmo && _nodeWmo.isPrecip);
-                const status   = isRainingNowNode ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct);
-                const rainProb = isRainingNowNode ? 100 : stats.wetPct;
-                const isWet    = isRainingNowNode || status !== 'STABLE';
-                // Keep granular label for node subtitle (e.g. "LIGHT DRIZZLE" vs generic NOW)
-                const nodePrecipLabel = isRainingNowNode ? _nodeWmo.label : null;
+                // PER-NODE RADAR (1.13.0) — tier-0 on the node verdict: a radar echo
+                // at the node is a measurement and outranks the model vote, same
+                // doctrine as the pin. Keyed by rounded lat/lon so alignment
+                // survives any waypoint ordering. Transparent = no vote (missing
+                // radar never claims a node is dry).
+                const _radarKey = (typeof wp.lat === 'number' && typeof wp.lon === 'number')
+                    ? Math.round(wp.lat * 10000) + ',' + Math.round(wp.lon * 10000) : null;
+                const _nodeRadar = (_radarKey && state.routeNodesRadar && state.routeNodesRadar.map)
+                    ? (state.routeNodesRadar.map.get ? state.routeNodesRadar.map.get(_radarKey) : state.routeNodesRadar.map[_radarKey]) : null;
+                const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls);
+                const status   = (isRainingNowNode || isWetNowByRadar) ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct);
+                const rainProb = (isRainingNowNode || isWetNowByRadar) ? 100 : stats.wetPct;
+                const isWet    = isRainingNowNode || isWetNowByRadar || status !== 'STABLE';
+                // Keep granular label for node subtitle (e.g. "LIGHT DRIZZLE" vs generic NOW).
+                // Radar-sourced wetness is source-labelled (measurement, not model vote)
+                // with the intensity estimate so the driver reads HOW wet the segment is.
+                const nodePrecipLabel = isWetNowByRadar
+                    ? ('WET NOW · RADAR' + (_nodeRadar.mmh ? ' ~' + _nodeRadar.mmh + 'mm/h' : ''))
+                    : (isRainingNowNode ? _nodeWmo.label : null);
 
                 const pathColor = status === 'RAIN_NOW'       ? 'text-brand-red font-black drop-shadow-md'
                                 : status === 'RAIN_LIKELY'    ? 'text-brand-blue font-black drop-shadow-md'
@@ -6251,6 +6529,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const radarNote = rainByRadar
                 ? 'radar ' + _rd.cls + ' ~' + _rd.mmh + 'mm/h'
                 : (radarClear ? 'radar: clear' : null);
+            // METAR (1.13.0): the regional station observation. WET side only —
+            // a station reporting precip independently corroborates a rain claim
+            // (a second human/instrument source); a CLEAR station never refutes
+            // (displacement honesty: the station can be 40 km from the pin).
+            const _mt = window.__METEO_CORE_STATE.metarObs;
+            const metarFresh = !!(_mt && _mt.fresh === true);
+            const rainByMetar = metarFresh && _mt.wet === true;
+            const metarNote = metarFresh
+                ? (_mt.station + ' ' + _mt.distKm + 'km: ' + (_mt.wet ? 'precip (' + _mt.wx + ')' : 'no precip') + (_mt.cb ? ' · CB reported' : ''))
+                : null;
             // CORROBORATION GATE (2026-09-25 mirror incident: "very sunny" on the
             // ground, card amber "LIGHT DRIZZLE" — the ECMWF current block carried
             // 0.1 mm post-storm residual drizzle against 3/5 models dry, a 0.04 mm
@@ -6263,7 +6551,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // the four-way OR: yesterday the block's dry veto hid real rain; today
             // its lone wet cell invented rain. Neither direction may act
             // uncorroborated at the margin.
-            const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar;
+            const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar || rainByMetar;
             const obsStrong = maxObsPrec >= 0.5;
             const codeClaimStands = rainByCurrentCode && (obsStrong || wmoDetail.isTrace === true || corroborated);
             const valueClaimStands = rainByCurrentValue && (obsStrong || corroborated);
@@ -6340,7 +6628,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, incomingRain, lowConfidence,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble, nativePrecipProb,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
@@ -6384,7 +6672,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -6675,6 +6963,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     // (Partly Cloudy)" repeated itself; the percentage IS the fact.
                     parts.push(`${Math.round(ccover)}% Cloud`);
                 }
+                // METAR (1.13.0): the regional observation rides the desc as
+                // context — the station, its distance, and what its observer
+                // measured (precip / no precip / CB convective clouds).
+                if (metarNote) parts.push(metarNote);
                 // Determine colour: when it is raining, the text goes red;
                 // otherwise neutral gray.
                 const descColorClass = isRainingNow ? 'text-brand-red' : 'text-gray-300';
@@ -7355,6 +7647,48 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                             if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
                                         } catch (_) { /* best-effort */ }
                                     }
+                                    // Frame-swap the map overlay when a fresh frame landed
+                                    // (no-op when the toggle is off or the frame is unchanged).
+                                    refreshRadarOverlay();
+                                    // Per-route-node radar (1.13.0): the tile-batch sample
+                                    // rides the same 10-min TTL — every node's WET NOW state
+                                    // refreshes with the frame. Null on failure = nodes simply
+                                    // keep their model verdicts.
+                                    if (state.routeNodes && state.routeNodes.length > 0) {
+                                        const routeSample = await fetchRadarRouteSample(state.routeNodes);
+                                        if (routeSample) {
+                                            state.routeNodesRadar = routeSample;
+                                            // Diagnostic surface (CORE_STATE): how many nodes the
+                                            // frame actually sampled + how many read wet.
+                                            try {
+                                                let _wet = 0;
+                                                for (const v of routeSample.map.values()) if (v.cls) _wet++;
+                                                window.__METEO_CORE_STATE.routeNodesRadarSummary = {
+                                                    nodes: routeSample.map.size, wet: _wet, frameTime: routeSample.frameTime
+                                                };
+                                            } catch (_) { /* best-effort */ }
+                                        }
+                                    }
+                                    // METAR (10-min TTL, same sibling cadence): the regional
+                                    // observation — corroborates rain claims, never refutes.
+                                    const _metarStale = !state._lastMetarTs || (now - state._lastMetarTs > 600000) ||
+                                        state._lastMetarLat === undefined ||
+                                        fastDistance(lat, lon, state._lastMetarLat, state._lastMetarLon) > 5000;
+                                    if (_metarStale) {
+                                        const metarObs = await fetchMetarObs(lat, lon);
+                                        if (metarObs) {
+                                            window.__METEO_CORE_STATE.metarObs = metarObs;
+                                            state._lastMetarTs = now;
+                                            state._lastMetarLat = lat; state._lastMetarLon = lon;
+                                            try { await localforage.setItem('sibling_metar', { metarObs, timestamp: now }); }
+                                            catch (e) { console.debug('METAR persist failed:', e && e.message); }
+                                        } else {
+                                            try {
+                                                const cMT = await localforage.getItem('sibling_metar');
+                                                if (cMT && cMT.metarObs) window.__METEO_CORE_STATE.metarObs = cMT.metarObs;
+                                            } catch (_) { /* best-effort */ }
+                                        }
+                                    }
                                 }
                             } catch (radarErr) { console.debug('[radar] fetch wiring failed:', radarErr && radarErr.message); }
                             // FIX-1.4.1 (P6): render BEFORE the awaited disk writes.
@@ -7481,12 +7815,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 } else { window.__METEO_CORE_STATE.rainEta = null; }
                                 // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
                                 try {
-                                    const [cAQ, cMar, cRD] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine'), localforage.getItem('sibling_radar')]);
+                                    const [cAQ, cMar, cRD, cMT] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine'), localforage.getItem('sibling_radar'), localforage.getItem('sibling_metar')]);
                                     publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
                                     publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
                                     // Stale radar is display-only: the freshness bound in
                                     // normalizeTelemetryData keeps it from triggering or refuting.
                                     if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
+                                    // Stale METAR is display-only too (fresh flag already
+                                    // accounts for age — stale rows never vote).
+                                    if (cMT && cMT.metarObs) window.__METEO_CORE_STATE.metarObs = cMT.metarObs;
                                 } catch (sibErr) { console.debug('Sibling cache restore failed:', sibErr && sibErr.message); }
                             }
                         } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }

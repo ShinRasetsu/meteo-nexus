@@ -118,6 +118,229 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.13.0 — 2026-09-25 (minor: Layer 2 completion — per-route-node radar + METAR via the user's Worker proxy)
+
+### Bump rationale
+
+Minor bump 1.12.0 → 1.13.0 (completes the Layer 2 ground-truth arc; both
+releases are ONE un-deployed batch — `sw.js` `APP_CACHE` stays `v16`, the
+1.10.1 fold precedent). Two capabilities, both user-approved:
+
+1. **Per-route-node radar** ("add a node to each route to check if it's
+   raining") — the 1.11.0 tile engine delivers its designed second consumer.
+2. **METAR unblocked** — the user deployed the `/metar` proxy route on their
+   `gmaps-proxy` Cloudflare Worker (aviationweather.gov is CORS-blocked,
+   evidence 2026-09-25; the proxy returns the JSON with ACAO:* — verified
+   live through it before wiring). Zero CSP changes: the proxy origin was
+   already allow-listed.
+
+### Changes (all `index.html` unless noted)
+
+- **`fetchRadarRouteSample(nodes)`** — the radar is SPATIAL: one decoded
+  tile batch covers a whole route. Adaptive zoom (z7 ≈ 1.2 km/px when the
+  route fits ≤9 tiles, else z6, else z5; spans beyond that are flight-class
+  and skip honestly), every node sampled from the same decoded tiles
+  (~2-9 fetches for 99 nodes — not 99 point calls). 3×3 max-alpha window per
+  node; samples keyed by rounded lat/lon so timeline alignment survives any
+  waypoint ordering; a failed tile makes its nodes ABSTAIN (missing radar
+  never claims a node dry — the per-node missing≠clear doctrine).
+- **Node verdict paint** (`renderRouteIntelTimeline`): a radar echo at a
+  node is a MEASUREMENT — tier-0, same doctrine as the pin: status →
+  RAIN_NOW (red) + label **"WET NOW · RADAR ~Xmm/h"** + rainProb 100,
+  regardless of the per-node model vote. Model verdicts stand where radar
+  reads nothing.
+- **Route-change trigger**: the sample fires on `routesfound` (the moment
+  nodes exist) — not just the 10-min frame TTL — because a route activated
+  mid-session must not wait up to one TTL for its WET NOW sampling. The
+  fetch-block path remains as the frame-refresher. A diagnostic summary
+  publishes to `__METEO_CORE_STATE.routeNodesRadarSummary`
+  `{nodes sampled, wet count, frameTime}`.
+- **METAR** (`fetchMetarObs` + `METAR_STATIONS`): nearest station from a
+  live-proven 5-station PH table (RPLL/RPLB/RPLI/RPVM/RPMZ — coords verified
+  against the live API), fetched via `${CONFIG.edgeProxy}/metar?ids=` (the
+  user's proxy route), 10-min TTL sibling cadence, persisted row +
+  offline backfill. Freshness bound: ≤100 min (METARs are hourly + SPECI).
+  **Wet-side only**: a station reporting precip (present-weather groups
+  RA/DZ/TS/SH/SN/UP/GR/GS, substring-matched on the parsed `wx` codes)
+  independently corroborates a rain claim — it joins `corroborated`; a
+  CLEAR station never refutes (displacement honesty: RPLL is ~36 km from
+  the pin — a station can be dry while the pin drizzles; same reasoning as
+  the quorum rule). CB (cumulonimbus) in the raw report is captured as a
+  convective indicator. Desc context note:
+  `"RPLL 36km: no precip"` / `"RPLL 37km: precip (-RA) · CB reported"`.
+- `tests/sanity.test.js` — +8 guards, 2 consciously extended (261 → 269):
+  sampler, per-node tier-0 line, WET NOW · RADAR label, CORE_STATE summary,
+  METAR helper, wet-side line, station table, proxy-URL; the corroboration
+  gate extended with `rainByMetar`, the node-elevation guard extended with
+  `isWetNowByRadar`.
+- `VERSION` → 1.13.0, `package.json` → `"version": "1.13.0"`, `sw.js`
+  `APP_CACHE` **stays v16** (same un-deployed batch as 1.12.0),
+  `AGENTS.md` §11 synced, `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **269/269** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (extract+parse OK module 865..9950 / 623339 B,
+  TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps — no new origins (the proxy
+  was already allow-listed), DOM-null 0, visual PASS — single `--hud-rot`
+  writer, rotation inventory unchanged, shell PASS) · `audit:verify` 24/24 ·
+  `node tests/audit-unified.mjs` 37/37 PASS, perfection PASS (0 stairs,
+  0 janks).
+- **Fetch Gate §6 + runtime EXECUTED** — local serve + Playwright, mocked
+  GPS at the user's pin:
+  - METAR end-to-end through the user's live Worker proxy:
+    `__METEO_CORE_STATE.metarObs = { station: 'RPLL', distKm: 36, fresh:
+    true, wet: false, cover: 'FEW', raw: 'METAR RPLL 251400Z 21003KT …' }`
+    and the desc line renders **"… · RPLL 36km: no precip"** ✓
+  - Route-node radar end-to-end: route activated
+    (`activateLiveNavigation` → OSRM route → 99-node plan → ~9 sampled
+    waypoints visible), `routeNodesRadarSummary = { nodes: 9, wet: 0,
+    frameTime: <fresh> }` — sampled seconds after `routesfound` (the
+    route-change trigger, not the TTL), timeline nodes rendering,
+    **0 red console errors**. Screenshot: `route-1.13.0-node-radar.png`.
+  - Live boundary case observed and recorded: at pass time 2 models
+    (US 0.5mm + CA 6.6mm) + minutely (0.13mm) claimed rain while BOTH
+    measurements read clear (radar covered+clear, RPLL no precip) →
+    headline "RAIN NOW · MODELS" per the documented err-loud doctrine
+    (ensemble triggers are forecast-class; radarClear refutes only
+    uncorroborated marginal OBSERVED claims). A future product decision
+    may widen radarClear to suppress ensemble triggers — noted below.
+- Visual runtime pass §7 not triggered: no transform/rotation surfaces
+  touched.
+
+### Blind spots considered (§8)
+
+Races: the routesfound sampler is fire-and-forget with a `.catch`; a route
+swap mid-sample stores the newer route's result only after its own fetch —
+last-writer-wins on a single-threaded chain, and samples are keyed by
+coords (a stale write for an old route's coords simply never matches the
+new route's nodes). Leaks: route tile canvases are per-call 256px, GC'd;
+`bmp.close()` on each decode. Off-by-one: 3×3 node window ≈ 3.5 km at z7 —
+deliberately wide for storm edges, per-node granularity is segment-level
+(nodes are 5 km apart by `routingIntervalNodeDist`). METAR: the wx
+substring match is deliberately broad (TSRA matches RA+TS) — over-detect
+is impossible for a corroborator-only role; the station table is
+PH-scoped v1 (extension is a data edit, documented in-code). Perf:
+route sampling adds ~2-9 tile fetches per 10-min frame + per route change;
+METAR adds one ~700 B fetch per 10 min. Residual: the wet-node paint path
+shares the proven RAIN_NOW render machinery (same classes + template
+slot) but was not exercised by a live wet route tonight (0 wet nodes on a
+radar-clear evening) — pending a live rain event for device-grade proof;
+the models-vs-radar conflict case (ensemble triggers firing against a
+clear radar + clear METAR) is the next tie-breaking product decision.
+
+---
+
+## 1.12.0 — 2026-09-25 (minor: two-mode redesign + Drive Mode overview contract + radar map overlay)
+
+### Bump rationale
+
+Minor bump 1.11.0 → 1.12.0 (user-facing UX feature change; `sw.js` `APP_CACHE`
+`v15` → `v16`). Three user asks in one session:
+
+1. **"You said we could see the rain in the actual map?"** — the Layer 2
+   pitch promised radar cells on the map; this ships it.
+2. **"When zoomed out the map is upside down"** — a report that is app truth
+   until proven otherwise; proven INHERENT, not a bug: heading-up rotation
+   persists at overview zoom in the old tactical modes, so a southbound
+   driver zooming out got a literally upside-down city.
+3. **"Can we make the toggle simpler, like Google Maps?"** — with the
+   user's own naming: **Drive Mode** (top of map = heading, map follows
+   heading, pinch zoom for turn detail vs overview) and **Map Mode** (top of
+   map = North, free zoom/pan).
+
+### Changes (all `index.html` unless noted)
+
+- **Two-mode redesign**: the 3-mode ladder (ROUTE / NAVIGATION z17 /
+  TACTICAL z19) collapsed into **Drive Mode** (`fa-car-side`, teal, heading-up,
+  GPS-locked, z17 entry, continuous pinch zoom — pinch already stayed locked
+  per 1.3.0) and **Map Mode** (`fa-map`, purple, north-up, free pan, route
+  fit-bounds). One-button cycle (`% 3` → `% 2`). `activateLiveNavigation`
+  still enters mode 1 = Drive Mode. No mode-2-specific logic existed (scan
+  verified) — the z17/z19 distinction is what pinch zoom now covers.
+- **Drive Mode overview contract (the upside-down fix)**: `DRIVE_NORTH_Z = 15`
+  — at/above z15 the map is heading-up; below it the rotation eases to
+  NORTH-UP (Google's navigation overview behavior). Wired in three places:
+  the heading-follow block (target 0 below threshold), a `zoomend` handler,
+  and the Drive-Mode entry seed — the latter two write directly via the
+  single-writer helper (`applyHudCssRotation` — visual-audit V1 contract
+  intact) because the rAF follow block can be DORMANT: the stationary
+  pre-exit in smoothVisualsLoop (parked, no route, heading converged) skips
+  the follow block entirely, which would have left the zoomed-out map
+  upside-down until the next heading change. The re-lock seed after drag
+  recenter honors the threshold too (re-locking below z15 seeds north).
+- **Radar map overlay ("see the rain")**: `refreshRadarOverlay` renders the
+  same RainViewer frames as a Leaflet tile layer (opacity 0.55, maxNativeZoom
+  7 per docs — Leaflet upscales beyond without new fetches, zIndex 350 above
+  base tiles below marker panes). WORLD-LOCKED by construction (inside
+  #hud-map — rotates with the map in Drive Mode; rain cells are geography).
+  Toggled by a `fa-cloud-rain` chip in the map button stack (blue glow when
+  on), preference persisted, frame-swapped every refresh cycle, restored at
+  initMap. Fetch Gate evidence: three consecutive frames
+  (`a2016da65ef3` → `f80799c9bdb6` → `e4b3f83e0bab`) all 200 — the 10-min
+  frame refresh verified live.
+- **Google-style 3D tilt: rejected honestly** — raster Leaflet cannot do
+  Google's forward tilt without breaking drag/pinch hit-testing (a CSS
+  rotateX lies to Leaflet's flat-plane interaction math) and the visual
+  rotation contracts. Proper tilt requires MapLibre GL + vector tiles — a
+  future major, not a patch. Drive Mode's heading-up + free zoom delivers
+  the functional part (zoom in = street detail for turns; zoom out =
+  north-up overview).
+- `tests/sanity.test.js` — +9 guards, 1 revised (252 → 261): two-mode cycle,
+  threshold constant, follow-block overviewNorth, both icons, overlay engine
+  + chip, the zoomend direct-write line, the entry-seed line.
+- `VERSION` → 1.12.0, `package.json` → `"version": "1.12.0"`, `sw.js`
+  `APP_CACHE` `v15` → `v16`, `AGENTS.md` §11 synced, `HISTORY.md` — this
+  chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **261/261** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (TDZ 0, fp 0, brace depth=0, CSP 0 gaps, DOM-null
+  0, **visual-audit PASS — `--hud-rot` writers: 1 (applyHudCssRotation)** —
+  the redesign added zero rotation writers, shell PASS) · `audit:verify`
+  24/24 · `node tests/audit-unified.mjs` 37/37 PASS, perfection PASS.
+- **Visual runtime pass §7 EXECUTED (mandatory — rotation surfaces
+  touched)** — local serve + Playwright, mocked GPS at the user's pin,
+  synthesized heading ~200° via `deviceorientationabsolute` events:
+  1. Drive Mode boot + heading 200° → `--hud-rot ≈ -160deg` (≡ 200° mod 360
+     — the shortest-path lerp represents the equivalent negative angle; the
+     map IS heading-up)
+  2. **Zoom out below z15 (loop alive)** → `--hud-rot: 0deg` — north-up
+     overview (THE upside-down fix, proven)
+  3. **Zoom back in ≥ z15 (loop DORMANT)** → `--hud-rot: -159.7deg` —
+     heading-up resumed via the zoomend direct write (the liveness fix,
+     proven)
+  4. Map Mode toggle → `fa-map` + `0deg` ✓ · Drive Mode re-entry →
+     `fa-car-side` + entry seed ✓
+  5. Radar overlay: on → `.radar-overlay` layer present + button glow, off →
+     layer removed; frames + tiles **HTTP 200** across three frame
+     generations; **0 red console errors**. Screenshot:
+     `map-1.12.0-modes-radar.png`.
+- Fetch Gate §6 not re-triggered (no telemetry fetch surface touched).
+
+### Blind spots considered (§8)
+
+Races: the zoomend direct write and the follow block share
+`state.lastCssHeading` as the gate — single-threaded, so the two writers
+interleave safely (both route through the same helper + gate; a mid-frame
+double-write is idempotent at 0.1° resolution). Leaks: overlay layer
+removed on toggle-off and re-added per frame change (Leaflet GCs the old
+layer); one zoomend listener, mount-once. The stationary-dormancy discovery
+is documented in-code: the entry-seed + zoomend writes exist precisely
+because the pre-exit can skip the follow block — a future change to the
+pre-exit must keep that in mind. Angle representation: the lerp may hold
+the equivalent negative angle (-160 ≡ 200) — CSS rotate is mod-360
+insensitive; consumers reading `appliedHudRot` (the predrag hook) already
+consume the applied value, not the raw heading. Perf: zoomend writes once
+per zoom gesture; overlay frame-swap is one layer rebuild per 10-min
+frame; no per-frame cost added. A11y: mode button title updated
+("Drive Mode / Map Mode"); overlay chip has title + tap-48. Residual:
+tilt deferred (needs MapLibre GL); below-z15 north-up means the heading
+arrow still shows true heading — intended (overview = geographic reading).
+
+---
+
 ## 1.11.0 — 2026-09-25 (minor: Layer 2 radar ground truth — a measurement joins the verdict chain)
 
 ### Bump rationale

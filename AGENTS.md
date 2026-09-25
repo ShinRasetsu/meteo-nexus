@@ -285,15 +285,18 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.11.0, 2026-09-25)
+## 11. Reference numbers (verified v1.13.0, 2026-09-25)
 
-- sanity.test.js - 252 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 269 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
   +1 from the 1.10.5 consensus-headline revision, +2 from the quorum rule
   (silence is not a vote), +7 from the 1.11.0 radar ground-truth layer
-  (incl. 1 guard updated for the radar-augmented quorum line))
+  (incl. 1 guard updated for the radar-augmented quorum line), +8 from the
+  1.12.0 two-mode redesign + radar map overlay, +1 for the zoomend
+  direct-write liveness guard, +8 from the 1.13.0 route-node radar + METAR
+  (incl. 2 guards consciously extended: corroboration + node elevation))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
@@ -304,7 +307,7 @@ From HISTORY.md "How to bump version in a new session":
 - Scanners: 8 mandatory (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
   + 1 plug-in (fluidity: G0-G4 perfection gate) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 37 checks, E1-E6)
-- index.html - ~9637 lines / ~672 KB; inline module lines 862-9613 (~600 KB)
+- index.html - ~9974 lines / ~690 KB; inline module lines 865-9950 (~623 KB)
 - worker.js - 272 lines; sw.js - 475 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
