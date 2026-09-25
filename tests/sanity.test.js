@@ -333,6 +333,8 @@ assertIncludes(html, "window.__METEO_CORE_STATE.isRainingNow = !!(data && data.i
 assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30;", "index.html corroboration gate: marginal observed claims need a second independent signal (2026-09-25 mirror incident)");
 assertIncludes(html, "' (POSSIBLE ' + unconfirmedClaim + ')'", "index.html 1.10.5: consensus verdict owns the headline; uncorroborated single-source claims ride as a (POSSIBLE …) parenthetical");
 assertIncludes(html, "single-source claim, unconfirmed by ensemble", "index.html desc explains the demoted claim instead of letting the card contradict itself");
+assertIncludes(html, "const quorumMet = !lowConfidence;", "index.html quorum rule: silence is not a dry vote — demotion requires the authoritative reporting quorum (2 dry + 3 silent is NOT a 5-model consensus)");
+assertIncludes(html, "' (UNCONFIRMED)'", "index.html thin-quorum path: the marginal claim keeps the hedged (UNCONFIRMED) amber headline instead of a thin-majority NO RAIN");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently

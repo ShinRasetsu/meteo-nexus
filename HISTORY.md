@@ -118,6 +118,88 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.10.6 — 2026-09-25 (patch: quorum rule — silence is not a vote)
+
+### Bump rationale
+
+Patch bump 1.10.5 → 1.10.6 (1.10.5 deployed live at 13:42 via deploy.bat
+auto-commit 64cf2ab, so the quorum fix cannot ride that release; `sw.js`
+`APP_CACHE` `v13` → `v14` so installed clients receive it).
+
+User question after 1.10.5 shipped: *"what if 2 votes for dry and the other
+3 are just silent — no data?"* Correct catch: the wetness vote renormalizes
+over reporting models only, so "2 dry + 3 silent" computed as a 0% STABLE
+verdict with the same authority as a full 5-model consensus — and the
+1.10.5 demotion let that thin majority push the observed marginal claim
+into the parenthetical. **Silence is not a vote**: null cells never vote
+wet, but they must not empower a thin dry majority either.
+
+### Changes
+
+- `index.html` (`normalizeTelemetryData`, verdict block): the demotion of a
+  marginal uncorroborated observed claim now requires the reporting quorum
+  to be authoritative — `precipActiveWeight >= _GLOBAL_ACK` (the
+  ECMWF+GFS baseline, the same signal that flags the LOW CONF dot;
+  consulted via `quorumMet = !lowConfidence`). Quorum met → consensus owns
+  the headline (the 1.10.5 display: "NO RAIN (POSSIBLE <CLAIM>)"). Quorum
+  thin → the marginal claim KEEPS the hedged amber `(UNCONFIRMED)`
+  headline (1.10.4 style, no sonar/haptic, `isRainingNow` false) and the
+  desc states how many models were actually heard: `"Light Drizzle —
+  unconfirmed (only 2/5 models reporting)"`. A per-model reporting count
+  (`reportingCount`) now tracked in the consensus loop; desc composition
+  moved into the `unconfirmedNote` payload field.
+- Only the demotion direction is quorum-gated — positive rain signals
+  (minutely now-slot, 2-model wet consensus) still fire with whatever
+  models report: a unanimous wet vote of those heard is corroborating
+  evidence for rain, and rain alerts err loud. Silence never blocks a rain
+  alert; silence only blocks a confident dry verdict.
+- `tests/sanity.test.js` — +2 guards (243 → 245): the `quorumMet` line +
+  the thin-quorum `(UNCONFIRMED)` hedge.
+- `VERSION` → 1.10.6, `package.json` → `"version": "1.10.6"`, `sw.js`
+  `APP_CACHE` `v13` → `v14`, `AGENTS.md` §11 synced, `HISTORY.md` — this
+  chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **245/245** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (TDZ 0, fp 0, brace depth=0, CSP 0 gaps,
+  DOM-null 0, visual PASS inventory unchanged, shell PASS) ·
+  `npm run audit:verify` 24/24 · `node tests/audit-unified.mjs` 37/37 PASS,
+  perfection PASS (0 stairs, 0 janks).
+- Quorum fixture proof (gate math replicated on synthetic cases, executed
+  2026-09-25 — the thin-quorum path cannot be reproduced live because all
+  5 models report at the user's pin):
+
+```
+case A: 5/5 reporting, 2 small wet cells, claim 51@0.1mm → quorumMet  → "NO RAIN (POSSIBLE LIGHT DRIZZLE)"  [the live incident]
+case B: 2/5 reporting (GFS+ICON, w=0.44 < ACK), dry, claim 51@0.1mm  → quorum THIN → "LIGHT DRIZZLE (UNCONFIRMED)" amber + "only 2/5 models reporting"
+case C: 2/5 reporting (ECMWF+GFS, w=0.66 = ACK), dry, claim 51@0.1mm  → quorumMet → consensus owns headline
+case D: 2/5 reporting but minutely now-slot 0.3mm corroborates        → full rain branch — alerts err loud, silence never blocks rain
+```
+
+- Fetch Gate §6 not re-triggered by §2: no fetch URLs/triggers changed
+  (verdict math + display only); the 1.10.5 live-pin runtime evidence
+  ("NO RAIN (POSSIBLE LIGHT DRIZZLE)") remains valid as the quorum-met-path
+  proof — all 5 models report at that pin. Visual §7 not triggered: no
+  transform surfaces touched.
+
+### Blind spots considered (§8)
+
+Races/leaks/coercion: none added — the quorum consults `lowConfidence`
+(precipActiveWeight), computed earlier on the same synchronous chain;
+reportingCount uses the same per-model loop as the consensus (no second
+pass over arrays). Off-by-one: the ACK baseline is `<=` vs `<` at the
+boundary — 2/5 ECMWF+GFS (0.66 = ACK exactly) counts as quorum-met
+(`lowConfidence = 0.66 < 0.66 = false`), which is correct: the two
+globally-best models were both heard. Residual honesty trade: a thin 2/5
+reporting ensemble claiming drizzle keeps the amber hedge instead of a
+green dry verdict — deliberately conservative, and the LOW CONF dot +
+"only N/5 models reporting" desc keep the reason visible. Layer 2
+(radar/METAR observation sources) remains the structural fix for ground
+truth.
+
+---
+
 ## 1.10.5 — 2026-09-25 (patch: consensus owns the headline — minority claims demoted to parenthetical)
 
 ### Bump rationale

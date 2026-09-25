@@ -6066,13 +6066,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     }
                 }
             }
-            let consensusCount = 0; const consensusParts = [];
+            let consensusCount = 0, reportingCount = 0; const consensusParts = [];
             for (const m of WeatherEnsemble.models) {
                 const arr = precipModels[m];
                 const v = arr ? arr[nowIndex] : null;
-                if (typeof v === 'number' && v >= 0.3) {
-                    consensusCount++;
-                    consensusParts.push((ENSEMBLE_LABELS[m] || m) + ' ' + v.toFixed(1) + 'mm');
+                if (typeof v === 'number') {
+                    reportingCount++;
+                    if (v >= 0.3) {
+                        consensusCount++;
+                        consensusParts.push((ENSEMBLE_LABELS[m] || m) + ' ' + v.toFixed(1) + 'mm');
+                    }
                 }
             }
             const rainByConsensus = consensusCount >= 2;
@@ -6096,15 +6099,38 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             let headlineDetail = wmoDetail;
             let rainSourcesNote = null;
             let unconfirmedClaim = null;
+            let unconfirmedNote = null;
             if (rainByCurrentCode && !codeClaimStands) {
-                // 1.10.5 display semantics (user-directed): the consensus verdict
-                // OWNS the headline — with 3/5 models dry and the nowcast dry, the
-                // card must not lead with the one dissenting source's claim. The
-                // marginal uncorroborated code claim is demoted to a (POSSIBLE …)
-                // parenthetical on the STABLE label plus a desc note; no rain
-                // branch, no sonar/haptic, isRainingNow stays false.
-                headlineDetail = null;
-                unconfirmedClaim = wmoDetail.label;
+                // QUORUM RULE (user-directed, same 1.10.5 batch): silence is not a
+                // vote. Null cells never vote wet — but they must not EMPOWER a
+                // thin dry majority either: "2 models dry, 3 silent" is not
+                // "3/5 dry". The dry consensus may demote the observed claim only
+                // when the reporting quorum is authoritative — precipActiveWeight
+                // >= the global ACK baseline (ECMWF+GFS), the same signal that
+                // flags the LOW CONF dot. With a thin quorum the claim keeps the
+                // hedged amber (UNCONFIRMED) headline and the desc states how
+                // many models were actually heard.
+                const quorumMet = !lowConfidence;
+                if (quorumMet) {
+                    // 1.10.5 display semantics (user-directed): the consensus verdict
+                    // OWNS the headline — with 3/5 models dry and the nowcast dry, the
+                    // card must not lead with the one dissenting source's claim. The
+                    // marginal uncorroborated code claim is demoted to a (POSSIBLE …)
+                    // parenthetical on the STABLE label plus a desc note; no rain
+                    // branch, no sonar/haptic, isRainingNow stays false.
+                    headlineDetail = null;
+                    unconfirmedClaim = wmoDetail.label;
+                    unconfirmedNote = 'single-source claim, unconfirmed by ensemble';
+                } else {
+                    headlineDetail = {
+                        label: wmoDetail.label + ' (UNCONFIRMED)',
+                        tone: 'warning',
+                        isPrecip: true,
+                        isTrace: true,
+                        unconfirmed: true
+                    };
+                    unconfirmedNote = 'unconfirmed — only ' + reportingCount + '/' + WeatherEnsemble.models.length + ' models reporting';
+                }
             } else if (!rainByCurrentCode && (valueClaimStands || rainByMinutely || rainByConsensus)) {
                 const src = [];
                 if (rainByCurrentValue && curr) {
@@ -6132,7 +6158,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, incomingRain, lowConfidence,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble, nativePrecipProb,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
@@ -6176,7 +6202,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -6451,8 +6477,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // the confusion that read as garbage data).
                 const parts = (wmoDetail && wmoDetail.byEnsemble && rainSourcesNote)
                     ? [rainSourcesNote, wmoLabel + ' (cell avg)']
-                    : (unconfirmedClaim)
-                        ? [unconfirmedClaim.charAt(0) + unconfirmedClaim.slice(1).toLowerCase() + ' — single-source claim, unconfirmed by ensemble']
+                    : (unconfirmedNote)
+                        ? [wmoLabel + ' — ' + unconfirmedNote]
                         : [wmoLabel];
                 if (isRainingNow && prec !== null && prec >= 0.1) {
                     parts.push(`${prec.toFixed(1)}mm`);
