@@ -319,6 +319,18 @@ assertIncludes(html, "\"RAIN NOW\"", "index.html surfaces RAIN NOW status text")
 assertIncludes(html, "\"LIGHT DRIZZLE\"", "index.html surfaces granular LIGHT DRIZZLE vs RAIN NOW detail");
 assertIncludes(html, "\"NO RAIN\"", "index.html surfaces NO RAIN stable text");
 
+// HEADLINE OVERHAUL (1.10.3): active rain is a four-way OR — the observed
+// precip-code verdict can no longer single-handedly veto every richer source.
+// During a live convective storm (2026-09-24, proven at the user's pin via live
+// API probes) the ECMWF current block said "Overcast, 0.0 mm" while GFS
+// reported 1.8 mm and the minutely_15 now-slot 0.20 mm — the card stayed green
+// OVERCAST through the whole storm. The headline must listen to the data the
+// app already fetches.
+assertIncludes(html, "rainByMinutely", "index.html gates headline rain on the minutely_15 now-slot ensemble");
+assertIncludes(html, "rainByConsensus", "index.html gates headline rain on multi-model value consensus");
+assertIncludes(html, "'RAIN NOW · MODELS'", "index.html labels ensemble-triggered rain source-honestly");
+assertIncludes(html, "window.__METEO_CORE_STATE.isRainingNow = !!(data && data.isRainingNow);", "Aero/glance publish uses the consensus verdict, not a code-only recompute");
+
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently
 // has throughout the drag (no rotate(0deg) reset, no hud-rotating smear). The

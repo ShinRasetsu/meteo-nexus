@@ -118,6 +118,153 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.10.3 — 2026-09-24 (patch: headline overhaul — active-rain four-way consensus)
+
+### Bump rationale
+
+Patch bump 1.10.2 → 1.10.3, driven by a user report that is now the canonical
+data-truth lesson: **heavy rain with thunder on the ground, card green
+"OVERCAST"** — at the user's exact pin (14.2022324, 121.1276093, Calamba,
+Laguna). Three live API probes against that pin proved the failure was NOT
+garbage data, stale cache, or the multi-model ensemble "backfiring": the
+ensemble was the only part of the app that SAW the storm, and the headline
+logic ignored it in favor of the one source that didn't.
+
+### Root cause (proven live, 2026-09-24, three probes)
+
+Open-Meteo's `current` block is model output (best-match = ECMWF IFS 0.25°,
+15-min assimilation, `interval: 900`) — NOT an observation. A tropical
+convective cell (~5-10 km) doesn't move a ~25 km cell average:
+
+```
+current block (headline's only active-rain trigger): weather_code=3, precip=0.0, cloud=98%
+per-model hourly @now:  GFS 1.8mm code80 @97%prob | JMA 0.3mm code51 | ICON 0.1mm | ECMWF 0 | GEM 0
+minutely_15 now-slot:    0.20mm (rain actively falling, 3+ hours)
+```
+
+The 1.3.1 decision crowned `current.weather_code` as "the observation" (fixing
+the opposite bug: forecast votes overriding reality). The assumption "current =
+observed truth" was never revisited as the ensemble + minutely_15 grew richer
+than the block. Four stacked failures: (1) king-maker — the coarsest source
+holds absolute veto; (2) code-first gate — `getWmoStatus` returns OVERCAST
+without ever reading `curr.precipitation` when the code is non-precip; (3)
+knife-edge vote — the models that saw rain could only buy "POSSIBLE" at 30.7%
+(tumbling either side of the 30% threshold between model runs); (4) the
+minutely_15 now-slot — the closest-to-now data we fetch — was never consulted
+by the headline. Wetness ramp note: GFS's 1.8mm contributes 0.28 (capped ramp),
+JMA's 0.3mm 0.027, ECMWF/ICON (0.1 = exactly PRECIP_MIN_MM) 0 → 30.7%,
+precisely on the RAIN_POSSIBLE boundary.
+
+Garbage-hunt probe (same pin): all 5 models sane across every consumed field
+(temps 25.1-27.2°, zero NaN/absurd values, JMA gust/prob nulls are a known
+publishing gap skipped by the weighted functions); card temp 25.8° vs 5-model
+blend 26.2° — 0.4° delta. The data was coherent; the tie-breaking was broken.
+Marine at this pin returns all nulls (Laguna de Bay is not in the ocean model)
+— the SEA STATE row's land-hiding design confirmed correct.
+
+### Changes (all `index.html` unless noted)
+
+- **Active rain is now a four-way OR** (`normalizeTelemetryData`, headline
+  verdict block): (a) observed precip code + measurable value [legacy, TRACE
+  nuance preserved], (b) the current block's own VALUE ≥0.1 mm even when its
+  code stays non-precip (code 3 + 2.0 mm must never read OVERCAST), (c) the
+  minutely_15 ensemble's CURRENT 15-min slot ≥0.1 mm (read from
+  `__METEO_CORE_STATE.minutely`, which fetchData publishes BEFORE
+  processTelemetryPayload runs on the live path; offline path anchors the slot
+  search to `currentUnixMs` = cached timestamp so a stale window cannot
+  false-fire), (d) ≥2 models reporting ≥0.3 mm at nowIndex (value consensus;
+  a single noisy model cannot fire it alone).
+- **Source-honest synthesis**: when triggers (b)-(d) fire and the observed
+  code did not, a synthesized detail is returned (`label: 'RAIN NOW'` for the
+  value trigger, `'RAIN NOW · MODELS'` for minutely/consensus, tone danger,
+  `byEnsemble: true`) plus a `rainSourcesNote` ("15-min 0.27mm · models US
+  2.2mm DE 0.7mm …") for the desc line. The observed-code verdict keeps label
+  precedence — TRACE/light-drizzle nuance is untouched.
+- **renderTelemetryUI**: rain-branch icon overridden to `fa-cloud-showers-heavy`
+  for ensemble-triggered rain (code 3's dry cloud icon must never sit under a
+  RAIN NOW headline); desc line leads with `rainSourcesNote` followed by
+  `"<wmoLabel> (cell avg)"` so the card explains itself instead of
+  contradicting itself. Sonar + haptic rising-edge behavior unchanged
+  (fires on consensus onset — the safety point of the release).
+- **processTelemetryPayload**: the Aero/glance publish block now publishes the
+  CONSENSUS verdict (`window.__METEO_CORE_STATE.isRainingNow = !!(data &&
+  data.isRainingNow)`; wmoDetail/wmoLabel from the payload with the code-only
+  `_hudWmo` recompute kept as fallback). Previously a SECOND code-only gate
+  recomputed isRainingNow from weatherCode alone — the card and the Aero wxm
+  chip / glance strip could disagree with each other by construction.
+- `tests/sanity.test.js` — +4 guards (236 → 240): `rainByMinutely`,
+  `rainByConsensus`, `'RAIN NOW · MODELS'`, and the consensus publish line.
+- `VERSION` → 1.10.3, `package.json` → `"version": "1.10.3"`, `sw.js`
+  `APP_CACHE` `v10` → `v11` (SW update detector must fire), `AGENTS.md` §11
+  synced (module 861..9332 / 580790 B; sanity 240), `HISTORY.md` — this chapter.
+
+### Known bounded behaviours (documented, not bugs)
+
+- The rain verdict re-evaluates at minimum every 15 min (payloadSig includes
+  `current.time`, which rolls every 900 s) even when nothing else changes — a
+  model-run that touches ONLY the now-index precip cells could lag the verdict
+  by up to one 15-min roll. Same bound class as the accepted 1.10.2 payloadSig
+  deferral.
+- Trigger (c) offline: if a fresher session's minutely window is still
+  published while an older cache renders, the slot search is anchored to the
+  cached timestamp — a window that doesn't cover it finds no slot (no false
+  fire); a window that does cover it reads the newest forecast for that time.
+- Route-node `isRainingNowNode` (per-waypoint WMO from the route-intel
+  endpoint) is intentionally unchanged — a forecast surface with no
+  minutely/consensus data per node.
+- METAR/radar ground-truth sources (the only true "is it raining at my pin"
+  observations) remain the proposed Layer 2 — new origins, product decision,
+  not shipped in this patch.
+
+### Gates run + evidence (at bump)
+
+- `npm run lint` 0 · `npm test` sanity **240/240** + unit **36/36** ·
+  `npm run audit` 8/8 PASS (extract+parse OK module 861..9332 / 580790 B, TDZ 0,
+  fp 0, brace depth=0/max=12, CSP 0 gaps — no new origins, DOM-null 0, visual
+  PASS inventory unchanged — no rotation surfaces touched, shell PASS) ·
+  `npm run audit:verify` 24/24 · `node tests/audit-unified.mjs` 37 checks
+  PASS, perfection PASS (0 stairs, 0 janks) · `npm run precheck` Tailwind
+  v4.3.3 green.
+- **Fetch Gate §6 EXECUTED (not deferred)** — local `npx serve` + Playwright
+  with mocked geolocation at the user's exact pin, 390×844 viewport:
+  main telemetry URL (single-fetch shape, 5 models) **HTTP 200**, AQ 200,
+  marine 200 · `#hud-glance-temp` = `25°C` · **0 red console errors** (sole
+  console entry: favicon.ico 404, a browser-automatic request on the local
+  static server, no app code involved).
+- **Runtime headline verdict (E5, the release's core evidence)**: rendered
+  `#status-text` = **"RAIN NOW · MODELS"**, icon
+  `fa-cloud-showers-heavy text-brand-red`, desc = "15-min 0.27mm · models US
+  2.2mm DE 0.7mm JP 0.5mm CA 3.7mm · Overcast (cell avg) · 92% Cloud",
+  `__METEO_CORE_STATE`: `weatherCode:3` (the ECMWF cell STILL says overcast)
+  with `isRainingNow:true`, `rainEta:0`, agreement 47.2%. By the time of the
+  runtime pass the storm had intensified to 4/5 models — while the pre-fix
+  headline would have shown at best yellow "RAIN POSSIBLE" (47% ≥ 30) and at
+  worst green "OVERCAST" (30.7% < 30 an hour earlier). Screenshot:
+  `headline-1.10.3-calamba-storm.png`.
+- Visual runtime pass §7 not triggered by the trigger matrix: no transform/
+  rotation writers, panes, popups, or markers touched (audit:visual inventory
+  byte-identical to 1.10.2's).
+
+### Blind spots considered (§8)
+
+Races: single-threaded fetch-cadence writes; the minutely read happens on the
+same synchronous chain that publishes it (fetchData → processTelemetryPayload →
+normalize). Leaks: no listeners/timers/nodes added. Off-by-one/coercion: the
+15-min slot boundary is `t ≤ nowS < t+900` (exclusive end — a slot boundary
+falling exactly on `t+900` belongs to the NEXT slot, matching Open-Meteo's
+interval semantics); all numeric gates use `typeof === 'number'` before
+comparisons (null precip cells can never coerce). Unhandled rejections: pure
+sync reads, no new async. import(): none. Perf: consensus loop is 5 array
+reads per fetch + one ≤12-cell linear scan — fetch-cadence, negligible; the
+synthesized detail object allocates only on trigger. A11y: status text/aria
+surfaces unchanged in shape. Visual compositing: untouched (scanner-proven).
+User-report doctrine: the report ("Overcast during heavy rain") was treated as
+app truth until the auditor proved the failure layer — three probes proved the
+data layer innocent and the tie-breaking layer guilty, and the fix was aimed
+at the guilty layer only.
+
+---
+
 ## 1.3.10 — 2026-08-11 (performance pass: rAF hot-path + fetch-layer + WeatherEnsemble)
 
 ### Bump rationale

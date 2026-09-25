@@ -6022,14 +6022,82 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // are always valid and surface as at-a-glance detail when ensemble is STABLE.
             const wmoDetail = (curr && typeof curr.weather_code === 'number')
                 ? getWmoStatus(curr.weather_code, curr) : null;
-            const isRainingNow = !!(wmoDetail && wmoDetail.isPrecip);
+            // HEADLINE OVERHAUL (1.10.3): the observed-code gate alone let a ~25 km
+            // ECMWF cell-average veto every richer source during a live convective
+            // storm (proven at the user's pin 2026-09-24: current block said
+            // "Overcast, 0.0 mm" while GFS reported 1.8 mm @97% prob, JMA 0.3 mm,
+            // and the minutely_15 now-slot 0.20 mm — the card stayed green
+            // OVERCAST). Active rain is now a four-way OR:
+            //   (a) observed precip code + measurable value [legacy, incl. TRACE nuance]
+            //   (b) the current block's own VALUE >=0.1 mm even when its code stays
+            //       non-precip (code 3 + 2.0 mm must never read OVERCAST)
+            //   (c) the minutely_15 ensemble's CURRENT 15-min slot >=0.1 mm — the
+            //       closest-to-now data we fetch, previously ignored by the headline
+            //   (d) >=2 models reporting >=0.3 mm at nowIndex (value consensus; a
+            //       single noisy model cannot fire this alone)
+            // The observed-code verdict keeps label precedence; triggers (b)-(d)
+            // synthesize a source-honest "RAIN NOW" detail so the card can no longer
+            // contradict every model it fetches.
+            const rainByCurrentCode = !!(wmoDetail && wmoDetail.isPrecip);
+            const rainByCurrentValue = !rainByCurrentCode && !!(curr && hasMeasurablePrecip(curr));
+            let rainByMinutely = false, minutelyNowMm = null;
+            const _m15 = window.__METEO_CORE_STATE.minutely;
+            if (_m15 && Array.isArray(_m15.time) && Array.isArray(_m15.precipitation) && _m15.time.length) {
+                // Live path: CORE_STATE.minutely is the fresh window (published in
+                // fetchData before processTelemetryPayload runs). Offline path:
+                // currentUnixMs is the cached timestamp, so a stale-era window that
+                // no longer covers it finds no slot — honesty over a false fire.
+                const nowS = Math.floor(currentUnixMs / 1000);
+                for (let i = 0; i < _m15.time.length; i++) {
+                    const t = _m15.time[i];
+                    if (typeof t === 'number' && t <= nowS && nowS < t + 900) {
+                        const v = _m15.precipitation[i];
+                        if (typeof v === 'number' && v >= 0.1) { rainByMinutely = true; minutelyNowMm = v; }
+                        break;
+                    }
+                }
+            }
+            let consensusCount = 0; const consensusParts = [];
+            for (const m of WeatherEnsemble.models) {
+                const arr = precipModels[m];
+                const v = arr ? arr[nowIndex] : null;
+                if (typeof v === 'number' && v >= 0.3) {
+                    consensusCount++;
+                    consensusParts.push((ENSEMBLE_LABELS[m] || m) + ' ' + v.toFixed(1) + 'mm');
+                }
+            }
+            const rainByConsensus = consensusCount >= 2;
+            const isRainingNow = rainByCurrentCode || rainByCurrentValue || rainByMinutely || rainByConsensus;
+            let headlineDetail = wmoDetail;
+            let rainSourcesNote = null;
+            if (!rainByCurrentCode && (rainByCurrentValue || rainByMinutely || rainByConsensus)) {
+                const src = [];
+                if (rainByCurrentValue && curr) {
+                    src.push('obs ' + Math.max(
+                        (typeof curr.precipitation === 'number') ? curr.precipitation : 0,
+                        (typeof curr.rain === 'number') ? curr.rain : 0,
+                        (typeof curr.showers === 'number') ? curr.showers : 0,
+                        (typeof curr.snowfall === 'number') ? curr.snowfall : 0
+                    ).toFixed(1) + 'mm');
+                }
+                if (rainByMinutely) src.push('15-min ' + minutelyNowMm.toFixed(2) + 'mm');
+                if (rainByConsensus) src.push('models ' + consensusParts.join(' '));
+                headlineDetail = {
+                    label: rainByCurrentValue ? 'RAIN NOW' : 'RAIN NOW · MODELS',
+                    tone: 'danger',
+                    isPrecip: true,
+                    byEnsemble: true,
+                    sources: src.join(' · ')
+                };
+                rainSourcesNote = src.join(' · ');
+            }
             let incomingRain = false;
             for (let i = 1; i <= 3 && i < hourlyAgreement.length; i++) {
                 if (WeatherEnsemble.classifyWetness(hourlyAgreement[i]) === 'RAIN_LIKELY') { incomingRain = true; break; }
             }
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail, incomingRain, lowConfidence,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble, nativePrecipProb,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
@@ -6073,7 +6141,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -6261,7 +6329,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const cardBd = isDanger ? 'border-brand-red' : 'border-brand-warning';
                 const textCol = isDanger ? 'text-brand-red' : 'text-brand-warning';
                 DOM.mainCard.classList.add(cardBg, cardBd);
-                const wIcon = WMO_ICONS[curr.weather_code] || 'fa-cloud-showers-heavy';
+                // Ensemble-triggered rain keeps the observed code (e.g. 3=Overcast)
+                // for the desc line, but the ICON must not show a dry cloud while
+                // the headline says RAIN NOW (the 1.10.2 self-contradiction).
+                const wIcon = (wmoDetail.byEnsemble === true) ? 'fa-cloud-showers-heavy' : (WMO_ICONS[curr.weather_code] || 'fa-cloud-showers-heavy');
                 const wIconFinal = (curr.is_day === 0) ? wIcon.replace('sun', 'moon') : wIcon;
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${wIconFinal} ${textCol}`);
                 updateClass(DOM.statusText, `text-3xl md:text-4xl font-black tracking-tight ${textCol} uppercase`);
@@ -6336,7 +6407,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const showMm  = (typeof pBreak.showers  === 'number') ? pBreak.showers  : null;
                 const snowCm  = (typeof pBreak.snowfall === 'number') ? pBreak.snowfall : null;
                 const ccover  = (typeof cloudCover === 'number') ? cloudCover : null;
-                const parts = [wmoLabel];
+                // Ensemble-triggered rain: lead with the source evidence, then the
+                // cell-average code label in parentheses — the card must never
+                // contradict itself (headline RAIN NOW · desc "Overcast" was exactly
+                // the confusion that read as garbage data).
+                const parts = (wmoDetail && wmoDetail.byEnsemble && rainSourcesNote)
+                    ? [rainSourcesNote, wmoLabel + ' (cell avg)']
+                    : [wmoLabel];
                 if (isRainingNow && prec !== null && prec >= 0.1) {
                     parts.push(`${prec.toFixed(1)}mm`);
                     let typeParts = [];
@@ -6740,9 +6817,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (typeof window.__METEO_CORE_STATE.weatherCode === 'number') {
                 const _hudCurr = { weather_code: window.__METEO_CORE_STATE.weatherCode, precipitation: window.__METEO_CORE_STATE.precipitation, rain: window.__METEO_CORE_STATE.rain, showers: window.__METEO_CORE_STATE.showers, snowfall: window.__METEO_CORE_STATE.snowfall };
                 const _hudWmo = getWmoStatus(window.__METEO_CORE_STATE.weatherCode, _hudCurr);
-                window.__METEO_CORE_STATE.isRainingNow = !!(_hudWmo && _hudWmo.isPrecip);
-                window.__METEO_CORE_STATE.wmoDetail = _hudWmo;
-                window.__METEO_CORE_STATE.wmoLabel = _hudWmo ? _hudWmo.label : (WMO_CODES[window.__METEO_CORE_STATE.weatherCode] || null);
+                // HEADLINE OVERHAUL (1.10.3): publish the CONSENSUS verdict from
+                // normalize, not this code-only recompute — the card, glance strip
+                // and the Aero wxm chip must never diverge on "is it raining"
+                // (during the 2026-09-24 storm miss they did: card OVERCAST, the
+                // models the app itself fetched were soaking). _hudWmo remains the
+                // fallback when the payload somehow lacks the fields.
+                window.__METEO_CORE_STATE.isRainingNow = !!(data && data.isRainingNow);
+                window.__METEO_CORE_STATE.wmoDetail = (data && data.wmoDetail) ? data.wmoDetail : _hudWmo;
+                window.__METEO_CORE_STATE.wmoLabel = window.__METEO_CORE_STATE.wmoDetail ? window.__METEO_CORE_STATE.wmoDetail.label : (WMO_CODES[window.__METEO_CORE_STATE.weatherCode] || null);
             }
             // Focus-only diagnostics — fetch-rate, no extra 60fps allocs
             if (data && data.wmoDetail) window.__METEO_CORE_STATE.wmoDetail = data.wmoDetail;

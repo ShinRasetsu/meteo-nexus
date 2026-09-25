@@ -282,11 +282,12 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.10.2, 2026-09-18)
+## 11. Reference numbers (verified v1.10.3, 2026-09-24)
 
-- sanity.test.js - 236 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 240 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
-  +9 from the 1.10.2 audit round, +5 from GPS-denial recovery)
+  +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
+  1.10.3 headline-consensus overhaul)
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
@@ -297,7 +298,7 @@ From HISTORY.md "How to bump version in a new session":
 - Scanners: 8 mandatory (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
   + 1 plug-in (fluidity: G0-G4 perfection gate) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 37 checks, E1-E6)
-- index.html - ~9273 lines / ~647 KB; inline module lines 861-9249 (~561 KB)
+- index.html - ~9356 lines / ~653 KB; inline module lines 861-9332 (~567 KB)
 - worker.js - 272 lines; sw.js - 475 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)

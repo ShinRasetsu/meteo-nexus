@@ -1,0 +1,149 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading " METEONEXUS HUD v1.10.3" [level=1] [ref=e3]:
+      - generic [ref=e4]: 
+      - text: METEONEXUS
+      - generic [ref=e5]: HUD
+      - generic "Deployed version" [ref=e6]: v1.10.3
+    - generic [ref=e7]:
+      - text: 
+      - button "Purge System Storage" [ref=e8]:
+        - generic [ref=e9]: 
+        - generic [ref=e10]: PURGE
+      - button "Toggle Sonar" [ref=e11]:
+        - generic [ref=e12]: 
+        - generic [ref=e13]: SONAR OFF
+  - generic [ref=e14]:
+    - generic "Swipe to expand diagnostics" [ref=e16] [cursor=pointer]
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]: 
+        - text: Environment Processing
+      - button "Focus Telemetry" [ref=e20]:
+        - generic [ref=e21]: 
+    - generic [ref=e22]:
+      - generic [ref=e24]:
+        - generic [ref=e25]:
+          - generic [ref=e26]: Local Telemetry
+          - generic [ref=e27]:
+            - generic [ref=e28]:
+              - generic [ref=e29]: 
+              - text: LOCATING
+            - generic [ref=e30]:
+              - generic [ref=e31]: 
+              - generic [ref=e32]: "--:--:--"
+          - generic [ref=e33]: 
+          - generic [ref=e34]: WAITING
+          - generic [ref=e35]: AWAITING SATELLITE
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e38]:
+              - generic [ref=e39]: Temperature
+              - generic [ref=e40]:
+                - generic [ref=e41]: "--"
+                - generic [ref=e42]: Feels --
+            - generic [ref=e43]:
+              - generic [ref=e44]: Rain Consensus
+              - generic [ref=e45]: "--"
+          - generic [ref=e46]:
+            - generic [ref=e47]:
+              - generic [ref=e48]: Wind & Humidity
+              - generic [ref=e49]:
+                - generic [ref=e50]:
+                  - generic [ref=e51]:
+                    - generic [ref=e52]: "--"
+                    - generic [ref=e53]: km/h
+                  - generic [ref=e54]: Wind
+                - generic [ref=e55]:
+                  - generic [ref=e56]: "--"
+                  - generic [ref=e57]: Humidity
+              - generic [ref=e58]: "--"
+              - generic [ref=e59]:
+                - generic [ref=e60]: "-- hPa"
+                - generic [ref=e61]: "|"
+                - generic [ref=e62]: "-- km"
+                - generic [ref=e63]: "|"
+                - generic "Air quality" [ref=e64]: "-- AQI"
+            - generic [ref=e65]:
+              - generic [ref=e66]: Max UV
+              - generic [ref=e67]: "--"
+              - generic [ref=e68]: "--"
+              - generic [ref=e69]: "--"
+          - text:  
+      - generic [ref=e71]:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 
+              - text: Aero-Vector HUD
+            - generic:
+              - generic "weather code": 
+              - generic: "--"
+          - button "Expand Aero HUD" [ref=e72]:
+            - generic [ref=e73]: 
+        - generic [ref=e75]:
+          - generic:
+            - generic: "N"
+            - generic: S
+            - generic: W
+            - generic: E
+          - generic: 
+          - generic:
+            - generic: WIND
+            - generic: "0"
+            - generic: KM/H
+        - text:        
+  - generic [ref=e76]:
+    - generic [ref=e77]:
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - generic [ref=e80]: 
+          - text: Tracking
+        - generic [ref=e81]: STANDBY
+      - generic [ref=e82]:
+        - button "Trigger Pit Stop Search" [ref=e83]:
+          - generic [ref=e84]: 
+          - generic [ref=e85]: Pit Stop
+        - button "Fuel Settings" [ref=e86]:
+          - generic [ref=e87]: 
+        - button "Paste Location Link" [ref=e88]:
+          - generic [ref=e89]: 
+          - generic [ref=e90]: Paste Target
+        - generic [ref=e91]:
+          - textbox "Search place by name" [ref=e92]:
+            - /placeholder: Search place…
+          - button "Search place" [ref=e93]:
+            - generic [ref=e94]: 
+        - button "Clear Route" [ref=e95]:
+          - generic [ref=e96]: 
+          - generic [ref=e97]: Clear
+        - text: 
+        - button "Focus Map" [ref=e98]:
+          - generic [ref=e99]: 
+    - generic [ref=e100]:
+      - generic:
+        - generic [ref=e102]:
+          - generic [ref=e103]: 
+          - generic [ref=e104]:
+            - generic [ref=e105]: "000"
+            - generic [ref=e106]: km/h
+          - generic "Session Max Speed" [ref=e108]:
+            - generic [ref=e109]: Max
+            - generic [ref=e110]: "000"
+        - generic [ref=e111]:
+          - generic [ref=e112]: 
+          - generic [ref=e113]:
+            - generic [ref=e114]: "N"
+            - generic [ref=e115]: 000°
+      - text: 
+      - generic [ref=e116]:
+        - button "" [ref=e117]
+        - button "" [ref=e119]
+  - text:                 
+  - contentinfo [ref=e121]:
+    - generic "MeteoNexus Tactical HUD — deployed version" [ref=e122]: v1.10.3
+    - generic [ref=e123]:
+      - text: Weather data by
+      - link "Open-Meteo.com" [ref=e124] [cursor=pointer]:
+        - /url: https://open-meteo.com
+      - text: • CC BY 4.0
