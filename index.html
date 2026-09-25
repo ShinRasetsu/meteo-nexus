@@ -6095,18 +6095,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutely || rainByConsensus;
             let headlineDetail = wmoDetail;
             let rainSourcesNote = null;
+            let unconfirmedClaim = null;
             if (rainByCurrentCode && !codeClaimStands) {
-                // Marginal, uncorroborated observed claim → surface it hedged, not
-                // alarmed: same amber / no-sonar / no-haptic treatment as TRACE,
-                // with an explicit (UNCONFIRMED) suffix so the card never reads as
-                // a confident rain verdict on one model's residual-drizzle cell.
-                headlineDetail = {
-                    label: wmoDetail.label + ' (UNCONFIRMED)',
-                    tone: 'warning',
-                    isPrecip: true,
-                    isTrace: true,
-                    unconfirmed: true
-                };
+                // 1.10.5 display semantics (user-directed): the consensus verdict
+                // OWNS the headline — with 3/5 models dry and the nowcast dry, the
+                // card must not lead with the one dissenting source's claim. The
+                // marginal uncorroborated code claim is demoted to a (POSSIBLE …)
+                // parenthetical on the STABLE label plus a desc note; no rain
+                // branch, no sonar/haptic, isRainingNow stays false.
+                headlineDetail = null;
+                unconfirmedClaim = wmoDetail.label;
             } else if (!rainByCurrentCode && (valueClaimStands || rainByMinutely || rainByConsensus)) {
                 const src = [];
                 if (rainByCurrentValue && curr) {
@@ -6134,7 +6132,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, incomingRain, lowConfidence,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble, nativePrecipProb,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
@@ -6178,7 +6176,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -6417,7 +6415,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${bIconFinal} ${iconTone}`);
                 updateClass(DOM.statusText, `text-3xl md:text-4xl font-black tracking-tight ${textTone} uppercase`);
                 const stableLabel = (wmoDetail && !wmoDetail.isPrecip) ? wmoDetail.label : "NO RAIN";
-                updateText(DOM.statusText, stableLabel);
+                // 1.10.5: consensus owns the headline — an uncorroborated
+                // single-source precip claim rides as a parenthetical, never as
+                // the verdict (e.g. "NO RAIN (POSSIBLE LIGHT DRIZZLE)").
+                updateText(DOM.statusText, stableLabel + (unconfirmedClaim ? ' (POSSIBLE ' + unconfirmedClaim + ')' : ''));
                 void "NO RAIN";
             }
             // Reset the haptic rising-edge latch whenever we are NOT in the RAIN NOW
@@ -6450,8 +6451,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // the confusion that read as garbage data).
                 const parts = (wmoDetail && wmoDetail.byEnsemble && rainSourcesNote)
                     ? [rainSourcesNote, wmoLabel + ' (cell avg)']
-                    : (wmoDetail && wmoDetail.unconfirmed)
-                        ? [wmoLabel + ' — unconfirmed by ensemble']
+                    : (unconfirmedClaim)
+                        ? [unconfirmedClaim.charAt(0) + unconfirmedClaim.slice(1).toLowerCase() + ' — single-source claim, unconfirmed by ensemble']
                         : [wmoLabel];
                 if (isRainingNow && prec !== null && prec >= 0.1) {
                     parts.push(`${prec.toFixed(1)}mm`);

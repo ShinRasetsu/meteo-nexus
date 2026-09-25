@@ -118,6 +118,80 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.10.5 — 2026-09-25 (patch: consensus owns the headline — minority claims demoted to parenthetical)
+
+### Bump rationale
+
+Patch bump 1.10.4 → 1.10.5 (1.10.4 deployed live at 13:17 via deploy.bat
+auto-commit ef23f77, so this display-semantics revision gets its own release;
+`sw.js` `APP_CACHE` `v12` → `v13` so installed clients receive it).
+
+User directive after seeing 1.10.4 live at their pin ("LIGHT DRIZZLE
+(UNCONFIRMED)" in sunshine, with 3/5 models dry): *"if 3 models say dry, our
+main header should not be light drizzle — it should be like 'Overcast
+(possible light drizzle)'"*. Correct call: the 1.10.4 hedge still let the
+single dissenting source own the headline. The consensus verdict must lead;
+the minority claim rides as context.
+
+### Changes
+
+- `index.html` (`normalizeTelemetryData`, headline verdict block): the
+  marginal-uncorroborated code claim no longer synthesizes a headline detail
+  at all — `headlineDetail` nulls out and `unconfirmedClaim` (the observed
+  WMO label) passes through the payload instead. The claim therefore falls
+  to the ensemble tiers, which in the uncorroborated case (<30% wetness
+  vote) is always the STABLE branch.
+- `index.html` (`renderTelemetryUI` STABLE branch): status text becomes
+  `stableLabel + ' (POSSIBLE <CLAIM>)'` when a demoted claim exists — e.g.
+  **"NO RAIN (POSSIBLE LIGHT DRIZZLE)"** in the consensus-green tone. No
+  rain branch, no sonar/haptic, `isRainingNow` stays false (glance strip +
+  Aero chip keep the dry verdict).
+- `index.html` (`renderTelemetryUI` desc builder): the demoted claim reads
+  `"<claim> — single-source claim, unconfirmed by ensemble"` so the card
+  explains WHY the headline says NO RAIN while one source disagrees.
+- Corroborated claims, TRACE, substantial (≥0.5 mm) claims, and the
+  1.10.3/1.10.4 rain triggers are untouched — this revision only changes
+  which voice leads the headline when the vote is dry.
+- `tests/sanity.test.js` — the `' (UNCONFIRMED)'` guard is consciously
+  revised (§1.6 contract revision, not a weakening: the new contract is
+  guarded in its place) → `' (POSSIBLE ' + unconfirmedClaim + ')'` + a desc
+  guard (242 → 243).
+- `VERSION` → 1.10.5, `package.json` → `"version": "1.10.5"`, `sw.js`
+  `APP_CACHE` `v12` → `v13`, `AGENTS.md` §11 synced, `HISTORY.md` — this
+  chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **243/243** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (extract+parse OK, TDZ 0, fp 0, brace depth=0,
+  CSP 0 gaps, DOM-null 0, visual PASS inventory unchanged, shell PASS) ·
+  `npm run audit:verify` 24/24 · `node tests/audit-unified.mjs` 37/37 PASS,
+  perfection PASS (0 stairs, 0 janks) · `npm run precheck` green.
+- Fetch Gate §6 + runtime pass EXECUTED — local `npx serve` + Playwright,
+  mocked GPS at the user's pin, live API still reporting code 51/0.1 mm at
+  pass time: telemetry URL **HTTP 200**, `#status-text` = **"NO RAIN
+  (POSSIBLE LIGHT DRIZZLE)"** in the green consensus tone, desc "Light
+  drizzle — single-source claim, unconfirmed by ensemble · 47% Cloud",
+  `__METEO_CORE_STATE.isRainingNow: false`, 0 red console errors.
+  Screenshot: `headline-1.10.5-consensus-owns-headline.png`. (SWR
+  one-load-behind handled with a double load — first takes the refreshed
+  cache, second serves the fresh shell.)
+- Visual runtime pass §7 not triggered: no transform/rotation surfaces
+  touched.
+
+### Blind spots considered (§8)
+
+Races/leaks/coercion: none added — pure display-semantics change on values
+already computed (the 1.10.4 corroboration gate math is untouched). The
+residual honesty trade: a REAL hyper-local drizzle seen only by the current
+block now leads with the dry consensus — the parenthetical + desc keep the
+claim visible, and any second source seeing it restores the full rain
+state; Layer 2 (radar/METAR observation sources, proposed 2026-09-25)
+remains the structural fix for ground truth. A11y: status text length grows
+~25 chars worst case — unchanged surfaces otherwise.
+
+---
+
 ## 1.10.4 — 2026-09-25 (patch: corroboration gate — the mirror incident)
 
 ### Bump rationale

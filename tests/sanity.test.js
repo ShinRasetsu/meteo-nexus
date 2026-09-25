@@ -331,7 +331,8 @@ assertIncludes(html, "rainByConsensus", "index.html gates headline rain on multi
 assertIncludes(html, "'RAIN NOW · MODELS'", "index.html labels ensemble-triggered rain source-honestly");
 assertIncludes(html, "window.__METEO_CORE_STATE.isRainingNow = !!(data && data.isRainingNow);", "Aero/glance publish uses the consensus verdict, not a code-only recompute");
 assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30;", "index.html corroboration gate: marginal observed claims need a second independent signal (2026-09-25 mirror incident)");
-assertIncludes(html, "' (UNCONFIRMED)'", "index.html hedges uncorroborated marginal precip claims as (UNCONFIRMED) — no sonar, no haptic, amber");
+assertIncludes(html, "' (POSSIBLE ' + unconfirmedClaim + ')'", "index.html 1.10.5: consensus verdict owns the headline; uncorroborated single-source claims ride as a (POSSIBLE …) parenthetical");
+assertIncludes(html, "single-source claim, unconfirmed by ensemble", "index.html desc explains the demoted claim instead of letting the card contradict itself");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently

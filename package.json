@@ -1,6 +1,6 @@
 {
   "name": "meteonexus-tactical-hud",
-  "version": "1.10.4",
+  "version": "1.10.5",
   "private": true,
   "type": "module",
   "description": "Active Telemetry HUD with real-time weather and routing intelligence.",
