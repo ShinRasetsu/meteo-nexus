@@ -118,6 +118,146 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.11.0 — 2026-09-25 (minor: Layer 2 radar ground truth — a measurement joins the verdict chain)
+
+### Bump rationale
+
+Minor bump 1.10.6 → 1.11.0 (new capability + two new origins — charter treats
+new-API product decisions as minors; `sw.js` `APP_CACHE` `v14` → `v15`).
+1.10.6 (quorum rule) was folded into this release un-deployed — the user had
+not run deploy.bat between the two sessions, so 1.10.6 ships inside 1.11.0
+(see its full chapter below for the quorum rule's own rationale + fixture
+proof).
+
+The week's arc made the case: every source the app had was a *model*. The
+storm miss (1.10.3) and the sunny-drizzle incident (1.10.4/1.10.5/1.10.6)
+were both "model vs. reality" splits that voting among models cannot
+resolve. User directive: *"we must make all weather stations and multiple
+API work together at the same time to give a more trustworthy output all
+the time"* — approved the Layer 2 proposal (radar ground truth + METAR),
+plus the follow-up: per-route-node radar sampling (1.11.1, riding the same
+tile engine).
+
+### Evidence-first probes (all executed live, 2026-09-25, before writing code)
+
+- **CORS**: `api.rainviewer.com` + `tilecache.rainviewer.com` serve
+  `access-control-allow-origin: *` (browser-fetchable); **aviationweather.gov
+  sends NO CORS headers** — METAR is browser-unfetchable from the app. METAR
+  is REJECTED for this release (documented, not silently dropped): the
+  follow-up decision is a 5-line proxy route on the user's existing
+  `gmaps-proxy` Cloudflare Worker.
+- **Docs shape traps found by probing, not reading**: tile zoom max is **z7**
+  (a z10 probe silently returned a malformed-looking grayscale tile — the
+  invalid-zoom artifact); **coordinate tiles exist**
+  (`/{size}/{z}/{lat}/{lon}/{color}/{options}.png` — pin centered at pixel
+  128,128, no tile math); a **coverage mask** product exists
+  (`/v2/coverage/0/...` — transparent = covered, black = no data) which
+  solves the "clear vs no-data" ambiguity by measurement, not heuristics.
+- **Palette extracted live** (the docs color table is JS-rendered and
+  unreachable): 36-entry Universal Blue gradient harvested from Taipei +
+  Singapore storm tiles (6,408 echo pixels), ordered by areal rarity +
+  family structure (pale cyan common = light rain → deep navy = heavy →
+  yellow/orange/red rare = heavy/extreme). Embedded as `RADAR_CORE_PALETTE`
+  with 4 coarse classes + mm/h representatives — the Caltex-id-table
+  precedent applied to pixels.
+- **Coverage at the user's pin**: transparent = COVERED (PAGASA network).
+
+### Changes (all `index.html` unless noted)
+
+- **Radar point-sample engine** (`fetchRadarSample` + `fetchRadarCoverage` +
+  `radarClassForPixel` + `RADAR_CORE_PALETTE`, module scope next to the
+  sibling helpers): frames JSON (5-min in-memory cache) → latest past frame →
+  coverage gate (7-day cache, keyed 0.5° cell, localforage-persisted) →
+  coordinate tile at z7 → 3×3 center sample (max-alpha pixel; z7 ≈ 1.2 km/px
+  → ~2 km radius) → nearest-core-palette class + mm/h estimate. NEVER throws;
+  resolves null on any failure. Alpha ≥ 100 = echo; covered + no echo =
+  `cls: null` = radar-CLEAR (the measurement that settles drizzle disputes).
+- **fetchData wiring**: radar fetched BEFORE `processTelemetryPayload` so the
+  first paint of a session sees the observation (a measurement must not
+  arrive one render late). 10-min TTL + 5-km move gate; persists
+  `sibling_radar` row; backfills age-guarded on failure; offline path restores
+  the row (display-only — the freshness bound keeps stale radar from voting).
+- **Verdict chain (normalizeTelemetryData)**: `rainByRadar` — fresh (frame
+  ≤15 min, sample ≤30 min) + covered + echo → tier-0 trigger:
+  `isRainingNow` fires regardless of any model vote, headline
+  **"RAIN NOW · RADAR"** (danger, `byRadar`), desc sources note
+  `radar <class> ~<mm/h>mm/h`. `corroborated` gains `|| rainByRadar`. The
+  quorum rule gains `|| radarClear`: a CLEAR radar measurement IS the
+  authoritative quorum — an uncorroborated marginal model claim is demoted
+  with desc `"single-source claim, refuted by clear radar"` even with a thin
+  model quorum. Rain-branch icon override extended to `byRadar` details.
+  **Deliberate boundary**: radarClear refutes only UNCORROBORATED marginal
+  claims — a model claim corroborated by 2+ models stands against a clear
+  radar, because ≤0.5 mm/h drizzle can fall below radar reflectivity floor
+  (~15-20 dBZ) and alerts err loud (runtime pass below exercised exactly this
+  branch).
+- `CONFIG` gains `radarFramesApi`/`radarTileHost`; CSP `connect-src` gains
+  `api.rainviewer.com` + `tilecache.rainviewer.com` (csp-audit 0 gaps);
+  `__METEO_CORE_STATE` gains `radarNow`.
+- `tests/sanity.test.js` — +7 guards, 1 consciously extended (245 → 252):
+  sampler, tier-0 line, headline label, palette, coverage-mask guard, origin,
+  refuted-note; the corroboration + quorum guards extended with `rainByRadar`/
+  `radarClear`.
+- `VERSION` → 1.11.0, `package.json` → `"version": "1.11.0"`, `sw.js`
+  `APP_CACHE` `v14` → `v15`, `AGENTS.md` §11 synced, `HISTORY.md` — this
+  chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **252/252** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (extract+parse OK module 862..9613 / 599823 B, TDZ 0,
+  fp 0, brace depth=0/max=12, CSP 0 gaps — 2 new origins confirmed by
+  csp-audit, DOM-null 0, visual PASS inventory unchanged, shell PASS) ·
+  `npm run audit:verify` 24/24 · `node tests/audit-unified.mjs` 37/37 PASS,
+  perfection PASS (0 stairs, 0 janks).
+- **Fetch Gate §6 EXECUTED** — local `npx serve` + Playwright, mocked GPS at
+  the user's pin, 390×844: RainViewer `weather-maps.json` **200**,
+  coverage tile **200**, radar coordinate tile **200** ·
+  `__METEO_CORE_STATE.radarNow = { covered: true, cls: null, mmh: 0,
+  frameTime: <6.6 min old> }` — the engine live end-to-end at the pin ·
+  **0 red console errors** · Screenshot: `headline-1.11.0-radar-layer.png`.
+- **Runtime verdict trace (the corroborated-boundary case, live)**: at pass
+  time the API reported code 51 + 0.1 mm with **≥2 models ≥0.3 mm at now**
+  (rainByConsensus — the same trigger that caught the 1.10.3 storm) while
+  radar read CLEAR over the pin. Per the shipped hierarchy the corroborated
+  claim stood: card "LIGHT DRIZZLE", `isRainingNow: true`, desc with mm
+  breakdown. This is the documented boundary, not a failure: radar-clear
+  refutes only uncorroborated marginals (sub-floor drizzle is
+  radar-invisible; corroboration means 2+ independent sources agreed).
+- Visual runtime pass §7 not triggered: no transform/rotation surfaces
+  touched (audit:visual inventory unchanged).
+
+### Blind spots considered (§8)
+
+Races: single-flight `_fetchInFlight` covers the whole fetch including radar;
+canvas/caches are module singletons written at fetch cadence. Leaks:
+`createImageBitmap` handles closed (`bmp.close && bmp.close()`); canvases
+are per-call 256px, GC'd. Coercion: every radar field is typeof-gated; the
+coverage alpha test is `=== 0` (docs say transparent; antialiased edges
+would fail `covered` → abstain, never a false clear). Off-by-one: 3×3
+max-alpha sample = ~2 km radius at z7 — wide enough for storm edges, narrow
+enough for pin-level verdicts; palette nearest-match on smoothed tiles is
+±1 class tolerant by design (4-class granularity). Perf: 3 small fetches
+per 10 min (~1.5 KB frames + ~1-7 KB tiles), canvas decode 256×256 once
+per TTL — negligible. Unhandled rejections: engine resolves null on every
+failure path; wiring is try/caught. import(): none. A11y: unchanged
+surfaces. Residual honesty: a corroborated marginal claim vs radar-clear
+displays as rain (boundary documented + live-proven above); a real
+sub-floor drizzle remains invisible to radar — the 1.10.4 corroboration
+machinery still catches it via models; METAR (the human observer that
+closes that gap) awaits the Worker-proxy decision.
+
+### Follow-ups (product decisions, not bugs)
+
+- **1.11.1 — per-route-node radar sampling**: the tile engine is shared by
+  design; sample every `routeNodes[].lat/lon` from the same decoded tiles
+  (~2-4 fetches cover a whole route), paint WET NOW per node + radar nowcast
+  countdowns. User-approved direction.
+- **METAR via Worker proxy** (5 lines on the user's Cloudflare Worker) or
+  drop — aviationweather.gov CORS-blocked, evidence recorded above.
+
+---
+
 ## 1.10.6 — 2026-09-25 (patch: quorum rule — silence is not a vote)
 
 ### Bump rationale

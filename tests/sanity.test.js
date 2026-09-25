@@ -330,11 +330,21 @@ assertIncludes(html, "rainByMinutely", "index.html gates headline rain on the mi
 assertIncludes(html, "rainByConsensus", "index.html gates headline rain on multi-model value consensus");
 assertIncludes(html, "'RAIN NOW · MODELS'", "index.html labels ensemble-triggered rain source-honestly");
 assertIncludes(html, "window.__METEO_CORE_STATE.isRainingNow = !!(data && data.isRainingNow);", "Aero/glance publish uses the consensus verdict, not a code-only recompute");
-assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30;", "index.html corroboration gate: marginal observed claims need a second independent signal (2026-09-25 mirror incident)");
+assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar;", "index.html corroboration gate: marginal observed claims need a second independent signal (minutely, consensus, wetness vote, or radar measurement)");
 assertIncludes(html, "' (POSSIBLE ' + unconfirmedClaim + ')'", "index.html 1.10.5: consensus verdict owns the headline; uncorroborated single-source claims ride as a (POSSIBLE …) parenthetical");
 assertIncludes(html, "single-source claim, unconfirmed by ensemble", "index.html desc explains the demoted claim instead of letting the card contradict itself");
-assertIncludes(html, "const quorumMet = !lowConfidence;", "index.html quorum rule: silence is not a dry vote — demotion requires the authoritative reporting quorum (2 dry + 3 silent is NOT a 5-model consensus)");
+assertIncludes(html, "const quorumMet = !lowConfidence || radarClear;", "index.html quorum rule: silence is not a dry vote — demotion requires the authoritative reporting quorum OR a clear radar measurement (a measurement beats a vote)");
 assertIncludes(html, "' (UNCONFIRMED)'", "index.html thin-quorum path: the marginal claim keeps the hedged (UNCONFIRMED) amber headline instead of a thin-majority NO RAIN");
+// LAYER 2 (1.11.0) — radar ground truth: a measurement outranks every model.
+// RainViewer frames+tiles, coverage-mask guard, live-extracted palette, tier-0
+// verdict, radar-refutes-marginal-claims.
+assertIncludes(html, "fetchRadarSample", "index.html radar point-sample engine present (frames + coverage gate + coordinate tile + pixel decode)");
+assertIncludes(html, "const rainByRadar = radarFresh && _rd.covered === true && typeof _rd.cls === 'string';", "index.html tier-0 radar trigger: fresh covered echo at pin fires RAIN NOW regardless of any model vote");
+assertIncludes(html, "'RAIN NOW · RADAR'", "index.html radar-triggered headline is source-labelled (measurement, not model consensus)");
+assertIncludes(html, "RADAR_CORE_PALETTE", "index.html embeds the live-extracted Universal Blue palette (36 entries, proven against Taipei/Singapore storm tiles 2026-09-25)");
+assertIncludes(html, "/v2/coverage/0/256/7/", "index.html radar coverage-mask guard: missing coverage is NOT clear — no-data regions abstain, never vote dry");
+assertIncludes(html, "https://api.rainviewer.com", "index.html Layer-2 radar origins present (CONFIG + CSP connect-src)");
+assertIncludes(html, "refuted by clear radar", "index.html desc: a clear radar measurement refutes marginal model claims — the 'sunny drizzle' incident resolves by measurement");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently

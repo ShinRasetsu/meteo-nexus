@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
     
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com https://marine-api.open-meteo.com https://geocoding-api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com https://marine-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.rainviewer.com https://tilecache.rainviewer.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
@@ -71,6 +71,7 @@
             smoothedHeading: null,
             brierScores: null,
             weatherCode: null, isDay: null, isRainingNow: false,
+            radarNow: null,
             precipitation: null, rain: null, showers: null, snowfall: null,
             cloudCover: null, pressure: null, visibility: null,
             temperature: null, apparentTemp: null, tempTrend: null,
@@ -939,6 +940,157 @@
             } catch (e) { console.debug(`[sibling:${label}] unavailable:`, e && e.message); return null; }
         }
 
+        // --- LAYER 2: RADAR GROUND TRUTH (RainViewer, 1.11.0) ---
+        // The only observation-class source in the app: real microwave echoes
+        // from precipitation overhead, not a model cell average. Proven live
+        // 2026-09-25 at the user's pin (coverage mask transparent = covered;
+        // coordinate tile centers the pin at pixel 128,128; ACAO:* verified).
+        // METAR was probed and REJECTED for this release: aviationweather.gov
+        // sends no CORS headers — browser fetch is blocked. A Worker proxy
+        // route is the follow-up decision.
+        //
+        // RADAR_CORE_PALETTE — extracted live from RainViewer scheme-2 tiles
+        // (Taipei + Singapore storm cells, 2026-09-25): a 36-entry gradient
+        // from pale cyan (light rain) through deep navy (heavy) to orange/red
+        // (extreme). Rarity + spatial structure fixed the ordering: light-rain
+        // shades are areally common, red cores are rare. Classes are coarse by
+        // design — the verdict needs rain/clear + intensity class, not exact dBZ.
+        const RADAR_CORE_PALETTE = [
+            { r: 136, g: 221, b: 238, cls: 'light', mmh: 0.5 },
+            { r: 108, g: 209, b: 235, cls: 'light', mmh: 0.8 },
+            { r: 81,  g: 197, b: 232, cls: 'light', mmh: 1.2 },
+            { r: 54,  g: 186, b: 229, cls: 'light', mmh: 1.5 },
+            { r: 0,   g: 163, b: 224, cls: 'moderate', mmh: 2 },
+            { r: 0,   g: 154, b: 213, cls: 'moderate', mmh: 2.5 },
+            { r: 0,   g: 145, b: 202, cls: 'moderate', mmh: 3 },
+            { r: 0,   g: 136, b: 191, cls: 'moderate', mmh: 4 },
+            { r: 0,   g: 127, b: 180, cls: 'moderate', mmh: 4.5 },
+            { r: 0,   g: 119, b: 170, cls: 'moderate', mmh: 5 },
+            { r: 0,   g: 112, b: 163, cls: 'moderate', mmh: 5.5 },
+            { r: 0,   g: 105, b: 156, cls: 'heavy',   mmh: 7 },
+            { r: 0,   g: 98,  b: 149, cls: 'heavy',   mmh: 8 },
+            { r: 0,   g: 91,  b: 142, cls: 'heavy',   mmh: 9 },
+            { r: 0,   g: 85,  b: 136, cls: 'heavy',   mmh: 11 },
+            { r: 0,   g: 81,  b: 128, cls: 'heavy',   mmh: 13 },
+            { r: 0,   g: 78,  b: 120, cls: 'heavy',   mmh: 15 },
+            { r: 0,   g: 74,  b: 112, cls: 'heavy',   mmh: 18 },
+            { r: 0,   g: 71,  b: 104, cls: 'heavy',   mmh: 22 },
+            { r: 255, g: 238, b: 0,   cls: 'heavy',   mmh: 30 },
+            { r: 255, g: 224, b: 0,   cls: 'heavy',   mmh: 35 },
+            { r: 255, g: 210, b: 0,   cls: 'heavy',   mmh: 40 },
+            { r: 255, g: 197, b: 0,   cls: 'heavy',   mmh: 45 },
+            { r: 255, g: 183, b: 0,   cls: 'heavy',   mmh: 50 },
+            { r: 255, g: 170, b: 0,   cls: 'extreme', mmh: 60 },
+            { r: 255, g: 159, b: 0,   cls: 'extreme', mmh: 70 },
+            { r: 255, g: 149, b: 0,   cls: 'extreme', mmh: 80 },
+            { r: 255, g: 139, b: 0,   cls: 'extreme', mmh: 90 },
+            { r: 255, g: 129, b: 0,   cls: 'extreme', mmh: 100 },
+            { r: 242, g: 54,  b: 0,   cls: 'extreme', mmh: 120 },
+            { r: 230, g: 40,  b: 0,   cls: 'extreme', mmh: 150 },
+            { r: 217, g: 27,  b: 0,   cls: 'extreme', mmh: 180 },
+            { r: 205, g: 13,  b: 0,   cls: 'extreme', mmh: 220 },
+            { r: 193, g: 0,   b: 0,   cls: 'extreme', mmh: 260 },
+            { r: 168, g: 0,   b: 0,   cls: 'extreme', mmh: 320 },
+            { r: 118, g: 0,   b: 0,   cls: 'extreme', mmh: 400 }
+        ];
+        // In-memory caches — fetch cadence, never per frame.
+        let _radarFramesCache = null;   // { json, ts }
+        let _radarCoverageCache = null; // { key, covered, ts }
+
+        // Nearest-core-color match: sampled pixel (smoothed tiles blend edges,
+        // so the RGB lands between two cores — ±1 class tolerance is acceptable
+        // for a rain/clear verdict + coarse intensity).
+        function radarClassForPixel(r, g, b) {
+            let best = null, bestD = Infinity;
+            for (const p of RADAR_CORE_PALETTE) {
+                const d = (p.r - r) * (p.r - r) + (p.g - g) * (p.g - g) + (p.b - b) * (p.b - b);
+                if (d < bestD) { bestD = d; best = p; }
+            }
+            return best;
+        }
+
+        // Coverage mask (docs: transparent = covered, black = no data). Cached
+        // per ~0.5° cell for 7 days — the mask "is not updated often" per docs.
+        async function fetchRadarCoverage(lat, lon) {
+            const key = (Math.round(lat * 2) / 2) + ',' + (Math.round(lon * 2) / 2);
+            if (_radarCoverageCache && _radarCoverageCache.key === key && (Date.now() - _radarCoverageCache.ts) < 7 * 86400000) {
+                return _radarCoverageCache.covered;
+            }
+            try {
+                const cachedRow = await localforage.getItem('radar_coverage_v1');
+                if (cachedRow && cachedRow[key] && (Date.now() - cachedRow[key].ts) < 7 * 86400000) {
+                    _radarCoverageCache = { key, covered: cachedRow[key].covered, ts: cachedRow[key].ts };
+                    return cachedRow[key].covered;
+                }
+            } catch (_) { /* cache read is best-effort */ }
+            let covered = null;
+            try {
+                const url = `${CONFIG.radarTileHost}/v2/coverage/0/256/7/${lat}/${lon}/0/0_0.png`;
+                const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
+                const blob = await r.blob();
+                const bmp = await createImageBitmap(blob);
+                const cv = document.createElement('canvas');
+                cv.width = bmp.width; cv.height = bmp.height;
+                const cx = cv.getContext('2d');
+                cx.drawImage(bmp, 0, 0);
+                const px = cx.getImageData(Math.floor(bmp.width / 2), Math.floor(bmp.height / 2), 1, 1).data;
+                covered = px[3] === 0; // transparent = covered (docs)
+                bmp.close && bmp.close();
+            } catch (e) { console.debug('[radar] coverage probe failed:', e && e.message); return null; }
+            if (covered !== null) {
+                _radarCoverageCache = { key, covered, ts: Date.now() };
+                try {
+                    const row = (await localforage.getItem('radar_coverage_v1')) || {};
+                    row[key] = _radarCoverageCache;
+                    localforage.setItem('radar_coverage_v1', row).catch(() => {});
+                } catch (_) { /* best-effort */ }
+            }
+            return covered;
+        }
+
+        // Full point-sample: frames → latest past frame → coverage gate →
+        // coordinate tile (pin at center) → 3×3 max-alpha sample → class.
+        // NEVER throws; resolves null when any step fails — a missing radar
+        // never blocks telemetry and never votes.
+        async function fetchRadarSample(lat, lon) {
+            try {
+                if (!_radarFramesCache || (Date.now() - _radarFramesCache.ts) > 300000) {
+                    const j = await fetchSiblingJSON('radar-frames', CONFIG.radarFramesApi, 5000);
+                    if (!j || !j.radar || !Array.isArray(j.radar.past) || !j.radar.past.length) return null;
+                    _radarFramesCache = { json: j, ts: Date.now() };
+                }
+                const past = _radarFramesCache.json.radar.past;
+                const frame = past[past.length - 1];
+                const covered = await fetchRadarCoverage(lat, lon);
+                if (covered === null) return null;          // unknown coverage → no vote
+                if (covered === false) return { covered: false, cls: null, mmh: null, frameTime: frame.time, ts: Date.now() };
+                const latS = lat.toFixed(6), lonS = lon.toFixed(6);
+                const url = `${CONFIG.radarTileHost}${frame.path}/256/7/${latS}/${lonS}/2/1_1.png`;
+                const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
+                const blob = await r.blob();
+                const bmp = await createImageBitmap(blob);
+                const cv = document.createElement('canvas');
+                cv.width = bmp.width; cv.height = bmp.height;
+                const cx = cv.getContext('2d');
+                cx.drawImage(bmp, 0, 0);
+                // 3×3 around center (z7 ≈ 1.2 km/px → ~2 km sample radius)
+                const c0 = Math.floor(bmp.width / 2), c1 = Math.floor(bmp.height / 2);
+                const img = cx.getImageData(c0 - 1, c1 - 1, 3, 3).data;
+                bmp.close && bmp.close();
+                let bestA = 0, bi = -1;
+                for (let i = 0; i < 12; i += 4) {
+                    if (img[i + 3] > bestA) { bestA = img[i + 3]; bi = i; }
+                }
+                if (bestA < 100) {
+                    // Covered + no echo = the measurement that settles
+                    // "sunny drizzle" disputes: radar-clear.
+                    return { covered: true, cls: null, mmh: 0, frameTime: frame.time, ts: Date.now() };
+                }
+                const m = radarClassForPixel(img[bi], img[bi + 1], img[bi + 2]);
+                return { covered: true, cls: m.cls, mmh: m.mmh, frameTime: frame.time, ts: Date.now() };
+            } catch (e) { console.debug('[radar] sample failed:', e && e.message); return null; }
+        }
+
         // Air Quality: US AQI + PM2.5 + ozone → telemetry sub-line. Null-safe:
         // uncovered regions, failed fetch, and old caches all render '--'.
         function publishAirQuality(dAQ) {
@@ -1616,6 +1768,11 @@
             marineApi: 'https://marine-api.open-meteo.com/v1/marine',
             geoApi: 'https://geocoding-api.open-meteo.com/v1/search',
             reverseGeoApi: 'https://api.bigdatacloud.net/data/reverse-geocode-client',
+            // Layer 2 (1.11.0) — radar ground truth (RainViewer, free, key-less,
+            // CORS `*` verified live 2026-09-25). Frames JSON every 10 min;
+            // coordinate tiles center the pin at pixel (128,128) at z7 (docs max).
+            radarFramesApi: 'https://api.rainviewer.com/public/weather-maps.json',
+            radarTileHost: 'https://tilecache.rainviewer.com',
             sonarThreshold: WeatherEnsemble.WET_LIKELY_PCT,
             edgeProxy: 'https://gmaps-proxy.strikefreedomnine.workers.dev',
             cacheTTL: 120000,
@@ -6079,29 +6236,44 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 }
             }
             const rainByConsensus = consensusCount >= 2;
+            // LAYER 2 (1.11.0): radar ground truth — a measurement outranks every
+            // model in the chain. Freshness bound: frames are 10-min; older than
+            // 15 min → the radar neither triggers nor refutes (stale honesty).
+            // covered=false (coverage mask says no radar data here) → the radar
+            // abstains entirely. radarClear is the measurement that settles
+            // "sunny drizzle" disputes: covered + no echo over the pin.
+            const _rd = window.__METEO_CORE_STATE.radarNow;
+            const radarFresh = !!(_rd && typeof _rd.frameTime === 'number' &&
+                (Date.now() - _rd.frameTime * 1000) < 15 * 60 * 1000 &&
+                (typeof _rd.ts === 'number' ? (Date.now() - _rd.ts) < 30 * 60 * 1000 : true));
+            const rainByRadar = radarFresh && _rd.covered === true && typeof _rd.cls === 'string';
+            const radarClear = radarFresh && _rd.covered === true && _rd.cls === null;
+            const radarNote = rainByRadar
+                ? 'radar ' + _rd.cls + ' ~' + _rd.mmh + 'mm/h'
+                : (radarClear ? 'radar: clear' : null);
             // CORROBORATION GATE (2026-09-25 mirror incident: "very sunny" on the
             // ground, card amber "LIGHT DRIZZLE" — the ECMWF current block carried
             // 0.1 mm post-storm residual drizzle against 3/5 models dry, a 0.04 mm
             // minutely now-slot and its own 38% cloud cover). A MARGINAL (<0.5 mm)
             // precip claim from the current block alone no longer fires the full
             // rain state: it must be corroborated by a second independent signal —
-            // the minutely now-slot, the >=2-model value consensus, or a >=30%
-            // ensemble wetness vote. Substantial claims (>=0.5 mm) and TRACE
-            // (already muted) stand alone. Symmetric lesson to the four-way OR:
-            // yesterday the block's dry veto hid real rain; today its lone wet
-            // cell invented rain. Neither direction may act uncorroborated at the
-            // margin.
-            const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30;
+            // the minutely now-slot, the >=2-model value consensus, a >=30%
+            // ensemble wetness vote, or the radar measurement. Substantial claims
+            // (>=0.5 mm) and TRACE (already muted) stand alone. Symmetric lesson to
+            // the four-way OR: yesterday the block's dry veto hid real rain; today
+            // its lone wet cell invented rain. Neither direction may act
+            // uncorroborated at the margin.
+            const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar;
             const obsStrong = maxObsPrec >= 0.5;
             const codeClaimStands = rainByCurrentCode && (obsStrong || wmoDetail.isTrace === true || corroborated);
             const valueClaimStands = rainByCurrentValue && (obsStrong || corroborated);
-            const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutely || rainByConsensus;
+            const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutely || rainByConsensus || rainByRadar;
             let headlineDetail = wmoDetail;
             let rainSourcesNote = null;
             let unconfirmedClaim = null;
             let unconfirmedNote = null;
             if (rainByCurrentCode && !codeClaimStands) {
-                // QUORUM RULE (user-directed, same 1.10.5 batch): silence is not a
+                // QUORUM RULE (user-directed, 1.10.6): silence is not a
                 // vote. Null cells never vote wet — but they must not EMPOWER a
                 // thin dry majority either: "2 models dry, 3 silent" is not
                 // "3/5 dry". The dry consensus may demote the observed claim only
@@ -6110,7 +6282,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // flags the LOW CONF dot. With a thin quorum the claim keeps the
                 // hedged amber (UNCONFIRMED) headline and the desc states how
                 // many models were actually heard.
-                const quorumMet = !lowConfidence;
+                // LAYER 2: a CLEAR RADAR measurement IS the authoritative quorum —
+                // it refutes the marginal model claim regardless of how many models
+                // were heard (a measurement beats a vote).
+                const quorumMet = !lowConfidence || radarClear;
                 if (quorumMet) {
                     // 1.10.5 display semantics (user-directed): the consensus verdict
                     // OWNS the headline — with 3/5 models dry and the nowcast dry, the
@@ -6120,7 +6295,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     // branch, no sonar/haptic, isRainingNow stays false.
                     headlineDetail = null;
                     unconfirmedClaim = wmoDetail.label;
-                    unconfirmedNote = 'single-source claim, unconfirmed by ensemble';
+                    unconfirmedNote = radarClear
+                        ? 'single-source claim, refuted by clear radar'
+                        : 'single-source claim, unconfirmed by ensemble';
                 } else {
                     headlineDetail = {
                         label: wmoDetail.label + ' (UNCONFIRMED)',
@@ -6131,7 +6308,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     };
                     unconfirmedNote = 'unconfirmed — only ' + reportingCount + '/' + WeatherEnsemble.models.length + ' models reporting';
                 }
-            } else if (!rainByCurrentCode && (valueClaimStands || rainByMinutely || rainByConsensus)) {
+            } else if (!rainByCurrentCode && (rainByRadar || valueClaimStands || rainByMinutely || rainByConsensus)) {
                 const src = [];
                 if (rainByCurrentValue && curr) {
                     src.push('obs ' + Math.max(
@@ -6141,13 +6318,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         (typeof curr.snowfall === 'number') ? curr.snowfall : 0
                     ).toFixed(1) + 'mm');
                 }
+                if (rainByRadar) src.push(radarNote);
                 if (rainByMinutely) src.push('15-min ' + minutelyNowMm.toFixed(2) + 'mm');
                 if (rainByConsensus) src.push('models ' + consensusParts.join(' '));
+                // Radar outranks the ensemble in the label: it measured the pin's
+                // air; models only predicted it. Radar + no observed claim →
+                // "RAIN NOW · RADAR" (the tier-0 verdict).
                 headlineDetail = {
-                    label: rainByCurrentValue ? 'RAIN NOW' : 'RAIN NOW · MODELS',
+                    label: rainByRadar ? 'RAIN NOW · RADAR' : (rainByCurrentValue ? 'RAIN NOW' : 'RAIN NOW · MODELS'),
                     tone: 'danger',
                     isPrecip: true,
-                    byEnsemble: true,
+                    byRadar: rainByRadar === true,
+                    byEnsemble: rainByRadar !== true,
                     sources: src.join(' · ')
                 };
                 rainSourcesNote = src.join(' · ');
@@ -6390,10 +6572,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const cardBd = isDanger ? 'border-brand-red' : 'border-brand-warning';
                 const textCol = isDanger ? 'text-brand-red' : 'text-brand-warning';
                 DOM.mainCard.classList.add(cardBg, cardBd);
-                // Ensemble-triggered rain keeps the observed code (e.g. 3=Overcast)
-                // for the desc line, but the ICON must not show a dry cloud while
-                // the headline says RAIN NOW (the 1.10.2 self-contradiction).
-                const wIcon = (wmoDetail.byEnsemble === true) ? 'fa-cloud-showers-heavy' : (WMO_ICONS[curr.weather_code] || 'fa-cloud-showers-heavy');
+                // Ensemble/radar-triggered rain keeps the observed code (e.g. 3=Overcast)
+                // for honesty in the desc line, but the ICON must not show a dry cloud
+                // while the headline says RAIN NOW (the 1.10.2 self-contradiction).
+                const wIcon = (wmoDetail.byEnsemble === true || wmoDetail.byRadar === true) ? 'fa-cloud-showers-heavy' : (WMO_ICONS[curr.weather_code] || 'fa-cloud-showers-heavy');
                 const wIconFinal = (curr.is_day === 0) ? wIcon.replace('sun', 'moon') : wIcon;
                 updateClass(DOM.statusIcon, `text-6xl md:text-7xl mb-2 fa-solid ${wIconFinal} ${textCol}`);
                 updateClass(DOM.statusText, `text-3xl md:text-4xl font-black tracking-tight ${textCol} uppercase`);
@@ -7145,6 +7327,36 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 computeRainEta();
                             } else { window.__METEO_CORE_STATE.rainEta = null; }
                             const now = Date.now();
+                            // LAYER 2 (1.11.0): radar ground truth — fetched BEFORE
+                            // the telemetry render so the verdict chain sees the
+                            // observation on the FIRST paint of a session (the
+                            // whole point: a measurement must not arrive one
+                            // render late). 10-min TTL + 5-km move gate (frames
+                            // refresh every 10 min upstream); fetchRadarSample
+                            // never throws and resolves null on any failure —
+                            // a missing radar simply doesn't vote.
+                            try {
+                                const _radarStale = !state._lastRadarTs || (now - state._lastRadarTs > 600000) ||
+                                    state._lastRadarLat === undefined ||
+                                    fastDistance(lat, lon, state._lastRadarLat, state._lastRadarLon) > 5000;
+                                if (_radarStale) {
+                                    const radarSample = await fetchRadarSample(lat, lon);
+                                    if (radarSample) {
+                                        window.__METEO_CORE_STATE.radarNow = radarSample;
+                                        state._lastRadarTs = now;
+                                        state._lastRadarLat = lat; state._lastRadarLon = lon;
+                                        try { await localforage.setItem('sibling_radar', { radarSample, timestamp: now }); }
+                                        catch (e) { console.debug('Radar persist failed:', e && e.message); }
+                                    } else {
+                                        // Backfill from cache (age-guarded: stale radar
+                                        // is display-only — it never triggers or refutes).
+                                        try {
+                                            const cRD = await localforage.getItem('sibling_radar');
+                                            if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
+                                        } catch (_) { /* best-effort */ }
+                                    }
+                                }
+                            } catch (radarErr) { console.debug('[radar] fetch wiring failed:', radarErr && radarErr.message); }
                             // FIX-1.4.1 (P6): render BEFORE the awaited disk writes.
                             // Previously localforage.setItem was awaited first; a
                             // rejection (disk full / handler crash) landed in the
@@ -7269,9 +7481,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 } else { window.__METEO_CORE_STATE.rainEta = null; }
                                 // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
                                 try {
-                                    const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
+                                    const [cAQ, cMar, cRD] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine'), localforage.getItem('sibling_radar')]);
                                     publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
                                     publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
+                                    // Stale radar is display-only: the freshness bound in
+                                    // normalizeTelemetryData keeps it from triggering or refuting.
+                                    if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
                                 } catch (sibErr) { console.debug('Sibling cache restore failed:', sibErr && sibErr.message); }
                             }
                         } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }
