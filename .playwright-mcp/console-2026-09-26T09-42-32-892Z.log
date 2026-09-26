@@ -123,3 +123,57 @@ Please set up your own OSRM server, or use a paid service provider for productio
 [ 4282411ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
 [ 4582415ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
 [ 4882419ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5182422ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5409454ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[ 5409491ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[ 5409524ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[ 5411899ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3999/:1169
+[ 5413269ms] [INFO] BrierSkill (n=24): ecmwf_ifs025=0.300  gfs_seamless=0.948  icon_seamless=0.573  jma_seamless=0.337  gem_seamless=0.500 @ http://localhost:3999/:7160
+[ 5413551ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[ 5413591ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[ 5413602ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[ 5413839ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3999/:1169
+[ 5416168ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5416179ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[ 5416180ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 5416207ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[ 5416211ms] [WARNING] Network Error. Failing over to IndexedDB LocalForage cache. Error: Browser is offline.
+    at http://localhost:3999/:7500:54
+    at fetchData (http://localhost:3999/:7865:15)
+    at runApp (http://localhost:3999/:8491:17) @ http://localhost:3999/:7831
+[ 5416211ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[ 5416238ms] [WARNING] OSRM Primary Engine Failed. Attempting Valhalla fallback. {message: HTTP request failed: error, url: https://router.project-osrm.org/route/v1/driving/1…erview=false&alternatives=true&steps=true&hints=;, status: -1, target: ProgressEvent} @ http://localhost:3999/:2629
+[ 5416238ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://router.project-osrm.org/route/v1/driving/121.1276093,14.2022324;121,14.55?overview=false&alternatives=true&steps=true&hints=;:0
+[ 5416246ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://valhalla1.openstreetmap.de/route:0
+[ 5436592ms] [INFO] Offline tiles: 1221/1221 cached for the active route. @ http://localhost:3999/:3149
+[ 5716170ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6016177ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6316183ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6616191ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 6916200ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 7216205ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 7516209ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
