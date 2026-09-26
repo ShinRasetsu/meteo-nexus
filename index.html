@@ -600,7 +600,7 @@
             <div id="tracking-recenter-chip" class="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-4 md:px-3 py-2 md:py-1 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
                 <i class="fa-solid fa-location-crosshairs animate-pulse"></i>
                 <span id="tracking-recenter-text">RECENTER IN 5s</span>
-                <button onclick="window.applyTacticalMode && window.applyTacticalMode(); state.isMapLocked=true;" class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs">NOW</button>
+                <button onclick="window.recenterNow && window.recenterNow()" class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs">NOW</button>
             </div>
 
             <!-- Quick-glance summary strip — single condensed line for driving mode.
@@ -1051,17 +1051,25 @@
             return covered;
         }
 
+        // Shared frames catalog (5-min in-memory TTL; upstream is 10-min).
+        // 1.13.2: extracted so the route sampler can refresh frames itself —
+        // previously a cold frames cache (route triggered before any pin
+        // sample) silently produced no route sample for up to one TTL.
+        async function ensureRadarFrames() {
+            if (_radarFramesCache && (Date.now() - _radarFramesCache.ts) <= 300000) return true;
+            const j = await fetchSiblingJSON('radar-frames', CONFIG.radarFramesApi, 5000);
+            if (!j || !j.radar || !Array.isArray(j.radar.past) || !j.radar.past.length) return false;
+            _radarFramesCache = { json: j, ts: Date.now() };
+            return true;
+        }
+
         // Full point-sample: frames → latest past frame → coverage gate →
         // coordinate tile (pin at center) → 3×3 max-alpha sample → class.
         // NEVER throws; resolves null when any step fails — a missing radar
         // never blocks telemetry and never votes.
         async function fetchRadarSample(lat, lon) {
             try {
-                if (!_radarFramesCache || (Date.now() - _radarFramesCache.ts) > 300000) {
-                    const j = await fetchSiblingJSON('radar-frames', CONFIG.radarFramesApi, 5000);
-                    if (!j || !j.radar || !Array.isArray(j.radar.past) || !j.radar.past.length) return null;
-                    _radarFramesCache = { json: j, ts: Date.now() };
-                }
+                if (!(await ensureRadarFrames())) return null;
                 const past = _radarFramesCache.json.radar.past;
                 const frame = past[past.length - 1];
                 const covered = await fetchRadarCoverage(lat, lon);
@@ -1081,7 +1089,11 @@
                 const img = cx.getImageData(c0 - 1, c1 - 1, 3, 3).data;
                 bmp.close && bmp.close();
                 let bestA = 0, bi = -1;
-                for (let i = 0; i < 12; i += 4) {
+                // 1.13.2 audit fix: the loop bound was i < 12 (3 pixels of a
+                // 9-pixel window — TOP ROW ONLY, so the sample read ~1.2 km
+                // NORTH of the pin and the center pixel was never examined).
+                // getImageData(3,3) = 36 bytes; scan all 9 pixels.
+                for (let i = 0; i < 36; i += 4) {
                     if (img[i + 3] > bestA) { bestA = img[i + 3]; bi = i; }
                 }
                 if (bestA < 100) {
@@ -1108,9 +1120,10 @@
         async function fetchRadarRouteSample(nodes) {
             try {
                 if (!nodes || !nodes.length || !state.mapObj) return null;
-                const frames = (_radarFramesCache && _radarFramesCache.json && _radarFramesCache.json.radar &&
-                    Array.isArray(_radarFramesCache.json.radar.past)) ? _radarFramesCache.json.radar.past : null;
-                if (!frames || !frames.length) return null;
+                // 1.13.2: self-refresh frames (cold-cache routes previously
+                // silently abstained for up to one TTL).
+                if (!(await ensureRadarFrames())) return null;
+                const frames = _radarFramesCache.json.radar.past;
                 const frame = frames[frames.length - 1];
                 let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
                 for (const n of nodes) {
@@ -1134,26 +1147,38 @@
                     if (span <= 9) { z = zc; t0 = { x0: a.tx, y0: a.ty, x1: b.tx, y1: b.ty }; break; }
                 }
                 if (!t0) { console.debug('[radar] route span exceeds tile budget — skipping route sample'); return null; }
-                // Fetch + decode the tile batch once.
-                const tileCanvases = new Map();
+                // Fetch + decode the tile batch. 1.13.2 perf: tiles fetch in
+                // PARALLEL (Promise.all, ≤9 bounded — was a sequential loop,
+                // ~9× RTT on degraded links) and each tile is read back ONCE
+                // (one getImageData per tile instead of one per node — 99 → ≤9
+                // GPU→CPU syncs per sample). A failed tile makes its nodes
+                // abstain (missing ≠ clear).
+                const tileData = new Map(); // key "tx,ty" -> Uint8ClampedArray (full 256×256 RGBA)
+                const tileJobs = [];
                 for (let tx = t0.x0; tx <= t0.x1; tx++) {
                     for (let ty = t0.y0; ty <= t0.y1; ty++) {
-                        const url = `${CONFIG.radarTileHost}${frame.path}/256/${z}/${tx}/${ty}/2/1_1.png`;
-                        try {
-                            const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
-                            const blob = await r.blob();
-                            const bmp = await createImageBitmap(blob);
-                            const cv = document.createElement('canvas');
-                            cv.width = bmp.width; cv.height = bmp.height;
-                            const cx = cv.getContext('2d');
-                            cx.drawImage(bmp, 0, 0);
-                            bmp.close && bmp.close();
-                            tileCanvases.set(tx + ',' + ty, cx);
-                        } catch (e) { console.debug('[radar] route tile fetch failed:', e && e.message); }
+                        tileJobs.push((async () => {
+                            const url = `${CONFIG.radarTileHost}${frame.path}/256/${z}/${tx}/${ty}/2/1_1.png`;
+                            try {
+                                const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
+                                const blob = await r.blob();
+                                const bmp = await createImageBitmap(blob);
+                                const cv = document.createElement('canvas');
+                                cv.width = bmp.width; cv.height = bmp.height;
+                                const cx = cv.getContext('2d');
+                                cx.drawImage(bmp, 0, 0);
+                                bmp.close && bmp.close();
+                                tileData.set(tx + ',' + ty, cx.getImageData(0, 0, cv.width, cv.height).data);
+                            } catch (e) { console.debug('[radar] route tile fetch failed:', e && e.message); }
+                        })());
                     }
                 }
-                if (!tileCanvases.size) return null;
-                // Sample every node: 3x3 max-alpha window around its pixel.
+                await Promise.all(tileJobs);
+                if (!tileData.size) return null;
+                // Sample every node: 3x3 max-alpha window around its pixel,
+                // read from the tile's full pixel buffer with edge clamping.
+                // 1.13.2 audit fix: the window loop previously scanned i < 12
+                // (top row only — every node was sampled ~1 pixel NORTH).
                 const samples = new Map();
                 const n2 = Math.pow(2, z);
                 for (const n of nodes) {
@@ -1162,24 +1187,52 @@
                     const latRad = n.lat * Math.PI / 180;
                     const gyF = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n2 * 256;
                     const tx = Math.floor(gxF / 256), ty = Math.floor(gyF / 256);
-                    const cx = tileCanvases.get(tx + ',' + ty);
-                    if (!cx) continue;   // tile fetch failed — node abstains, never claims dry
+                    const data = tileData.get(tx + ',' + ty);
+                    if (!data) continue;   // tile fetch failed — node abstains, never claims dry
                     const lx = Math.floor(gxF) - tx * 256, ly = Math.floor(gyF) - ty * 256;
-                    let bestA = 0, bi = -1;
-                    try {
-                        const img = cx.getImageData(Math.max(0, lx - 1), Math.max(0, ly - 1), 3, 3).data;
-                        for (let i = 0; i < 12; i += 4) { if (img[i + 3] > bestA) { bestA = img[i + 3]; bi = i; } }
-                    } catch (_) { continue; }
-                    const key = Math.round(n.lat * 10000) + ',' + Math.round(n.lon * 10000);
-                    if (bestA >= 100) {
-                        const m = radarClassForPixel(img[bi], img[bi + 1], img[bi + 2]);
-                        samples.set(key, { cls: m.cls, mmh: m.mmh });
-                    } else {
-                        samples.set(key, { cls: null, mmh: 0 });
+                    let bestA = 0, bestPx = -1, bestPy = -1;
+                    for (let wy = Math.max(0, ly - 1); wy <= Math.min(255, ly + 1); wy++) {
+                        for (let wx = Math.max(0, lx - 1); wx <= Math.min(255, lx + 1); wx++) {
+                            const a = data[(wy * 256 + wx) * 4 + 3];
+                            if (a > bestA) { bestA = a; bestPx = wx; bestPy = wy; }
+                        }
                     }
+                    if (bestA < 100) {
+                        const key = Math.round(n.lat * 10000) + ',' + Math.round(n.lon * 10000);
+                        samples.set(key, { cls: null, mmh: 0 });
+                        continue;
+                    }
+                    const base = (bestPy * 256 + bestPx) * 4;
+                    const m = radarClassForPixel(data[base], data[base + 1], data[base + 2]);
+                    const key = Math.round(n.lat * 10000) + ',' + Math.round(n.lon * 10000);
+                    samples.set(key, { cls: m.cls, mmh: m.mmh });
                 }
                 return { frameTime: frame.time, ts: Date.now(), map: samples };
             } catch (e) { console.debug('[radar] route sample failed:', e && e.message); return null; }
+        }
+
+        // 1.13.2: shared commit for route samples — applies BOTH gates the
+        // audit found missing: (a) route identity (a slow sample for an old
+        // route can no longer clobber a newer route's result — capture the
+        // nodes ref at initiation, discard if the route changed mid-flight)
+        // and (b) frame version (re-sampling an unchanged frame for unchanged
+        // nodes was a pure redundant re-download, ~1MB/hr at highway speed).
+        function commitRouteRadarSample(rs, sampledNodesRef) {
+            try {
+                if (!rs) return false;
+                if (state.routeNodes !== sampledNodesRef) return false; // route swapped mid-flight
+                if (state.routeNodesRadar &&
+                    state.routeNodesRadar.frameTime === rs.frameTime &&
+                    state.routeNodesRadar.nodesRef === sampledNodesRef) return false; // same frame, same route
+                state.routeNodesRadar = rs;
+                state.routeNodesRadar.nodesRef = sampledNodesRef;
+                try {
+                    let _wet = 0;
+                    for (const v of rs.map.values()) if (v.cls) _wet++;
+                    window.__METEO_CORE_STATE.routeNodesRadarSummary = { nodes: rs.map.size, wet: _wet, frameTime: rs.frameTime };
+                } catch (_) { /* best-effort */ }
+                return true;
+            } catch (_) { return false; }
         }
 
         // --- METAR GROUND TRUTH (1.13.0) — the human/instrument observation ---
@@ -1253,20 +1306,27 @@
                 if (!frames || !frames.length) return;
                 const frame = frames[frames.length - 1];
                 if (_radarOverlayLayer && _radarOverlayFramePath === frame.path) return;
-                if (_radarOverlayLayer) { state.mapObj.removeLayer(_radarOverlayLayer); _radarOverlayLayer = null; }
-                _radarOverlayLayer = L.tileLayer(`${CONFIG.radarTileHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
-                    opacity: 0.55,
-                    maxNativeZoom: 7,   // docs max — Leaflet upscales beyond without new fetches
-                    maxZoom: 22,
-                    zIndex: 350,       // above the base OSM layer, below marker panes (600+)
-                    className: 'radar-overlay'
-                }).addTo(state.mapObj);
+                if (_radarOverlayLayer) {
+                    // 1.13.2 perf: setUrl reuses the layer instance (prunes +
+                    // reloads tiles) instead of removeLayer → new L.tileLayer,
+                    // which re-wired listeners and blanked the overlay for a
+                    // fetch beat every 10-min frame swap.
+                    _radarOverlayLayer.setUrl(`${CONFIG.radarTileHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`);
+                } else {
+                    _radarOverlayLayer = L.tileLayer(`${CONFIG.radarTileHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+                        opacity: 0.55,
+                        maxNativeZoom: 7,   // docs max — Leaflet upscales beyond without new fetches
+                        maxZoom: 22,
+                        zIndex: 350,       // above the base OSM layer, below marker panes (600+)
+                        className: 'radar-overlay'
+                    }).addTo(state.mapObj);
+                }
                 _radarOverlayFramePath = frame.path;
             } catch (e) { console.debug('[radar] overlay refresh failed:', e && e.message); }
         }
         window.radarOverlayToggle = function() {
             state.radarOverlayOn = !state.radarOverlayOn;
-            try { localforage.setItem('radar_overlay_on', state.radarOverlayOn); } catch (_) { /* best-effort */ }
+            try { localforage.setItem('radar_overlay_on', state.radarOverlayOn).catch(() => {}); } catch (_) { /* best-effort */ }
             if (DOM.radarOverlayBtn) {
                 updateClass(DOM.radarOverlayBtn, state.radarOverlayOn
                     ? "tap-48 bg-surface-800 border-2 border-brand-blue text-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-[0_0_12px_rgba(59,130,246,0.45)]"
@@ -2262,6 +2322,13 @@
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
             tacticalMode: 1, scaleCtrl: null, radarOverlayOn: false, routeNodesRadar: null, currentRouteCoords: null, focusedSection: null,
+            // 1.13.2: pre-declared observation-TTL scratch fields (hidden-class
+            // doctrine — these were ad-hoc first-written at fetch time).
+            _lastRadarTs: 0, _lastRadarLat: undefined, _lastRadarLon: undefined,
+            _lastMetarTs: 0, _lastMetarLat: undefined, _lastMetarLon: undefined,
+            // 1.13.2: recenter-chain timers (were ad-hoc; F4-1.4.1b tracked these
+            // from the start but never declared them).
+            _recenterTimer: null, _recenterLockTimer: null, _recenterDeadline: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null,
@@ -2738,7 +2805,8 @@ let delta = heading - state.lastHeading;
         // PERF: last-pan position cache for the panTo deadband (OPT-1.4.1) — the
         // last lat/lon we actually panned to, so stationary frames skip panTo.
         let _lastPanLat = 0, _lastPanLon = 0;
-        let _trackingEtaKeys = { eta: null, dist: null, next: null, locked: null, countdown: null, prog: null };
+        let _trackingEtaKeys = { eta: null, dist: null, next: null, locked: null, countdown: null, prog: null,
+            distKey: null, minsQ: -1, etaRkm: -1, progKey: null, progCached: null, nextCached: null, etaCached: null, distQ: null, distCached: null };
 
         // PERF-P2: single-write rotation. One custom property drives ALL map
         // rotation transforms (see the stylesheet rules next to the
@@ -2968,9 +3036,18 @@ let delta = heading - state.lastHeading;
                             nextTxt = _trackingEtaKeys.nextCached || 'NEXT --';
                         }
                         if (_trackingEtaKeys.next !== nextTxt) { _trackingEtaKeys.next = nextTxt; const el=_te.next; if(el) el.textContent=nextTxt; }
-                        // Remaining distance + ETA from driveRouteKm
+                        // Remaining distance + ETA from driveRouteKm.
+                        // 1.13.2 (perf): toFixed+' KM' was built EVERY frame —
+                        // the last unquantized per-frame string in this block.
+                        // Quantize to 0.1 km first, build only on change.
                         const rKm2 = (typeof state.driveRouteKm === 'number') ? state.driveRouteKm : null;
-                        const distTxt = rKm2!==null ? rKm2.toFixed(1)+' KM' : '-- KM';
+                        const _distQ2 = rKm2 !== null ? Math.round(rKm2 * 10) : -1;
+                        let distTxt = _trackingEtaKeys.distCached || '-- KM';
+                        if (_distQ2 !== _trackingEtaKeys.distQ) {
+                            _trackingEtaKeys.distQ = _distQ2;
+                            distTxt = rKm2 !== null ? rKm2.toFixed(1) + ' KM' : '-- KM';
+                            _trackingEtaKeys.distCached = distTxt;
+                        }
                         if (_trackingEtaKeys.dist !== distTxt) { _trackingEtaKeys.dist = distTxt; const el=_te.dist; if(el) el.textContent=distTxt; }
                         // FIX (P2): quantize minutes BEFORE the Date/ICU build —
                         // the old code ran `new Date` + toLocaleTimeString (+ a
@@ -3016,7 +3093,7 @@ let delta = heading - state.lastHeading;
                 }
                 // Re-center countdown — Google Maps "Re-center in 5s" chip
                 if (recenterChip) {
-                    const showRecenter = !state.isMapLocked && state.autoCoords && (state.routeNodes || state.targetCoords);
+                    const showRecenter = !state.isMapLocked && state.tacticalMode > 0 && state.autoCoords && (state.routeNodes || state.targetCoords);
                     const recKey = showRecenter ? 1 : 0;
                     if (_trackingEtaKeys.countdown !== recKey) {
                         _trackingEtaKeys.countdown = recKey;
@@ -4271,6 +4348,14 @@ let delta = heading - state.lastHeading;
                 if (!window.localforage) return;
                 const cached = await localforage.getItem('telemetry_payload');
                 if (!cached) return;
+                // 1.13.2: restore the measurements BEFORE the render (same
+                // ordering fix as the fetchData offline catch) — and unlike the
+                // pre-1.13.2 code, radar + METAR are restored on this path too.
+                try {
+                    const [cRD, cMT] = await Promise.all([localforage.getItem('sibling_radar'), localforage.getItem('sibling_metar')]);
+                    if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
+                    if (cMT && cMT.metarObs) window.__METEO_CORE_STATE.metarObs = cMT.metarObs;
+                } catch (_) { /* best-effort */ }
                 await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch (e) { console.debug('Denied-cache minutely restore failed:', e && e.message); }
@@ -4547,6 +4632,34 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             window.applyTacticalMode();
         };
 
+        // 1.13.2 audit fixes (recenter-chip family): a shared re-lock that
+        // PRESERVES the driver's pinch-chosen zoom. The old chain routed every
+        // re-lock (drag 5s timer, NOW button, unlocked toggle) through the full
+        // mode-ENTRY setView(z17), destroying the overview/turn-detail zoom the
+        // user had chosen — contradicting the free-zoom Drive Mode contract.
+        // Lock + seed rotation + re-center, no setView.
+        function relockDriveMode() {
+            if (state.tacticalMode > 0 && state.autoCoords) {
+                state.isMapLocked = true;
+                const seedRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z || state.visual.heading === null)
+                    ? 0
+                    : Math.round(state.visual.heading * 10) / 10;
+                if (seedRot !== state.lastCssHeading) {
+                    applyHudCssRotation(seedRot);
+                    state.lastCssHeading = seedRot;
+                }
+                const rlat = state.visual.lat != null ? state.visual.lat : state.autoCoords.lat;
+                const rlon = state.visual.lon != null ? state.visual.lon : state.autoCoords.lon;
+                state.mapObj.panTo([rlat, rlon], { animate: true, duration: 0.5 });
+            }
+        }
+        window.recenterNow = function() {
+            if (state._recenterTimer) { clearTimeout(state._recenterTimer); state._recenterTimer = null; }
+            if (state._recenterLockTimer) { clearTimeout(state._recenterLockTimer); state._recenterLockTimer = null; }
+            state._recenterDeadline = null;
+            relockDriveMode();
+        };
+
         window.applyTacticalMode = function() {
             if (!state.mapObj) return;
             if (state.tacticalMode > 0) {
@@ -4571,7 +4684,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // a driver entering Drive Mode must never see a north-up map
                 // with a heading present. Same single-writer helper; honors the
                 // overview threshold the same way the follow block does.
-                const entryRot = (state.visual.heading !== null) ? state.visual.heading : 0;
+                // 1.13.2: threshold guard added — the no-coords path skips the
+                // setView(z17), so an entry below DRIVE_NORTH_Z (Map-Mode zoom,
+                // magnetometer active, GPS denied) previously seeded a heading
+                // rotation on an overview map. Mirror the zoomend target logic.
+                const entryRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z || state.visual.heading === null)
+                    ? 0
+                    : state.visual.heading;
                 const entryRotR = Math.round(entryRot * 10) / 10;
                 if (entryRotR !== state.lastCssHeading) {
                     applyHudCssRotation(entryRotR);
@@ -4686,38 +4805,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     state._recenterDeadline = Date.now() + 5000;
                     state._recenterTimer = setTimeout(() => {
                         if (!state.isMapLocked && state.tacticalMode > 0 && state.autoCoords) {
-                            const lat = state.visual.lat || state.autoCoords.lat;
-                            const lon = state.visual.lon || state.autoCoords.lon;
+                            const lat = state.visual.lat != null ? state.visual.lat : state.autoCoords.lat;
+                            const lon = state.visual.lon != null ? state.visual.lon : state.autoCoords.lon;
                             state.mapObj.panTo([lat, lon], { animate: true, duration: 0.5 });
                             state._recenterLockTimer = setTimeout(() => {
-                                state.isMapLocked = true;
-                                // Re-lock: no rotation smear here either. The
-                                // heading-follow loop (smoothVisualsLoop) drives
-                                // rotation frame-by-frame as the visual heading
-                                // EMA catches up — exactly proportional to the
-                                // real heading change, never the drag.
-                                //
-                                // Re-seed lastCssHeading to the current transform
-                                // so the deadband check (|heading - lastCssHeading|
-                                // > 0.1) in the loop is consistent on the first
-                                // post-lock frame. Without this, lastCssHeading is
-                                // still null (cleared at dragstart) and the deadband
-                                // path falls back to `|| 0` — if the device happens
-                                // to be stationary at heading≈0 while the map was
-                                // rotated mid-drag, the write is skipped and the
-                                // stale rotation would persist until the next real
-                                // heading change. Seeding from the live visual
-                                // heading forces one honest write up-front.
-                                if (state.visual.heading !== null) {
-                                    // 1.12.0: the re-lock seed honors the Drive Mode
-                                    // overview threshold — re-locking below DRIVE_NORTH_Z
-                                    // seeds NORTH-UP, not the live heading (the zoomed-out
-                                    // map must not snap upside-down on re-lock).
-                                    const seedRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z) ? 0 : state.visual.heading;
-                                    applyHudCssRotation(seedRot);
-                                    state.lastCssHeading = seedRot;
-                                }
-                                window.applyTacticalMode();
+                                // 1.13.2: re-lock through relockDriveMode — the old
+                                // chain called the full mode-ENTRY applyTacticalMode,
+                                // whose setView(z17) destroyed the driver's
+                                // pinch-chosen zoom on every re-lock (contradicting
+                                // the free-zoom Drive Mode contract). Lock + rounded
+                                // rotation seed (honoring the overview threshold) +
+                                // no setView. The heading-follow loop resumes
+                                // frame-by-frame as before.
+                                relockDriveMode();
                                 // FIX-1.4.1b (F4): self-clear the tracked id on fire —
                                 // a stale id here would make a later dragstart clear a
                                 // dead timer (harmless) but also mask the real state.
@@ -5076,6 +5176,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false, customWaypoints = null) {
             state.targetCoords = { lat: destLat, lon: destLon };
             state.customRouteWaypoints = customWaypoints;
+            // 1.13.2 audit fix: the 1.12.0 chapter claimed navigation enters
+            // Drive Mode — the code never did. Starting navigation from Map
+            // Mode left the user on a free-panning north-up map with no GPS
+            // follow for the whole drive. Enter Drive Mode explicitly (the
+            // resetToAuto pattern).
+            if (state.mapObj && state.tacticalMode !== 1) {
+                state.tacticalMode = 1;
+                window.applyTacticalMode();
+            }
             // FIX-1.4.1 (B8): clear originalRouteNodes too — the fuel search's
             // findAllAlongRoute falls back to `originalRouteNodes || routeNodes`;
             // a stale pre-swap copy made the new route search against the OLD
@@ -5232,16 +5341,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // 1.13.0: fire the per-node radar sample the moment nodes exist —
                 // a route activated mid-session must not wait up to one radar TTL
                 // (10 min) for its WET NOW sampling. Fire-and-forget; the 10-min
-                // frame TTL in fetchData keeps it fresh afterwards.
+                // frame TTL in fetchData keeps it fresh afterwards. 1.13.2: routed
+                // through the shared commit (route-identity + frame gates).
                 if (state.routeNodes && state.routeNodes.length > 0) {
-                    fetchRadarRouteSample(state.routeNodes).then(rs => {
-                        if (!rs) return;
-                        state.routeNodesRadar = rs;
-                        try {
-                            let _wet = 0;
-                            for (const v of rs.map.values()) if (v.cls) _wet++;
-                            window.__METEO_CORE_STATE.routeNodesRadarSummary = { nodes: rs.map.size, wet: _wet, frameTime: rs.frameTime };
-                        } catch (_) { /* best-effort */ }
+                    const _nodesRef = state.routeNodes;
+                    fetchRadarRouteSample(_nodesRef).then(rs => {
+                        commitRouteRadarSample(rs, _nodesRef);
                     }).catch(() => {});
                 }
                 // Always refresh originalRouteNodes to mirror the freshly-computed
@@ -6546,7 +6651,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // (a second human/instrument source); a CLEAR station never refutes
             // (displacement honesty: the station can be 40 km from the pin).
             const _mt = window.__METEO_CORE_STATE.metarObs;
-            const metarFresh = !!(_mt && _mt.fresh === true);
+            // 1.13.2 audit fix: METAR freshness RECOMPUTED from the persisted
+            // obsTime at verdict time — the row's `fresh` flag is a fetch-time
+            // snapshot; a cached/backfilled/offline-restored row could carry
+            // fresh:true for hours while the proxy was down, letting a stale
+            // wet METAR corroborate rain (and a stale clear one block the
+            // tie-break). Radar already recomputed this way; now METAR does too.
+            const metarFresh = !!(_mt && typeof _mt.obsTime === 'number' &&
+                (Date.now() - _mt.obsTime) <= 100 * 60 * 1000);
             const rainByMetar = metarFresh && _mt.wet === true;
             const metarNote = metarFresh
                 ? (_mt.station + ' ' + _mt.distKm + 'km: ' + (_mt.wet ? 'precip (' + _mt.wx + ')' : 'no precip') + (_mt.cb ? ' · CB reported' : ''))
@@ -6578,7 +6690,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // its lone wet cell invented rain. Neither direction may act
             // uncorroborated at the margin.
             const obsStrong = maxObsPrec >= 0.5;
-            const codeClaimStands = rainByCurrentCode && (obsStrong || wmoDetail.isTrace === true || corroborated);
+            // 1.13.2 audit fix: TRACE no longer stands against BOTH clear
+            // measurements — a trace (0.01-0.09mm) code claim with radar clear
+            // over the pin AND the station clear must not set isRainingNow
+            // (the glance strip / Aero chip claimed RAIN for a 0.05mm trace —
+            // the exact class 1.10.4 documented as fixed). Sonar/haptic were
+            // already muted for trace; the flag now follows.
+            const codeClaimStands = rainByCurrentCode && (obsStrong || (wmoDetail.isTrace === true && !measuredClear) || corroborated);
             const valueClaimStands = rainByCurrentValue && (obsStrong || corroborated) && !measuredClear;
             const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutelyEff || rainByConsensusEff || rainByRadar;
             let headlineDetail = wmoDetail;
@@ -6970,7 +7088,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // cell-average code label in parentheses — the card must never
                 // contradict itself (headline RAIN NOW · desc "Overcast" was exactly
                 // the confusion that read as garbage data).
-                const parts = (wmoDetail && wmoDetail.byEnsemble && rainSourcesNote)
+                const parts = (wmoDetail && (wmoDetail.byEnsemble === true || wmoDetail.byRadar === true) && rainSourcesNote)
                     ? [rainSourcesNote, wmoLabel + ' (cell avg)']
                     : (unconfirmedNote)
                         ? [wmoLabel + ' — ' + unconfirmedNote]
@@ -7306,7 +7424,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                (cachedTimestamp ?? '') + '|' +
                                (state.telemetryCache ? state.telemetryCache.lat : '') + '|' +
                                (state.telemetryCache ? state.telemetryCache.lon : '') + '|' +
-                               chartSig;
+                               chartSig + '|' +
+                               // 1.13.2: measurement fingerprint — radar/METAR state is
+                               // verdict input but was NOT in the sig, so a bit-identical
+                               // payload (stationary GPS, no current.time roll) could pin
+                               // a stale verdict for up to 15 min after the measurement
+                               // flipped. The frame/stamp keys change exactly when the
+                               // measurements do.
+                               String(window.__METEO_CORE_STATE.radarNow?.frameTime ?? '') + '|' +
+                               String(window.__METEO_CORE_STATE.radarNow?.ts ?? '') + '|' +
+                               String(window.__METEO_CORE_STATE.metarObs?.obsTime ?? '');
             if (payloadSig === _lastPayloadSig) return;
             // NOTE: _lastPayloadSig is stamped AFTER normalize+render below —
             // never here. A throw mid-normalize leaves the gate OPEN so the
@@ -7652,66 +7779,59 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // the telemetry render so the verdict chain sees the
                             // observation on the FIRST paint of a session (the
                             // whole point: a measurement must not arrive one
-                            // render late). 10-min TTL + 5-km move gate (frames
-                            // refresh every 10 min upstream); fetchRadarSample
-                            // never throws and resolves null on any failure —
-                            // a missing radar simply doesn't vote.
+                            // render late). 1.13.2 audit restructure: (a) the METAR
+                            // gate is DE-NESTED (it was inside the radar-stale
+                            // branch, so a METAR fetch failure was never retried
+                            // until radar's own TTL expired — two independent TTLs
+                            // must not chain); (b) pin radar + METAR fetch in
+                            // PARALLEL (independent origins — the sequential chain
+                            // added ~1 RTT to first paint); (c) the ROUTE sample
+                            // moved AFTER the render, fire-and-forget — it feeds
+                            // only the timeline paint (its own refresh cadence),
+                            // never the verdict, and its 2-9 sequential tiles were
+                            // unbounded pre-render delay on degraded links;
+                            // (d) IDB persists are fire-and-forget (.catch), per
+                            // the 1.4.1 P6 render-before-disk-writes contract.
                             try {
                                 const _radarStale = !state._lastRadarTs || (now - state._lastRadarTs > 600000) ||
                                     state._lastRadarLat === undefined ||
                                     fastDistance(lat, lon, state._lastRadarLat, state._lastRadarLon) > 5000;
-                                if (_radarStale) {
-                                    const radarSample = await fetchRadarSample(lat, lon);
-                                    if (radarSample) {
-                                        window.__METEO_CORE_STATE.radarNow = radarSample;
-                                        state._lastRadarTs = now;
-                                        state._lastRadarLat = lat; state._lastRadarLon = lon;
-                                        try { await localforage.setItem('sibling_radar', { radarSample, timestamp: now }); }
-                                        catch (e) { console.debug('Radar persist failed:', e && e.message); }
-                                    } else {
-                                        // Backfill from cache (age-guarded: stale radar
-                                        // is display-only — it never triggers or refutes).
-                                        try {
-                                            const cRD = await localforage.getItem('sibling_radar');
-                                            if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
-                                        } catch (_) { /* best-effort */ }
-                                    }
-                                    // Frame-swap the map overlay when a fresh frame landed
-                                    // (no-op when the toggle is off or the frame is unchanged).
-                                    refreshRadarOverlay();
-                                    // Per-route-node radar (1.13.0): the tile-batch sample
-                                    // rides the same 10-min TTL — every node's WET NOW state
-                                    // refreshes with the frame. Null on failure = nodes simply
-                                    // keep their model verdicts.
-                                    if (state.routeNodes && state.routeNodes.length > 0) {
-                                        const routeSample = await fetchRadarRouteSample(state.routeNodes);
-                                        if (routeSample) {
-                                            state.routeNodesRadar = routeSample;
-                                            // Diagnostic surface (CORE_STATE): how many nodes the
-                                            // frame actually sampled + how many read wet.
+                                const _metarStale = !state._lastMetarTs || (now - state._lastMetarTs > 600000) ||
+                                    state._lastMetarLat === undefined ||
+                                    fastDistance(lat, lon, state._lastMetarLat, state._lastMetarLon) > 5000;
+                                if (_radarStale || _metarStale) {
+                                    const [radarSample, metarObs] = await Promise.all([
+                                        _radarStale ? fetchRadarSample(lat, lon) : null,
+                                        _metarStale ? fetchMetarObs(lat, lon) : null
+                                    ]);
+                                    if (_radarStale) {
+                                        if (radarSample) {
+                                            window.__METEO_CORE_STATE.radarNow = radarSample;
+                                            state._lastRadarTs = now;
+                                            state._lastRadarLat = lat; state._lastRadarLon = lon;
+                                            localforage.setItem('sibling_radar', { radarSample, timestamp: now }).catch(e => console.debug('Radar persist failed:', e && e.message));
+                                        } else {
+                                            // Backfill from cache (age-guarded AT VERDICT TIME by
+                                            // radarFresh — stale radar is display-only).
                                             try {
-                                                let _wet = 0;
-                                                for (const v of routeSample.map.values()) if (v.cls) _wet++;
-                                                window.__METEO_CORE_STATE.routeNodesRadarSummary = {
-                                                    nodes: routeSample.map.size, wet: _wet, frameTime: routeSample.frameTime
-                                                };
+                                                const cRD = await localforage.getItem('sibling_radar');
+                                                if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
                                             } catch (_) { /* best-effort */ }
                                         }
+                                        // Frame-swap the map overlay when a fresh frame landed
+                                        // (no-op when the toggle is off or the frame is unchanged).
+                                        refreshRadarOverlay();
                                     }
-                                    // METAR (10-min TTL, same sibling cadence): the regional
-                                    // observation — corroborates rain claims, never refutes.
-                                    const _metarStale = !state._lastMetarTs || (now - state._lastMetarTs > 600000) ||
-                                        state._lastMetarLat === undefined ||
-                                        fastDistance(lat, lon, state._lastMetarLat, state._lastMetarLon) > 5000;
                                     if (_metarStale) {
-                                        const metarObs = await fetchMetarObs(lat, lon);
                                         if (metarObs) {
                                             window.__METEO_CORE_STATE.metarObs = metarObs;
                                             state._lastMetarTs = now;
                                             state._lastMetarLat = lat; state._lastMetarLon = lon;
-                                            try { await localforage.setItem('sibling_metar', { metarObs, timestamp: now }); }
-                                            catch (e) { console.debug('METAR persist failed:', e && e.message); }
+                                            localforage.setItem('sibling_metar', { metarObs, timestamp: now }).catch(e => console.debug('METAR persist failed:', e && e.message));
                                         } else {
+                                            // Backfill from cache — staleness is re-evaluated at
+                                            // verdict time from obsTime (1.13.2: the persisted
+                                            // `fresh` snapshot is never trusted).
                                             try {
                                                 const cMT = await localforage.getItem('sibling_metar');
                                                 if (cMT && cMT.metarObs) window.__METEO_CORE_STATE.metarObs = cMT.metarObs;
@@ -7738,6 +7858,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // start meant a failed fetch still looked "fresh" and
                             // suppressed the next attempt for the whole cacheTTL.
                             state.telemetryCache.timestamp = now;
+                            // Per-route-node radar (1.13.0/1.13.2): POST-RENDER,
+                            // fire-and-forget — the timeline paint consumes it on
+                            // its own refresh cadence; it must never delay the
+                            // telemetry render (the audit's worst case was 9
+                            // sequential 5s tile fetches holding first paint).
+                            if (state.routeNodes && state.routeNodes.length > 0) {
+                                const _nodesRef = state.routeNodes;
+                                fetchRadarRouteSample(_nodesRef).then(rs => {
+                                    commitRouteRadarSample(rs, _nodesRef);
+                                }).catch(() => {});
+                            }
                             // --- Sibling APIs (AQ + marine): parallel, null-safe, never
                             // block the latch beyond their own short timeouts. Each
                             // publishes to CORE_STATE, persists its own row, and
@@ -7833,6 +7964,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         try {
                             const cached = await localforage.getItem('telemetry_payload');
                             if (cached) {
+                                // 1.13.2 audit fix: restore the MEASUREMENTS (radar +
+                                // METAR) BEFORE the offline render — the previous order
+                                // rendered the verdict with null measurements, so a
+                                // suppressed model claim ("models claim rain —
+                                // measurements clear") UNSUPPRESSED on every offline
+                                // boot (RAIN NOW · MODELS + sonar on data the live
+                                // session had settled as dry). Radar freshness is
+                                // recomputed at verdict time so a stale restored sample
+                                // still cannot falsely vote — but it can correctly
+                                // suppress. Mirrors the live path's fetch-before-render.
+                                try {
+                                    const [cRDpre, cMTpre] = await Promise.all([localforage.getItem('sibling_radar'), localforage.getItem('sibling_metar')]);
+                                    if (cRDpre && cRDpre.radarSample) window.__METEO_CORE_STATE.radarNow = cRDpre.radarSample;
+                                    if (cMTpre && cMTpre.metarObs) window.__METEO_CORE_STATE.metarObs = cMTpre.metarObs;
+                                } catch (_) { /* best-effort */ }
                                 // FIX: same missing-await as the live path above —
                                 // an async render throw must land in this catch,
                                 // not escape as an unhandled rejection.
@@ -7844,15 +7990,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 } else { window.__METEO_CORE_STATE.rainEta = null; }
                                 // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
                                 try {
-                                    const [cAQ, cMar, cRD, cMT] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine'), localforage.getItem('sibling_radar'), localforage.getItem('sibling_metar')]);
+                                    const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
                                     publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
                                     publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
-                                    // Stale radar is display-only: the freshness bound in
-                                    // normalizeTelemetryData keeps it from triggering or refuting.
-                                    if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
-                                    // Stale METAR is display-only too (fresh flag already
-                                    // accounts for age — stale rows never vote).
-                                    if (cMT && cMT.metarObs) window.__METEO_CORE_STATE.metarObs = cMT.metarObs;
                                 } catch (sibErr) { console.debug('Sibling cache restore failed:', sibErr && sibErr.message); }
                             }
                         } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }

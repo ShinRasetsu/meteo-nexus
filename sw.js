@@ -3,7 +3,7 @@
 // the old shell indefinitely — no index.html change alone ever reaches an
 // installed client. MAP/API/CDN names stay fixed so tiles + telemetry
 // survive version bumps (activate purges only unknown names).
-const APP_CACHE = 'meteonexus-app-v17';
+const APP_CACHE = 'meteonexus-app-v18';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
@@ -24,7 +24,12 @@ const STATIC_ASSETS = [
     // feature silently degraded to Overpass-network. Precache them like the
     // app shell; the 7-day localforage freshness layer is unchanged.
     './shell_stations.json',
-    './caltex_stations.json'
+    './caltex_stations.json',
+    // 1.13.2 audit fix: the station ADAPTER MODULE was missing from the
+    // precache — the datasets ship offline but the dynamic import that reads
+    // them did not, so a fresh install that went offline before any fuel
+    // search had the data but no code to parse it.
+    './fuel-stations.js'
 ];
 
 // CDN assets that ship the app shell. Pre-caching them on install lets the app

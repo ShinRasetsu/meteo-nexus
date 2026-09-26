@@ -118,6 +118,174 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.13.2 — 2026-09-26 (patch: four-agent audit round — radar sampler window, recenter chain, METAR honesty, fetch-path latency)
+
+### Bump rationale
+
+Patch bump 1.13.1 → 1.13.2 (user-directed bug hunt + performance pass; the
+four-territory parallel-agent precedent of 1.10.2, focused on everything from
+the 1.11.0-1.13.1 Layer 2 arc; `sw.js` `APP_CACHE` `v17` → `v18` — index.html
+and the precache list changed). Every candidate finding was hand-verified
+against source before applying (§0 E6); the applied set:
+
+### Applied (HIGH/MEDIUM, all verified)
+
+- **Radar sampler window (HIGH)** — both samplers scanned `i < 12` of a
+  36-byte 3×3 getImageData window: TOP ROW ONLY, 3 of 9 pixels. The pin/node
+  pixel itself was NEVER read — every sample was systematically ~1.2 km
+  (z7; ~4.8 km at z5) NORTH of the target. False-clears could suppress real
+  model rain claims; node paint mislocated. Fixed to scan all 9 pixels; the
+  route sampler now reads ONE full-tile buffer per tile with edge-clamped
+  indexing (also the perf fix below).
+- **Recenter NOW button (HIGH)** — inline `onclick` referenced module-scoped
+  `state` → guaranteed `ReferenceError` on every tap (global-scope handler)
+  plus a dead lock-write. Rewired to `window.recenterNow()` which clears the
+  timer chain and re-locks through the new `relockDriveMode()` helper.
+- **Re-lock zoom snap (MEDIUM)** — every re-lock (drag 5s timer, NOW,
+  unlocked-toggle) routed through the full mode-ENTRY
+  `applyTacticalMode()` whose `setView(z17)` destroyed the driver's
+  pinch-chosen zoom — contradicting the free-zoom Drive Mode contract.
+  `relockDriveMode()` locks + seeds rotation (honoring `DRIVE_NORTH_Z`,
+  rounded) + re-centers, NO setView. The 5s dragend chain uses it.
+- **Recenter chip frozen in Map Mode (MEDIUM)** — `showRecenter` lacked the
+  Drive Mode gate: in Map Mode (unlocked by design, no deadline ever set)
+  the chip rendered "RECENTER IN 5s" forever. Added
+  `state.tacticalMode > 0 &&`.
+- **METAR freshness snapshot (HIGH, found independently by two agents)** —
+  the row's `fresh` flag was computed ONCE at fetch and trusted forever;
+  cached/backfilled/offline rows could vote hours old (ghost corroborator
+  blocking the tie-break). Now recomputed at verdict time from `obsTime`
+  (the radar-twin pattern).
+- **METAR TTL nested inside radar's (HIGH)** — `_metarStale` sat inside
+  `if (_radarStale)`: a METAR fetch failure was never retried until radar's
+  own TTL expired (chained independent TTLs). De-nested; both gates share
+  the parallel fetch.
+- **Pre-render latency chain (MEDIUM-HIGH, triple convergence)** — radar pin
+  (3 sequential fetches) + route sample (up to 9 SEQUENTIAL 5s-timeout
+  tiles) + METAR all awaited BEFORE the render, with no budget: worst case
+  ~65s holding an in-hand payload hostage on degraded links, recurring
+  every ~5 km of driving. Restructure: pin radar + METAR parallel pre-render
+  (verdict inputs — the one-render-late doctrine holds for THEM); route
+  sample moved POST-RENDER fire-and-forget (feeds only the timeline paint);
+  route tiles fetched via `Promise.all` (≤9 bounded); IDB persists are
+  fire-and-forget `.catch` (the 1.4.1 P6 contract).
+- **Route-sample races + redundant re-downloads (MEDIUM)** — a slow sample
+  for an old route could clobber a newer route's result (last-write-wins by
+  completion order), and unchanged frames were re-downloaded (~1MB/hr at
+  highway speed). New `commitRouteRadarSample(rs, nodesRef)`: route-identity
+  gate (capture nodes ref at initiation, discard if the route changed
+  mid-flight) + frame-version gate. Both store sites (routesfound trigger +
+  post-render refresher) route through it.
+- **Offline restore ordering (MEDIUM, dual convergence)** — the offline
+  catch rendered the verdict BEFORE restoring radar/METAR: a session whose
+  model claims had been suppressed by clear measurements UNSUPPRESSED on
+  every offline boot (RAIN NOW · MODELS + sonar on settled-dry data), and
+  the payloadSig skip pinned the mis-render for up to an hour. The
+  measurement restore now runs BEFORE the render (mirroring the live
+  path's fetch-before-render). Same fix applied to
+  `renderDeniedCacheFallback` — which previously restored neither radar nor
+  METAR at all (inconsistent with the 1.10.1 "mirrors exactly" claim).
+- **payloadSig measurement fingerprint (MEDIUM)** — radar/METAR state is
+  verdict input but absent from the sig: a bit-identical payload
+  (stationary GPS, no current.time roll) could pin a stale verdict for ≤15
+  min after the measurement flipped. Sig now carries
+  `radarNow.frameTime|ts|metarObs.obsTime`.
+- **Desc dropped radar evidence (MEDIUM)** — the pure-radar headline
+  ("RAIN NOW · RADAR") set `byEnsemble:false`, so the desc branch never
+  rendered `rainSourcesNote` — the card said RAIN NOW while the desc showed
+  the dry cell label and possibly a no-precip METAR note. Desc condition
+  now accepts `byRadar` too.
+- **TRACE vs measurements (MEDIUM)** — a 0.01-0.09mm trace code claim stood
+  against BOTH clear measurements and still set `isRainingNow` (glance
+  strip + Aero chip claimed RAIN) — the exact class 1.10.4 documented as
+  fixed. The trace disjunct is now `measuredClear`-gated (sonar/haptic were
+  already muted).
+- **Drive Mode entry seed (LOW)** — no-coords entry below `DRIVE_NORTH_Z`
+  could seed a heading rotation on an overview map; the seed now mirrors
+  the zoomend target logic (`< DRIVE_NORTH_Z → 0`).
+- **activateLiveNavigation mode entry (MEDIUM doc/code)** — the 1.12.0
+  chapter claimed navigation enters Drive Mode; the code never did (starting
+  navigation from Map Mode left the user on a free-panning map for the
+  whole drive). Now enters Drive Mode explicitly (the resetToAuto pattern).
+- **Overlay frame swap (perf)** — `refreshRadarOverlay` rebuilt the whole
+  tile layer (removeLayer → new) every 10-min frame, blanking the overlay
+  for a fetch beat and re-wiring listeners; now `setUrl()` reuses the
+  instance. The `radar_overlay_on` persist was also a floating promise
+  (try/catch cannot catch a rejection) → `.catch(() => {})`.
+- **`fetchRadarRouteSample` frames dependency (LOW)** — a cold frames cache
+  (route before any pin sample) silently abstained for up to one TTL; the
+  frames refresh is extracted (`ensureRadarFrames()`) and self-called by
+  the route sampler.
+- **sw.js precache gap (LOW)** — the fuel station DATASETS precache but
+  `fuel-stations.js` (the dynamic-import module that reads them) did not:
+  fresh install offline before any fuel search = data with no code.
+  Added to STATIC_ASSETS.
+- **Per-frame perf micros** — `distTxt` (toFixed+' KM' per frame — the last
+  unquantized per-frame string in the ETA block) now 0.1km-quantized;
+  `_trackingEtaKeys` literal extended with the 8 later-added fields (hidden
+  class transitions); radar/METAR/recenter scratch fields pre-declared in
+  the state literal.
+
+### Discarded with rationale
+
+`#hud-map.hud-rotating` dead CSS (guarded sanity contract — "retained for
+future use"; annotated, kept) · `lastSetView*` write-only state (harmless
+dead fields; documented, kept) · worker.js `fastDistance` textual drift
+(`Number.isFinite` guard only in the worker twin — behaviorally equivalent,
+output-parity unit test holds; noted for the mirror contract) · METAR wx
+under-detection of SG/IC/PL (corroborator-only role errs dry — safe
+direction; documented) · routeNodesRadar not persisted (deliberate — a
+stale frame shouldn't vote; asymmetry with the pin documented) · overlay
+offline blank cells (documented cost of the 10-min frame product) ·
+`_fetchInFlight` cross-coordinate coalescing + remaining 1.10.2 deferrals
+(unchanged status).
+
+### Runtime verification (executed before release)
+
+- **Recenter cycle end-to-end** (Playwright, map scrolled in-viewport, real
+  mouse drag): drag → pin 73px off-center, chip "RECENTER IN 5s" visible →
+  tap NOW → **pin back to 1px, re-locked, chip hidden, 0 red console
+  errors** — the old code threw ReferenceError on this exact tap. Screenshot:
+  `runtime-1.13.2-recenter-now.png`.
+- **Offline verdict consistency**: offline reload → GPS ladder → fetch
+  failover → cache render with measurements restored BEFORE the verdict —
+  headline "OVERCAST" (the same measurement-consistent verdict the live
+  session held; NO unsuppression flip), desc "OFFLINE: RTC INTERPOLATION"
+  (the honest offline label). Console errors during offline = the
+  documented network-denied class.
+- Test-environment findings recorded honestly: Playwright viewport-coordinated
+  drags miss an off-screen map (the map sits below the fold at 390×844) —
+  the earlier "chip never appears" was a targeting artifact, not a code bug
+  (synthetic pointer events + in-viewport drags both work).
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **281/281** (+8 guards, 1 revised) +
+  unit 36/36 · `npm run audit` 8/8 PASS (TDZ 0, fp 0, brace depth=0, CSP 0
+  gaps, DOM-null 0, visual PASS — single `--hud-rot` writer preserved
+  through the relock/recenter restructure, shell PASS) · `audit:verify`
+  24/24 · `node tests/audit-unified.mjs` 37/37 PASS, perfection PASS.
+- `VERSION` → 1.13.2, `package.json` synced, `sw.js` `APP_CACHE` `v18`
+  (index.html + precache changed), `AGENTS.md` §11 synced.
+
+### Blind spots considered (§8)
+
+The pixel-window fix changes measured semantics (north-offset removed) —
+the palette/class mapping is untouched; the first live rain event after
+deploy re-validates intensity classes at the corrected position. The
+route-sample post-render move means a route's FIRST WET NOW paint lands on
+the next intel refresh (~seconds), not instantly with the verdict — the
+routesfound trigger covers the activation moment already. Offline METAR
+restore is display-only-until-fresh — the recompute makes that honest by
+construction now. The four-agent sweep itself: territories did not
+re-audit the pre-1.11 surfaces beyond spot checks (the 1.4.1/1.10.2 rounds
+own those); the tracking-ETA numeric-compare micro-opt (agent C's F5
+distKey/_nodeSig per-frame builds) was consciously deferred — the
+quantized distTxt fix removes the dominant allocator; the remainder is
+~2μs/frame against a loop that already gates its writes.
+
+---
+
 ## 1.13.1 — 2026-09-26 (patch: models-vs-measurements tie-break + Drive Mode zoom re-center)
 
 ### Bump rationale

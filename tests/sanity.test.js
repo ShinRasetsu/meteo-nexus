@@ -355,7 +355,7 @@ assertIncludes(html, "fa-map text-lg", "index.html Map Mode icon (north-up mode)
 assertIncludes(html, "refreshRadarOverlay", "index.html radar map overlay: RainViewer frames as a Leaflet layer, frame-swapped each refresh");
 assertIncludes(html, "radar-overlay-btn", "index.html radar overlay toggle chip present in the map button stack");
 assertIncludes(html, "const target = (overviewNorth || state.visual.heading === null) ? 0 : state.visual.heading;", "index.html zoomend re-evaluates Drive Mode rotation immediately — independent of rAF loop liveness (stationary pre-exit)");
-assertIncludes(html, "const entryRot = (state.visual.heading !== null) ? state.visual.heading : 0;", "index.html Drive Mode entry seeds the rotation at once — never a north-up map claimed as Drive Mode");
+assertIncludes(html, "const entryRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z || state.visual.heading === null)", "index.html Drive Mode entry seeds the rotation at once AND honors the overview threshold (no-coords path)");
 // 1.13.0 — per-route-node radar: WET NOW per node via tile-batch sampling.
 assertIncludes(html, "async function fetchRadarRouteSample(nodes)", "index.html route radar sampler: one decoded tile batch covers a whole route (spatial radar, not 99 point calls)");
 assertIncludes(html, "const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls);", "index.html per-node tier-0: a radar echo at a node outranks the model vote");
@@ -372,6 +372,16 @@ assertIncludes(html, "const measuredClear = radarClear && metarFresh && !rainByM
 assertIncludes(html, "const rainByMinutelyEff = rainByMinutely && !measuredClear;", "index.html ensemble triggers are measurement-gated — a clear radar + clear METAR refutes the nowcast/consensus claims");
 assertIncludes(html, "'models claim rain — measurements clear'", "index.html suppressed model claims stay visible in the desc — the card never hides WHY");
 assertIncludes(html, "state.mapObj.panTo([clat, clon], { animate: false, duration: 0 });", "index.html Drive Mode re-centers on the user after every zoom (Leaflet zooms around the gesture point — the drift report)");
+// 1.13.2 — four-agent audit round: radar sampler window, recenter chain, METAR
+// freshness recompute, offline restore ordering, payloadSig fingerprint.
+assertIncludes(html, "for (let i = 0; i < 36; i += 4)", "index.html radar window scans ALL 9 pixels — the i<12 loop read only the top row (sample offset ~1.2km north of the pin)");
+assertIncludes(html, "const metarFresh = !!(_mt && typeof _mt.obsTime === 'number' &&", "index.html METAR freshness recomputed at verdict time from obsTime — the fetch-time snapshot is never trusted");
+assertIncludes(html, "(wmoDetail.isTrace === true && !measuredClear)", "index.html TRACE claims no longer set isRainingNow against both clear measurements");
+assertIncludes(html, "commitRouteRadarSample", "index.html route samples commit through the shared gate (route identity + frame version — no clobber races, no redundant re-downloads)");
+assertIncludes(html, "String(window.__METEO_CORE_STATE.radarNow?.frameTime ?? '') + '|' +", "index.html payloadSig carries the measurement fingerprint — verdict flips re-evaluate, not pinned for 15 min");
+assertIncludes(html, "window.recenterNow = function()", "index.html recenter NOW button runs a real function — the old inline handler referenced module-scoped state and threw ReferenceError");
+assertIncludes(html, "function relockDriveMode()", "index.html re-lock preserves the driver's pinch-chosen zoom (no mode-entry setView(z17) snap on recenter)");
+assertIncludes(html, "!state.isMapLocked && state.tacticalMode > 0 && state.autoCoords && (state.routeNodes || state.targetCoords);", "index.html recenter chip shows only in Drive Mode — was frozen permanently in Map Mode");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently

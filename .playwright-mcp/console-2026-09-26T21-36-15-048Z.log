@@ -1,0 +1,128 @@
+[     344ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3192
+[     373ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[     375ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3999/favicon.ico:0
+[     407ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[    2463ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3999/:1169
+[    6865ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3269
+[    6895ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[    6910ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[   18640ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3269
+[   18685ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[   18705ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[   38496ms] [INFO] Offline tiles: 1197/1197 cached for the active route. @ http://localhost:3999/:3226
+[   44089ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3269
+[   44115ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[   44124ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[   48194ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3269
+[   48238ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[   48255ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[   68627ms] [INFO] Offline tiles: 1197/1197 cached for the active route. @ http://localhost:3999/:3226
+[  106119ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[  419292ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[  419304ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[  419305ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3269
+[  419340ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[  419342ms] [WARNING] Network Error. Failing over to IndexedDB LocalForage cache. Error: Browser is offline.
+    at http://localhost:3999/:7627:54
+    at fetchData (http://localhost:3999/:8005:15)
+    at runApp (http://localhost:3999/:8631:17) @ http://localhost:3999/:7962
+[  419350ms] [WARNING] OSRM Primary Engine Failed. Attempting Valhalla fallback. {message: HTTP request failed: error, url: https://router.project-osrm.org/route/v1/driving/1…erview=false&alternatives=true&steps=true&hints=;, status: -1, target: ProgressEvent} @ http://localhost:3999/:2696
+[  419351ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://router.project-osrm.org/route/v1/driving/121.1276093,14.2022324;121,14.55?overview=false&alternatives=true&steps=true&hints=;:0
+[  419351ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://a.tile.openstreetmap.org/17/109637/60310.png:0
+[  419354ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://c.tile.openstreetmap.org/17/109638/60311.png:0
+[  419354ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  441045ms] [INFO] Offline tiles: 1221/1221 cached for the active route. @ http://localhost:3999/:3226
+[  452738ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[  452739ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://localhost:3999/:3269
+[  452739ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[  452779ms] [WARNING] You are using OSRM's demo server. Please note that it is **NOT SUITABLE FOR PRODUCTION USE**.
+Refer to the demo server's usage policy: https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy
+
+To change, set the serviceUrl option.
+
+Please do not report issues with this server to neither Leaflet Routing Machine or OSRM - it's for
+demo only, and will sometimes not be available, or work in unexpected ways.
+
+Please set up your own OSRM server, or use a paid service provider for production. @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:17931
+[  452781ms] [WARNING] Network Error. Failing over to IndexedDB LocalForage cache. Error: Browser is offline.
+    at http://localhost:3999/:7627:54
+    at fetchData (http://localhost:3999/:8005:15)
+    at runApp (http://localhost:3999/:8631:17) @ http://localhost:3999/:7962
+[  452788ms] [WARNING] OSRM Primary Engine Failed. Attempting Valhalla fallback. {message: HTTP request failed: error, url: https://router.project-osrm.org/route/v1/driving/1…erview=false&alternatives=true&steps=true&hints=;, status: -1, target: ProgressEvent} @ http://localhost:3999/:2696
+[  452789ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://router.project-osrm.org/route/v1/driving/121.1276093,14.2022324;121,14.55?overview=false&alternatives=true&steps=true&hints=;:0
+[  452790ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3999/:0
+[  452815ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://valhalla1.openstreetmap.de/route:0
+[  453363ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://valhalla1.openstreetmap.de/route:0
+[  453363ms] [WARNING] Optimal Routing Engine Consensus Failed. Attempting pure OSRM fallback (Exclusions Ignored). TypeError: Failed to fetch
+    at fetchWithRetry (http://localhost:3999/:905:39)
+    at async fetchValhallaMeta (http://localhost:3999/:2674:33)
+    at async e.route (http://localhost:3999/:2706:37) @ http://localhost:3999/:2721
+[  453367ms] [ERROR] Routing error: {message: HTTP request failed: error, url: https://router.project-osrm.org/route/v1/driving/1…erview=false&alternatives=true&steps=true&hints=;, status: -1, target: ProgressEvent} @ https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js:15867
+[  453367ms] [WARNING] Routing error intercepted at top level: {error: Object, type: routingerror, target: e, sourceTarget: e} @ http://localhost:3999/:4887
+[  453367ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://router.project-osrm.org/route/v1/driving/121.1276093,14.2022324;121,14.55?overview=false&alternatives=true&steps=true&hints=;:0
+[  752734ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1052738ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1352742ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1652746ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 1952749ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2252754ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2552757ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 2852762ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 3152766ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 3452770ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0

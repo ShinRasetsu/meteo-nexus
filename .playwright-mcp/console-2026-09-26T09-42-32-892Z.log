@@ -177,3 +177,5 @@ Please set up your own OSRM server, or use a paid service provider for productio
 [ 6916200ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
 [ 7216205ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
 [ 7516209ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3999/VERSION:0
+[ 7625628ms] ReferenceError: startMagCalCapture is not defined
+    at HTMLButtonElement.onclick (http://localhost:3999/:858:282)
