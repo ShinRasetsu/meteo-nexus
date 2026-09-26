@@ -4735,6 +4735,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // pre-exit in smoothVisualsLoop can skip the follow block entirely
             // when parked without a route, which would leave the zoomed-out map
             // upside-down until the next heading change.
+            // 1.13.0: zooming in a GPS-LOCKED mode must also RE-CENTER on the
+            // user — Leaflet zooms around the gesture point (cursor / pinch
+            // midpoint), and with the position deadband untripped (you didn't
+            // move) nothing re-centered the map afterward, so the pin drifted
+            // off-center after every zoom (user report 2026-09-25). Google
+            // navigation keeps you anchored; panTo on zoomend does the same.
             state.mapObj.on('zoomend', () => {
                 if (state.tacticalMode > 0) {
                     const overviewNorth = state.mapObj.getZoom() < DRIVE_NORTH_Z;
@@ -4743,6 +4749,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     if (targetR !== state.lastCssHeading) {
                         applyHudCssRotation(targetR);
                         state.lastCssHeading = targetR;
+                    }
+                    // Re-center while locked: keep the user anchored through zooms.
+                    if (state.isMapLocked && state.autoCoords) {
+                        const clat = state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat;
+                        const clon = state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon;
+                        state.mapObj.panTo([clat, clon], { animate: false, duration: 0 });
                     }
                 }
             });
@@ -6539,6 +6551,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const metarNote = metarFresh
                 ? (_mt.station + ' ' + _mt.distKm + 'km: ' + (_mt.wet ? 'precip (' + _mt.wx + ')' : 'no precip') + (_mt.cb ? ' · CB reported' : ''))
                 : null;
+            // TIE-BREAK (1.13.0, user-directed after the live "sunny RAIN NOW ·
+            // MODELS" report): when BOTH fresh measurements read CLEAR — radar
+            // covered with no echo over the pin AND the nearest station
+            // observing no precip — MODEL-side rain triggers (minutely nowcast,
+            // 2-model consensus, >=30% vote) no longer fire RAIN NOW. The
+            // measurements settle the dispute they were built for; the model
+            // claims ride the desc line instead. NEVER suppressed: a measured
+            // wet (radar echo / METAR precip) and substantial (>=0.5 mm)
+            // observed claims (err-loud stays for real-strength claims).
+            const measuredClear = radarClear && metarFresh && !rainByMetar;
+            const rainByMinutelyEff = rainByMinutely && !measuredClear;
+            const rainByConsensusEff = rainByConsensus && !measuredClear;
+            const suppressedModelClaim = measuredClear && (rainByMinutely || rainByConsensus || rainByCurrentValue);
+            const corroborated = rainByMinutelyEff || rainByConsensusEff || (currentAgreement >= 30 && !measuredClear) || rainByRadar || rainByMetar;
             // CORROBORATION GATE (2026-09-25 mirror incident: "very sunny" on the
             // ground, card amber "LIGHT DRIZZLE" — the ECMWF current block carried
             // 0.1 mm post-storm residual drizzle against 3/5 models dry, a 0.04 mm
@@ -6551,11 +6577,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // the four-way OR: yesterday the block's dry veto hid real rain; today
             // its lone wet cell invented rain. Neither direction may act
             // uncorroborated at the margin.
-            const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar || rainByMetar;
             const obsStrong = maxObsPrec >= 0.5;
             const codeClaimStands = rainByCurrentCode && (obsStrong || wmoDetail.isTrace === true || corroborated);
-            const valueClaimStands = rainByCurrentValue && (obsStrong || corroborated);
-            const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutely || rainByConsensus || rainByRadar;
+            const valueClaimStands = rainByCurrentValue && (obsStrong || corroborated) && !measuredClear;
+            const isRainingNow = codeClaimStands || valueClaimStands || rainByMinutelyEff || rainByConsensusEff || rainByRadar;
             let headlineDetail = wmoDetail;
             let rainSourcesNote = null;
             let unconfirmedClaim = null;
@@ -6596,9 +6621,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     };
                     unconfirmedNote = 'unconfirmed — only ' + reportingCount + '/' + WeatherEnsemble.models.length + ' models reporting';
                 }
-            } else if (!rainByCurrentCode && (rainByRadar || valueClaimStands || rainByMinutely || rainByConsensus)) {
+            } else if (!rainByCurrentCode && (rainByRadar || valueClaimStands || rainByMinutelyEff || rainByConsensusEff)) {
                 const src = [];
-                if (rainByCurrentValue && curr) {
+                if (valueClaimStands && curr) {
                     src.push('obs ' + Math.max(
                         (typeof curr.precipitation === 'number') ? curr.precipitation : 0,
                         (typeof curr.rain === 'number') ? curr.rain : 0,
@@ -6607,8 +6632,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     ).toFixed(1) + 'mm');
                 }
                 if (rainByRadar) src.push(radarNote);
-                if (rainByMinutely) src.push('15-min ' + minutelyNowMm.toFixed(2) + 'mm');
-                if (rainByConsensus) src.push('models ' + consensusParts.join(' '));
+                if (rainByMinutelyEff) src.push('15-min ' + minutelyNowMm.toFixed(2) + 'mm');
+                if (rainByConsensusEff) src.push('models ' + consensusParts.join(' '));
                 // Radar outranks the ensemble in the label: it measured the pin's
                 // air; models only predicted it. Radar + no observed claim →
                 // "RAIN NOW · RADAR" (the tier-0 verdict).
@@ -6628,7 +6653,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
 
             return { curr, rEU, rUS, rDE, rJP, rainData, uvData, solarData, times, timesUnix, hourlyAgreement,
-                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, incomingRain, lowConfidence,
+                     tempBand, currentAgreement, currentStatus, isRainingNow, wmoDetail: headlineDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, suppressedModelClaim, incomingRain, lowConfidence,
                      nodeHealth, codeAgreement, windEnsemble, nativePrecipProb,
                      // U2-FOCUS: fullscreen diagnostic payload (display layer only
                      // — the ensemble math above is untouched).
@@ -6672,7 +6697,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
         function renderTelemetryUI(data, isOffline) {
-            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
+            const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, suppressedModelClaim, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
             WeatherEnsemble.models.forEach((m, idx) => {
@@ -6967,6 +6992,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // context — the station, its distance, and what its observer
                 // measured (precip / no precip / CB convective clouds).
                 if (metarNote) parts.push(metarNote);
+                // Tie-break honesty: when both measurements refuted a model-side
+                // rain claim, say so — the card must never hide WHY the models'
+                // numbers are not the headline.
+                if (suppressedModelClaim) parts.push('models claim rain — measurements clear');
                 // Determine colour: when it is raining, the text goes red;
                 // otherwise neutral gray.
                 const descColorClass = isRainingNow ? 'text-brand-red' : 'text-gray-300';

@@ -330,7 +330,7 @@ assertIncludes(html, "rainByMinutely", "index.html gates headline rain on the mi
 assertIncludes(html, "rainByConsensus", "index.html gates headline rain on multi-model value consensus");
 assertIncludes(html, "'RAIN NOW · MODELS'", "index.html labels ensemble-triggered rain source-honestly");
 assertIncludes(html, "window.__METEO_CORE_STATE.isRainingNow = !!(data && data.isRainingNow);", "Aero/glance publish uses the consensus verdict, not a code-only recompute");
-assertIncludes(html, "const corroborated = rainByMinutely || rainByConsensus || currentAgreement >= 30 || rainByRadar || rainByMetar;", "index.html corroboration gate: marginal observed claims need a second independent signal (minutely, consensus, wetness vote, radar, or METAR)");
+assertIncludes(html, "const corroborated = rainByMinutelyEff || rainByConsensusEff || (currentAgreement >= 30 && !measuredClear) || rainByRadar || rainByMetar;", "index.html corroboration gate: second independent signal (minutely, consensus, vote, radar, or METAR) — all model-side signals measurement-gated by the tie-break");
 assertIncludes(html, "' (POSSIBLE ' + unconfirmedClaim + ')'", "index.html 1.10.5: consensus verdict owns the headline; uncorroborated single-source claims ride as a (POSSIBLE …) parenthetical");
 assertIncludes(html, "single-source claim, unconfirmed by ensemble", "index.html desc explains the demoted claim instead of letting the card contradict itself");
 assertIncludes(html, "const quorumMet = !lowConfidence || radarClear;", "index.html quorum rule: silence is not a dry vote — demotion requires the authoritative reporting quorum OR a clear radar measurement (a measurement beats a vote)");
@@ -367,6 +367,11 @@ assertIncludes(html, "async function fetchMetarObs(lat, lon)", "index.html METAR
 assertIncludes(html, "const rainByMetar = metarFresh && _mt.wet === true;", "index.html METAR wet-side corroborator: a station reporting precip corroborates rain; a clear station NEVER refutes (displacement honesty)");
 assertIncludes(html, "METAR_STATIONS", "index.html embeds the live-proven PH station table (coords verified against the API 2026-09-25)");
 assertIncludes(html, "`${CONFIG.edgeProxy}/metar?ids=${best.id}`", "index.html METAR rides the existing proxy origin — zero CSP changes");
+// 1.13.0 pre-release fixes: the models-vs-measurements tie-break + Drive Mode zoom re-center.
+assertIncludes(html, "const measuredClear = radarClear && metarFresh && !rainByMetar;", "index.html tie-break: BOTH fresh measurements reading clear suppress model-side rain triggers (the sunny RAIN NOW · MODELS report)");
+assertIncludes(html, "const rainByMinutelyEff = rainByMinutely && !measuredClear;", "index.html ensemble triggers are measurement-gated — a clear radar + clear METAR refutes the nowcast/consensus claims");
+assertIncludes(html, "'models claim rain — measurements clear'", "index.html suppressed model claims stay visible in the desc — the card never hides WHY");
+assertIncludes(html, "state.mapObj.panTo([clat, clon], { animate: false, duration: 0 });", "index.html Drive Mode re-centers on the user after every zoom (Leaflet zooms around the gesture point — the drift report)");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently

@@ -285,9 +285,9 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.13.0, 2026-09-25)
+## 11. Reference numbers (verified v1.13.1, 2026-09-26)
 
-- sanity.test.js - 269 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 273 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -296,7 +296,9 @@ From HISTORY.md "How to bump version in a new session":
   (incl. 1 guard updated for the radar-augmented quorum line), +8 from the
   1.12.0 two-mode redesign + radar map overlay, +1 for the zoomend
   direct-write liveness guard, +8 from the 1.13.0 route-node radar + METAR
-  (incl. 2 guards consciously extended: corroboration + node elevation))
+  (incl. 2 guards consciously extended: corroboration + node elevation),
+  +4 from the 1.13.0 pre-release fixes (tie-break + zoom re-center, incl.
+  1 guard revised to the measurement-gated corroboration line))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a

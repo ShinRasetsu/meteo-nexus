@@ -118,6 +118,91 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.13.1 — 2026-09-26 (patch: models-vs-measurements tie-break + Drive Mode zoom re-center)
+
+### Bump rationale
+
+Patch bump 1.13.0 → 1.13.1 (1.13.0 + 1.12.0 deployed live at 23:38 via
+deploy.bat auto-commit 950650b, so these two follow-up fixes cannot ride that
+release; `sw.js` `APP_CACHE` `v16` → `v17` so installed clients receive them —
+until then, deployed phones keep showing both bugs).
+
+Two user reports the same evening, both runtime-proven before release:
+
+1. **Drive Mode zoom re-center** — *"why zooming moves out from the current
+   center"*: Leaflet zooms around the gesture point (cursor / pinch
+   midpoint), and with the GPS position deadband untripped (the user
+   didn't move) nothing re-centered the map afterward — the pin drifted
+   off-center after every zoom while locked. The `zoomend` handler now
+   `panTo`s back to the visual position when `isMapLocked` (Google
+   navigation keeps you anchored). Runtime proof: pin-to-center offset
+   **1px before, 1px after** a 3-step wheel zoom at an off-center point.
+2. **Models-vs-measurements tie-break** — *"the header says Rain Now
+   Models? huh?"* (live at the user's pin: 3 models ≥0.3 mm while BOTH
+   measurements read clear). The anticipated product decision (noted in
+   the 1.13.0 chapter), now user-directed: when BOTH fresh measurements
+   read CLEAR — radar covered with no echo over the pin AND the nearest
+   METAR station observing no precip — MODEL-side rain triggers (minutely
+   nowcast, 2-model consensus, ≥30% vote, the observed-value path) no
+   longer fire RAIN NOW. NEVER suppressed: a measured wet (radar echo /
+   METAR precip) and substantial (≥0.5 mm) observed claims. Suppressed
+   claims stay visible in the desc: **"models claim rain — measurements
+   clear"**. Runtime proof (the live tie-break case at the pin): headline
+   flipped from "RAIN NOW · MODELS" to **"PARTLY CLOUDY"**, desc
+   "Partly Cloudy · 50% Cloud · RPLL 36km: no precip · models claim rain
+   — measurements clear", `isRainingNow: false`. Screenshot:
+   `headline-1.13.0-tiebreak.png`.
+
+### Changes
+
+- `index.html`: `measuredClear` gate + `rainByMinutelyEff`/`rainByConsensusEff`
+  measurement-m gated triggers in the verdict block; `suppressedModelClaim`
+  desc note; `corroborated` now measurement-gated; the `zoomend` re-center
+  `panTo` when GPS-locked.
+- `tests/sanity.test.js` — +4 guards, 1 revised (269 → 273): the
+  `measuredClear` line, the Eff-gate line, the suppressed-claim desc note,
+  the zoom re-center line; the corroboration guard revised to the
+  measurement-gated line.
+- `VERSION` → 1.13.1, `package.json` → `"version": "1.13.1"`, `sw.js`
+  `APP_CACHE` `v16` → `v17`, `AGENTS.md` §11 synced, `HISTORY.md` — this
+  chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **273/273** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (TDZ 0, fp 0, brace depth=0, CSP 0 gaps, DOM-null
+  0, visual PASS — single `--hud-rot` writer, shell PASS) · `audit:verify`
+  24/24 · `node tests/audit-unified.mjs` 37/37 PASS, perfection PASS.
+- Runtime: both fixes proven live at the user's pin (see above); 0 red
+  console errors.
+- **PWA runtime pass (skill-rubric, executed 2026-09-26 after the audit)**:
+  SW active + controlling (scope `/`, `meteonexus-app-v17` with 12 precached
+  entries) · manifest fetch valid (name/short_name/start_url/standalone,
+  2/2 icons maskable, 2 screenshots narrow+wide) · **offline reload proof**:
+  `context.setOffline(true)` → `reload()` → shell survived (title + verdict
+  rendered from cache, SW controlling) — first attempt failed during the
+  v16→v17 SW handoff race; retry after update settlement green. Deviation
+  from the skill's `offline.html` item: documented — this app's offline
+  path (cached shell + telemetry cache + "OFFLINE: RTC INTERPOLATION"
+  honesty state) exceeds the static-fallback intent. Lighthouse PWA + iOS
+  Safari/Android device checks remain the standing PENDING items (tooling
+  limitations recorded at 1.10.3).
+- Incident note (the pipeline doing its job): the first tie-break edit left
+  a duplicate `const corroborated` declaration in the same scope — caught by
+  the E1 parse + E2 TDZ scanners before any test ran, fixed, and the
+  corroboration guard consciously revised to the measurement-gated line.
+
+### Blind spots considered (§8)
+
+The tie-break requires BOTH measurements (radar clear AND METAR clear) —
+METAR-missing regions keep the err-loud ensemble behavior (a documented
+bound, not a bug: sub-radar-floor drizzle remains the residual case where
+models are right and radar is blind; METAR is the observer that covers it).
+The zoom re-center fires only while GPS-locked — Map Mode keeps free
+centering. Aa11y/perf: one panTo per zoom gesture, no per-frame cost added.
+
+---
+
 ## 1.13.0 — 2026-09-25 (minor: Layer 2 completion — per-route-node radar + METAR via the user's Worker proxy)
 
 ### Bump rationale
@@ -210,8 +295,7 @@ releases are ONE un-deployed batch — `sw.js` `APP_CACHE` stays `v16`, the
 
 ### Blind spots considered (§8)
 
-Races: the routesfound sampler is fire-and-forget with a `.catch`; a route
-swap mid-sample stores the newer route's result only after its own fetch —
+Races: the route swap mid-sample stores the newer route's result only after its own fetch —
 last-writer-wins on a single-threaded chain, and samples are keyed by
 coords (a stale write for an old route's coords simply never matches the
 new route's nodes). Leaks: route tile canvases are per-call 256px, GC'd;
