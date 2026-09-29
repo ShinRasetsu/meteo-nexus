@@ -583,6 +583,23 @@ if (manifest) {
 }
 
 // ---------------------------------------------------------------------------
+// 1.14.0 stable drive rotation + purge immediate feedback + verdict basis
+// ---------------------------------------------------------------------------
+assertIncludes(html, "mapHeading: null, _prevCog: null", "index.html 1.14.0: mapHeading is the rotation authority (GNSS COG at speed, freeze below gate), null until a stable source speaks");
+assertIncludes(html, "DRIVE_ROT_MIN_KMH = 8", "index.html 1.14.0: COG accepted only at/above 8 km/h — below the gate the rotation freezes (a stop light must not rotate the map)");
+assertIncludes(html, "MAP_ROT_MAX_DEG_S = 30", "index.html 1.14.0: rotation rate cap — planted feel; one noisy COG fix moves the map ~0.5° before the next fix corrects it");
+assertIncludes(html, "state.mapHeading !== null ? state.mapHeading : state.cumulativeHeading", "index.html 1.14.0: rotation target prefers mapHeading, falls back to cumulativeHeading (1.13.x boot parity)");
+assertIncludes(html, "timeConstant = moving ? 600 : 250", "index.html 1.14.0: planted-feel lerp tc — slow tail + hard rate cap (fluidity G1 rate-cap contract, pinned so it cannot silently change)");
+assertIncludes(html, "maxStepD / Math.abs(dHeading)", "index.html 1.14.0: the rate cap actually applies — the exp lerp alpha shrinks when the step would exceed the cap");
+assertIncludes(html, "_arrowFrozen", "index.html 1.14.0: position arrow freezes while a Drive Mode drag holds the map unlocked (a live arrow on a frozen map reads sideways)");
+assertIncludes(html, "offsetConfidence >= 0.5", "index.html 1.14.0: below driving speed only a CONVERGED calibrated magnetometer may rotate the map — uncalibrated mag in a car frame is tens of degrees off");
+assertIncludes(html, "permState === 'prompt'", "index.html 1.14.0: purge re-asks GPS only when the browser permission is still prompt — granted/denied skip the dead wait");
+assertIncludes(html, "PURGING LOCAL DATA — THE APP WILL RESTART SHORTLY.", "index.html 1.14.0: purge modal flips to a progress state on the same tick as the tap — no silent dead-feeling button");
+assertIncludes(html, 'id="focus-verdict-basis"', "index.html 1.14.0: verdict-basis block exists in the focus-only analysis surface");
+assertIncludes(html, "focusVerdictBasis: document.getElementById('focus-verdict-basis')", "index.html 1.14.0: verdict-basis element is cached in the DOM map (no per-render getElementById)");
+assertIncludes(html, "Trigger ${wmoDetail.label} — ${rainSourcesNote}", "index.html 1.14.0: verdict-basis writer names which source triggered the headline (the analysis surface answers 'why does the headline say that')");
+
+// ---------------------------------------------------------------------------
 // MCP tooling doctrine retention (AGENTS.md §12 + opencode.json mcp block)
 // User directive 2026-09-27: the doctrine table is source of truth and must
 // survive every session, at all cost. Every package was npm-viewed AND

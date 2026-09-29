@@ -254,6 +254,26 @@ check('PHASE V negative control (clean extract, var era) -> visual-audit 0',
   else { fail++; results.push('  FAIL  PHASE S negative control (clean shell) -> shell-audit (exit=' + r.code + ')'); }
 }
 
+// ---------- Phase F: fluidity G1 rate-cap contract (1.14.0) ----------
+// An UNCAPPED slow heading lerp (tc 600:250 with no maxStepD bound in the
+// block) is visible lag -> must FAIL. Proves the G1 ratio rule still bites
+// after the 1.14.0 planted-feel revision — the revision may only ever accept
+// a BLOCK-LOCAL hard rate cap, never a bare slow tc.
+check('PHASE F uncapped slow lerp -> fluidity nonzero',
+  'ui-fluidity-audit.mjs', 2, 'ratio', () => {
+    writeMutation(original + '\nfunction fluidityPos() { const moving = true; const dt = 16; let dHeading = 5; const timeConstant = moving ? 600 : 250; const lerpHeading = 1 - Math.exp(-dt / timeConstant); state.visual.heading += dHeading * lerpHeading; }\n');
+  });
+
+// ---------- Phase F negative control: rate-capped slow lerp accepted ----------
+// The SAME slow tc WITH the hard maxStepD rate cap applied in the block is
+// a bounded cinematic glide (planted feel) -> must PASS. The real extract
+// also carries the production capped lerp, so this run proves both the
+// injected cap and the production one resolve to exit 0.
+check('PHASE F negative control (rate-capped planted-feel) -> fluidity 0',
+  'ui-fluidity-audit.mjs', 0, 'Perfection verdict: PASS', () => {
+    writeMutation(original + '\nfunction fluidityNeg() { const moving = true; const dt = 16; let dHeading = 5; const timeConstant = moving ? 600 : 250; let lerpHeading = 1 - Math.exp(-dt / timeConstant); const maxStepD = (dt / 1000) * MAP_ROT_MAX_DEG_S; if (Math.abs(dHeading * lerpHeading) > maxStepD) lerpHeading = maxStepD / Math.abs(dHeading); }\n');
+  });
+
 restore();
 console.log('Scanner verification results:');
 console.log(results.join('\n'));

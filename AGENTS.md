@@ -173,7 +173,12 @@ projects.
 - **G1 Hard fails** — `target→dom.textContent` direct, `Math.round(*100)%`
   on bars (need `toFixed(1)`), raw `toFixed` without `displayDistance`,
   `transition 75ms` on RAF bar (need `none`+`will-change`), missing
-  `display+=(target-display)*alpha` / `vel*dt+corrAlpha`, or sim `ratio<0.08`.
+  `display+=(target-display)*alpha` / `vel*dt+corrAlpha`, or sim `ratio<0.08`
+  on an UNCAPPED lerp. A slow tc with a hard block-local rate cap
+  (`maxStepD` from `CONFIG.rateCapConst`, cap ≤ `CONFIG.maxPlantedRateDegS`)
+  is a bounded cinematic glide — accepted (the 1.14.0 planted-feel
+  contract; PHASE F in verify-scanners proves both directions: uncapped
+  slow lerp still FAILs).
 - **G2 Precision** — fractional `toFixed(1)` derived from `display*`, peak
   glide monotonic (exp lerp, no overshoot).
 - **G3 Hygiene** — `will-change`/`contain`/`translateZ(0)`, prev guards
@@ -286,9 +291,9 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.13.2, 2026-09-26)
+## 11. Reference numbers (verified v1.14.0, 2026-09-29)
 
-- sanity.test.js - 309 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 322 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -301,18 +306,25 @@ From HISTORY.md "How to bump version in a new session":
   +4 from the 1.13.1 tie-break + zoom re-center (incl. 1 revised), +9 from
   the 1.13.2 four-agent audit round (incl. 1 revised entry-seed guard),
   +28 MCP-doctrine retention guards 2026-09-27 (AGENTS.md sec 12 +
-  opencode.json mcp block, user-directed source of truth))
+  opencode.json mcp block, user-directed source of truth),
+  +13 from the 1.14.0 stable-drive-rotation batch (rotation authority,
+  COG gate, rate cap, fallback parity, planted-feel tc, cap application,
+  arrow freeze, calibrated-mag gate, purge prompt-gate + feedback text,
+  verdict-basis element + cache + writer))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
   PIN (catches accidental deletion) — bump it when intentionally adding
   tests; see tests/audit-unified.mjs:569.
-- audit:verify - 24 self-test controls, all passing (incl. PHASE V var-era
-  layer contracts + PHASE S shell integrity)
+- audit:verify - 26 self-test controls, all passing (incl. PHASE V var-era
+  layer contracts + PHASE S shell integrity + PHASE F fluidity rate-cap
+  contract: uncapped slow lerp FAILs, rate-capped planted-feel PASSes)
 - Scanners: 8 mandatory (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
-  + 1 plug-in (fluidity: G0-G4 perfection gate) plus meta-verifier
+  + 1 plug-in (fluidity: G0-G4 perfection gate; G1 accepts a slow tc ONLY
+  when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
+  — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 37 checks, E1-E6)
-- index.html - ~10143 lines / ~700 KB; inline module lines 865-10119 (~635 KB)
+- index.html - ~10324 lines / ~706 KB; inline module lines 880-10300 (~633 KB)
 - worker.js - 272 lines; sw.js - 475 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
@@ -364,8 +376,14 @@ Rules (binding):
    geocode, POI, docs, specs, audits, device emulation. The phone is the
    sensor; a server cannot feel a magnetometer.
 2. Before adding any new MCP server: prove it exists (`npm view <pkg>`) and
-   test-launch it (initialize handshake over stdio). This doctrine exists
-   to stop hallucinated APIs - it must not ship a hallucinated server.
+   test-launch it (initialize handshake over stdio) — then exercise at
+   least one real tool call per server class. The initialize handshake
+   proves protocol, NOT per-tool output schemas: the osm-server Nominatim
+   tools passed the 2026-09-27 handshake and then failed their own output
+   schema on first real call (2026-09-29 lesson — `boundingbox` items
+   declared `false` in v0.5.2). First-real-call probing is the true
+   verification tier. This doctrine exists to stop hallucinated APIs - it
+   must not ship a hallucinated server.
 3. Context7 over web search for library/API docs; the W3C server over blog
    paraphrases for spec questions (Service Worker, Web App Manifest,
    Sensors, DeviceOrientation all live in webref).

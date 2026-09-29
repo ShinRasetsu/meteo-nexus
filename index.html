@@ -2512,6 +2512,7 @@
             focusOutlook: document.getElementById('focus-outlook'),
             focusEnvelope: document.getElementById('focus-envelope'),
             focusIncoming: document.getElementById('focus-incoming'),
+            focusVerdictBasis: document.getElementById('focus-verdict-basis'),
             purgeGpsHint: document.getElementById('purge-gps-hint'),
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
@@ -7080,6 +7081,40 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (f.gustPeak !== null) parts.push(`Gust Peak ${Math.round(f.gustPeak)} km/h`);
                 if (temperatureTrend !== null && temperatureTrend !== undefined) parts.push(`Trend ${temperatureTrend >= 0 ? '+' : ''}${temperatureTrend}°/1h`);
                 updateText(DOM.focusEnvelope, parts.length ? parts.join(' · ') : '--');
+            }
+            // 1.14.0 VERDICT BASIS (user-directed): the glance desc is the
+            // confident one-line verdict; the full reasoning — which source
+            // triggered the headline, what the measurements read, and any
+            // tie-break/suppression that settled a model-vs-reality dispute —
+            // lives on this analysis surface. Display-only, fetch cadence,
+            // composed from payload fields the desc builder already consumes
+            // plus the radar measurement published to __METEO_CORE_STATE.
+            if (DOM.focusVerdictBasis) {
+                const basis = [];
+                if (wmoDetail && (wmoDetail.byRadar === true || wmoDetail.byEnsemble === true) && rainSourcesNote) {
+                    basis.push(`Trigger ${wmoDetail.label} — ${rainSourcesNote}`);
+                } else if (wmoDetail && wmoDetail.unconfirmed === true) {
+                    basis.push(`Trigger ${wmoDetail.label} — ${unconfirmedNote || 'unconfirmed'}`);
+                } else if (wmoDetail && wmoDetail.isPrecip === true && wmoDetail.label) {
+                    basis.push(`Trigger ${wmoDetail.label}${wmoDetail.isTrace === true ? ' (trace)' : ''} — observed code ${curr ? curr.weather_code : '--'}`);
+                } else if (unconfirmedClaim) {
+                    basis.push(`Demoted ${unconfirmedClaim} (${unconfirmedNote || 'single-source claim'}) — consensus owns the headline`);
+                } else if (wmoDetail && wmoDetail.label) {
+                    basis.push(`Verdict ${wmoDetail.label} — observed code ${curr ? curr.weather_code : '--'}`);
+                }
+                const rN = (window.__METEO_CORE_STATE && window.__METEO_CORE_STATE.radarNow) || null;
+                if (rN && rN.covered === true) {
+                    basis.push(rN.cls ? `Radar echo ${rN.cls} ~${rN.mmh}mm/h over pin` : 'Radar clear — no echo over pin');
+                } else if (rN) {
+                    basis.push('Radar no coverage (abstains)');
+                }
+                if (metarNote) basis.push(`Station ${metarNote}`);
+                if (suppressedModelClaim) basis.push('Tie-break models claim rain — measurements clear (claim suppressed)');
+                if (typeof currentAgreement === 'number') {
+                    basis.push(`Ensemble ${Math.round(currentAgreement)}% wet${lowConfidence ? ' · thin reporting — LOW CONF' : ' · quorum ok'}`);
+                }
+                updateHTML(DOM.focusVerdictBasis, basis.map(l => `<div class="mb-0.5">${l}</div>`).join(''));
+                DOM.focusVerdictBasis.classList.toggle('hidden', basis.length === 0);
             }
 
             // Code agreement: "N/M MODELS AGREE" on the weather icon category

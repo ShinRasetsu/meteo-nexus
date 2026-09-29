@@ -118,6 +118,235 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.14.0 — 2026-09-29 (minor: stable drive rotation + purge immediate feedback + verdict basis + fluidity G1 rate-cap contract + MCP doctrine audit)
+
+### Bump rationale
+
+Minor bump 1.13.2 → 1.14.0 (user-facing feature batch; `sw.js` `APP_CACHE`
+`v18` → `v19`). This release closes an unusual sequence the MCP audit
+surfaced: the 2026-09-27 session left BOTH the MCP doctrine (AGENTS.md §12 +
+opencode.json mcp block + 28 sanity guards) and an unfinished 1.14.0 WIP
+**uncommitted** in the working tree; the 2026-09-29 19:39 auto-update
+(deploy.bat) committed + deployed that tree wholesale — including a
+`#focus-verdict-basis` markup block with NO writer (the 1.6.1 dead-UI class)
+and WITHOUT the `APP_CACHE` bump the release gate step 6 requires (installed
+clients would never have fetched the new shell). This session's MCP-doctrine
+audit (user: *"audit our project with respects to our MCP's"*) found all of
+it; this release completes the WIP, fixes the deploy gap, and records the
+doctrine liveness evidence.
+
+### MCP doctrine audit (executed 2026-09-29, every claim probed live)
+
+- **Retention triple INTACT**: opencode.json mcp block (8 servers, zero
+  drift vs §12), AGENTS.md §12, sanity guards 586-630 — exactly 28, all
+  green (`npm test` 309/309 at audit time). Registry verification: all 7
+  npm packages live, versions match §12 pins exactly (context7 4.1.1, w3c
+  0.3.0, lighthouse-mcp 2.0.1, chrome-devtools 1.10.1, osm-server 0.5.2,
+  geoapify 0.1.2, playwright/mcp 0.0.82). No hallucinated servers.
+- **Per-server liveness**: context7 ✓ (Leaflet resolved, 1287 snippets) ·
+  w3c ✓ (webref corpus: Service Workers Nightly) · playwright ✓ ·
+  chrome-devtools ✓✓ (full device-QA doctrine role: GPS emulation at the
+  user's pin + network + console — delivered Fetch-Gate §6-class evidence:
+  9 telemetry origins all HTTP 200 incl. the user's Worker `/metar` proxy,
+  `#hud-glance-temp` numeric, radar covered/clear, METAR RPLL 36km fresh,
+  **0 red console errors**) · openstreetmap SPLIT — Overpass tools ✓ live
+  (real fuel stations 413 m from the user's pin via overpass-api.de), but
+  all 3 Nominatim-shaped tools (`search_places`, `reverse_geocode`,
+  `lookup_objects`) fail their own output schema in v0.5.2 (`boundingbox`
+  items declared `false`) — upstream latest, no fix available; the
+  doctrine-mandated job (backend tile/routing queries) still served ·
+  geoapify ✓ as-documented (keyless init; calls correctly refuse —
+  `GEOAPIFY_API_KEY` unset at all scopes; activation is a user env var) ·
+  lighthouse (danielsogl) WIRED but its bundled runner reproduces the
+  1.10.3-documented Windows `\\?\` temp-dir EPERM (2 fresh reproductions,
+  temp-clean didn't help — platform, not wiring) · **github DARK — root
+  cause proven: `GITHUB_TOKEN` unset at process/user/machine scope** (the
+  remote MCP can't authenticate; fix = set the user-scope env var +
+  restart opencode per §12 rule 5).
+- **Lighthouse delivered via the chrome-devtools wrapper** against the
+  live-served app (mobile, localhost) — closing the tooling-limbo recorded
+  since 1.10.3: **Accessibility 91 · Best Practices 100 · SEO 91 ·
+  Agentic Browsing 48**. Fail-set recorded for a future patch: 3
+  unlabeled form fields (`aria-command-name`), night-palette contrast
+  3.4–4.2:1 (`color-contrast`), missing `<main>` landmark
+  (`landmark-one-main`), missing meta description, malformed a11y tree
+  (agents). This partially closes the §8 "no axe-core/full a11y scan"
+  blind spot with instrumented evidence. Performance + PWA categories
+  remain unexposed by any MCP on this box (PWA standards stay enforced by
+  the unified audit's pwa-manifest gate + the 1.10.3/1.13.1 runtime
+  offline proofs).
+- **Doctrine rules vs codebase**: rule 1 (sensor truth local) and rule 4
+  (no MCP in ship surface) verified mechanically — MCP terms exist ONLY in
+  the three sanctioned retention surfaces; zero hits in
+  index.html/sw.js/worker.js/fuel-stations.js; csp-audit 0 gaps.
+- **Doctrine amendment recorded (§12 verification protocol)**: the
+  initialize handshake proves protocol, NOT per-tool output schemas — the
+  osm-server Nominatim breakage (handshake OK at install, 3 tools dead on
+  first real call) is the canonical lesson: first-real-call probing is
+  the true verification tier. §12 rule 2 now says so.
+
+### 1.14.0 stable drive rotation (the 2026-09-27 WIP, shipped by this release)
+
+User report driving it: *"the map jitters, the arrow is pointing sideways,
+near google map feel is none existent"*. Root cause: rotation chased the
+MagHeadingFuser output — magnetometer-weighted below ~10 km/h, and the
+magnetometer inside a CAR is distorted by the vehicle frame (tens of
+degrees, oscillating); every crawl wobbled the map, every stop latched a
+wrong angle. Google rotates from GNSS course and freezes when stopped:
+
+- **`state.mapHeading` — the new rotation authority** (map + position
+  arrow). GNSS COG accepted ONLY at/above `DRIVE_ROT_MIN_KMH = 8`; below
+  the gate the rotation FREEZES (a stop light must not rotate the map);
+  below the gate a calibrated magnetometer may drive it ONLY when
+  `MagHeadingFuser.offsetConfidence >= 0.5` (uncalibrated mag in a steel
+  frame is garbage; freeze beats rotating to garbage). Single-fix COG
+  spikes (urban multipath) rejected unless they REPEAT:
+  `MAP_ROT_NEAR_CURRENT_DEG = 35` vs current, `MAP_ROT_SELF_CONSISTENT_DEG
+  = 25` vs the previous fix — a real turn sustains its new course on the
+  next fix, a glitch does not.
+- **Planted-feel lerp**: `timeConstant = moving ? 600 : 250` with a hard
+  rate cap `MAP_ROT_MAX_DEG_S = 30` — one noisy fix moves the map ~0.5°
+  before the next fix corrects it; a real 90° turn still converges in
+  ~2-3 s. Wrap-safe shortest-path delta across the north seam; deadband
+  0.3° → 0.5°.
+- **Arrow freeze during Drive Mode drag** (`_arrowFrozen`): `--hud-rot` is
+  lock-gated (frozen while a drag holds the map unlocked), so a
+  live-tracking arrow would rotate ON the frozen map and read sideways to
+  geography until re-lock. Map Mode (mode 0) always updates — north-up
+  map, arrow follows true heading.
+- **Dead-reckoning** now prefers mapHeading (the mag-influenced fused
+  lastHeading projected the visual position sideways between fixes — the
+  "extreme corrective heading" lateral jitter); legacy chain kept as
+  fallback (1.13.x boot parity — `mapHeading ?? cumulativeHeading`).
+
+### 1.14.0 purge immediate feedback (WIP, shipped by this release)
+
+User report: *"purge button is broken again"* — the old flow sat SILENT
+behind the ≤12 s GPS re-ask; a visibly-dead-for-seconds tap reads as a
+broken button. The modal now flips to a progress state on the same tick as
+the tap (body text swaps, both buttons disable, the hint line narrates each
+phase), and the GPS re-ask fires ONLY when `navigator.permissions` reports
+`'prompt'` — granted/denied skip the dead wait (granted purge: ~12 s →
+<1 s). `location.reload(true)` → `location.reload()` (the arg is
+deprecated).
+
+### 1.14.0 verdict basis (this session — completing the half-landed WIP)
+
+The 19:39 deploy shipped a `#focus-verdict-basis` markup block with NO
+writer. This session wrote it: `DOM.focusVerdictBasis` cache entry + a
+focus-cadence writer composing the headline's reasoning — the trigger
+line (radar/ensemble sources, observed code, or the demoted single-source
+claim with its refutation), the radar measurement (echo class + mm/h, or
+clear, or no-coverage abstention), the METAR station note, the
+models-vs-measurements tie-break line, and the ensemble quorum state.
+First block in the analysis reading order: Verdict Basis → Node Health →
+Model Matrix → 6H Outlook → envelope → plot. Runtime-proven live at the
+user's pin: *"Verdict OVERCAST — observed code 3 · Radar clear — no echo
+over pin · Station RPLL 36km: no precip · Ensemble 0% wet · quorum ok"*.
+
+### Fluidity G1 rate-cap contract (conscious §1.6 revision, proven both directions)
+
+The WIP's `tc 600/250` fails the 1.8.0-era G1 sim-ratio rule (ratio
+0.026 < 0.08 — that rule was authored when the heading lerp was uncapped
+and had to look glued to GPS). The 1.14.0 design inverts the priority
+deliberately: rotation is a rate-limited cinematic glide. The G1 rule now
+accepts a slow tc ONLY when the SAME block applies a hard rate cap
+(`maxStepD` from `CONFIG.rateCapConst`, cap ≤
+`CONFIG.maxPlantedRateDegS = 90°/s`) — a capped slow lerp is bounded
+glide, an uncapped one is still lag and still FAILs. New
+`tests/verify-scanners.mjs` PHASE F controls prove both directions:
+uncapped 600:250 injected → FAIL (exit 2); the same tc WITH the cap →
+PASS. Not a weakening: the negative control pins the boundary. Sanity
+guard pins the production `timeConstant = moving ? 600 : 250` + cap
+application lines so they cannot silently change again.
+
+### Changes (files)
+
+- `index.html` — verdict-basis writer (DOM cache + focus-cadence block);
+  the rotation/purge WIP was already in the tree from the 2026-09-27
+  session (committed by the 19:39 auto-update, documented above).
+- `tests/ui-fluidity-audit.mjs` — G1 rate-cap contract (CONFIG.rateCapConst
+  / maxPlantedRateDegS, block-local cap detection, acceptance log line).
+- `tests/verify-scanners.mjs` — +2 PHASE F controls (24 → 26).
+- `tests/sanity.test.js` — +13 guards (309 → 322): rotation authority,
+  COG gate, rate cap, fallback parity, planted-feel tc, cap application,
+  arrow freeze, calibrated-mag gate, purge prompt-gate, purge feedback
+  text, verdict-basis element + cache + writer line.
+- `VERSION` → 1.14.0, `package.json` synced, `sw.js` `APP_CACHE` `v18` →
+  `v19` (the deploy-gap fix — the 19:39 deploy shipped a new index.html
+  under v18, so installed clients never fetched it), `AGENTS.md` §11
+  numbers + §5.6 G1 contract + §12 verification-protocol amendment,
+  `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **322/322** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (extract+parse OK module 880..10300 / 647439 B,
+  TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, DOM-null 0, visual PASS —
+  single `--hud-rot` writer intact through the rotation rework, shell
+  PASS) · `npm run audit:verify` **26/26** (PHASE F both green) ·
+  `npm run audit:fluidity` **Perfection PASS (0 stairs, 0 janks)** with
+  the acceptance line: "rate-capped planted-feel lerp accepted: tc
+  600/250 ms bounded by MAP_ROT_MAX_DEG_S=30°/s ≤ 90°/s" ·
+  `node tests/audit-unified.mjs` 37 checks Pipeline PASS + Perfection
+  PASS · `npm run precheck` green (Tailwind v4.3.3).
+- **Runtime pass (chrome-devtools MCP, local serve, emulated GPS at the
+  user's pin)**: boot → header badge v1.14.0 (VERSION hydration), full
+  telemetry live, verdict basis rendering in focus · heading 200° →
+  `--hud-rot`/`--user-heading` glide in lockstep at the observed ~30°/s
+  cap rate (twice: -74.5° at 2.5 s into a 160° target, then -159.5 →
+  -118.5 on the second injection) · Drive↔Map mode toggles: entry seed
+  -159.5° (heading-up at z17, honoring DRIVE_NORTH_Z), Map Mode north-up
+  + arrow-follow · **SW activated + controlling, cache
+  `meteonexus-app-v19` live** · **0 red console errors** across the whole
+  session (boot, focus, injections, mode toggles).
+- **Fetch Gate §6**: not re-triggered by §2 (no fetch URLs/triggers
+  touched — display + rotation + purge UX only); the same-session
+  chrome-devtools pass captured the full fetch evidence on this exact
+  tree: 9 origins HTTP 200, `#hud-glance-temp` "26°C", telemetry values
+  on every surface, 0 red errors.
+- Lighthouse (chrome-devtools wrapper): A11y 91 / BP 100 / SEO 91 /
+  Agentic 48 (mobile, localhost lab conditions — see audit section).
+
+### Blind spots considered (§8)
+
+Races: mapHeading is written only on the GPS tick chain (single-threaded,
+1 Hz); the lerp consumes it read-only on the rAF chain; `_prevCog` is
+written after the accept decision on the same tick — no interleaving
+window. Leaks: no listeners/timers added. Coercion: every COG/heading
+comparison is wrap-safe shortest-path; `mapHeading !== null` gates all
+null paths (boot parity proven live). Unhandled rejections: purge
+permission query + fix wrapped in try/catch with debug silencers (the
+documented pattern). Perf: the follow block computes `_rotTarget` once
+per frame (one ternary); the rate cap is two arithmetic ops. A11y: the
+verdict-basis block is display-only analysis (focus surface), no new
+live-region demands. Visual compositing: single `--hud-rot` writer
+preserved (audit:visual inventory byte-stable); `--user-heading` arrow
+freeze is display-gating only, not a new writer. Doctrine residual: the
+osm-server Nominatim tools stay broken until upstream fixes the output
+schema (the doctrine-mandated Overpass class works; agent-side geocode
+falls back to geoapify once `GEOAPIFY_API_KEY` is set, or
+`openstreetmap_query_*`); the danielsogl lighthouse runner stays blocked
+by the Windows `\\?\` platform bug — the chrome-devtools wrapper path is
+the working substitute recorded above.
+
+### PENDING (user device)
+
+Planted-feel rotation during real driving (the COG authority needs
+driving speed — the emulator has none: freeze-below-8-kmh at stops,
+spike rejection on urban multipath, 90° turn convergence ~2-3 s, no
+crawl-speed wobble) · drag-unlock → RECENTER chip → re-lock cycle with
+the arrow freeze (synthetic events cannot drive Leaflet's drag — the
+1.13.2 session used Playwright real drags; the mechanism is
+scanner/guard-pinned and unchanged) · purge flow end-to-end on device
+(progress narration + prompt-state GPS re-ask) · verdict basis across
+verdict branches (rain onset, suppression tie-break, thin quorum) ·
+second boot SWR speed + v19 update path on the installed client ·
+`GITHUB_TOKEN` user env var (github MCP dark until set) · optional
+`GEOAPIFY_API_KEY`.
+
+---
+
 ## 1.13.2 — 2026-09-26 (patch: four-agent audit round — radar sampler window, recenter chain, METAR honesty, fetch-path latency)
 
 ### Bump rationale

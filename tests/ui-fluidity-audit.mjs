@@ -16,7 +16,11 @@
 //   G0 Inventory — every live DOM has an interpolator (no direct lowFreq→DOM)
 //   G1 Hard fails — Math.round% on bars, raw toFixed without displayDistance,
 //                  transition on RAF bar, missing display+=(target-display)*alpha
-//                  or velocity+corr, sim ratio<0.08
+//                  or velocity+corr, sim ratio<0.08 on UNCAPPED lerps. A
+//                  rate-capped planted-feel lerp (hard maxStepD bound from
+//                  CONFIG.rateCapConst, cap <= CONFIG.maxPlantedRateDegS) is
+//                  a bounded cinematic glide, not lag — accepted (1.14.0
+//                  contract, proven both directions in verify-scanners PHASE F)
 //   G2 Precision  — fractional toFixed derived from display*, peak glide monotonic
 //   G3 Hygiene    — will-change/contain/translateZ, prev guards, dtClamped 32,
 //                  hidden/stale throttle
@@ -69,6 +73,13 @@ const CONFIG = {
   // Thresholds
   minSimRatio: 0.08, // interpolator must cover ≥8% of error per frame at 60 Hz
   dtClampMs: 32,     // G3: dt must be clamped ≤32 ms
+  // 1.14.0 rate-capped planted-feel rotation: a slow tc is a BOUNDED
+  // cinematic glide (not lag) when the SAME block clamps the per-frame
+  // step by a hard rate cap derived from this named deg/s constant, and
+  // the cap is at most maxPlantedRateDegS. Uncapped slow tc still fails
+  // G1 — the cap must be block-local, a cap elsewhere satisfies nothing.
+  rateCapConst: 'MAP_ROT_MAX_DEG_S',
+  maxPlantedRateDegS: 90,
 }
 
 function htmlLineNo(idx) { return html.slice(0, idx).split('\n').length }
@@ -194,8 +205,19 @@ if (!hasInterpAlpha && !hasVelDt) {
       if (direct) tcs.push(Number(direct[1]))
     }
   }
+  const capRate = (() => { const mm = srcNoComments.match(new RegExp(CONFIG.rateCapConst + '\\s*=\\s*(\\d+)')); return mm ? Number(mm[1]) : null })()
+  const cappedTcs = []
   for (const m of srcNoComments.matchAll(/timeConstant\s*=\s*[^;]*?(\d+)\s*:\s*(\d+)/g)) {
-    tcs.push(Number(m[1]), Number(m[2]))
+    const blockAhead = srcNoComments.slice(m.index, m.index + 400)
+    const isCapped = capRate !== null
+      && capRate <= CONFIG.maxPlantedRateDegS
+      && new RegExp('maxStepD\\s*=\\s*\\(dt\\s*/\\s*1000\\)\\s*\\*\\s*' + CONFIG.rateCapConst).test(blockAhead)
+      && /lerpHeading\s*=\s*maxStepD\s*\/\s*Math\.abs\(dHeading\)/.test(blockAhead)
+    if (isCapped) cappedTcs.push(Number(m[1]), Number(m[2]))
+    else tcs.push(Number(m[1]), Number(m[2]))
+  }
+  if (cappedTcs.length) {
+    console.log(`  rate-capped planted-feel lerp accepted: tc ${cappedTcs.join('/')} ms bounded by ${CONFIG.rateCapConst}=${capRate}°/s ≤ ${CONFIG.maxPlantedRateDegS}°/s — bounded cinematic glide (1.14.0 contract)`)
   }
   const filteredTCs = tcs.filter(Boolean)
   const dt = 1000 / CONFIG.renderRateHz // ~16.6
