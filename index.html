@@ -490,6 +490,21 @@
 
                         <!-- FOCUS-ONLY: diagnostics revealed in fullscreen -->
                         <div class="focus-only flex-col gap-4">
+                            <!-- 1.14.0 VERDICT BASIS (user-directed): the glance
+                                 desc is now a confident one-line verdict; the
+                                 full reasoning — which sources triggered the
+                                 headline, the station observation, the
+                                 tie-break/suppression notes — lives HERE in
+                                 the analysis surface, not under the driver's
+                                 glance. -->
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em]">Verdict Basis</div>
+                                    <span class="text-[8px] text-gray-600 uppercase tracking-widest">why the headline says what it says</span>
+                                </div>
+                                <div id="focus-verdict-basis" class="hidden text-[10px] font-mono text-gray-400 uppercase tracking-widest"></div>
+                            </div>
+
                             <div class="flex flex-wrap justify-between items-center gap-2">
                                 <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
                                 <span id="metric-temp-spread" class="text-[10px] font-mono font-bold uppercase tracking-widest text-gray-500"></span>
@@ -813,11 +828,11 @@
     <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
             <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
-            <p class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations, clear all cached data, and restart the system. Proceed?</p>
+            <p id="purge-confirm-text" class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations, clear all cached data, and restart the system. Proceed?</p>
             <p id="purge-gps-hint" class="hidden"></p>
             <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
-                <button onclick="closeModal('custom-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
-                <button onclick="executePurge()" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
+                <button id="purge-cancel-btn" onclick="closeModal('custom-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
+                <button id="purge-confirm-btn" onclick="executePurge()" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
             </div>
         </div>
     </div>
@@ -2311,6 +2326,14 @@
             autoCoords: null, targetCoords: null,
             visual: { lat: null, lon: null, heading: null },
             isMapLocked: true, lastHudLat: 0, lastHudLon: 0, cumulativeHeading: 0,
+            // 1.14.0 STABLE DRIVE ROTATION: mapHeading is the rotation authority
+            // for the map + position arrow (see the smoothVisualsLoop follow
+            // block). GNSS course-over-ground at driving speed; freezes at
+            // stops; calibrated-mag fallback below the gate. _prevCog feeds
+            // the single-fix spike filter. Null until a source first speaks —
+            // the follow block then falls back to cumulativeHeading (1.13.x
+            // boot parity).
+            mapHeading: null, _prevCog: null,
             // Idempotency flag for the rotated-drag predrag hook. Leaflet's Drag
             // handler creates _draggable lazily on first interaction, so the hook
             // must be installed the first time dragstart fires — not at initMap().
@@ -2831,6 +2854,25 @@ let delta = heading - state.lastHeading;
         // Same threshold class as Google Maps' navigation overview behavior.
         const DRIVE_NORTH_Z = 15;
 
+        // 1.14.0 STABLE DRIVE ROTATION gates (user report: "the map jitters,
+        // the arrow is pointing sideways, near google map feel is none
+        // existent"). Root cause: the rotation chased the MagHeadingFuser
+        // output, which is magnetometer-weighted below ~10 km/h — and the
+        // magnetometer in a CAR is distorted by the vehicle frame itself
+        // (tens of degrees, oscillating), while at a stop the fusion fell
+        // back to pure mag. Every crawl wobbled the whole map; every stop
+        // latched it to a wrong angle (the arrow points up by construction,
+        // so a wrongly-rotated map reads as an arrow pointing sideways ON
+        // the road). Google rotates from GNSS course and freezes when
+        // stopped; these gates implement exactly that:
+        const DRIVE_ROT_MIN_KMH = 8;          // COG accepted only at/above this (below: freeze)
+        const MAP_ROT_MAX_DEG_S = 30;         // rotation rate cap — planted feel; one
+                                              // noisy COG fix moves the map ~0.5° before
+                                              // the next fix corrects it
+        const MAP_ROT_NEAR_CURRENT_DEG = 35;  // single-fix jump tolerance vs current rotation
+        const MAP_ROT_SELF_CONSISTENT_DEG = 25; // repeat tolerance: a real turn sustains its
+                                              // new course on the NEXT fix, a glitch does not
+
         function smoothVisualsLoop(time) {
             // Do not reschedule when hidden — idle ~15% battery/hour saved.
             // The visibilitychange listener restarts the loop when the tab is visible.
@@ -2851,10 +2893,15 @@ let delta = heading - state.lastHeading;
             // text while parked with an active route (cursor advances and the
             // deadline ticks, but the display never updated). Skip only when
             // no tracking UI can be visible.
+            // 1.14.0: the rotation target is mapHeading when a stable source
+            // has ever spoken (COG / calibrated mag), else the live cumulative
+            // heading (1.13.x boot parity). Computed once; the pre-exit below
+            // and the follow block below both consume it.
+            const _rotTarget = state.mapHeading !== null ? state.mapHeading : state.cumulativeHeading;
             const _needTrackingUi = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0)) || (!state.isMapLocked && !!state.autoCoords);
             if (!_needTrackingUi && state.currentSpeed < 2 && state.rawSensorHeading === null) {
                 if (state.visual.heading !== null &&
-                    Math.abs(state.cumulativeHeading - state.visual.heading) <= 0.5) {
+                    Math.abs(_rotTarget - state.visual.heading) <= 0.5) {
                     return;
                 }
             }
@@ -2865,9 +2912,18 @@ let delta = heading - state.lastHeading;
             const moving = state.currentSpeed >= 2;
             if (moving && timeSinceFix > 0 && timeSinceFix < 3000) {
                 const speedMs = state.currentSpeed / 3.6;
-                const rawHeading = (state.lastHeading && !isNaN(state.lastHeading))
-                    ? state.lastHeading
-                    : (state.visual.heading !== null ? state.visual.heading : (state.cumulativeHeading || 0));
+                // 1.14.0: prefer the STABLE rotation authority (GNSS course,
+                // frozen at stops) for the dead-reckoning heading — the fused
+                // lastHeading is mag-influenced at city speeds and projected
+                // the visual position sideways between fixes, snapping back on
+                // every 1 Hz fix (the "extreme corrective heading" lateral
+                // jitter). Falls back to the legacy chain until a stable
+                // source has ever spoken.
+                const rawHeading = (state.mapHeading !== null)
+                    ? state.mapHeading
+                    : ((state.lastHeading && !isNaN(state.lastHeading))
+                        ? state.lastHeading
+                        : (state.visual.heading !== null ? state.visual.heading : (state.cumulativeHeading || 0)));
                 if (!isNaN(rawHeading)) {
                     const headingRad = rawHeading * (Math.PI / 180);
                     const projectedDistanceM = speedMs * (timeSinceFix / 1000);
@@ -2909,12 +2965,26 @@ let delta = heading - state.lastHeading;
                 }
             }
             if (state.visual.heading === null) {
-                state.visual.heading = state.cumulativeHeading;
+                state.visual.heading = _rotTarget;
             } else {
-                const dHeading = state.cumulativeHeading - state.visual.heading;
-                if (Math.abs(dHeading) > 0.3) {
-                    const timeConstant = moving ? 150 : 30;
-                    const lerpHeading = 1 - Math.exp(-dt / timeConstant);
+                // Wrap-safe shortest-path delta: mapHeading arrives as an
+                // absolute 0..360 angle (GNSS COG) while visual.heading lives
+                // in accumulator space — shortest-path keeps the turn
+                // direction correct across the north seam.
+                let dHeading = _rotTarget - state.visual.heading;
+                if (dHeading > 180) dHeading -= 360;
+                if (dHeading < -180) dHeading += 360;
+                if (Math.abs(dHeading) > 0.5) {
+                    // 1.14.0 planted feel: slow TC + a hard rate cap so a
+                    // single noisy COG fix barely moves the map before the
+                    // next fix corrects it, while a real 90° turn still
+                    // converges in ~2-3 s. The cap shrinks the effective
+                    // lerp alpha — same monotonic exp-lerp family (no
+                    // overshoot), just bounded in velocity.
+                    const timeConstant = moving ? 600 : 250;
+                    let lerpHeading = 1 - Math.exp(-dt / timeConstant);
+                    const maxStepD = (dt / 1000) * MAP_ROT_MAX_DEG_S;
+                    if (Math.abs(dHeading * lerpHeading) > maxStepD) lerpHeading = maxStepD / Math.abs(dHeading);
                     state.visual.heading += dHeading * lerpHeading;
                 }
             }
@@ -2969,7 +3039,13 @@ let delta = heading - state.lastHeading;
             // PERF-4/PERF-11: same discretization for the --user-heading CSS var.
             // Pre-declared numeric state fields eliminate the `|| 0` coercion.
             // Round-gate so the lerp tail doesn't trigger a write every frame.
-            if (state.visual.heading !== null) {
+            // 1.14.0: freeze the arrow while a Drive Mode drag holds the map
+            // unlocked — --hud-rot is frozen there (its writes are lock-gated),
+            // so a live-tracking arrow would rotate ON the frozen map and read
+            // sideways to the geography until re-lock. Map Mode (mode 0) always
+            // updates: north-up map, the arrow must follow the true heading.
+            const _arrowFrozen = state.tacticalMode > 0 && !state.isMapLocked;
+            if (!_arrowFrozen && state.visual.heading !== null) {
                 const arrowRounded = Math.round(state.visual.heading * 10) / 10;
                 if (arrowRounded !== state.lastArrowHeading) {
                     DOM.hudMap.style.setProperty('--user-heading', `${arrowRounded}deg`);
@@ -4557,12 +4633,53 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
                             }
+                            // 1.14.0 STABLE DRIVE ROTATION — the map + arrow
+                            // authority (user report: jitter + sideways arrow).
+                            // GNSS course-over-ground is the ONLY accepted source
+                            // at driving speed: the car-frame magnetometer is
+                            // soft/hard-iron distorted, and its weight in the
+                            // blend above made the MAP wobble at crawl speed.
+                            // Below the gate mapHeading FREEZES (a stop light
+                            // must not rotate the map). Single-fix COG spikes
+                            // (urban-canyon multipath) are rejected unless they
+                            // REPEAT: a real turn sustains its new course on the
+                            // next fix, a glitch does not.
+                            if (state.currentSpeed >= DRIVE_ROT_MIN_KMH) {
+                                let hDelta = 0;
+                                if (state.mapHeading !== null) {
+                                    hDelta = gpsHeading - state.mapHeading;
+                                    if (hDelta > 180) hDelta -= 360;
+                                    if (hDelta < -180) hDelta += 360;
+                                }
+                                const prevCOG = state._prevCog;
+                                let selfConsistent = false;
+                                if (prevCOG !== null) {
+                                    let cDiff = gpsHeading - prevCOG;
+                                    if (cDiff > 180) cDiff -= 360;
+                                    if (cDiff < -180) cDiff += 360;
+                                    selfConsistent = Math.abs(cDiff) <= MAP_ROT_SELF_CONSISTENT_DEG;
+                                }
+                                if (state.mapHeading === null || Math.abs(hDelta) <= MAP_ROT_NEAR_CURRENT_DEG || selfConsistent) {
+                                    state.mapHeading = gpsHeading;
+                                }
+                                state._prevCog = gpsHeading;
+                            }
                         } else if (state.sensorHeading !== null) {
                             const fused = MagHeadingFuser.fuse(null, state.sensorHeading, state.currentSpeed, accuracy, 99999);
                             if (fused !== null) {
                                 state.renderHeading = fused;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
+                            }
+                            // 1.14.0: below driving speed the rotation follows
+                            // ONLY a calibrated magnetometer — the GPS-learned
+                            // residual offset must have converged (confidence
+                            // >= 0.5). Uncalibrated mag inside a vehicle is
+                            // tens of degrees off; freezing beats rotating to
+                            // garbage. Covers handheld/pedestrian use where the
+                            // phone is NOT bolted into a steel frame.
+                            if (MagHeadingFuser.offsetConfidence >= 0.5) {
+                                state.mapHeading = MagHeadingFuser.applyOffset(state.sensorHeading);
                             }
                         }
                         
@@ -5939,6 +6056,24 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // chain twice (idempotent writes, but a doubled raced reload).
             if (window._purgeRunning) return;
             window._purgeRunning = true;
+            // 1.14.0 IMMEDIATE FEEDBACK (user report: "purge button is broken
+            // again"): the old flow sat SILENT behind the ≤12 s GPS re-ask
+            // before the wipe — a tap that visibly does nothing for seconds
+            // reads as a dead button, and the latch made retries look dead
+            // too. The modal now flips into a progress state on the same
+            // tick as the tap: body text swaps, both buttons disable, and
+            // the hint line narrates each phase.
+            const _pText = document.getElementById('purge-confirm-text');
+            const _pHint = DOM.purgeGpsHint;
+            const _pCancel = document.getElementById('purge-cancel-btn');
+            const _pConfirm = document.getElementById('purge-confirm-btn');
+            if (_pText) updateText(_pText, 'PURGING LOCAL DATA — THE APP WILL RESTART SHORTLY.');
+            if (_pCancel) { _pCancel.disabled = true; _pCancel.style.opacity = '0.4'; _pCancel.style.pointerEvents = 'none'; }
+            if (_pConfirm) { _pConfirm.disabled = true; _pConfirm.style.opacity = '0.6'; _pConfirm.textContent = 'PURGING…'; }
+            if (_pHint) {
+                updateClass(_pHint, 'text-xs font-mono font-bold mt-1 mb-2 text-brand-warning');
+                updateText(_pHint, 'STOPPING BACKGROUND TASKS…');
+            }
             // Freeze writers BEFORE the wipe: the background tile prefetcher
             // holds OPEN Cache handles (caches.open survives caches.delete —
             // the name is recreated on the next put), so a mid-purge prefetch
@@ -5947,19 +6082,30 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // clearing the queue flag stops the finally-chain from reviving it.
             try { if (state._prefetchAbort) state._prefetchAbort.abort(); state._prefetchQueued = false; }
             catch (e) { console.debug('Pre-purge prefetch abort failed:', e && e.message); }
-            // GPS re-request FIRST: if the browser permission is still in
-            // "prompt" state this re-shows the browser prompt; if denied it
-            // fails fast (only a site-settings flip resets a denial — no
-            // in-page API can). Granted → the reload below boots straight into
-            // a fix. Best-effort: the purge+reload proceeds regardless.
-            try { await requestGpsFixOnce(10000); } catch (e) { console.debug('Pre-purge GPS re-request failed:', e && e.message); }
+            // GPS re-request ONLY when the permission is still "prompt" — the
+            // one state where the wait has value (the browser prompt re-shows
+            // and the answer persists across the reload). GRANTED gains
+            // nothing from a 10 s fix wait here (the result was discarded);
+            // DENIED fails fast anyway. Skipping the wait takes a granted
+            // purge from ~12 s of silence to <1 s.
+            let permState = null;
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    permState = (await navigator.permissions.query({ name: 'geolocation' })).state;
+                }
+            } catch (e) { console.debug('Pre-purge permission query failed:', e && e.message); }
+            if (permState === 'prompt') {
+                if (_pHint) updateText(_pHint, 'RE-ASKING BROWSER FOR GPS — TAP ALLOW IF PROMPTED…');
+                try { await requestGpsFixOnce(6000); } catch (e) { console.debug('Pre-purge GPS re-request failed:', e && e.message); }
+            }
+            if (_pHint) updateText(_pHint, 'WIPING CACHES + STORAGE…');
             try {
                 localStorage.clear(); sessionStorage.clear();
                 if (window.localforage) await localforage.clear();
                 if ('caches' in window) { const cacheNames = await caches.keys(); await Promise.all(cacheNames.map(name => caches.delete(name))); }
                 if ('serviceWorker' in navigator) { const registrations = await navigator.serviceWorker.getRegistrations(); for (let r of registrations) await r.unregister(); }
             } catch(e) { console.error('Purge partially failed:', e); }
-            finally { window.location.reload(true); }
+            finally { window.location.reload(); }
         };
 
         async function enforcePersistentStorage() {

@@ -7,7 +7,8 @@ survives the evidence tiers below.
 
 Session start: read this file + HISTORY.md (especially "How to bump version
 in a new session" and "How to audit changes like a developer") + VERSION +
-ARCHITECTURE.md.
+ARCHITECTURE.md. The MCP tooling doctrine (sec 12) is binding source of
+truth in every session - retain it at all cost.
 
 ## 0. Doctrine - what "audited" means
 
@@ -287,7 +288,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.13.2, 2026-09-26)
 
-- sanity.test.js - 281 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 309 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -298,7 +299,9 @@ From HISTORY.md "How to bump version in a new session":
   direct-write liveness guard, +8 from the 1.13.0 route-node radar + METAR
   (incl. 2 guards consciously extended: corroboration + node elevation),
   +4 from the 1.13.1 tie-break + zoom re-center (incl. 1 revised), +9 from
-  the 1.13.2 four-agent audit round (incl. 1 revised entry-seed guard))
+  the 1.13.2 four-agent audit round (incl. 1 revised entry-seed guard),
+  +28 MCP-doctrine retention guards 2026-09-27 (AGENTS.md sec 12 +
+  opencode.json mcp block, user-directed source of truth))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
@@ -314,3 +317,64 @@ From HISTORY.md "How to bump version in a new session":
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.
+
+## 12. MCP tooling doctrine - source of truth (binding in every session)
+
+The table below is the user-directed source of truth (2026-09-27) for which
+MCP answers which job. It must be retained in every session, at all cost.
+Retention is triple: this charter (loaded every session via `instructions`),
+the `opencode.json` `mcp:` block, and the sanity guards in tests/sanity.test.js
+that make silent deletion loud (the `state.lastCssHeading` precedent applied
+to tooling). All three files are git-tracked; restore from git if ever lost.
+
+| Job | MCP | Why |
+|---|---|---|
+| Live library docs | Context7 | MapLibre, Leaflet, vis.gl, geomagnetism — stops hallucinated APIs |
+| Specs | W3C/WHATWG MCP | Service Worker, Web App Manifest, Sensor / Device Orientation |
+| PWA audit | Lighthouse MCP | Installability, HTTPS, SW — not sensors |
+| Device QA | Chrome DevTools MCP | GPS emulation, sensors, Permissions-Policy |
+| Tiles / routing | OSRM or Nominatim / OSM | Backend only. Do not put compass on a server |
+| Places (optional) | Google Maps / Geoapify MCP | Geocode/places. Heading still local |
+
+Verified wiring - every entry was proven two ways on 2026-09-27 before
+install: `npm view` (package exists on the registry) + a live MCP initialize
+handshake (server launches and speaks the protocol). No package is wired on
+name-recognition. Standing counter-example: `@googlemaps/mcp` returns npm
+404 - Google's official Maps MCP is not npm-distributed and this box has
+neither uv nor docker, so Geoapify, the listed alternative, takes the
+Places slot.
+
+| opencode key | Launch (`npx -y <package>`) | Verified | Notes |
+|---|---|---|---|
+| `context7` | `@upstash/context7-mcp` | v4.1.1, handshake OK | Keyless (rate-limited); optional `--api-key`. Prefer over web search for library/API docs. |
+| `w3c` | `@shuji-bonji/w3c-mcp` | v0.3.0, handshake OK | Serves W3C's own `@webref` corpus (IDL/CSS/elements) - spec answers, not blog paraphrases. |
+| `lighthouse` | `@danielsogl/lighthouse-mcp` | v2.0.1, handshake OK | Chrome auto-managed; `CHROME_PATH` env override supported. |
+| `chrome-devtools` | `chrome-devtools-mcp@latest` | in config since 1.8.x | GPS emulation, sensors, Permissions-Policy, network inspection. |
+| `openstreetmap` | `@cyanheads/openstreetmap-mcp-server` | v0.5.2, handshake OK | Nominatim geocode/reverse + Overpass queries (6 tools); default `OSM_USER_AGENT` honors Nominatim policy. Route engines (OSRM/Valhalla) stay in-app fetches. |
+| `geoapify` | `@pipeworx/mcp-geoapify` | v0.1.2, handshake OK | Initializes keyless; real calls need `GEOAPIFY_API_KEY` as a user env var (free tier) - the npx child inherits it. |
+
+The `opencode.json` entry IS the installation: `npx -y` streams and caches
+the package on first use; nothing is installed globally.
+
+Rules (binding):
+
+1. Sensor-side truth never goes through an MCP server. Compass, heading
+   fusion, and GPS smoothing stay on-device (MagHeadingFuser,
+   deviceorientation, watchPosition). Servers serve backend data only:
+   geocode, POI, docs, specs, audits, device emulation. The phone is the
+   sensor; a server cannot feel a magnetometer.
+2. Before adding any new MCP server: prove it exists (`npm view <pkg>`) and
+   test-launch it (initialize handshake over stdio). This doctrine exists
+   to stop hallucinated APIs - it must not ship a hallucinated server.
+3. Context7 over web search for library/API docs; the W3C server over blog
+   paraphrases for spec questions (Service Worker, Web App Manifest,
+   Sensors, DeviceOrientation all live in webref).
+4. These MCPs run in opencode's process space. They never touch the app's
+   CSP, sw.js precache, or ship surface - editing opencode.json alone
+   triggers no audit pipeline (sec 2 covers index.html/worker.js/sw.js/
+   tests/).
+5. After editing opencode.json, restart opencode - config loads once at
+   startup; a running session keeps the already-loaded config.
+6. `playwright` and `github` (pre-existing config) remain: playwright is
+   the 390x844 visual-regression rig for /audit; github is the repo
+   remote. Same retention rules apply.

@@ -583,6 +583,53 @@ if (manifest) {
 }
 
 // ---------------------------------------------------------------------------
+// MCP tooling doctrine retention (AGENTS.md §12 + opencode.json mcp block)
+// User directive 2026-09-27: the doctrine table is source of truth and must
+// survive every session, at all cost. Every package was npm-viewed AND
+// test-launched (MCP initialize handshake) before wiring — no hallucinated
+// servers. These guards make silent deletion loud (the state.lastCssHeading
+// precedent applied to session tooling).
+// ---------------------------------------------------------------------------
+const agentsMd = readFileSync(join(repoRoot, "AGENTS.md"), "utf8");
+assertIncludes(agentsMd, "## 12. MCP tooling doctrine", "AGENTS.md declares the §12 MCP doctrine header (binding source of truth in every session)");
+assertIncludes(agentsMd, "@upstash/context7-mcp", "§12 pins context7 (live library docs: MapLibre, Leaflet, vis.gl, geomagnetism — stops hallucinated APIs)");
+assertIncludes(agentsMd, "@shuji-bonji/w3c-mcp", "§12 pins w3c (Service Worker, Web App Manifest, Sensor / Device Orientation via webref)");
+assertIncludes(agentsMd, "@danielsogl/lighthouse-mcp", "§12 pins lighthouse (PWA audit: installability, HTTPS, SW — not sensors)");
+assertIncludes(agentsMd, "chrome-devtools-mcp", "§12 pins chrome-devtools (device QA: GPS emulation, sensors, Permissions-Policy)");
+assertIncludes(agentsMd, "@cyanheads/openstreetmap-mcp-server", "§12 pins openstreetmap (tiles/routing backend: Nominatim + Overpass)");
+assertIncludes(agentsMd, "@pipeworx/mcp-geoapify", "§12 pins geoapify (optional places: geocode)");
+assertIncludes(agentsMd, "Do not put compass on a server", "§12 keeps the boundary rule: compass/heading never goes through an MCP server");
+assertIncludes(agentsMd, "Heading still local", "§12 keeps the heading-local rule on the places row");
+
+const opencodeJsonRaw = readFileSync(join(repoRoot, "opencode.json"), "utf8");
+let opencodeCfg;
+try {
+  opencodeCfg = JSON.parse(opencodeJsonRaw);
+  assert(true, "opencode.json parses as JSON");
+} catch (err) {
+  assert(false, "opencode.json parses as JSON — " + err.message);
+}
+if (opencodeCfg && opencodeCfg.mcp) {
+  for (const key of ["playwright", "github", "chrome-devtools", "context7", "w3c", "lighthouse", "openstreetmap", "geoapify"]) {
+    assert(Object.prototype.hasOwnProperty.call(opencodeCfg.mcp, key), `opencode.json mcp block has '${key}'`);
+  }
+  const doctrineServers = {
+    context7: "@upstash/context7-mcp",
+    w3c: "@shuji-bonji/w3c-mcp",
+    lighthouse: "@danielsogl/lighthouse-mcp",
+    openstreetmap: "@cyanheads/openstreetmap-mcp-server",
+    geoapify: "@pipeworx/mcp-geoapify"
+  };
+  for (const [key, pkg] of Object.entries(doctrineServers)) {
+    const srv = opencodeCfg.mcp[key];
+    assert(!!srv && srv.enabled === true, `opencode.json mcp '${key}' is enabled`);
+    assert(!!srv && Array.isArray(srv.command) && srv.command.join(" ").includes(pkg), `opencode.json mcp '${key}' launches ${pkg}`);
+  }
+} else {
+  assert(false, "opencode.json has an mcp block");
+}
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 console.log("");
