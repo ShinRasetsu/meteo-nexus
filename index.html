@@ -942,6 +942,26 @@
             throw new Error(`Fetch failed after ${retries} retries: ${url}`);
         };
 
+        // 1.14.1: body-read budget. fetch() resolves at HEADERS and
+        // fetchWithRetry clears its per-attempt timer there — a response
+        // whose body then stalls (torn-down mobile link, proxy hiccup)
+        // left the caller awaiting body() until the browser killed the
+        // socket (minutes). The radar/METAR/AQ/marine/weather callers sit
+        // INSIDE the single-flight latch, so one stalled origin froze ALL
+        // telemetry (no retry even fired). Race the body read against its
+        // own timer; a stall resolves null — every caller already treats
+        // null as "no data" (the never-throw contract).
+        async function readBodyOrNull(res, ms, reader) {
+            try {
+                if (!res) return null;
+                const body = await Promise.race([
+                    reader(res),
+                    new Promise(resolve => setTimeout(() => resolve(null), ms))
+                ]);
+                return body || null;
+            } catch (e) { return null; }
+        }
+
         // --- SIBLING APIs (Open-Meteo family: air-quality, marine, geocoding,
         // elevation) ---
         // Same conventions as the forecast API (free, keyless, same JSON
@@ -954,7 +974,9 @@
         async function fetchSiblingJSON(label, url, timeoutMs = 10000) {
             try {
                 const r = await fetchWithRetry(url, { priority: 'low', timeout: timeoutMs }, 1, 500);
-                return await r.json();
+                // 1.14.1: body raced (see readBodyOrNull) — siblings sit inside
+                // the fetch latch; a headers-then-stall body must not freeze it.
+                return await readBodyOrNull(r, timeoutMs + 3000, x => x.json());
             } catch (e) { console.debug(`[sibling:${label}] unavailable:`, e && e.message); return null; }
         }
 
@@ -1043,9 +1065,10 @@
             } catch (_) { /* cache read is best-effort */ }
             let covered = null;
             try {
-                const url = `${CONFIG.radarTileHost}/v2/coverage/0/256/7/${lat}/${lon}/0/0_0.png`;
+                const url = `${CONFIG.radarTileHost}/v2/coverage/0/256/7/${lat}/${lon}/0/0.png`;
                 const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
-                const blob = await r.blob();
+                const blob = await readBodyOrNull(r, 8000, x => x.blob());
+                if (!blob) return null;
                 const bmp = await createImageBitmap(blob);
                 const cv = document.createElement('canvas');
                 cv.width = bmp.width; cv.height = bmp.height;
@@ -1089,11 +1112,17 @@
                 const frame = past[past.length - 1];
                 const covered = await fetchRadarCoverage(lat, lon);
                 if (covered === null) return null;          // unknown coverage → no vote
-                if (covered === false) return { covered: false, cls: null, mmh: null, frameTime: frame.time, ts: Date.now() };
+                // 1.14.1: stamp the sample's position — the verdict's
+                // displacement gate (fetch-side move trigger is 5 km) must be
+                // able to reject a backfilled/restored sample taken up to
+                // ~25 km behind the driver (fresh-by-age alone let a clear
+                // sky measured 20 km back suppress model rain claims here).
+                if (covered === false) return { covered: false, cls: null, mmh: null, frameTime: frame.time, ts: Date.now(), lat, lon };
                 const latS = lat.toFixed(6), lonS = lon.toFixed(6);
                 const url = `${CONFIG.radarTileHost}${frame.path}/256/7/${latS}/${lonS}/2/1_1.png`;
                 const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
-                const blob = await r.blob();
+                const blob = await readBodyOrNull(r, 8000, x => x.blob());
+                if (!blob) return null;
                 const bmp = await createImageBitmap(blob);
                 const cv = document.createElement('canvas');
                 cv.width = bmp.width; cv.height = bmp.height;
@@ -1114,10 +1143,10 @@
                 if (bestA < 100) {
                     // Covered + no echo = the measurement that settles
                     // "sunny drizzle" disputes: radar-clear.
-                    return { covered: true, cls: null, mmh: 0, frameTime: frame.time, ts: Date.now() };
+                    return { covered: true, cls: null, mmh: 0, frameTime: frame.time, ts: Date.now(), lat, lon };
                 }
                 const m = radarClassForPixel(img[bi], img[bi + 1], img[bi + 2]);
-                return { covered: true, cls: m.cls, mmh: m.mmh, frameTime: frame.time, ts: Date.now() };
+                return { covered: true, cls: m.cls, mmh: m.mmh, frameTime: frame.time, ts: Date.now(), lat, lon };
             } catch (e) { console.debug('[radar] sample failed:', e && e.message); return null; }
         }
 
@@ -1275,7 +1304,8 @@
                 }
                 if (!best || bestD > 150000) return null; // >150 km — no representative station
                 const r = await fetchWithRetry(`${CONFIG.edgeProxy}/metar?ids=${best.id}`, { priority: 'low', timeout: 5000 }, 1, 500);
-                const j = await r.json();
+                const j = await readBodyOrNull(r, 8000, x => x.json());
+                if (!j) return null;
                 const m = Array.isArray(j) ? j[0] : (j && j.icaoId ? j : null);
                 if (!m || !m.icaoId) return null;
                 const obsTime = (typeof m.obsTime === 'number') ? m.obsTime * 1000 : null;
@@ -1455,6 +1485,11 @@
                 const ln = nodes[nodes.length - 1];
                 if (lastSampledIdx !== nodes.length - 1) { lats.push(ln.lat); lons.push(lonOf(ln)); }
                 const j = await fetchSiblingJSON('elev', `${CONFIG.elevApi}?latitude=${lats.join(',')}&longitude=${lons.join(',')}`);
+                // 1.14.1: route-identity gate (the commitRouteRadarSample
+                // pattern) — a multi-second elevation fetch for a route that
+                // was swapped mid-flight must not commit the OLD profile (+
+                // its sig) over the new route's fresher result.
+                if (state.routeNodes !== nodes) return;
                 const arr = (j && Array.isArray(j.elevation) ? j.elevation : []).filter(v => typeof v === 'number');
                 if (!arr.length) { state.routeElev = null; return; }
                 // FIX: _lastElevSig was stamped BEFORE the fetch — a failed
@@ -2352,6 +2387,15 @@
             // 1.13.2: recenter-chain timers (were ad-hoc; F4-1.4.1b tracked these
             // from the start but never declared them).
             _recenterTimer: null, _recenterLockTimer: null, _recenterDeadline: null,
+            // 1.14.1: verdict-coord scratch — the coords the CURRENT payload was
+            // fetched for; the radar displacement gate compares restored samples
+            // against these, not against Date-of-sample (a fresh-but-25km-back
+            // sample must not vote on this pin). Null until a render is staged.
+            _verdictLat: null, _verdictLon: null,
+            // 1.14.1: the auto-prefetch 5s debounce timer id — purge must clear
+            // it (an armed timer inside the purge window mints a FRESH tile run
+            // whose cache.put re-lands tiles after caches.delete).
+            _prefetchDebounce: null,
             lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
             lastFetchAttempt: 0, isCachingMap: false, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null,
@@ -2804,7 +2848,8 @@ let delta = heading - state.lastHeading;
         //     compass drift < 0.5° accumulated, the entire frame body is skipped.
         //     Previously every frame unconditionally called setLatLng + transform
         //     checks even when nothing had moved — now most idle frames exit early.
-        //   • Marker redraw gated by a small deadband (~7cm²) — Leaflet.setLatLng
+        //   • Marker redraw gated by a small deadband (~1.1 m² — VISUAL_DEADBAND_SQ = 1e-10
+        //     deg² ≈ (1e-5°)²) — Leaflet.setLatLng
         //     triggers an internal layer transform recalculation; calling it
 //     unconditionally translates to ~60 recalc/s of pure wasted work when
     //     the user is stopped or moving below noise floor.
@@ -2901,8 +2946,15 @@ let delta = heading - state.lastHeading;
             const _rotTarget = state.mapHeading !== null ? state.mapHeading : state.cumulativeHeading;
             const _needTrackingUi = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0)) || (!state.isMapLocked && !!state.autoCoords);
             if (!_needTrackingUi && state.currentSpeed < 2 && state.rawSensorHeading === null) {
+                // 1.14.1: wrap-safe compare. visual.heading is an UNBOUNDED
+                // accumulator (only ever += shortest-path deltas) while
+                // _rotTarget can be an absolute [0,360) mapHeading — the raw
+                // |target - visual| compare re-fired on nothing after the
+                // first north-seam crossing (|10 - 370| = 360 > 0.5 forever),
+                // permanently disabling this pre-exit: full 60 fps frames
+                // while parked, the exact battery cost this exit saves.
                 if (state.visual.heading !== null &&
-                    Math.abs(_rotTarget - state.visual.heading) <= 0.5) {
+                    Math.abs(((_rotTarget - state.visual.heading) % 360 + 540) % 360 - 180) <= 0.5) {
                     return;
                 }
             }
@@ -2972,9 +3024,15 @@ let delta = heading - state.lastHeading;
                 // absolute 0..360 angle (GNSS COG) while visual.heading lives
                 // in accumulator space — shortest-path keeps the turn
                 // direction correct across the north seam.
-                let dHeading = _rotTarget - state.visual.heading;
-                if (dHeading > 180) dHeading -= 360;
-                if (dHeading < -180) dHeading += 360;
+                // 1.14.1: true modulo normalization. The old single ±360
+                // correction only handled |raw| ≤ 540° — after parking-lot
+                // laps / net turns accumulate >540° of offset, the first
+                // mapHeading write made the map cartwheel one-plus FULL 360°
+                // turns at the rate cap instead of taking the shortest path
+                // (a 720°-offset transition = a 12s spin at 30°/s, exactly
+                // when the driver starts moving). The modulo form maps ANY
+                // magnitude into (-180, 180].
+                let dHeading = ((_rotTarget - state.visual.heading) % 360 + 540) % 360 - 180;
                 if (Math.abs(dHeading) > 0.5) {
                     // 1.14.0 planted feel: slow TC + a hard rate cap so a
                     // single noisy COG fix barely moves the map before the
@@ -3170,7 +3228,14 @@ let delta = heading - state.lastHeading;
                 }
                 // Re-center countdown — Google Maps "Re-center in 5s" chip
                 if (recenterChip) {
-                    const showRecenter = !state.isMapLocked && state.tacticalMode > 0 && state.autoCoords && (state.routeNodes || state.targetCoords);
+                    // 1.14.1: deadline-driven. The old route-term gate disagreed
+                    // with the dragend arm condition (which needs no route): a
+                    // no-route Drive Mode pan silently yanked the map back in
+                    // 5s with no chip. The chip now shows exactly when a
+                    // recenter deadline is actually armed — route or not. Map
+                    // Mode never arms one (mode 0), so it can never reappear
+                    // there (the 1.13.2 fix preserved by construction).
+                    const showRecenter = !state.isMapLocked && state.tacticalMode > 0 && state.autoCoords && state._recenterDeadline;
                     const recKey = showRecenter ? 1 : 0;
                     if (_trackingEtaKeys.countdown !== recKey) {
                         _trackingEtaKeys.countdown = recKey;
@@ -4370,6 +4435,13 @@ let delta = heading - state.lastHeading;
                             if (!Number.isFinite(la) || !Number.isFinite(lo)) { done(null); return; }
                             if (la === 0 && lo === 0) { done(null); return; }
                             if (la < -90 || la > 90 || lo < -180 || lo > 180) { done(null); return; }
+                            // 1.14.1: the >3000 m gate the boot path and the
+                            // live watch both enforce — the permission-recovery
+                            // consumer fed this straight into initMap +
+                            // fetchData, centering the map and weather on an
+                            // 8 km WiFi-coarse cell that the watch would have
+                            // rejected outright.
+                            if (p.coords.accuracy > 3000) { done(null); return; }
                             done({ lat: la, lon: lo, accuracy: p.coords.accuracy });
                         },
                         () => done(null),
@@ -4384,29 +4456,34 @@ let delta = heading - state.lastHeading;
         // geolocation permission — only the browser's site-settings flip can.
         // But the flip IS observable: Permissions API onchange fires when the
         // user re-enables location (e.g. via the address-bar lock icon) while
-        // the app is open, so the app boots into a fix without a reload. The
-        // one-shot (not the watch) does the rescue because a watchPosition
-        // that errored PERMISSION_DENIED is not guaranteed to resume on every
-        // engine. initMap is idempotent (mapObj guard) and fetchData is
-        // single-flight, so a racing live watch is harmless. One listener per
-        // session; fires only on real state transitions.
+        // the app is open, so the app boots into a fix without a reload.
+        // 1.14.1: on a granted transition BOTH halves run — a FRESH watch is
+        // started unconditionally (the old watch died on PERMISSION_DENIED
+        // and nulled its id; a new watchPosition under a granted permission
+        // starts cleanly on every engine), and the one-shot paints the map +
+        // weather instantly while the watch warms up. initMap is idempotent
+        // (mapObj guard) and fetchData is single-flight, so a racing live
+        // watch is harmless. One listener per session; fires only on real
+        // state transitions.
         function watchGeoPermissionRecovery() {
             if (!navigator.permissions || !navigator.permissions.query) return;
             navigator.permissions.query({ name: 'geolocation' }).then(perm => {
                 perm.onchange = () => {
-                    if (perm.state === 'denied' || state.autoCoords) return;
+                    if (perm.state === 'denied') return;
+                    // 1.14.1: re-arm the watch UNCONDITIONALLY on a granted
+                    // transition. A mid-session deny→regrant leaves autoCoords
+                    // set but the watch DEAD (the PERMISSION_DENIED error
+                    // callback nulled its id) — the old `state.autoCoords`
+                    // early-return stranded speed/ETA/nodes for the rest of
+                    // the session. startBackgroundTracking self-blocks on a
+                    // live watch, so this is a no-op when tracking runs.
+                    startBackgroundTracking();
+                    if (state.autoCoords) return;
                     void requestGpsFixOnce(10000).then(fix => {
                         if (!fix || state.autoCoords) return;
                         state.autoCoords = { lat: fix.lat, lon: fix.lon };
                         initMap(fix.lat, fix.lon);
                         fetchData(fix.lat, fix.lon, false);
-                        // Re-arm the live tracking watch — the original watch
-                        // died on PERMISSION_DENIED (its id was nulled in the
-                        // error callback, so this passes the self-block at the
-                        // top of startBackgroundTracking). Without this the
-                        // recovery paints the map/weather once but speed, ETA,
-                        // and route-node processing stay dead until a reload.
-                        startBackgroundTracking();
                     }).catch(e => console.debug('GPS recovery fix failed:', e && e.message));
                 };
             }).catch(e => console.debug('Geolocation permission query unsupported:', e && e.message));
@@ -4433,11 +4510,16 @@ let delta = heading - state.lastHeading;
                     if (cRD && cRD.radarSample) window.__METEO_CORE_STATE.radarNow = cRD.radarSample;
                     if (cMT && cMT.metarObs) window.__METEO_CORE_STATE.metarObs = cMT.metarObs;
                 } catch (_) { /* best-effort */ }
-                await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
+                // 1.14.1: minutely restored BEFORE the render (rainByMinutely is
+                // verdict input — same ordering fix as the offline catch path)
+                // + verdict coords staged from the cache fetch position.
                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch (e) { console.debug('Denied-cache minutely restore failed:', e && e.message); }
                     computeRainEta();
                 } else { window.__METEO_CORE_STATE.rainEta = null; }
+                state._verdictLat = (typeof state.telemetryCache.lat === 'number' && state.telemetryCache.lat !== 0) ? state.telemetryCache.lat : null;
+                state._verdictLon = (typeof state.telemetryCache.lon === 'number' && state.telemetryCache.lon !== 0) ? state.telemetryCache.lon : null;
+                await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
                 try {
                     const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
                     publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
@@ -4672,16 +4754,31 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 window.__METEO_CORE_STATE.fusedHeading = fused;
                                 triggerRenderPipeline();
                             }
-                            // 1.14.0: below driving speed the rotation follows
-                            // ONLY a calibrated magnetometer — the GPS-learned
-                            // residual offset must have converged (confidence
-                            // >= 0.5). Uncalibrated mag inside a vehicle is
-                            // tens of degrees off; freezing beats rotating to
-                            // garbage. Covers handheld/pedestrian use where the
-                            // phone is NOT bolted into a steel frame.
-                            if (MagHeadingFuser.offsetConfidence >= 0.5) {
-                                state.mapHeading = MagHeadingFuser.applyOffset(state.sensorHeading);
-                            }
+                        }
+                        // 1.14.0: below driving speed the rotation follows
+                        // ONLY a calibrated magnetometer — the GPS-learned
+                        // residual offset must have converged (confidence
+                        // >= 0.5). Uncalibrated mag inside a vehicle is
+                        // tens of degrees off; freezing beats rotating to
+                        // garbage. Covers handheld/pedestrian use where the
+                        // phone is NOT bolted into a steel frame.
+                        // 1.14.1: hoisted BELOW the COG-gate instead of inside
+                        // the else-if — two audit holes closed at once:
+                        // (a) the 2-8 km/h crawl band had NO writer at all:
+                        //     valid COG took the branch above but failed the
+                        //     >= 8 gate, and the mag path sat unreachable in
+                        //     the else-if — every traffic-creep curve rotated
+                        //     nothing (the documented "below the gate a
+                        //     calibrated magnetometer may drive it" never
+                        //     actually applied between 2 and 8 km/h);
+                        // (b) with COG null at DRIVING speed the else-if ran
+                        //     anyway and wrote mag straight into mapHeading
+                        //     with none of the COG spike screening — a
+                        //     steel-overpass deflection at 80 km/h rotated the
+                        //     map. Missing COG at speed must FREEZE.
+                        if (state.currentSpeed < DRIVE_ROT_MIN_KMH && state.sensorHeading !== null &&
+                            MagHeadingFuser.offsetConfidence >= 0.5) {
+                            state.mapHeading = MagHeadingFuser.applyOffset(state.sensorHeading);
                         }
                         
 
@@ -4738,7 +4835,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
         window.toggleTacticalMode = function() {
             if (!state.mapObj) return;
-            if (!state.isMapLocked) { state.tacticalMode = 1; window.applyTacticalMode(); return; }
+            if (!state.isMapLocked) {
+                // 1.14.1: split the unlocked case. In DRIVE MODE browse (dragged
+                // free) the tap is a re-lock — and per the 1.13.2 contract it
+                // must go through relockDriveMode (lock + seed + re-center,
+                // NO setView), not the full mode entry whose setView(z17)
+                // snapped the driver's pinch-chosen zoom. Map Mode (always
+                // unlocked) still takes the full Drive Mode entry — setView is
+                // correct for a genuine mode switch.
+                if (state.tacticalMode > 0) { relockDriveMode(); return; }
+                state.tacticalMode = 1; window.applyTacticalMode(); return;
+            }
             // 1.12.0 (user-directed, Google-style): TWO modes, one cycle —
             // Drive Mode (heading-up, GPS-follow, free pinch zoom) and
             // Map Mode (north-up, free pan/zoom). The old 3-mode ladder
@@ -4922,6 +5029,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (state.tacticalMode > 0 && state.autoCoords && !state.isMapLocked) {
                     state._recenterDeadline = Date.now() + 5000;
                     state._recenterTimer = setTimeout(() => {
+                        // 1.14.1: self-null on fire (hygiene — the inner 600ms
+                        // timer does exactly this; a stale outer id would mask
+                        // the real state from any future truthiness consumer).
+                        state._recenterTimer = null;
                         if (!state.isMapLocked && state.tacticalMode > 0 && state.autoCoords) {
                             const lat = state.visual.lat != null ? state.visual.lat : state.autoCoords.lat;
                             const lon = state.visual.lon != null ? state.visual.lon : state.autoCoords.lon;
@@ -4964,7 +5075,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     const overviewNorth = state.mapObj.getZoom() < DRIVE_NORTH_Z;
                     const target = (overviewNorth || state.visual.heading === null) ? 0 : state.visual.heading;
                     const targetR = Math.round(target * 10) / 10;
-                    if (targetR !== state.lastCssHeading) {
+                    // 1.14.1: lock-gate the rotation write. While drag-unlocked
+                    // the map's rotation is FROZEN by contract (dragstart
+                    // comment: "the existing rotation stays frozen at whatever
+                    // heading it last wrote") — but lastCssHeading is nulled at
+                    // dragstart, so this gate was always true during a browse
+                    // and a pinch snapped the map to the LIVE heading under
+                    // the user's fingers while the frozen arrow stayed behind
+                    // (reads as the sideways-arrow bug for up to 5s). The
+                    // relock seed re-syncs rotation honoring DRIVE_NORTH_Z.
+                    if (state.isMapLocked && targetR !== state.lastCssHeading) {
                         applyHudCssRotation(targetR);
                         state.lastCssHeading = targetR;
                     }
@@ -5353,7 +5473,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const routeSig = summary.totalDistance + '|' + (route.coordinates ? route.coordinates.length : 0);
             if (navigator.onLine && routeSig !== state.lastAutoCacheSig) {
                 state.lastAutoCacheSig = routeSig;
-                setTimeout(() => {
+                // 1.14.1: track the debounce id — PURGE clears it alongside the
+                // in-flight abort (an armed timer inside the purge window minted
+                // a FRESH tile run whose cache.put re-landed tiles after
+                // caches.delete, surviving the reload via the SW keep-list).
+                state._prefetchDebounce = setTimeout(() => {
+                    state._prefetchDebounce = null;
                     // FIX: call unconditionally — downloadMapCache self-guards
                     // (online/coords) and chains when busy instead of dropping.
                     if (navigator.onLine) window.downloadMapCache();
@@ -5453,7 +5578,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             intervalDist: CONFIG.routingIntervalNodeDist
                         }, { signal });   // Pass AbortSignal so a route swap cancels
                                          // the stale compute before it poisons state.
-                    } catch (e) { console.warn('Route node calculation failed:', e); state.routeNodes = []; }
+                    } catch (e) {
+                        // 1.14.1: an ABORTED compute is not a failure — a pitstop
+                        // insert / destination change rejects the worker task
+                        // with "aborted", and the old catch wrote
+                        // routeNodes = [] + cleared every node marker + logged
+                        // a false "calculation failed" before the later abort
+                        // check could fire (the 1-3s marker blip mid-swap).
+                        if (signal && signal.aborted) return;
+                        console.warn('Route node calculation failed:', e); state.routeNodes = [];
+                    }
                 } else { state.routeNodes = []; }
                 state.routeNodesCursor = 0;
                 // 1.13.0: fire the per-node radar sample the moment nodes exist —
@@ -6081,7 +6215,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // batch could RE-LAND tiles into the map cache after we delete it.
             // Abort kills the in-flight batches at the next 5-tile boundary;
             // clearing the queue flag stops the finally-chain from reviving it.
-            try { if (state._prefetchAbort) state._prefetchAbort.abort(); state._prefetchQueued = false; }
+            try {
+                if (state._prefetchAbort) state._prefetchAbort.abort();
+                state._prefetchQueued = false;
+                // 1.14.1: also clear the 5s prefetch DEBOUNCE — it is armed on
+                // routesfound and untracked; firing inside the purge window it
+                // minted a FRESH run (the abort only killed the old one) whose
+                // cache.put re-landed tiles after caches.delete.
+                if (state._prefetchDebounce) { clearTimeout(state._prefetchDebounce); state._prefetchDebounce = null; }
+            }
             catch (e) { console.debug('Pre-purge prefetch abort failed:', e && e.message); }
             // GPS re-request ONLY when the permission is still "prompt" — the
             // one state where the wait has value (the browser prompt re-shows
@@ -6100,11 +6242,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 try { await requestGpsFixOnce(6000); } catch (e) { console.debug('Pre-purge GPS re-request failed:', e && e.message); }
             }
             if (_pHint) updateText(_pHint, 'WIPING CACHES + STORAGE…');
+            // 1.14.1: watchdog. Every THROW path reloads via the finally, but a
+            // HUNG await (pathological IDB / locked-db browser state) parked the
+            // modal disabled forever — no Escape handler covers this modal. Race
+            // the wipe: past 10 s fall through to the reload (a partially-failed
+            // purge is recoverable by purging again; a parked modal is not).
             try {
-                localStorage.clear(); sessionStorage.clear();
-                if (window.localforage) await localforage.clear();
-                if ('caches' in window) { const cacheNames = await caches.keys(); await Promise.all(cacheNames.map(name => caches.delete(name))); }
-                if ('serviceWorker' in navigator) { const registrations = await navigator.serviceWorker.getRegistrations(); for (let r of registrations) await r.unregister(); }
+                const _wipeOps = (async () => {
+                    localStorage.clear(); sessionStorage.clear();
+                    if (window.localforage) await localforage.clear();
+                    if ('caches' in window) { const cacheNames = await caches.keys(); await Promise.all(cacheNames.map(name => caches.delete(name))); }
+                    if ('serviceWorker' in navigator) { const registrations = await navigator.serviceWorker.getRegistrations(); for (let r of registrations) await r.unregister(); }
+                })();
+                // A LATE rejection (after the watchdog already resolved the race)
+                // must not surface as an unhandled rejection post-reload chain.
+                _wipeOps.catch(() => {});
+                await Promise.race([_wipeOps, new Promise(resolve => setTimeout(resolve, 10000))]);
             } catch(e) { console.error('Purge partially failed:', e); }
             finally { window.location.reload(); }
         };
@@ -6788,8 +6941,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const radarFresh = !!(_rd && typeof _rd.frameTime === 'number' &&
                 (Date.now() - _rd.frameTime * 1000) < 15 * 60 * 1000 &&
                 (typeof _rd.ts === 'number' ? (Date.now() - _rd.ts) < 30 * 60 * 1000 : true));
-            const rainByRadar = radarFresh && _rd.covered === true && typeof _rd.cls === 'string';
-            const radarClear = radarFresh && _rd.covered === true && _rd.cls === null;
+            // 1.14.1: DISPLACEMENT gate. Radar is pin-local truth — the fetch
+            // side already moves on > 5 km — but backfills/restores re-entered
+            // a sample taken up to ~25 km behind the driver (15-min frame age
+            // at highway speed) with only the AGE bound checked. A clear sky
+            // measured 20 km back must not fire the measuredClear tie-break
+            // on THIS pin ("a measurement beats a vote" is only valid when
+            // the measurement is of this place). Legacy rows without coords
+            // abstain until the next successful sample re-stamps them.
+            const radarNear = !!(_rd && typeof _rd.lat === 'number' && typeof _rd.lon === 'number' &&
+                typeof state._verdictLat === 'number' && typeof state._verdictLon === 'number' &&
+                fastDistance(state._verdictLat, state._verdictLon, _rd.lat, _rd.lon) <= 5000);
+            const rainByRadar = radarFresh && radarNear && _rd.covered === true && typeof _rd.cls === 'string';
+            const radarClear = radarFresh && radarNear && _rd.covered === true && _rd.cls === null;
             const radarNote = rainByRadar
                 ? 'radar ' + _rd.cls + ' ~' + _rd.mmh + 'mm/h'
                 : (radarClear ? 'radar: clear' : null);
@@ -6807,8 +6971,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const metarFresh = !!(_mt && typeof _mt.obsTime === 'number' &&
                 (Date.now() - _mt.obsTime) <= 100 * 60 * 1000);
             const rainByMetar = metarFresh && _mt.wet === true;
+            // 1.14.1: recompute the displayed station distance at verdict time
+            // — the stored distKm was measured at fetch; after driving 100 km
+            // the note still said "RPLL 36km". Falls back to the stored value
+            // when the station table or verdict coords are unavailable.
+            let _mtDistKm = _mt ? _mt.distKm : null;
+            if (metarFresh && typeof state._verdictLat === 'number' && typeof state._verdictLon === 'number') {
+                const _st = METAR_STATIONS.find(s => s.id === _mt.station);
+                if (_st) _mtDistKm = Math.round(fastDistance(state._verdictLat, state._verdictLon, _st.lat, _st.lon) / 1000);
+            }
             const metarNote = metarFresh
-                ? (_mt.station + ' ' + _mt.distKm + 'km: ' + (_mt.wet ? 'precip (' + _mt.wx + ')' : 'no precip') + (_mt.cb ? ' · CB reported' : ''))
+                ? (_mt.station + ' ' + _mtDistKm + 'km: ' + (_mt.wet ? 'precip (' + _mt.wx + ')' : 'no precip') + (_mt.cb ? ' · CB reported' : ''))
                 : null;
             // TIE-BREAK (1.13.0, user-directed after the live "sunny RAIN NOW ·
             // MODELS" report): when BOTH fresh measurements read CLEAR — radar
@@ -7103,10 +7276,25 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     basis.push(`Verdict ${wmoDetail.label} — observed code ${curr ? curr.weather_code : '--'}`);
                 }
                 const rN = (window.__METEO_CORE_STATE && window.__METEO_CORE_STATE.radarNow) || null;
-                if (rN && rN.covered === true) {
+                // 1.14.1: gate the basis radar line with the SAME bounds the
+                // verdict applies (age + displacement). The METAR line below
+                // is already verdict-gated via metarNote; the radar line read
+                // radarNow raw — a stale restored sample printed "Radar clear"
+                // under a RAIN NOW · MODELS headline (and a stale echo under a
+                // dry one): the analysis surface contradicted the verdict it
+                // exists to explain. Stale/displaced → honest abstention.
+                const rFresh = !!(rN && typeof rN.frameTime === 'number' &&
+                    (Date.now() - rN.frameTime * 1000) < 15 * 60 * 1000 &&
+                    (typeof rN.ts === 'number' ? (Date.now() - rN.ts) < 30 * 60 * 1000 : true));
+                const rNear = !!(rN && typeof rN.lat === 'number' && typeof rN.lon === 'number' &&
+                    typeof state._verdictLat === 'number' && typeof state._verdictLon === 'number' &&
+                    fastDistance(state._verdictLat, state._verdictLon, rN.lat, rN.lon) <= 5000);
+                if (rFresh && rNear && rN.covered === true) {
                     basis.push(rN.cls ? `Radar echo ${rN.cls} ~${rN.mmh}mm/h over pin` : 'Radar clear — no echo over pin');
-                } else if (rN) {
+                } else if (rFresh && rNear) {
                     basis.push('Radar no coverage (abstains)');
+                } else if (rN) {
+                    basis.push('Radar stale — abstained');
                 }
                 if (metarNote) basis.push(`Station ${metarNote}`);
                 if (suppressedModelClaim) basis.push('Tie-break models claim rain — measurements clear (claim suppressed)');
@@ -7514,7 +7702,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // cell k as k*15 min from NOW, so a 2 h-old cache promised
                 // "RAIN ~45 MIN" for rain already past. Skip cells in the past.
                 const t0 = (m && Array.isArray(m.time) && typeof m.time[0] === 'number') ? m.time[0] * 1000 : null;
-                const offset = t0 ? Math.max(0, Math.round((Date.now() - t0) / 900000)) : 0;
+                // 1.14.1: Math.floor, not Math.round — a half-elapsed current
+                // cell (7.5 min in) rounded UP to 1, skipping the CURRENT cell
+                // and overstating time-to-rain by up to 7.5 min. The verdict's
+                // own slot search uses exact floor semantics (t <= now < t+900)
+                // — the two surfaces must agree, and a driving countdown must
+                // never understate urgency.
+                const offset = t0 ? Math.max(0, Math.floor((Date.now() - t0) / 900000)) : 0;
                 if (offset >= arr.length) { window.__METEO_CORE_STATE.rainEta = null; return; } // fully stale window — honesty over a wrong number
                 for (let k = offset; k < arr.length; k++) {
                     if (typeof arr[k] === 'number' && arr[k] >= 0.1) { window.__METEO_CORE_STATE.rainEta = (k - offset) * 15; return; }
@@ -7612,9 +7806,25 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                // a stale verdict for up to 15 min after the measurement
                                // flipped. The frame/stamp keys change exactly when the
                                // measurements do.
-                               String(window.__METEO_CORE_STATE.radarNow?.frameTime ?? '') + '|' +
-                               String(window.__METEO_CORE_STATE.radarNow?.ts ?? '') + '|' +
-                               String(window.__METEO_CORE_STATE.metarObs?.obsTime ?? '');
+                                String(window.__METEO_CORE_STATE.radarNow?.frameTime ?? '') + '|' +
+                                String(window.__METEO_CORE_STATE.radarNow?.ts ?? '') + '|' +
+                                String(window.__METEO_CORE_STATE.metarObs?.obsTime ?? '') + '|' +
+                                // 1.14.1: measurement AGE buckets — the value
+                                // fingerprint above re-renders when the
+                                // measurements CHANGE, but a radar origin dying
+                                // mid-drive changed nothing (frameTime/ts/obsTime
+                                // all frozen) while the verdict's own freshness
+                                // math crossed the 15-min / 100-min bounds; the
+                                // sig skip then pinned the stale verdict for up
+                                // to another 15 min. The bucket flips exactly at
+                                // each crossing → one re-render, verdict abstains
+                                // on schedule.
+                                (window.__METEO_CORE_STATE.radarNow?.frameTime
+                                    ? Math.floor((Date.now() - window.__METEO_CORE_STATE.radarNow.frameTime * 1000) / 900000)
+                                    : '') + '|' +
+                                (window.__METEO_CORE_STATE.metarObs?.obsTime
+                                    ? Math.floor((Date.now() - window.__METEO_CORE_STATE.metarObs.obsTime) / (100 * 60 * 1000))
+                                    : '');
             if (payloadSig === _lastPayloadSig) return;
             // NOTE: _lastPayloadSig is stamped AFTER normalize+render below —
             // never here. A throw mid-normalize leaves the gate OPEN so the
@@ -7840,8 +8050,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 fetchWithRetry(singleUrl, { priority: 'high', timeout: 15000, signal: weatherAbort.signal }, 3, 1000),
                                 budgetTimeout
                             ]);
-                            clearTimeout(budgetTimerId);
+                            // 1.14.1: clear the budget timer only AFTER the body
+                            // read. fetch() resolves at headers; a
+                            // headers-then-stall response left rAll.json()
+                            // unprotected by BOTH timeout layers — and this
+                            // await sits inside the single-flight latch, so a
+                            // stalled body froze all telemetry (no retry ever
+                            // fired; the browser killed the socket minutes
+                            // later). With the timer armed, a stall fires
+                            // weatherAbort.abort() → the body read rejects →
+                            // the catch runs the offline failover.
                             const dAll = await rAll.json();
+                            clearTimeout(budgetTimerId);
                             // Split single payload into legacy 3-part shape for processTelemetryPayload + cache compat.
                             const dCurr = { current: dAll.current, elevation: dAll.elevation, utc_offset_seconds: dAll.utc_offset_seconds, timezone: dAll.timezone, timezone_abbreviation: dAll.timezone_abbreviation };
                             const dFore = { hourly: dAll.hourly };
@@ -8031,14 +8251,27 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // the catch above caught only sync throws; a render
                             // throw escaped as an unhandled rejection AND the
                             // timestamp/cache writes below still proceeded.
+                            // 1.14.1: stage the verdict coords — the radar
+                            // displacement gate compares restored samples
+                            // against the position THIS payload was fetched for.
+                            state._verdictLat = lat; state._verdictLon = lon;
+                            let _renderFailed = false;
                             try {
                                 await processTelemetryPayload(dCurr, dFore, dSolar, false, null, dDaily);
-                            } catch (renderErr) { console.error('Telemetry render failed:', renderErr); }
+                            } catch (renderErr) {
+                                console.error('Telemetry render failed:', renderErr);
+                                // 1.14.1: a caught render throw is NOT success —
+                                // stamping anyway suppressed the GPS movement
+                                // gate for a full cacheTTL with a stale (or
+                                // half-rendered) screen. The B5 principle:
+                                // stamp only when the render actually landed.
+                                _renderFailed = true;
+                            }
                             // FIX-1.4.1 (B5): stamp success only NOW — the GPS freshness
                             // gate reads telemetryCache.timestamp; stamping at fetch
                             // start meant a failed fetch still looked "fresh" and
                             // suppressed the next attempt for the whole cacheTTL.
-                            state.telemetryCache.timestamp = now;
+                            if (!_renderFailed) state.telemetryCache.timestamp = now;
                             // Per-route-node radar (1.13.0/1.13.2): POST-RENDER,
                             // fire-and-forget — the timeline paint consumes it on
                             // its own refresh cadence; it must never delay the
@@ -8085,7 +8318,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     // the TTL stamp above then suppressed the
                                     // retry for the full window. Fall back to
                                     // the cached row before going blank.
-                                    try { const cAQ = await localforage.getItem('sibling_aq'); publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null); }
+                                    // 1.14.1: enforce the ≤10-min bound the
+                                    // comment always claimed — an unguarded
+                                    // >46h-old marine row made publishMarine's
+                                    // now-index scan land on the LAST cell and
+                                    // render a days-old 47h-ahead forecast as
+                                    // the CURRENT sea state. Older → honest '--'.
+                                    try { const cAQ = await localforage.getItem('sibling_aq'); publishAirQuality(cAQ && cAQ.dAQ && (now - cAQ.timestamp) <= 600000 ? cAQ.dAQ : null); }
                                     catch (e) { console.debug('Sibling AQ backfill failed:', e && e.message); publishAirQuality(null); }
                                 }
                                 if (jMar && jMar.hourly) {
@@ -8094,7 +8333,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
                                     catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
                                 } else {
-                                    try { const cMar = await localforage.getItem('sibling_marine'); publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null); }
+                                    // 1.14.1: same ≤10-min age guard as AQ — see above.
+                                    try { const cMar = await localforage.getItem('sibling_marine'); publishMarine(cMar && cMar.dMarine && (now - cMar.timestamp) <= 600000 ? cMar.dMarine : null); }
                                     catch (e) { console.debug('Sibling marine backfill failed:', e && e.message); publishMarine(null); }
                                 }
                             } // end sibling TTL gate — rows keep last values between refreshes
@@ -8160,15 +8400,28 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     if (cRDpre && cRDpre.radarSample) window.__METEO_CORE_STATE.radarNow = cRDpre.radarSample;
                                     if (cMTpre && cMTpre.metarObs) window.__METEO_CORE_STATE.metarObs = cMTpre.metarObs;
                                 } catch (_) { /* best-effort */ }
-                                // FIX: same missing-await as the live path above —
-                                // an async render throw must land in this catch,
-                                // not escape as an unhandled rejection.
-                                await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
-                                // Restore minutely from cache if present (backward compat: old caches have no dMinutely)
+                                // 1.14.1: restore MINUTELY before the render —
+                                // rainByMinutely is VERDICT input, but the old
+                                // order rendered without it and then restored it
+                                // behind a payloadSig that carries no minutely
+                                // field, so the sig skip pinned the omission until
+                                // the next hour roll: a cold-boot offline verdict
+                                // could omit the cached nowcast (err-dry) for up
+                                // to an hour. Mirrors the live path's
+                                // publish-before-render order.
                                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
                                     computeRainEta();
                                 } else { window.__METEO_CORE_STATE.rainEta = null; }
+                                // 1.14.1: stage the verdict coords — the cache's
+                                // fetch position (0 = the boot sentinel) for the
+                                // radar displacement gate.
+                                state._verdictLat = (typeof state.telemetryCache.lat === 'number' && state.telemetryCache.lat !== 0) ? state.telemetryCache.lat : null;
+                                state._verdictLon = (typeof state.telemetryCache.lon === 'number' && state.telemetryCache.lon !== 0) ? state.telemetryCache.lon : null;
+                                // FIX: same missing-await as the live path above —
+                                // an async render throw must land in this catch,
+                                // not escape as an unhandled rejection.
+                                await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
                                 // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
                                 try {
                                     const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
@@ -9000,15 +9253,18 @@ function checkDependenciesAndRun() {
                                     let _done = false;
                                     const _doReload = () => { if (!_done) { _done = true; window.location.reload(); } };
                                     if (swReg && typeof swReg.update === 'function') {
-                                        // Fallback reload (no SW update found — e.g. an
-                                        // index-only deploy that skipped the sw.js bump):
-                                        // the SWR shell serves the CACHED index.html while
-                                        // the no-store VERSION fetch already read the new
-                                        // version — _bootVersion would adopt it on that
-                                        // stale load and the pill would vanish with the
-                                        // update never applied. Evict the cached shell
-                                        // first so the reload truly fetches the new one.
-                                        const _fb = setTimeout(async () => {
+                                        // 1.14.1: shared evict-then-reload — the 15s
+                                        // fallback's shell eviction (the 1.10.2 fix
+                                        // for index-only deploys re-serving the
+                                        // stale shell) also covers the REJECTION
+                                        // path: the old catch cancelled _fb and
+                                        // reloaded bare, so a sw.js bytecheck
+                                        // failing on a flaky link (after the
+                                        // no-store VERSION fetch succeeded!)
+                                        // silently never applied the update — the
+                                        // stale shell's _bootVersion adoption hid
+                                        // the pill on the reloaded page.
+                                        const _evictShellThenReload = async () => {
                                             try {
                                                 const ks = await caches.keys();
                                                 await Promise.all(ks.filter(k => k.startsWith('meteonexus-app')).map(async k => {
@@ -9017,9 +9273,10 @@ function checkDependenciesAndRun() {
                                                 }));
                                             } catch (e) { console.debug('Update fallback cache clear failed:', e && e.message); }
                                             _doReload();
-                                        }, 15000);
+                                        };
+                                        const _fb = setTimeout(() => { void _evictShellThenReload(); }, 15000);
                                         navigator.serviceWorker.addEventListener('controllerchange', () => clearTimeout(_fb), { once: true });
-                                        swReg.update().catch(() => { clearTimeout(_fb); _doReload(); });
+                                        swReg.update().catch(() => { clearTimeout(_fb); void _evictShellThenReload(); });
                                     } else { _doReload(); }
                                 });
                                 document.body.appendChild(_updateEl);

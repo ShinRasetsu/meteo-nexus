@@ -118,6 +118,251 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.14.1 — 2026-10-03 (patch: four-agent bug-hunt round — rotation wrap, radar displacement, offline ordering, body budgets, SW eviction order)
+
+### Bump rationale
+
+Patch bump 1.14.0 → 1.14.1 (user-directed bug hunt; the 1.10.2/1.13.2 four-territory
+parallel-agent precedent; `sw.js` `APP_CACHE` `v19` → `v20` — index.html and sw.js
+changed). Four exploration agents (rotation authority; verdict/purge; fetch/radar/
+METAR; tracking/SW/lifecycle) produced ~30 candidate findings; every one was
+hand-verified against source (§0 E6) before applying. **24 fixes landed**; three
+findings had DUAL-AGENT convergence (verdict-basis radar freshness, purge
+prefetch-debounce hole, zoomend-unlocked rotation write); the rest were discarded
+or deferred with rationale below. One self-caught near-miss during application:
+the render-throw stamp first draft used a never-reset `state._renderFailedFlag`
+(would have permanently blocked freshness stamps) — caught by re-reading my own
+edit, replaced with a local. The baseline pipeline was verified green BEFORE the
+hunt (lint 0 · 322/322 · 36/36 · 8 scanners · verify 26/26 · fluidity Perfection
+PASS · unified 37) so every finding is a code defect, not tooling noise.
+
+### Applied (HIGH/MED, all hand-verified)
+
+1. **Rotation wrap normalization (HIGH, dual convergence)** — the follow-block
+   shortest-path delta and the stationary pre-exit compared RAW across MIXED
+   spaces: `visual.heading` is an unbounded accumulator (only ever `+=` wrap-safe
+   deltas, never normalized) while `mapHeading` is absolute [0,360). The old
+   single-shot ±360 correction handled |raw| ≤ 540°; beyond it (parking-lot laps
+   / net turns before the first ≥8 km/h COG accept) the first mapHeading write
+   CARTWHEELED the map one-plus full turns at the 30°/s cap (a 720°-offset
+   transition = a 12 s spin exactly when the driver pulls out), and the raw
+   pre-exit compare never re-fired after one north-seam crossing (full 60 fps
+   frames while parked). Fixed with true modulo `((d % 360) + 540) % 360 - 180`
+   at both sites. Runtime-proven in-page: old −210 / fixed +150 at raw −570
+   (wrong direction); old −360 / fixed 0 at raw −720 (full pointless spin);
+   byte-identical outputs in the old code's valid domain.
+2. **Mag-fallback authority (MED, two holes in one restructure)** — the
+   calibrated-mag `mapHeading` write lived inside `else if (sensorHeading !==
+   null)`: (a) the 2-8 km/h crawl band had NO writer at all (valid COG entered
+   the branch above but failed the ≥8 gate; mag unreachable in the else) — every
+   traffic-creep curve rotated nothing, contradicting the documented "below the
+   gate a calibrated magnetometer may drive it"; (b) with COG null at DRIVING
+   speed the else-if ran anyway and wrote un-gated mag into mapHeading — a
+   steel-overpass deflection at 80 km/h rotated the map (missing COG must
+   FREEZE). Hoisted below the COG gate: the write fires only when
+   `currentSpeed < DRIVE_ROT_MIN_KMH && sensorHeading !== null &&
+   offsetConfidence >= 0.5` — dead zone closed, speed-freeze restored.
+3. **Radar displacement gate (MED)** — backfilled/restored radar samples
+   re-entered with only the AGE bound checked: a clear sky measured up to
+   ~25 km behind the driver (15-min frame age at highway speed) could fire the
+   measuredClear tie-break on the current pin. Samples now stamp `lat/lon`; the
+   verdict requires `radarNear` (≤5 km vs the coords THIS payload was fetched
+   for — staged as `state._verdictLat/_verdictLon` at all three render sites)
+   for both `rainByRadar` and `radarClear`; METAR note distance recomputed at
+   verdict time (the stored "RPLL 36km" stayed printed after 100 km of
+   driving). Legacy coordless rows abstain until the next successful sample.
+4. **Verdict-basis radar line freshness (MED, dual convergence)** — the 1.14.0
+   basis writer read `radarNow` raw while its own METAR line was verdict-gated:
+   a stale restored sample printed "Radar clear — no echo over pin" directly
+   under a RAIN NOW · MODELS headline (and a stale echo under a dry one) — the
+   analysis surface contradicting the verdict it exists to explain. Now gated
+   by the same age+displacement bounds; stale → "Radar stale — abstained".
+5. **Offline minutely ordering (MED)** — the offline catch + denied-boot paths
+   restored the cached MINUTELY after the render, behind a payloadSig that
+   carries no minutely field: a cold-boot offline verdict omitted the cached
+   nowcast (err-dry: an (UNCONFIRMED) marginal claim stayed hedged instead of
+   corroborating) until the next hour roll. Restore moved BEFORE the render in
+   both paths (mirrors the live publish-before-render order).
+6. **Body-read budgets (MED)** — fetch() resolves at HEADERS and fetchWithRetry
+   clears its per-attempt timer there; every body read (`rAll.json()`, radar
+   coverage/tile `.blob()`, METAR `.json()`, sibling `.json()`) ran with ZERO
+   timeout protection — and all sit inside the single-flight latch, so one
+   headers-then-stall response (torn-down mobile link) froze ALL telemetry
+   with no retry until the browser killed the socket minutes later. New
+   `readBodyOrNull` races body reads (resolve null on stall — the never-throw
+   contract); the weather budget timer now stays armed through `rAll.json()`
+   (abort → catch → offline failover).
+7. **Aborted-compute clobber (MED)** — the CALCULATE_NODES catch treated the
+   worker-task abort rejection (pitstop insert / destination change
+   mid-compute) as a failure: it wrote `routeNodes = []`, cleared every node
+   marker for 1-3 s and logged a false "calculation failed" before the later
+   abort check could fire. The catch now returns on `signal.aborted` (mirrors
+   the four other abort checks in the same function).
+8. **SW tile eviction order (MED)** — `keys.sort()` stringified the Request
+   objects: lexicographic order puts '/14/…' before '/2/…', so eviction deleted
+   the z10-17 DRIVING tiles first and kept coarse overviews last — the exact
+   inverse of the stated intent, and it ate freshly prefetched route corridors
+   on the re-route that crossed the 50 MB budget. True response-header LRU is
+   impossible for no-cors opaque tiles (no X-SW-Cached-At), so the sort is now
+   NUMERIC zoom ascending (coarse evicts first, matching the comment's policy).
+9. **Sibling backfill age guard (MED)** — the live-path AQ/marine backfill had
+   NO age check on the stored row: a >46 h-old marine row made publishMarine's
+   now-index scan land on the LAST cell — a days-old 47 h-ahead forecast
+   rendered as the CURRENT sea state. Enforced the ≤10-min bound the comment
+   always claimed; older rows render honest '--'.
+10. **Update-pill rejection path (LOW)** — `swReg.update()` rejection cancelled
+    the shell-evicting fallback and reloaded bare: on a flaky sw.js bytecheck
+    (after the no-store VERSION fetch already succeeded) the stale shell
+    re-served, `_bootVersion` adopted, and the pill vanished with the update
+    never applied — the exact class the 1.10.2 fallback was written to prevent.
+    The rejection now runs the same evict-shell-then-reload.
+
+### Applied (LOW, hygiene + races)
+
+11. zoomend rotation write lock-gated (a pinch during the unlocked Drive Mode
+    browse snapped the map to the live heading under the user's fingers while
+    the frozen arrow stayed behind — reads as the sideways-arrow bug ≤5 s).
+12. Unlocked-toggle in Drive Mode relocks via relockDriveMode — the third path
+    of the 1.13.2 no-setView contract (the full entry's setView(z17) zoom snap
+    removed; Map Mode → Drive still takes the full entry, where setView is
+    correct for a genuine mode switch).
+13. Recenter chip made DEADLINE-driven (was route-gated while the dragend arm
+    condition is not: a no-route Drive Mode pan silently yanked the map back
+    with no chip — a deadline without a chip is the mirror of the 1.13.2
+    chip-without-deadline). §1.6 guard consciously revised; Map Mode still can
+    never show it (never arms a deadline).
+14. Purge clears the now-tracked 5 s prefetch debounce (an armed timer inside
+    the purge window minted a FRESH run — the abort only killed the old one —
+    whose cache.put re-landed tiles after caches.delete).
+15. Purge wipe watchdog-raced at 10 s (hung IDB/cache awaits parked the modal
+    disabled forever; every throw path already reloaded via the finally — the
+    late-rejection is double-caught).
+16. requestGpsFixOnce gains the >3000 m accuracy gate (boot/watch parity — the
+    recovery consumer fed an 8 km WiFi-coarse fix into initMap+fetchData).
+17. Permission-recovery re-arms the watch UNCONDITIONALLY on granted
+    transitions (a mid-session deny→regrant left autoCoords set but the watch
+    DEAD — speed/ETA/nodes stranded for the rest of the session).
+18. computeRainEta cell offset Math.round → Math.floor (round skipped the
+    half-elapsed current cell, overstating time-to-rain by up to 7.5 min; the
+    verdict's slot search is floor semantics — the surfaces now agree).
+19. payloadSig measurement AGE buckets (radar frame / METAR obs): a dead
+    origin crossing the freshness bound now re-renders once instead of pinning
+    the stale verdict ≤15 min (the documented 1.10.3 bound tightened).
+20. telemetryCache.timestamp stamps only on a landed render (a caught render
+    throw previously suppressed the next fetch for a full cacheTTL — the B5
+    principle extended to the caught-throw path).
+21. fetchRouteElevation route-identity gate (the commitRouteRadarSample
+    pattern — a hung old-route elevation can no longer overwrite the new
+    route's profile + sig).
+22. Recenter outer 5 s timer self-nulls on fire (the inner 600 ms timer always
+    did).
+23. VISUAL_DEADBAND_SQ comment + ARCHITECTURE.md corrected to 1e-10 (~1.1 m²).
+24. New state scratch fields pre-declared (`_verdictLat/_verdictLon/
+    _prefetchDebounce` — hidden-class doctrine).
+
+### Discarded / deferred with rationale
+
+- **offsetConfidence decay closing the pedestrian rotation gate (~90-110 s
+  without a ≥12 km/h sync)** — REAL, but the fix direction is dangerous:
+  reopening the gate via the persisted figure-8 `magCalState.quality` would
+  let car-frame mag rotate the map at stops INDEFINITELY (quality measures
+  sphere coverage, not steel-frame absence) — reintroducing the stop-wobble
+  1.14.0 was written to kill. The decay is safety-correct for the primary
+  in-car context; a pedestrian freeze self-heals on the first driving sync.
+- **measuredClear freshness oscillation re-arming the sonar/haptic edge** —
+  mechanism certain; needs a 5+ min radar outage crossing the freshness bound
+  repeatedly WHILE model claims persist. Damping it risks muting real onsets;
+  deferred as a product decision.
+- **speed-glitch latch (pre-1.10.x code)** — the 8 km/h/s accel gate can latch
+  through firm braking at 1 Hz fix cadence; fix-cadence-dependent, needs
+  device evidence before touching.
+- **offline-resolved routes never prefetch** (no re-arm on connectivity
+  return) + **routeSig aliasing** — the documented 1.10.2 deferral class.
+- **tile 256 stride guard** — the `/256/` URL pins the upstream contract; a
+  defensive guard has zero live evidence (probe-driven fixes only).
+- **purge while offline leaves nothing to boot from** — "purge means purge";
+  a modal-copy warning is a product decision, deferred.
+- **19 ad-hoc state fields** (agent 4's F10) — every reader verified safely
+  guarded (`|| 0` / `=== undefined ||` patterns); hidden-class cost only,
+  hygiene deferred.
+- **False positives discarded after hand-verification**: units (×3.6 correct
+  at every gate), `_prevCog` update ordering (updated OUTSIDE the accept
+  decision — spike-repeat detection works), rate-cap arithmetic (ms→s
+  correct), arrow-freeze lifecycle (derived per frame, no latch to leak),
+  entry/relock/zoomend writer choreography (single writer + gate coherent),
+  COG [0,360) wrap twins (both inputs bounded), payloadSig boot-null-safety
+  (optional-chained), commitRouteRadarSample identity gates (routeNodes
+  always replaced, never mutated in place), offline measurement-restore
+  ordering for radar/METAR (already pre-render), wake-lock adoption race,
+  audio 'interrupted' path, timer double-start classes, ETA key
+  invalidation, processNodes lookahead, GPS tick guards.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **352/352** (+30 guards, 4 consciously
+  revised per §1.6: chip gate → deadline-driven, rain-ETA floor, recovery
+  re-arm, `rainByRadar` + `radarNear`) + unit 36/36 · `npm run audit` 8/8 PASS
+  (extract+parse OK module 880..10557 / 666826 B, TDZ 0, fp 0, brace
+  depth=0/max=12, CSP 0 gaps — no new origins, DOM-null 0, visual PASS —
+  single `--hud-rot` writer preserved through the wrap + gating rework, shell
+  PASS) · `npm run audit:verify` **26/26** · `npm run audit:fluidity`
+  **Perfection PASS (0 stairs, 0 janks)** — planted-feel rate-cap contract
+  intact · `node tests/audit-unified.mjs` 37 checks PASS.
+- **Runtime pass (Playwright MCP, local serve, granted geolocation at the
+  user's pin 14.2022324/121.1276093)**: badge v1.14.1 (VERSION hydration) ·
+  Fetch Gate §6: main 5-model telemetry URL **HTTP 200**, RainViewer frames +
+  coverage + coordinate tile **200**, the user's Worker `/metar` proxy **200**,
+  AQ + marine **200** · `#hud-glance-temp` **"29°C"** · the live radar sample
+  carries the new lat/lon stamp · verdict-basis renders coherently on the live
+  boundary case (observed 0.6 mm showers standing as substantial while
+  "Tie-break models claim rain — measurements clear (claim suppressed)"
+  explains the suppression — the documented never-suppress class; status
+  "LIGHT SHOWERS", desc + basis + headline mutually consistent) · **wrap
+  formula proof in-page** (old −210 / fixed +150 at raw −570; old −360 /
+  fixed 0 at raw −720; identical ≤540) · 2-full-turn deviceorientation sweep:
+  `--hud-rot` ≡ `--user-heading` lockstep, no NaN, converged to the injected
+  heading mod-360 through 4 north crossings · mode toggles: Map Mode 0deg,
+  Drive re-entry seeds −132deg (heading-up restored) · **0 app red console
+  errors** (sole entries: favicon 404 + the browser-policy
+  vibrate-without-gesture notice — both documented classes).
+- Visual runtime §7: rotation surfaces touched — modes + sweep exercised
+  live; the drag-unlocked paths (relock chain, chip, zoomend gating) are
+  synthetic-event-undrivable in this rig (documented since 1.13.2) —
+  guard-pinned + scanner-proven, device pass owed.
+
+### Blind spots considered (§8)
+
+Races: the verdict-coord scratch is written on the single-threaded fetch chain
+before each render and consumed read-only inside it; the purge watchdog's
+late rejection is double-caught (race + explicit `.catch`); the mag fallback
+block runs after the if/else on the same 1 Hz tick — no interleaving window.
+Leaks: `readBodyOrNull`'s race timer self-resolves; one tracked debounce id,
+cleared. Coercion: `radarNear` requires typeof-number on both sides (legacy
+coordless rows → abstain, never NaN); the METAR recompute null-guards `_mt`
+first (self-caught during application — the first draft read `_mt.distKm`
+before the `metarFresh` ternary that had been the only null guard). Off-by-one:
+the modulo form maps ANY magnitude into (−180,180] (fixture-verified);
+computeRainEta floor now matches the verdict's slot semantics. Unhandled
+rejections: `_wipeOps` has two consumers (race + late-rejection catch). Perf:
+the basis writer gained two cheap gates at fetch cadence; the mag fallback is
+one comparison per GPS tick. A11y: unchanged surfaces. Visual compositing:
+single `--hud-rot` writer preserved (visual-audit inventory byte-stable
+post-rework).
+
+### PENDING (user device)
+
+Real-driving COG transitions (the ≥8 km/h first-accept after >540° accumulated
+turning — formula-proven + guard-pinned, but the emulator has no speed: watch
+for a clean shortest-path swing, no cartwheel) · 2-8 km/h crawl-band rotation
+with calibrated mag through traffic-creep curves · freeze on missing COG at
+speed (steel overpass/bridge) · displaced-radar rejection on a real drive
+(radar origin outage + movement) · drag-unlock → chip → NOW → re-lock cycle
+with zoom preserved through the unlocked-toggle path · purge end-to-end
+(debounce clear + watchdog narration) · second boot SWR speed + v20 update
+path on installed clients · basis "Radar stale — abstained" on a real outage.
+
+---
+
 ## 1.14.0 — 2026-09-29 (minor: stable drive rotation + purge immediate feedback + verdict basis + fluidity G1 rate-cap contract + MCP doctrine audit)
 
 ### Bump rationale

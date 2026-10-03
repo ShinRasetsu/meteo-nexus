@@ -291,9 +291,9 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.14.0, 2026-09-29)
+## 11. Reference numbers (verified v1.14.1, 2026-10-03)
 
-- sanity.test.js - 322 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 352 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -310,7 +310,19 @@ From HISTORY.md "How to bump version in a new session":
   +13 from the 1.14.0 stable-drive-rotation batch (rotation authority,
   COG gate, rate cap, fallback parity, planted-feel tc, cap application,
   arrow freeze, calibrated-mag gate, purge prompt-gate + feedback text,
-  verdict-basis element + cache + writer))
+  verdict-basis element + cache + writer),
+  +30 from the 1.14.1 four-agent bug-hunt round (wrap modulo + pre-exit,
+  mag-fallback speed gate, zoomend lock gate, unlocked-toggle relock,
+  radar displacement gate + sample lat/lon stamp + basis stale-abstention,
+  METAR dist recompute, body-read budget ×3 + weather budget order,
+  minutely-before-render order asserts ×2, sibling backfill age gates ×2,
+  rain-ETA floor, payloadSig age bucket, render-throw stamp, aborted-compute
+  guard, elevation identity gate, purge debounce clear + watchdog,
+  update-pill rejection eviction, GPS one-shot accuracy gate, recenter
+  timer self-null, verdict-coord scratch, sw APP_CACHE v20 + zoom-numeric
+  eviction sort; incl. 4 guards consciously REVISED per §1.6: chip gate →
+  deadline-driven, rain-ETA Math.floor, permission-recovery re-arm,
+  rainByRadar + radarNear))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
@@ -324,8 +336,8 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 37 checks, E1-E6)
-- index.html - ~10324 lines / ~706 KB; inline module lines 880-10300 (~633 KB)
-- worker.js - 272 lines; sw.js - 475 lines; fuel-stations.js - 358 lines
+- index.html - ~10581 lines / ~741 KB; inline module lines 880-10557 (~651 KB)
+- worker.js - 272 lines; sw.js - 493 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.

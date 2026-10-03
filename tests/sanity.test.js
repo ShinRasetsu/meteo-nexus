@@ -128,8 +128,8 @@ assertIncludes(html, 'Math.round(aeroHeading) % 360', "heading readouts wrap 360
 assertIncludes(html, 'window._purgeRunning', "purge has a re-entry guard (modal stays open through the ≤12s GPS wait)");
 assertIncludes(html, 'Local dataset unavailable', "local fuel dataset failure falls through to the Overpass fallback instead of a fake LOCAL empty");
 assertIncludes(html, 'Math.floor(Date.now() / 3600000)', "chartSig carries a now-anchor so the 24h window slides across hour boundaries");
-assertIncludes(html, 'Math.round((Date.now() - t0) / 900000)', "rain ETA anchors cached minutely cells to their absolute times");
-assertIncludes(html, 'Re-arm the live tracking watch', "permission recovery re-arms the dead PERMISSION_DENIED watch (else tracking stays dead until reload)");
+assertIncludes(html, 'Math.floor((Date.now() - t0) / 900000)', "rain ETA anchors cached minutely cells to their absolute times (1.14.1: floor, not round — the half-elapsed current cell must not be skipped)");
+assertIncludes(html, 're-arm the watch UNCONDITIONALLY on a granted', "permission recovery re-arms the dead PERMISSION_DENIED watch (1.14.1: on every granted transition — a mid-session deny→regrant left autoCoords set but the watch dead)");
 assert(!html.includes('wind_gusts_10m: (m15.wind_gusts_10m'), "minutely synthesis no longer materializes unread temp/wind/gust/wc lanes");
 
 // GPS accuracy audit (1.8.2): null-safe, honest accuracy taxonomy
@@ -339,7 +339,7 @@ assertIncludes(html, "' (UNCONFIRMED)'", "index.html thin-quorum path: the margi
 // RainViewer frames+tiles, coverage-mask guard, live-extracted palette, tier-0
 // verdict, radar-refutes-marginal-claims.
 assertIncludes(html, "fetchRadarSample", "index.html radar point-sample engine present (frames + coverage gate + coordinate tile + pixel decode)");
-assertIncludes(html, "const rainByRadar = radarFresh && _rd.covered === true && typeof _rd.cls === 'string';", "index.html tier-0 radar trigger: fresh covered echo at pin fires RAIN NOW regardless of any model vote");
+assertIncludes(html, "const rainByRadar = radarFresh && radarNear && _rd.covered === true && typeof _rd.cls === 'string';", "index.html tier-0 radar trigger: fresh+NEAR covered echo at pin fires RAIN NOW regardless of any model vote (1.14.1: displacement gate added)");
 assertIncludes(html, "'RAIN NOW · RADAR'", "index.html radar-triggered headline is source-labelled (measurement, not model consensus)");
 assertIncludes(html, "RADAR_CORE_PALETTE", "index.html embeds the live-extracted Universal Blue palette (36 entries, proven against Taipei/Singapore storm tiles 2026-09-25)");
 assertIncludes(html, "/v2/coverage/0/256/7/", "index.html radar coverage-mask guard: missing coverage is NOT clear — no-data regions abstain, never vote dry");
@@ -381,7 +381,7 @@ assertIncludes(html, "commitRouteRadarSample", "index.html route samples commit 
 assertIncludes(html, "String(window.__METEO_CORE_STATE.radarNow?.frameTime ?? '') + '|' +", "index.html payloadSig carries the measurement fingerprint — verdict flips re-evaluate, not pinned for 15 min");
 assertIncludes(html, "window.recenterNow = function()", "index.html recenter NOW button runs a real function — the old inline handler referenced module-scoped state and threw ReferenceError");
 assertIncludes(html, "function relockDriveMode()", "index.html re-lock preserves the driver's pinch-chosen zoom (no mode-entry setView(z17) snap on recenter)");
-assertIncludes(html, "!state.isMapLocked && state.tacticalMode > 0 && state.autoCoords && (state.routeNodes || state.targetCoords);", "index.html recenter chip shows only in Drive Mode — was frozen permanently in Map Mode");
+assertIncludes(html, "const showRecenter = !state.isMapLocked && state.tacticalMode > 0 && state.autoCoords && state._recenterDeadline;", "index.html 1.14.1 (revised from the 1.13.2 route-term guard): recenter chip is DEADLINE-driven — it shows exactly when a relock is armed (route or not), so no auto-relock is ever silent; Map Mode never arms one so the chip can never reappear there");
 
 // Map rotation is heading-driven only: dragging/panning the map must NOT cause
 // any rotation change. The map stays at whatever heading rotation it currently
@@ -598,6 +598,74 @@ assertIncludes(html, "PURGING LOCAL DATA — THE APP WILL RESTART SHORTLY.", "in
 assertIncludes(html, 'id="focus-verdict-basis"', "index.html 1.14.0: verdict-basis block exists in the focus-only analysis surface");
 assertIncludes(html, "focusVerdictBasis: document.getElementById('focus-verdict-basis')", "index.html 1.14.0: verdict-basis element is cached in the DOM map (no per-render getElementById)");
 assertIncludes(html, "Trigger ${wmoDetail.label} — ${rainSourcesNote}", "index.html 1.14.0: verdict-basis writer names which source triggered the headline (the analysis surface answers 'why does the headline say that')");
+
+// ---------------------------------------------------------------------------
+// 1.14.1 — four-agent bug-hunt round: rotation wrap, mag dead zone, radar
+// displacement + basis freshness, minutely offline ordering, body-read
+// budgets, SW tile eviction order, purge/prefetch/update-pill races.
+// Every guard below pins a line this round ADDED or consciously revised.
+// ---------------------------------------------------------------------------
+// Rotation wrap (HIGH, dual-agent convergence): true modulo normalization.
+assertIncludes(html, "let dHeading = ((_rotTarget - state.visual.heading) % 360 + 540) % 360 - 180;", "index.html 1.14.1: follow-block delta is modulo-normalized — the old single ±360 correction let a >540° accumulator offset cartwheel the map on the first COG accept");
+assertIncludes(html, "Math.abs(((_rotTarget - state.visual.heading) % 360 + 540) % 360 - 180) <= 0.5", "index.html 1.14.1: stationary pre-exit compares wrap-safe — the raw |target-visual| never re-fired after one north-seam crossing (60fps frames while parked)");
+// Mag fallback: below the COG gate ONLY (dead zone + speed-freeze).
+assertIncludes(html, "state.currentSpeed < DRIVE_ROT_MIN_KMH && state.sensorHeading !== null &&", "index.html 1.14.1: calibrated-mag rotation fallback is speed-gated below the COG gate — closes the 2-8 km/h dead zone AND freezes the map when COG drops out at driving speed");
+// zoomend rotation write is lock-gated (the panTo below it always was).
+assertIncludes(html, "if (state.isMapLocked && targetR !== state.lastCssHeading) {", "index.html 1.14.1: zoomend rotation write is lock-gated — a pinch during the unlocked Drive Mode browse window must not snap the map to the live heading under the user's fingers");
+// Unlocked-toggle in Drive Mode re-locks through relockDriveMode (zoom preserved).
+assertIncludes(html, "if (state.tacticalMode > 0) { relockDriveMode(); return; }", "index.html 1.14.1: tapping the mode button while drag-unlocked in Drive Mode re-locks WITHOUT the mode-entry setView(z17) zoom snap (the 1.13.2 contract, now honored on the third path too)");
+// Radar displacement gate (verdict + sample shape).
+assertIncludes(html, "fastDistance(state._verdictLat, state._verdictLon, _rd.lat, _rd.lon) <= 5000", "index.html 1.14.1: radar votes are DISPLACEMENT-gated — a fresh-by-age sample taken ~25 km behind the driver must not fire the measuredClear tie-break on this pin");
+assertIncludes(html, "covered: false, cls: null, mmh: null, frameTime: frame.time, ts: Date.now(), lat, lon", "index.html 1.14.1: radar samples carry their position — the displacement gate has the data to reject displaced restores");
+// Basis radar line freshness + honest stale abstention.
+assertIncludes(html, "'Radar stale — abstained'", "index.html 1.14.1: verdict-basis radar line is freshness+displacement gated — a stale restored sample must not print 'Radar clear' under a RAIN NOW headline (it can only abstain, honestly)");
+// METAR distance recomputed at verdict time.
+assertIncludes(html, "let _mtDistKm = _mt ? _mt.distKm : null;", "index.html 1.14.1: METAR note distance recomputed at verdict time — the stored fetch-time distKm said '36km' after the user drove 100 km");
+// Body-read budgets (headers-then-stall cannot hang the single-flight latch).
+assertIncludes(html, "async function readBodyOrNull(res, ms, reader)", "index.html 1.14.1: body-read budget helper exists — fetch resolves at headers; a stalled body inside the fetch latch froze ALL telemetry");
+assertIncludes(html, "return await readBodyOrNull(r, timeoutMs + 3000, x => x.json());", "index.html 1.14.1: sibling JSON body reads are raced (AQ/marine sit inside the fetch latch)");
+assertIncludes(html, "await readBodyOrNull(r, 8000, x => x.blob());", "index.html 1.14.1: radar tile body reads are raced (coverage + pin sample)");
+assertIncludes(html, "const dAll = await rAll.json();", "index.html 1.14.1: weather bundle body read still present (budget timer now cleared AFTER it)");
+// Minutely restored BEFORE the offline/denied render (order-guarded).
+assert(
+  html.indexOf("1.14.1: minutely restored BEFORE the render") >= 0 &&
+  html.indexOf("1.14.1: minutely restored BEFORE the render") < html.indexOf("await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);"),
+  "index.html 1.14.1: denied-path minutely restore precedes its render (rainByMinutely is verdict input)"
+);
+assert(
+  html.lastIndexOf("1.14.1: restore MINUTELY before the render") >= 0 &&
+  html.lastIndexOf("1.14.1: restore MINUTELY before the render") < html.lastIndexOf("await processTelemetryPayload(cached.dCurr"),
+  "index.html 1.14.1: offline-path minutely restore precedes its render (the sig carries no minutely field — restore-after-render pinned the omission until an hour roll)"
+);
+// Sibling backfill age guard (the ≤10-min the comment always claimed).
+assertIncludes(html, "(now - cMar.timestamp) <= 600000 ? cMar.dMarine : null", "index.html 1.14.1: marine backfill is age-gated ≤10 min — an unguarded 46h-old row rendered its 47h-ahead tail cell as CURRENT sea state");
+assertIncludes(html, "(now - cAQ.timestamp) <= 600000 ? cAQ.dAQ : null", "index.html 1.14.1: AQ backfill is age-gated ≤10 min (same class as marine)");
+// computeRainEta floor semantics (agree with the verdict slot search).
+assertIncludes(html, "Math.max(0, Math.floor((Date.now() - t0) / 900000))", "index.html 1.14.1: rain-countdown cell offset uses floor — Math.round skipped the half-elapsed current cell and overstated time-to-rain by up to 7.5 min");
+// payloadSig measurement AGE buckets (freshness crossings re-render).
+assertIncludes(html, "Math.floor((Date.now() - window.__METEO_CORE_STATE.radarNow.frameTime * 1000) / 900000)", "index.html 1.14.1: payloadSig carries radar frame AGE buckets — a dead radar origin crossing the 15-min freshness bound re-renders instead of pinning the stale verdict");
+// Render-throw must not stamp the freshness gate.
+assertIncludes(html, "if (!_renderFailed) state.telemetryCache.timestamp = now;", "index.html 1.14.1: telemetry freshness stamp only on a landed render — a caught render throw previously suppressed the next fetch for a full cacheTTL");
+// Aborted route-node compute is not a failure.
+assertIncludes(html, "an ABORTED compute is not a failure", "index.html 1.14.1: the CALCULATE_NODES catch returns on abort — a pitstop/destination swap mid-compute previously clobbered routeNodes=[] and blinked every node marker");
+// Elevation route-identity gate (the commitRouteRadarSample pattern).
+assertIncludes(html, "if (state.routeNodes !== nodes) return;", "index.html 1.14.1: elevation commit is route-identity gated — a hung old-route fetch can no longer overwrite the new route's profile + sig");
+// Purge: debounce clear + watchdog.
+assertIncludes(html, "if (state._prefetchDebounce) { clearTimeout(state._prefetchDebounce); state._prefetchDebounce = null; }", "index.html 1.14.1: purge clears the tracked prefetch debounce — an armed 5s timer inside the purge window re-landed tiles after caches.delete");
+assertIncludes(html, "await Promise.race([_wipeOps, new Promise(resolve => setTimeout(resolve, 10000))]);", "index.html 1.14.1: purge wipe is watchdog-raced (10s) — a hung IDB/cache await can no longer park the modal disabled forever");
+// Update pill: the rejection path evicts the shell too.
+assertIncludes(html, "swReg.update().catch(() => { clearTimeout(_fb); void _evictShellThenReload(); });", "index.html 1.14.1: update-pill rejection runs the same evict-then-reload as the 15s fallback — a bare reload on a flaky sw.js fetch silently never applied the update");
+// GPS one-shot accuracy gate + unconditional recovery re-arm (the re-arm
+// itself is pinned by the revised legacy guard above).
+assertIncludes(html, "if (p.coords.accuracy > 3000) { done(null); return; }", "index.html 1.14.1: requestGpsFixOnce enforces the >3000 m gate boot/watch already had — the recovery consumer fed an 8 km WiFi fix into initMap+fetchData");
+// Recenter outer timer self-null hygiene.
+assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s recenter timer self-nulls on fire (the inner 600ms timer always did)");
+// Verdict-coord scratch pre-declared.
+assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
+
+// sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v20'", "sw.js APP_CACHE v20 — 1.14.1 release gate step 6 (the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
 // MCP tooling doctrine retention (AGENTS.md §12 + opencode.json mcp block)

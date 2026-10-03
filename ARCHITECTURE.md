@@ -45,7 +45,7 @@ The inline `<script type="module">` block is organised by `// --- BANNER ---` co
 | 1219 | STATE STORE | ~85 | `let state = { ... }` — main module-local state, ~30 fields |
 | 1304 | DOM REFS | ~80 | `const DOM = {}` — cached `getElementById` (~40 refs) |
 | 1525 | RENDER PIPELINE | ~185 | `executeRenderPipeline` (rAF) |
-| 1585 | smoothVisualsLoop | – | rAF; visibility-gated; deadband `VISUAL_DEADBAND_SQ = 1e-13` |
+| 1585 | smoothVisualsLoop | – | rAF; visibility-gated; deadband `VISUAL_DEADBAND_SQ = 1e-10` (~1.1 m²) |
 | 1908 | MAGNETOMETER CALIBRATION MODULE | ~435 | `magCalState`, deviceorientation handlers |
 | 2551 | HEADING FUSION | – | `MagHeadingFuser` |
 | 2723 | GPS TRACKING ENGINE | ~560 | `watchPosition` + `processNodes` |

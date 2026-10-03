@@ -3,7 +3,7 @@
 // the old shell indefinitely — no index.html change alone ever reaches an
 // installed client. MAP/API/CDN names stay fixed so tiles + telemetry
 // survive version bumps (activate purges only unknown names).
-const APP_CACHE = 'meteonexus-app-v19';
+const APP_CACHE = 'meteonexus-app-v20';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
@@ -268,8 +268,22 @@ async function evictOldestTiles(cache) {
         if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) return;
     }
     const task = (async () => {
+        // 1.14.1: numeric zoom sort. The old `keys.sort()` stringified the
+        // Request objects — lexicographic order puts '/14/…' BEFORE '/2/…'
+        // ('1' < '2'), so the eviction deleted the z10-17 DRIVING tiles first
+        // and kept the coarse z2-9 overviews until last — the exact inverse
+        // of the stated "coarser detail first" intent, and it ate freshly
+        // prefetched route corridors on the re-route that crossed the byte
+        // budget. True response-header LRU is impossible for these entries
+        // (no-cors opaque responses cannot carry X-SW-Cached-At), so zoom
+        // order is the deterministic policy: coarse evicts first, the
+        // turn-detail coverage survives.
+        const zoomOf = (req) => {
+            const m = ((req && req.url) || '').match(/\/(\d{1,2})\/-?\d+\/-?\d+(?:\.\w+)?(?:\?|$)/i);
+            return m ? parseInt(m[1], 10) : 99;
+        };
         const keys = await cache.keys();
-        keys.sort(); // by URL string — evicts lower z/x/y tiles first (larger-scale, coarser detail)
+        keys.sort((a, b) => zoomOf(a) - zoomOf(b)); // ascending zoom — coarse first
         for (const req of keys) {
             if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) break;
             const res = await cache.match(req);
