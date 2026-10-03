@@ -19,3 +19,4 @@
 [ 4957598ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3000/VERSION:0
 [ 5257603ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3000/VERSION:0
 [ 5557609ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3000/VERSION:0
+[ 5857614ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:3000/VERSION:0
