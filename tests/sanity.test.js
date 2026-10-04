@@ -674,6 +674,10 @@ assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14
 // test-launched (MCP initialize handshake) before wiring — no hallucinated
 // servers. These guards make silent deletion loud (the state.lastCssHeading
 // precedent applied to session tooling).
+// 2026-10-04 amendment: plane doctrine (Knowledge: Standard/Technique
+// Reference, Quality: QA/compliance — data-plane BANNED). geoapify RETIRED;
+// its absence from opencode.json is enforced by a negative guard below
+// (2 guards consciously retargeted per §1.6).
 // ---------------------------------------------------------------------------
 const agentsMd = readFileSync(join(repoRoot, "AGENTS.md"), "utf8");
 assertIncludes(agentsMd, "## 12. MCP tooling doctrine", "AGENTS.md declares the §12 MCP doctrine header (binding source of truth in every session)");
@@ -682,9 +686,12 @@ assertIncludes(agentsMd, "@shuji-bonji/w3c-mcp", "§12 pins w3c (Service Worker,
 assertIncludes(agentsMd, "@danielsogl/lighthouse-mcp", "§12 pins lighthouse (PWA audit: installability, HTTPS, SW — not sensors)");
 assertIncludes(agentsMd, "chrome-devtools-mcp", "§12 pins chrome-devtools (device QA: GPS emulation, sensors, Permissions-Policy)");
 assertIncludes(agentsMd, "@cyanheads/openstreetmap-mcp-server", "§12 pins openstreetmap (tiles/routing backend: Nominatim + Overpass)");
-assertIncludes(agentsMd, "@pipeworx/mcp-geoapify", "§12 pins geoapify (optional places: geocode)");
+assertIncludes(agentsMd, "RETIRED 2026-10-04", "§12 records the geoapify retirement (data-plane class — the 2026-10-04 plane doctrine)");
 assertIncludes(agentsMd, "Do not put compass on a server", "§12 keeps the boundary rule: compass/heading never goes through an MCP server");
-assertIncludes(agentsMd, "Heading still local", "§12 keeps the heading-local rule on the places row");
+assertIncludes(agentsMd, "No data-plane MCP", "§12 pins the 2026-10-04 data-plane ban (weather/Open-Meteo/METAR wrappers duplicate the app's keyless fetches — ground-truth probes use raw fetch + chrome-devtools)");
+assertIncludes(agentsMd, "Standard Reference", "§12 pins the knowledge plane — Standard Reference (W3C/webref spec truth)");
+assertIncludes(agentsMd, "Technique Reference", "§12 pins the knowledge plane — Technique Reference (Context7 library docs)");
+assertIncludes(agentsMd, "user-scope ground-truth verification", "§12 records osrm as the user-scope ground-truth verification instrument (live-proven 2026-10-04, real 13.2 km Manila route)");
 
 const opencodeJsonRaw = readFileSync(join(repoRoot, "opencode.json"), "utf8");
 let opencodeCfg;
@@ -695,15 +702,14 @@ try {
   assert(false, "opencode.json parses as JSON — " + err.message);
 }
 if (opencodeCfg && opencodeCfg.mcp) {
-  for (const key of ["playwright", "github", "chrome-devtools", "context7", "w3c", "lighthouse", "openstreetmap", "geoapify"]) {
+  for (const key of ["playwright", "github", "chrome-devtools", "context7", "w3c", "lighthouse", "openstreetmap"]) {
     assert(Object.prototype.hasOwnProperty.call(opencodeCfg.mcp, key), `opencode.json mcp block has '${key}'`);
   }
   const doctrineServers = {
     context7: "@upstash/context7-mcp",
     w3c: "@shuji-bonji/w3c-mcp",
     lighthouse: "@danielsogl/lighthouse-mcp",
-    openstreetmap: "@cyanheads/openstreetmap-mcp-server",
-    geoapify: "@pipeworx/mcp-geoapify"
+    openstreetmap: "@cyanheads/openstreetmap-mcp-server"
   };
   for (const [key, pkg] of Object.entries(doctrineServers)) {
     const srv = opencodeCfg.mcp[key];
@@ -713,6 +719,7 @@ if (opencodeCfg && opencodeCfg.mcp) {
 } else {
   assert(false, "opencode.json has an mcp block");
 }
+assert(!opencodeJsonRaw.includes("@pipeworx/mcp-geoapify"), "opencode.json no longer wires geoapify (RETIRED 2026-10-04, data-plane class) — negative retention guard");
 
 // ---------------------------------------------------------------------------
 // Report

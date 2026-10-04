@@ -118,6 +118,112 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.14.2 — 2026-10-04 (patch: MCP plane doctrine finalization — geoapify retired, data-plane class banned)
+
+### Bump rationale
+
+Patch bump 1.14.1 → 1.14.2 (user-directed doctrine finalization; no app-code
+changes — index.html/worker.js/sw.js/fuel-stations.js untouched, so no
+`APP_CACHE` bump: the SW update detector exists to deliver shell changes
+and there is none). The session re-evaluated the §12 MCP doctrine at the
+user's direction (*"I am against MCP that's like server for the APP... I
+want MCP to be used as Standard Reference, Technique Reference... make the
+APP more Reliable, Compliant to standards... safe to the user in terms of
+cyber security"*), live-probed every exposed server per rule 2
+(first-real-call tier, not config-reading), and codified the result into
+the retention triple.
+
+### Re-evaluation evidence (2026-10-04, all live)
+
+- context7 ✓✓ — resolve (Leaflet, 1287 snippets) + full docs query
+- w3c ✓ — appmanifest spec served from the webref corpus
+- chrome-devtools ✓ — live page control (the Fetch Gate §6 instrument)
+- osrm ✓ — REAL 13.2 km Manila route (Ronquillo St → 28th St) — found
+  wired at USER scope only, absent from project opencode.json while the
+  §12 job table already names OSRM; now documented, not wired (the exact
+  package behind the session tools is unverified — rule 2 forbids wiring
+  on assumption)
+- geoapify ✗ — `api_key_required`: still keyless-refusing without
+  `GEOAPIFY_API_KEY` (the 1.14.0 record holds); never used by a completed
+  audit; the one data-plane-shaped slot → RETIRED
+- github / lighthouse — not exposed this session (token / Windows `\\?\`
+  EPERM; both root causes already documented at 1.14.0)
+- openstreetmap — v0.6.0 released 2026-10-03 may fix the v0.5.2 Nominatim
+  `boundingbox` schema bug; `npx -y` pulls latest → re-probe after the
+  next opencode restart (status note added to §12)
+- Registry sweep: **no security/standards/reference MCP on npm beats the
+  pipeline's own tools** — `csp_evaluator` (Google CSP-bypass analyzer,
+  v1.1.8), `@renovatebot/osv-offline` (offline OSV DB, v3.0.12), and
+  `@axe-core/playwright` (v4.13.0) all exist as LIBRARIES, not servers;
+  per the project philosophy they belong inside the audit pipeline as
+  scanners (candidate backlog, NOT shipped this release)
+- Open-Meteo MCPs exist (`@cyanheads/open-meteo-mcp-server` v0.3.11,
+  `open-meteo-mcp-server` v2.5.2, `@dangahagan/weather-mcp` v1.34.3) but
+  are thin wrappers around the SAME keyless endpoints the app fetches
+  directly — user ruling: zero gain, added schema risk (the osm-server
+  first-real-call lesson), and they would normalize away the exact API
+  shape traps the audits exist to catch (1.9.0 daily suffixed-unixtime,
+  1.10.0 marine ISO8601 — both found by raw-API probes). **Withdrawn; the
+  class is banned (new rule 7).**
+
+### Changes
+
+- `opencode.json` — geoapify block REMOVED (7 servers remain: playwright,
+  github, chrome-devtools, context7, w3c, lighthouse, openstreetmap).
+  Takes effect on next opencode restart (rule 5).
+- `AGENTS.md` §12 — rewritten to the plane classification (2026-10-04
+  amendment): Knowledge plane (Standard Reference: W3C; Technique
+  Reference: Context7) + Quality plane (Runtime QA: chrome-devtools;
+  Regression: playwright; Compliance: lighthouse; Ground-truth
+  verification: osrm user-scope / OSM Overpass) + Workflow (github), with
+  the DATA plane explicitly banned; geoapify row → Retired record; osrm
+  documented as user-scope; osm v0.6.0 re-probe note; rule 7 added.
+- `tests/sanity.test.js` — MCP guard block updated: +4 guards (data-plane
+  ban, Standard/Technique Reference pins, osrm user-scope record, negative
+  geoapify-absence guard on opencode.json), −3 retired geoapify loop
+  asserts, 2 guards consciously RETARGETED per §1.6 (geoapify pin →
+  "RETIRED 2026-10-04" record; "Heading still local" → "No data-plane MCP").
+- `AGENTS.md` §11 — reference numbers synced to v1.14.2 (sanity 352 → 353,
+  verified from the live run, not pre-computed).
+- `VERSION` → 1.14.2, `package.json` synced, `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **353/353** + unit 36/36 ·
+  `npm run audit` 8/8 PASS (extract+parse OK module 880..10557 / 666826 B,
+  TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, DOM-null 0, visual PASS —
+  inventory unchanged, shell PASS) · `npm run audit:verify` **26/26** ·
+  `node tests/audit-unified.mjs` **37 checks PASS**, Perfection PASS
+  (0 stairs, 0 janks); version-sync PASS at 1.14.2.
+- No index.html changes → Fetch Gate §6 and Visual runtime §7 not
+  re-triggered (§2 trigger matrix); no APP_CACHE bump (no shell change
+  to deliver).
+
+### Blind spots considered (§8)
+
+The negative geoapify guard asserts absence of the package string in
+opencode.json — it cannot prevent a user-scope re-add (out of
+project-file reach; the §12 Retired record is the deterrent). Counting:
+the sanity total moved 352 → 353 (+4 new, −3 removed, 2 retargeted) —
+§11 updated from the live `npm test` output. osrm stays user-scope by
+choice: wiring it would require verifying the exact package, which was
+not done this session. Lighthouse-wrapper scores remain lab-condition
+evidence; device-grade audits stay owed via user runtime passes. No
+races/leaks/coercion surface introduced: all changes are config,
+documentation, and test-assertion text — no executable app path touched.
+
+### PENDING (user / next session)
+
+- Restart opencode for the geoapify removal to take effect (rule 5).
+- Re-probe openstreetmap v0.6.0 Nominatim tools after restart (the 3
+  schema-broken tools may be fixed upstream).
+- `GITHUB_TOKEN` user env var — github MCP stays dark until set + restart.
+- Candidate pipeline upgrades (NOT MCPs; separate patch if approved):
+  csp_evaluator as an audit-unified E4 gate, osv-offline supply-chain
+  gate in precheck, axe-core fixture in the Playwright rig.
+
+---
+
 ## 1.14.1 — 2026-10-03 (patch: four-agent bug-hunt round — rotation wrap, radar displacement, offline ordering, body budgets, SW eviction order)
 
 ### Bump rationale

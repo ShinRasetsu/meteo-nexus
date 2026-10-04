@@ -291,9 +291,9 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.14.1, 2026-10-03)
+## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
-- sanity.test.js - 352 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 353 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -322,7 +322,12 @@ From HISTORY.md "How to bump version in a new session":
   timer self-null, verdict-coord scratch, sw APP_CACHE v20 + zoom-numeric
   eviction sort; incl. 4 guards consciously REVISED per §1.6: chip gate →
   deadline-driven, rain-ETA Math.floor, permission-recovery re-arm,
-  rainByRadar + radarNear))
+  rainByRadar + radarNear),
+  +1 net from the 2026-10-04 MCP plane finalization (+4 new: data-plane
+  ban, Standard/Technique Reference pins, osrm user-scope record, negative
+  geoapify-absence guard on opencode.json; −3 retired geoapify loop
+  asserts; 2 guards consciously RETARGETED per §1.6: geoapify pin →
+  "RETIRED 2026-10-04" record, "Heading still local" → "No data-plane MCP"))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
@@ -344,38 +349,75 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 12. MCP tooling doctrine - source of truth (binding in every session)
 
-The table below is the user-directed source of truth (2026-09-27) for which
-MCP answers which job. It must be retained in every session, at all cost.
-Retention is triple: this charter (loaded every session via `instructions`),
-the `opencode.json` `mcp:` block, and the sanity guards in tests/sanity.test.js
-that make silent deletion loud (the `state.lastCssHeading` precedent applied
-to tooling). All three files are git-tracked; restore from git if ever lost.
+The tables below are the user-directed source of truth (2026-09-27; planes
+amended 2026-10-04) for which MCP answers which job. They must be retained
+in every session, at all cost. Retention is triple: this charter (loaded
+every session via `instructions`), the `opencode.json` `mcp:` block, and the
+sanity guards in tests/sanity.test.js that make silent deletion loud (the
+`state.lastCssHeading` precedent applied to tooling). All three files are
+git-tracked; restore from git if ever lost.
 
-| Job | MCP | Why |
-|---|---|---|
-| Live library docs | Context7 | MapLibre, Leaflet, vis.gl, geomagnetism — stops hallucinated APIs |
-| Specs | W3C/WHATWG MCP | Service Worker, Web App Manifest, Sensor / Device Orientation |
-| PWA audit | Lighthouse MCP | Installability, HTTPS, SW — not sensors |
-| Device QA | Chrome DevTools MCP | GPS emulation, sensors, Permissions-Policy |
-| Tiles / routing | OSRM or Nominatim / OSM | Backend only. Do not put compass on a server |
-| Places (optional) | Google Maps / Geoapify MCP | Geocode/places. Heading still local |
+### Plane classification (2026-10-04 amendment)
 
-Verified wiring - every entry was proven two ways on 2026-09-27 before
-install: `npm view` (package exists on the registry) + a live MCP initialize
-handshake (server launches and speaks the protocol). No package is wired on
-name-recognition. Standing counter-example: `@googlemaps/mcp` returns npm
-404 - Google's official Maps MCP is not npm-distributed and this box has
-neither uv nor docker, so Geoapify, the listed alternative, takes the
-Places slot.
+User directive: MCPs are the DEVELOPMENT cockpit - Standard Reference,
+Technique Reference, and QA/compliance instruments that make the app more
+reliable, standards-compliant, and cyber-safe - NEVER servers for the app.
+Two planes:
+
+| Plane | Job | MCP | Why |
+|---|---|---|---|
+| Knowledge - Standard Reference | Spec truth | W3C/WHATWG MCP | Service Worker, Web App Manifest, Sensor / Device Orientation - the webref corpus, not blog paraphrases |
+| Knowledge - Technique Reference | Live library docs | Context7 | MapLibre, Leaflet, vis.gl, geomagnetism - stops hallucinated APIs |
+| Quality - Runtime QA evidence | Device QA | Chrome DevTools MCP | GPS emulation, sensors, Permissions-Policy, network + console inspection, perf traces - the Fetch Gate sec 6 / Visual sec 7 instrument |
+| Quality - Regression | 390x844 visual rig | Playwright MCP | Real drags, offline proofs, visual regression |
+| Quality - Compliance audit | PWA audit | Lighthouse MCP | Installability, HTTPS, SW - not sensors |
+| Quality - Ground-truth verification | Route-math + OSM dataset checks | OSRM (user-scope) / OSM Overpass | Backend verification only. Do not put compass on a server |
+| Workflow - Repo remote | Issues / PRs / checks | GitHub MCP | Token-gated; dark until `GITHUB_TOKEN` is set |
+
+Banned plane - DATA (2026-10-04): No data-plane MCP. No MCP may be a backend
+the app depends on, and no data-source wrappers (weather / Open-Meteo /
+METAR class) - they wrap the same keyless endpoints the app fetches
+directly, so a wrapper adds only schema risk (the first-real-call lesson)
+and can normalize away the exact API shape traps the audits exist to catch
+(the 1.9.0 daily suffixed-unixtime and 1.10.0 marine ISO8601 traps were
+both found by hitting the raw API). Agent-side ground-truth probing = raw
+fetch + chrome-devtools network panel. Cyber-safety upgrades belong in the
+audit pipeline as scanners (csp_evaluator / osv-offline / axe-core
+candidates, logged 2026-10-04), not behind new MCPs.
+
+Verified wiring - every entry was proven two ways before install: `npm
+view` (package exists on the registry) + a live MCP initialize handshake
+(server launches and speaks the protocol), then exercised by first real
+call per server class. No package is wired on name-recognition. Standing
+counter-example: `@googlemaps/mcp` returns npm 404 - Google's official
+Maps MCP is not npm-distributed and this box has neither uv nor docker.
 
 | opencode key | Launch (`npx -y <package>`) | Verified | Notes |
 |---|---|---|---|
-| `context7` | `@upstash/context7-mcp` | v4.1.1, handshake OK | Keyless (rate-limited); optional `--api-key`. Prefer over web search for library/API docs. |
-| `w3c` | `@shuji-bonji/w3c-mcp` | v0.3.0, handshake OK | Serves W3C's own `@webref` corpus (IDL/CSS/elements) - spec answers, not blog paraphrases. |
-| `lighthouse` | `@danielsogl/lighthouse-mcp` | v2.0.1, handshake OK | Chrome auto-managed; `CHROME_PATH` env override supported. |
-| `chrome-devtools` | `chrome-devtools-mcp@latest` | in config since 1.8.x | GPS emulation, sensors, Permissions-Policy, network inspection. |
-| `openstreetmap` | `@cyanheads/openstreetmap-mcp-server` | v0.5.2, handshake OK | Nominatim geocode/reverse + Overpass queries (6 tools); default `OSM_USER_AGENT` honors Nominatim policy. Route engines (OSRM/Valhalla) stay in-app fetches. |
-| `geoapify` | `@pipeworx/mcp-geoapify` | v0.1.2, handshake OK | Initializes keyless; real calls need `GEOAPIFY_API_KEY` as a user env var (free tier) - the npx child inherits it. |
+| `context7` | `@upstash/context7-mcp` | v4.1.1, handshake OK; re-proven live 2026-10-04 (Leaflet resolve + docs query) | Keyless (rate-limited); optional `--api-key`. Prefer over web search for library/API docs. |
+| `w3c` | `@shuji-bonji/w3c-mcp` | v0.3.0, handshake OK; re-proven live 2026-10-04 (appmanifest spec) | Serves W3C's own `@webref` corpus (IDL/CSS/elements) - spec answers, not blog paraphrases. |
+| `lighthouse` | `@danielsogl/lighthouse-mcp` | v2.0.1, handshake OK | Runner stays Windows-blocked (`\\?\` EPERM, 2 reproductions); the chrome-devtools `lighthouse_audit` wrapper is the working compliance path (A11y 91 / BP 100 / SEO 91 at 1.14.0). |
+| `chrome-devtools` | `chrome-devtools-mcp@latest` | in config since 1.8.x; re-proven live 2026-10-04 | GPS emulation, sensors, Permissions-Policy, network + console, perf traces, Lighthouse wrapper. |
+| `openstreetmap` | `@cyanheads/openstreetmap-mcp-server` | v0.5.2, handshake OK | Overpass class proven live (fuel stations 413 m from the pin, 1.14.0); the 3 Nominatim-shaped tools fail their own output schema in v0.5.2 (`boundingbox` items declared `false`). v0.6.0 released 2026-10-03 - re-probe after the next restart (`npx -y` pulls latest). |
+| `playwright` | `@playwright/mcp` | pre-existing; 390x844 rig | Visual regression + runtime proofs (recenter drags, offline reloads). |
+| `github` | remote (`api.githubcopilot.com/mcp/`) | pre-existing; handshake protocol not re-proven | Dark until `GITHUB_TOKEN` is set as a user env var + opencode restarted. |
+
+Retired:
+
+- `geoapify` (`@pipeworx/mcp-geoapify`) - RETIRED 2026-10-04. The one
+  data-plane-shaped slot (places/geocode backend); keyless-refuses without
+  `GEOAPIFY_API_KEY` and was never used by a completed audit. Places and
+  geocode probing is covered by OSM + raw fetches. Its absence from
+  `opencode.json` is enforced by a negative sanity guard; takes effect on
+  next opencode restart (rule 5).
+
+User-scope (not in project opencode.json):
+
+- `osrm` - user-scope ground-truth verification instrument for route math;
+  live-proven 2026-10-04 (real 13.2 km Manila route, Ronquillo St to 28th
+  St). The app's routing stays in-app fetches (OSRM/Valhalla) - the MCP
+  only verifies agent-side. Not project-wired: the exact package behind
+  the session tools is unverified, and rule 2 forbids wiring on assumption.
 
 The `opencode.json` entry IS the installation: `npx -y` streams and caches
 the package on first use; nothing is installed globally.
@@ -384,9 +426,10 @@ Rules (binding):
 
 1. Sensor-side truth never goes through an MCP server. Compass, heading
    fusion, and GPS smoothing stay on-device (MagHeadingFuser,
-   deviceorientation, watchPosition). Servers serve backend data only:
-   geocode, POI, docs, specs, audits, device emulation. The phone is the
-   sensor; a server cannot feel a magnetometer.
+   deviceorientation, watchPosition). Servers serve the development
+   process only: docs, specs, audits, device emulation, ground-truth
+   verification. The phone is the sensor; a server cannot feel a
+   magnetometer.
 2. Before adding any new MCP server: prove it exists (`npm view <pkg>`) and
    test-launch it (initialize handshake over stdio) — then exercise at
    least one real tool call per server class. The initialize handshake
@@ -404,7 +447,13 @@ Rules (binding):
    triggers no audit pipeline (sec 2 covers index.html/worker.js/sw.js/
    tests/).
 5. After editing opencode.json, restart opencode - config loads once at
-   startup; a running session keeps the already-loaded config.
+   startup; a running session keeps the already-loaded config. (The
+   geoapify retirement takes effect on the next restart.)
 6. `playwright` and `github` (pre-existing config) remain: playwright is
    the 390x844 visual-regression rig for /audit; github is the repo
    remote. Same retention rules apply.
+7. No data-plane MCPs (the 2026-10-04 plane classification). Adding a
+   weather/Open-Meteo/METAR-class wrapper is a doctrine violation even
+   though it would run agent-side: ground-truth probing goes through the
+   same primitives the app uses (raw fetch, chrome-devtools network
+   panel), so wrappers only add schema risk and hide API shape traps.
