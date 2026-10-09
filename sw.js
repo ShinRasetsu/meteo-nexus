@@ -3,7 +3,7 @@
 // the old shell indefinitely — no index.html change alone ever reaches an
 // installed client. MAP/API/CDN names stay fixed so tiles + telemetry
 // survive version bumps (activate purges only unknown names).
-const APP_CACHE = 'meteonexus-app-v20';
+const APP_CACHE = 'meteonexus-app-v21';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
@@ -46,7 +46,14 @@ const CDN_PRECACHE = [
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-v4compatibility.woff2',
-    'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js'
+    'https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js',
+    // 1.15.0 CLS fix: the HUD brand fonts (the two exact latin woff2 the
+    // CWV trace showed swapping post-paint) join the precache so repeat
+    // boots render them instantly — display=optional only uses a font that
+    // is available pre-paint, so the SW cache makes every post-install
+    // visit typographically correct AND shift-free.
+    'https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2',
+    'https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2'
 ];
 
 self.addEventListener('install', (e) => {

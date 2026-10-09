@@ -116,7 +116,7 @@ git add; a failure there aborts deployment.
 | shell-audit.mjs | E1: HTML DOCUMENT integrity - doctype first bytes, BOM, charset, U+FFFD, mojibake signatures. Exists because the encoding incident shipped "?<!DOCTYPE html>" (quirks mode + stray glyph) through a fully green module-level audit. Runtime twin: compatMode tripwire at module start | PASS = document shell intact |
 | csp-evaluator-gate.mjs | E4: the CSP POLICY itself carries no undocumented bypasses/weaknesses (Google csp_evaluator: known-bypass origins, injection vectors, syntax). csp-audit proves origin coverage — this proves policy hygiene. FAIL on any HIGH/SYNTAX/MEDIUM finding not in the charter-cited DOCUMENTED_EXCEPTIONS list; extending that list without a §1.6 revision is forbidden | PASS = 0 undocumented blocking findings |
 | osv-audit.mjs | E4: supply-chain — INSTALLED dep versions (node_modules, not declared ranges) vs the @renovatebot/osv-offline offline OSV DB. No network, no key, deterministic. Resolution rule: bump past the advisory fixed version, never silence | PASS = 0 advisories affecting installed versions |
-| a11y-audit.spec.js (Playwright rig) | E5: axe-core FULL-ruleset scan on the real booted 390x844 surface (the primary a11y instrument — both Lighthouse paths are platform-blocked on this box). Pinned violations (documented fail-set) are tracked; any NEW violation fails the rig. Pin shrinks only via documented fixes | 3 tests pass; 0 unknown violations |
+| a11y-audit.spec.js (Playwright rig) | E5: axe-core FULL-ruleset scan on the real booted 390x844 surface (the primary a11y instrument — both Lighthouse paths are platform-blocked on this box). Pinned violations (documented fail-set) are tracked; any NEW violation fails the rig. Pin is EMPTY since 1.15.0 (the fail-set was fixed) — zero tolerance | 3 tests pass; 0 violations |
 | ui-fluidity-audit.mjs | E5: live DOM driven by low-freq sources (1→60 Hz) stays fluid — no stair/jank (G0-G4: inventory, hard fails, precision, hygiene, a11y) | Perfection verdict PASS (0 stairs, 0 janks) |
 | verify-scanners.mjs | audits the auditors: injects known-good/bad fixtures into every scanner above | all controls behave |
 
@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
-- sanity.test.js - 369 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 379 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -337,8 +337,14 @@ From HISTORY.md "How to bump version in a new session":
   +16 from the 1.14.3 cyber-safety pipeline (csp-evaluator gate: exception
   list + charter citation + removal-path pins; osv gate: never-silence rule
   + installed-version pin; axe fixture: violation pin + headless artifact
-  note; chain + devDep wiring ×7; sharp-retirement negative guard; rig
-  testMatch + loopback baseURL pins))
+  note; chain + devDep wiring ×7;   sharp-retirement negative guard; rig
+  testMatch + loopback baseURL pins),
+  +10 from the 1.15.0 a11y fail-set batch (<main id="app-main"> landmark,
+  </main> close, meta description, display=optional + font preload + SW
+  precache pins, gray-500/600 retirement negative guard, opacity-80 accent,
+  controllerchange deferral ×2; incl. 1 guard consciously REVISED per §1.6:
+  APP_CACHE v20 → v21; and the 1.14.3 axe-pin guard retargeted to the
+  EMPTY pin — the fail-set was fixed))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
@@ -355,7 +361,7 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
-- index.html - ~10581 lines / ~741 KB; inline module lines 880-10557 (~651 KB)
+- index.html - ~10606 lines / ~726 KB; inline module lines 896-10582 (~652 KB)
 - worker.js - 272 lines; sw.js - 493 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)

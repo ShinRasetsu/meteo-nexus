@@ -118,6 +118,165 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.15.0 — 2026-10-09 (minor: a11y fail-set fixed — axe pin EMPTY — + CLS font fix + controllerchange hardening)
+
+### Bump rationale
+
+Minor bump 1.14.3 → 1.15.0 (user-approved Phase 2+3 of the refinement
+plan; `sw.js` `APP_CACHE` `v20` → `v21` — index.html and sw.js changed).
+The release goal: fix the documented a11y fail-set so the axe pin
+shrinks to EMPTY (zero tolerance from here), kill the font-swap CLS,
+and harden the controllerchange self-reload. Every fix is
+evidence-driven — the axe node dump named the exact failing elements.
+
+### The a11y fixes (axe: 17 violating nodes → 0)
+
+- **color-contrast (14→0 nodes)**: ALL 14 shared two root causes —
+  `text-gray-500` labels on dark surfaces (computed #6a7282 on
+  #031409/#000 = 3.91:1) and the Local Telemetry accent
+  `text-brand-teal ... opacity-60` (3.43:1). Fix: blanket
+  `text-gray-500`/`text-gray-600` → `text-gray-400` (54+9 sites —
+  markup AND the JS-render class toggles stay coherent) + the accent
+  label `opacity-60` → `opacity-80` (which also delivers the
+  unified-audit "vibrant accent" design rec). The last straggler was
+  the footer version badge at `opacity-40` (3.58:1) → `opacity-70`.
+  A negative guard retires the gray-500/600 tokens permanently.
+- **landmark-one-main + region (15→0 nodes)**: the app never had a
+  `<main>`. THE STRUCTURAL LESSON (live-DOM probe): `#main-grid` is
+  NOT the page grid — it is an inner U2-MERGE grid nested INSIDE the
+  body-level `#sec-telemetry`; the body-level sections are
+  `#sec-telemetry`, `#sec-map`, `#sec-intel`. A first-attempt
+  `<main id="main-grid">` conversion mis-nested the tree (the
+  adoption-agency parser surgery moved sections to body and mangled
+  containment — caught by the live DOM probe: `main.children` was wrong,
+  sections reparented). REVERTED, then the correct fix: `<main
+  id="app-main" class="contents">` wraps the three body-level sections
+  after `</header>`, closing before the modals. `display:contents`
+  keeps the sections participating in the body flex exactly as before —
+  DOM containment, not layout, satisfies the landmark rules. Proven:
+  the a11y tree renders `banner` + `main` + `contentinfo`.
+- **meta description** added (the Lighthouse SEO fail-set item).
+
+### CLS: font class FIXED, content class documented
+
+- **Font-swap class (0.0946 of the 1.14.3-trace 0.10): FIXED** —
+  `display=swap` → `display=optional` on the Google Fonts link (a font
+  is either ready pre-paint or not used that visit — zero swap, zero
+  shift) + `<link rel="preload">` for the two exact latin woff2 the CWV
+  trace named (Inter 400 + JetBrains Mono 500) + both join the SW
+  `CDN_PRECACHE` so every post-install boot renders them instantly.
+  Proof: the 1.15.0 CLSCulprits trace names ZERO font root causes
+  (was: both fonts, `#status-text` + `#sec-map` header shift).
+- **LCP 341 ms → 195 ms** (TTFB 3 ms on the SW-cached shell).
+- **Residual CLS 0.12 = a DIFFERENT class, documented not hidden**:
+  content-arrival reflow — placeholder→live-value swaps
+  (WAITING→OVERCAST, -- → 29°) and the JS-mounted Aero card inserting
+  at ~723 ms shift `#sec-map` below. Space-reservation (skeleton slots
+  with min-heights) would fix it but changes the progressive-disclosure
+  design — DEFERRED as a product decision (the 1.14.1 deferred-item
+  pattern), not silently dropped.
+
+### controllerchange hardening (the 1.14.3 headless artifact)
+
+Both reload sites (the generic first-install listener + the update-pill
+`_doReload` funnel — same SKIP_WAITING event class) now defer
+`location.reload()` by one 50 ms macrotask, escaping the SW activation
+window that ERR_FAILED'd in chrome-headless-shell. Note: the trace-run
+in this session ALSO caught a fresh full-Chrome ERR_FAILED when the
+trace's own reload raced the SW-update reload — the deferral shrinks
+the race but a trace/telemetry-arrival overlap can still collide;
+headless artifact workaround stays in the fixture.
+
+### Stale audit recs consciously SKIPPED (evidence-checked, not blind)
+
+- `hMagSq < 25` magnetometer sqrt-drop — already shipped in 1.3.10
+  (index.html:4012 PERF-12); the unified-audit rec list is stale.
+- syncClock `toLocaleTimeString` options hoist — already shipped as
+  1.3.10 #16 (`_CLOCK_FMT_OPTS` + PERF-18 direct updateText).
+- fuel-btn spring hover — already shipped at 1.8.0.
+- game-hud "trail g-dot:730" — no such element exists in the current
+  markup (line drift); real-hud/game-hud "full sync" token additions
+  (--green 0.5→0.7, radial 32%, tabular-nums, trail size) are design
+  additions, not adjustments — DEFERRED to a visual-pass polish round
+  (no blind styling without the perfection-auditor iterating on
+  screenshots).
+
+### Changes
+
+- `index.html` — gray-400 sweep (63 sites), accent opacity-80, footer
+  badge opacity-70, `<main id="app-main">` wrap + close, meta
+  description, fonts display=optional + 2 preloads, controllerchange
+  deferral ×2 (+ the reverted first-attempt main-grid conversion).
+- `sw.js` — APP_CACHE v21 + the two brand-font woff2 in CDN_PRECACHE.
+- `tailwind.min.css` — rebuilt (text-gray-400 + .contents verified
+  present — the 1.9.0 skew lesson applied).
+- `tests/a11y-audit.spec.js` — pin shrank to EMPTY + permanent
+  node-level violation-detail logging (failure context for pin review).
+- `tests/sanity.test.js` — +10 guards (379 total; 1 revised per §1.6:
+  APP_CACHE v21; the 1.14.3 axe-pin guard retargeted to the empty pin).
+- `AGENTS.md` — §4 axe row (pin EMPTY), §11 numbers synced (sanity 379,
+  module 896-10582, file ~10606 lines/~726 KB).
+- `VERSION` → 1.15.0, `package.json` synced, `HISTORY.md` — this
+  chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **379/379** + unit 36/36 ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 896..10582 /
+  667400 B, TDZ 0, fp 0, brace depth=0, CSP 0 gaps, domnull 0, visual
+  PASS — inventory unchanged, shell PASS, csp-evaluator 4 documented +
+  2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify`
+  **30/30** · `npx playwright test` **3 passed** — **axe: 0 violations,
+  pin EMPTY**.
+- **Runtime (chrome-devtools, post-release)**: badge **v1.15.0**, full
+  live chain — CALAMBA, OVERCAST 29° (feels 36°), RPLL 36km no precip,
+  AQI 41 GOOD, UV 8.5 VERY HIGH @ 12:00, glance strip live, **0 red
+  console errors** (sole entries: the Chrome issue-panel advisory —
+  3 form fields want explicit `<label>` association though axe passes
+  their aria-labels — and the normal beforeinstallprompt info). The
+  a11y tree: `banner` + `main` + `contentinfo`. Screenshot:
+  `runtime-1.15.0-post-fix.png`.
+- **CWV re-trace**: LCP **195 ms** (was 341), CLS 0.12 with ZERO font
+  causes (was 0.10 font-attributed) — the font class is fixed; residual
+  is content-arrival reflow (documented above).
+
+### Blind spots considered (§8)
+
+The <main> first attempt shipped a parser-mangled tree INSIDE this
+session — caught by live-DOM probing (main.children wrong, sections at
+body level) before any release gate; the lesson is recorded: static
+line-reading misidentified `#main-grid` as the page grid (the U2-MERGE
+nesting), and the div-balance walk + live DOM probe are the correct
+instruments for structural edits. The `display:contents` landmark is a
+known a11y-sensitive pattern (older Chromium dropped display:contents
+elements from the a11y tree) — the 153-era runtime renders it in the
+tree (proven by the live snapshot + axe pass); older browsers are out
+of scope (the PWA targets modern Chromium/WebKit). display=optional
+trades first-ever-visit typography for guaranteed zero font shift — a
+one-time cosmetic cost per device before the SW precache warms;
+documented as the chosen trade. The residual content CLS is measured,
+named, and deferred with rationale — not hidden. Chrome's issue-panel
+label advisory is logged as polish (axe-gated instruments pass).
+Races: the 50 ms deferral narrows (not eliminates) the reload race —
+the fixture's one-renav workaround stays for headless rigs. No fetch
+surfaces touched — the live boot above is the Fetch Gate §6-class
+evidence for this tree.
+
+### PENDING (user / next session)
+
+- User device passes: typography after first-ever visit (font present
+  from SW precache), no perceptible boot shift, deferred reload lands
+  clean on SW updates (v20→v21 path on installed clients).
+- Content-CLS slot reservation — product decision (skeleton slots vs
+  progressive disclosure).
+- Explicit `<label>` elements for the 3 form fields (Chrome advisory;
+  axe passes via aria-label).
+- Real-hud/game-hud token polish round (with screenshot iteration).
+- Standing: opencode restart (geoapify + osm v0.6.0 re-probe),
+  GITHUB_TOKEN, Lighthouse PWA + device checks.
+
+---
+
 ## 1.14.3 — 2026-10-08 (patch: cyber-safety pipeline — csp-evaluator + osv supply-chain gates + axe-core a11y fixture + sharp retirement)
 
 ### Bump rationale

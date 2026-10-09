@@ -17,16 +17,12 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-// Documented fail-set (live axe findings on the real surface, 2026-10-08 —
-// confirms the Lighthouse 1.14.0 record: contrast + missing landmark).
-// Dispositions (all Phase 2 fix targets, 1.15.0):
-//   - color-contrast: 14 HUD/token contrast nodes — token fixes.
-//   - landmark-one-main: no <main> landmark — wrap the primary grid.
-//   - region: 14 nodes outside any landmark — largely resolved by <main>.
-// NOTE: document-title / html-has-lang / page-has-heading-one PASS on the
-// real surface — the 2026-10-08 first probe flagged them only because the
-// scan hit the chrome-error artifact page (see RIG ARTIFACT note below).
-const KNOWN_VIOLATION_IDS = new Set(['color-contrast', 'landmark-one-main', 'region']);
+// Pin history: the 1.14.3 fail-set (color-contrast, landmark-one-main,
+// region) was FIXED in 1.15.0 (gray-500/600 → gray-400 sweep, <main
+// id="app-main"> landmark, footer badge opacity) and the pin shrank to
+// EMPTY — zero tolerance from 1.15.0 on. Adding an id back requires a
+// §1.6 charter-cited rationale in HISTORY.
+const KNOWN_VIOLATION_IDS = new Set([]);
 
 test('axe-core a11y: zero undocumented violations on the 390x844 boot surface', async ({ page }) => {
   await page.goto('/');
@@ -63,6 +59,16 @@ test('axe-core a11y: zero undocumented violations on the 390x844 boot surface', 
   }
   console.log('axe pinned (documented):', pinned.join(' | ') || 'none');
   console.log('axe unknown (new):', unknown.join(' | ') || 'none');
+  // Failure context: node-level detail for every remaining violation —
+  // the pin review uses this (targets + computed contrast data).
+  for (const v of results.violations) {
+    const detail = v.nodes.map((n) => ({
+      t: Array.isArray(n.target) ? n.target.join(' ') : n.target,
+      ratio: n.any && n.any[0] && n.any[0].data ? Math.round(n.any[0].data.contrastRatio * 100) / 100 : null,
+      fg: n.any && n.any[0] && n.any[0].data ? n.any[0].data.fgColor : null,
+    }));
+    console.log(`axe violation detail [${v.id}]:`, JSON.stringify(detail).slice(0, 600));
+  }
 
   expect(unknown, `NEW a11y violations must be fixed before ship: ${unknown.join(', ')}`).toEqual([]);
 });

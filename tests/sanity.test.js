@@ -664,7 +664,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v20'", "sw.js APP_CACHE v20 — 1.14.1 release gate step 6 (the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v21'", "sw.js APP_CACHE v21 — 1.15.0 release gate step 6 (the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -736,7 +736,7 @@ const osvSrc = readFileSync(join(repoRoot, "tests", "osv-audit.mjs"), "utf8");
 assertIncludes(osvSrc, "never silence", "1.14.3: osv gate resolution rule — bump past the advisory fixed version, never silence");
 assertIncludes(osvSrc, "installedVersion", "1.14.3: osv gate scans INSTALLED versions from node_modules, not declared ranges");
 const a11ySpecSrc = readFileSync(join(repoRoot, "tests", "a11y-audit.spec.js"), "utf8");
-assertIncludes(a11ySpecSrc, "new Set(['color-contrast', 'landmark-one-main', 'region'])", "1.14.3: axe fixture pins the documented violation set (1.15.0 shrinks it; new violations fail loudly)");
+assertIncludes(a11ySpecSrc, "new Set([])", "1.15.0: axe pin EMPTY — the 1.14.3 fail-set (color-contrast, landmark-one-main, region) was fixed; zero tolerance for any violation from 1.15.0 on (§1.6 pin-shrink documented in HISTORY)");
 assertIncludes(a11ySpecSrc, "chrome-error", "1.14.3: a11y fixture documents the headless-shell controllerchange-reload artifact + one-renav workaround");
 const pkgJson1 = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 assert(!!(pkgJson1.scripts && pkgJson1.scripts["audit:csp-eval"]), "package.json wires audit:csp-eval");
@@ -749,6 +749,23 @@ assert(!(pkgJson1.dependencies && pkgJson1.dependencies.sharp) && !(pkgJson1.dev
 const pwCfgSrc = readFileSync(join(repoRoot, "playwright.config.js"), "utf8");
 assertIncludes(pwCfgSrc, "a11y-audit\\.spec\\.js", "playwright rig includes the axe a11y fixture in testMatch");
 assertIncludes(pwCfgSrc, "127.0.0.1:3000", "playwright rig baseURL is explicit loopback (headless-shell localhost artifact, 2026-10-08)");
+
+// ---------------------------------------------------------------------------
+// 1.15.0 Phase 2+3: a11y fail-set fixes (the axe pin shrink), CLS font-swap
+// fix, controllerchange activation-window deferral. The a11y spec pin
+// revision is a §1.6-conscious change documented in HISTORY: the pin's
+// CONTRACT is "the documented current fail-set" — the fail-set was fixed.
+// ---------------------------------------------------------------------------
+assertIncludes(html, '<main id="app-main" class="contents">', "1.15.0: <main id=app-main> primary landmark (display:contents = zero layout impact) — the axe landmark-one-main + region fix; the nested #main-grid stays a div (inner U2-MERGE grid, not the page landmark)");
+assertIncludes(html, "</main>", "1.15.0: the main landmark closes");
+assertIncludes(html, '<meta name="description"', "1.15.0: meta description (the Lighthouse SEO fail-set item)");
+assertIncludes(html, "display=optional", "1.15.0: fonts display=optional — the CLS font-swap fix (the CWV-trace culprit: 0.0946 of the 0.10 CLS shifted #status-text)");
+assertIncludes(html, 'rel="preload" href="https://fonts.gstatic.com/s/inter/', "1.15.0: brand font preloaded at parse time (CLS window shrink)");
+assertIncludes(swSrc, "fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2", "1.15.0: brand fonts join the SW CDN precache — instant + shift-free repeat boots");
+assert(!/text-gray-500|text-gray-600/.test(html), "1.15.0: gray-500/600 text tokens RETIRED (3.91:1 on dark = axe color-contrast fail; gray-400 passes) — negative guard");
+assertIncludes(html, "text-brand-teal tracking-[0.3em] uppercase opacity-80", "1.15.0: Local Telemetry accent raised to opacity-80 (3.43:1 → passes; also the vibrant-accent design rec)");
+assertIncludes(html, "setTimeout(() => window.location.reload(), 50); } });", "1.15.0: generic controllerchange self-reload deferred out of the SW activation window (headless-shell ERR_FAILED probe, 1.14.3)");
+assertIncludes(html, "setTimeout(() => window.location.reload(), 50); } };", "1.15.0: update-pill _doReload deferred — same event class (SKIP_WAITING controllerchange)");
 
 // ---------------------------------------------------------------------------
 // Report

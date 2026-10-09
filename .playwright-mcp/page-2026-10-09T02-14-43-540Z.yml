@@ -1,0 +1,145 @@
+- generic [active] [ref=f3e1]:
+  - banner [ref=f3e2]:
+    - heading " METEONEXUS v1.14.3" [level=1] [ref=f3e3]:
+      - generic [ref=f3e4]: 
+      - text: METEONEXUS
+      - generic "Deployed version" [ref=f3e5]: v1.14.3
+    - generic [ref=f3e6]:
+      - button "Install App" [ref=f3e7]:
+        - generic [ref=f3e8]: 
+      - button "Purge System Storage" [ref=f3e9]:
+        - generic [ref=f3e10]: 
+      - button "Toggle Sonar" [ref=f3e11]:
+        - generic [ref=f3e12]: 
+  - generic [ref=f3e13]:
+    - generic "Swipe to expand diagnostics" [ref=f3e15] [cursor=pointer]
+    - generic [ref=f3e16]:
+      - generic [ref=f3e17]:
+        - generic [ref=f3e18]: 
+        - text: Environment Processing
+      - button "Focus Telemetry" [ref=f3e19]:
+        - generic [ref=f3e20]: 
+    - generic [ref=f3e21]:
+      - generic [ref=f3e23]:
+        - generic [ref=f3e24]:
+          - generic [ref=f3e25]: Local Telemetry
+          - generic [ref=f3e26]:
+            - generic [ref=f3e27]:
+              - generic [ref=f3e28]: 
+              - text: GPS SIGNAL
+            - generic [ref=f3e29]:
+              - generic [ref=f3e30]: 
+              - generic [ref=f3e31]: "--:--:--"
+          - generic [ref=f3e32]: 
+          - generic [ref=f3e33]: SEARCH LOCATION
+          - generic [ref=f3e34]: GPS UNAVAILABLE.
+        - generic [ref=f3e35]:
+          - generic [ref=f3e36]:
+            - generic [ref=f3e37]:
+              - generic [ref=f3e38]: Temperature
+              - generic [ref=f3e39]:
+                - generic [ref=f3e40]: "--"
+                - generic [ref=f3e41]: Feels --
+            - generic [ref=f3e42]:
+              - generic [ref=f3e43]: Rain Consensus
+              - generic [ref=f3e44]: "--"
+          - generic [ref=f3e45]:
+            - generic [ref=f3e46]:
+              - generic [ref=f3e47]: Wind & Humidity
+              - generic [ref=f3e48]:
+                - generic [ref=f3e49]:
+                  - generic [ref=f3e50]:
+                    - generic [ref=f3e51]: "--"
+                    - generic [ref=f3e52]: km/h
+                  - generic [ref=f3e53]: Wind
+                - generic [ref=f3e54]:
+                  - generic [ref=f3e55]: "--"
+                  - generic [ref=f3e56]: Humidity
+              - generic [ref=f3e57]: "--"
+              - generic [ref=f3e58]:
+                - generic [ref=f3e59]: "-- hPa"
+                - generic [ref=f3e60]: "|"
+                - generic [ref=f3e61]: "-- km"
+                - generic [ref=f3e62]: "|"
+                - generic "Air quality" [ref=f3e63]: "-- AQI"
+            - generic [ref=f3e64]:
+              - generic [ref=f3e65]: Max UV
+              - generic [ref=f3e66]: "--"
+              - generic [ref=f3e67]: "--"
+              - generic [ref=f3e68]: "--"
+          - text:  
+      - generic [ref=f3e70]:
+        - generic:
+          - generic:
+            - generic:
+              - generic: 
+              - text: Aero-Vector HUD
+            - generic:
+              - generic "weather code": 
+              - generic: "--"
+          - button "Expand Aero HUD" [ref=f3e71]:
+            - generic [ref=f3e72]: 
+        - generic [ref=f3e74]:
+          - generic:
+            - generic: "N"
+            - generic: S
+            - generic: W
+            - generic: E
+          - generic: 
+          - generic:
+            - generic: WIND
+            - generic: "0"
+            - generic: KM/H
+        - text:        
+  - generic [ref=f3e75]:
+    - generic [ref=f3e76]:
+      - generic [ref=f3e77]:
+        - generic [ref=f3e78]:
+          - generic [ref=f3e79]: 
+          - text: Tracking
+        - generic [ref=f3e80]: GPS SIGNAL LOST
+      - generic [ref=f3e81]:
+        - button "Trigger Pit Stop Search" [ref=f3e82]:
+          - generic [ref=f3e83]: 
+        - button "Fuel Settings" [ref=f3e84]:
+          - generic [ref=f3e85]: 
+        - button "Paste Location Link" [ref=f3e86]:
+          - generic [ref=f3e87]: 
+        - generic [ref=f3e88]:
+          - textbox "Search place by name" [ref=f3e89]:
+            - /placeholder: Search place…
+          - button "Search place" [ref=f3e90]:
+            - generic [ref=f3e91]: 
+        - button "Clear Route" [ref=f3e92]:
+          - generic [ref=f3e93]: 
+        - text: 
+        - button "Focus Map" [ref=f3e94]:
+          - generic [ref=f3e95]: 
+    - generic [ref=f3e96]:
+      - generic:
+        - generic [ref=f3e98]:
+          - generic [ref=f3e99]: 
+          - generic [ref=f3e100]:
+            - generic [ref=f3e101]: "000"
+            - generic [ref=f3e102]: km/h
+          - generic "Session Max Speed" [ref=f3e104]:
+            - generic [ref=f3e105]: Max
+            - generic [ref=f3e106]: "000"
+        - generic [ref=f3e107]:
+          - generic [ref=f3e108]: 
+          - generic [ref=f3e109]:
+            - generic [ref=f3e110]: "N"
+            - generic [ref=f3e111]: 000°
+      - text: 
+      - generic [ref=f3e112]:
+        - button "" [ref=f3e113]
+        - button "" [ref=f3e115]
+        - button "" [ref=f3e117]
+  - text:                               
+  - contentinfo [ref=f3e119]:
+    - generic "MeteoNexus Tactical HUD — deployed version" [ref=f3e120]: v1.14.3
+    - generic [ref=f3e121]:
+      - text: Weather data by
+      - link "Open-Meteo.com" [ref=f3e122] [cursor=pointer]:
+        - /url: https://open-meteo.com
+      - text: • CC BY 4.0

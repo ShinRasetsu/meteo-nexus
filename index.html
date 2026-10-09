@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>MeteoNexus | Active Telemetry HUD</title>
+<meta name="description" content="Glanceable multi-model weather verdicts with radar and METAR ground truth, drive-mode navigation, and offline-first PWA telemetry for the road.">
     
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com https://marine-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.rainviewer.com https://tilecache.rainviewer.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
@@ -32,7 +33,15 @@
     <!-- Google Fonts CSS is intentionally SRI-less: the response is dynamically
          generated per browser (different woff2 URLs / @font-face rules based on
          the User-Agent), so a single sha384 would break for non-matching UAs. -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@500;700;800&display=optional" rel="stylesheet">
+<!-- 1.15.0 CLS fix: the two exact latin woff2 files the CWV trace showed
+swapping in post-paint (Inter 400 + JetBrains Mono 500) shift #status-text
++ #sec-map (0.0946 of the 0.10 CLS). Preload starts them at parse time;
+display=optional guarantees they are either ready pre-paint or not used
+this visit (zero swap = zero shift). The SW CDN_PRECACHE (1.15.0) warms
+them for instant render on every later boot. -->
+<link rel="preload" href="https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2" as="font" type="font/woff2" crossorigin>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous" defer></script>
@@ -374,7 +383,7 @@
     <header class="flex items-center justify-between gap-3 py-2 px-2 border-b-4 border-surface-800">
             <h1 class="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-2 sm:gap-3">
                 <i class="fa-solid fa-satellite-dish text-brand-teal text-2xl sm:text-3xl"></i>
-            METEONEXUS <span class="font-bold text-gray-500 tracking-widest text-sm hidden sm:inline">HUD</span>
+            METEONEXUS <span class="font-bold text-gray-400 tracking-widest text-sm hidden sm:inline">HUD</span>
             <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
         </h1>
 
@@ -390,12 +399,18 @@
                 <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
             </button>
         </div>
-    </header>
+</header>
 
-    <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
+<!-- 1.15.0: the primary content landmark (axe landmark-one-main + region).
+display:contents keeps the sections participating in the body flex exactly
+as before — DOM containment, not layout, is what satisfies the landmark
+rules. The nested #main-grid stays a plain div: it is an inner U2-MERGE
+grid inside #sec-telemetry, not the page landmark. -->
+<main id="app-main" class="contents">
+<div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div class="flex justify-center -mb-1"><div onclick="toggleFocus('sec-telemetry')" class="w-10 h-1 bg-surface-600 rounded-full cursor-pointer hover:bg-brand-teal transition-colors" title="Swipe to expand diagnostics"></div></div>
         <div class="flex justify-between items-center px-2">
-            <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
+            <span class="text-xs font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
             <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="tap-48 w-11 h-11 flex items-center justify-center text-brand-teal hover:text-white transition-colors"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
         <div id="main-grid" class="grid grid-cols-1 gap-4">
@@ -410,23 +425,23 @@
                     <!-- STATUS COLUMN -->
                     <div class="md:col-span-4 flex flex-col items-center justify-center text-center relative min-h-[180px]">
                         <div class="absolute top-0 left-0">
-                            <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-60">Local Telemetry</span>
+                            <span class="text-[10px] font-black text-brand-teal tracking-[0.3em] uppercase opacity-80">Local Telemetry</span>
                         </div>
                         <div class="absolute top-0 right-0 text-right">
                             <div id="location-badge" class="text-sm font-bold text-gray-300 flex items-center gap-1.5 justify-end uppercase tracking-widest">
                                 <i class="fa-solid fa-circle-notch fa-spin"></i> LOCATING
                             </div>
-                            <div class="text-[10px] font-mono font-bold text-gray-500 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
+                            <div class="text-[10px] font-mono font-bold text-gray-400 mt-1 flex items-center gap-1 justify-end uppercase tracking-widest">
                                 <i class="fa-regular fa-clock text-brand-blue opacity-80"></i>
                                 <span id="local-time-text">--:--:--</span>
                             </div>
                             <div id="tracking-progress-bar" class="fixed md:absolute top-0 md:top-auto left-0 right-0 md:left-auto md:right-auto md:w-full h-2 md:h-1 bg-surface-800 md:rounded-full mt-0 md:mt-2 overflow-hidden hidden z-50 md:z-auto pointer-events-none" style="contain:layout"><div id="tracking-progress-fill" class="h-full bg-brand-teal will-change-transform" style="width:0%; will-change:width; contain:layout; transition:none"></div></div>
                         </div>
 
-                        <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-600"></i>
-                        <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-600 uppercase">WAITING</span>
+                        <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-400"></i>
+                        <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-400 uppercase">WAITING</span>
                         <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
-                        <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest"></div>
+                        <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest"></div>
                     </div>
 
                     <!-- DATA COLUMN -->
@@ -434,10 +449,10 @@
 
                         <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
                             <div>
-                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Temperature</span>
+                                <span class="text-sm font-bold text-gray-400 uppercase tracking-widest block mb-1">Temperature</span>
                                 <div class="flex items-baseline gap-3">
                                     <div id="metric-temp" class="font-mono text-5xl md:text-6xl font-black text-white leading-none">--</div>
-                                    <div class="text-sm font-bold text-gray-500 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
+                                    <div class="text-sm font-bold text-gray-400 uppercase">Feels <span id="metric-feels" class="text-gray-300">--</span></div>
                                 </div>
                             </div>
                             <div class="text-right">
@@ -450,34 +465,34 @@
 
                         <div class="flex justify-between items-end border-b-2 border-surface-800 pb-4">
                             <div>
-                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Wind & Humidity</span>
+                                <span class="text-sm font-bold text-gray-400 uppercase tracking-widest block mb-1">Wind & Humidity</span>
                                 <div class="flex items-baseline gap-5">
                                     <div class="flex flex-col items-start">
                                         <div class="flex items-baseline gap-1">
                                             <span id="metric-wind-speed" class="font-mono text-3xl md:text-4xl font-black text-white leading-none">--</span>
-                                            <span class="text-xs font-bold text-gray-500 uppercase">km/h</span>
+                                            <span class="text-xs font-bold text-gray-400 uppercase">km/h</span>
                                         </div>
-                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Wind</span>
+                                        <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Wind</span>
                                     </div>
                                     <div class="flex flex-col items-start">
                                         <div id="metric-hum" class="font-mono text-2xl md:text-3xl font-black text-brand-blue leading-none">--</div>
-                                        <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Humidity</span>
+                                        <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Humidity</span>
                                     </div>
                                 </div>
                                 <div id="metric-wind-dir" class="text-sm font-bold text-brand-blue mt-2 flex items-center gap-2 uppercase tracking-widest">--</div>
                                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-                                    <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- hPa</span>
-                                    <span class="text-gray-600 text-[10px]">|</span>
-                                    <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest">-- km</span>
-                                    <span class="text-gray-600 text-[10px]">|</span>
-                                    <span id="metric-aq" class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest" title="Air quality">-- AQI</span>
+                                    <span id="metric-pressure" class="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest">-- hPa</span>
+                                    <span class="text-gray-400 text-[10px]">|</span>
+                                    <span id="metric-visibility" class="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest">-- km</span>
+                                    <span class="text-gray-400 text-[10px]">|</span>
+                                    <span id="metric-aq" class="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest" title="Air quality">-- AQI</span>
                                 </div>
                             </div>
                             <div class="text-right">
-                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest block mb-1">Max UV</span>
+                                <span class="text-sm font-bold text-gray-400 uppercase tracking-widest block mb-1">Max UV</span>
                                 <div id="metric-uv-val" class="font-mono text-3xl md:text-4xl font-black text-brand-purple leading-none">--</div>
-                                <div id="metric-uv-band" class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">--</div>
-                                <div id="metric-uv-time" class="text-sm font-bold text-gray-500 mt-2 uppercase tracking-widest">--</div>
+                                <div id="metric-uv-band" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">--</div>
+                                <div id="metric-uv-time" class="text-sm font-bold text-gray-400 mt-2 uppercase tracking-widest">--</div>
                             </div>
                         </div>
 
@@ -499,15 +514,15 @@
                                  glance. -->
                             <div>
                                 <div class="flex items-center gap-2 mb-1">
-                                    <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em]">Verdict Basis</div>
-                                    <span class="text-[8px] text-gray-600 uppercase tracking-widest">why the headline says what it says</span>
+                                    <div class="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em]">Verdict Basis</div>
+                                    <span class="text-[8px] text-gray-400 uppercase tracking-widest">why the headline says what it says</span>
                                 </div>
                                 <div id="focus-verdict-basis" class="hidden text-[10px] font-mono text-gray-400 uppercase tracking-widest"></div>
                             </div>
 
                             <div class="flex flex-wrap justify-between items-center gap-2">
-                                <span class="text-sm font-bold text-gray-500 uppercase tracking-widest">Global Node Health</span>
-                                <span id="metric-temp-spread" class="text-[10px] font-mono font-bold uppercase tracking-widest text-gray-500"></span>
+                                <span class="text-sm font-bold text-gray-400 uppercase tracking-widest">Global Node Health</span>
+                                <span id="metric-temp-spread" class="text-[10px] font-mono font-bold uppercase tracking-widest text-gray-400"></span>
                             </div>
                             <div class="flex flex-wrap gap-2 md:gap-3 font-mono text-xs md:text-sm w-full">
                                 <div id="stat-eu" class="font-bold px-2 py-0.5 bg-surface-800 rounded border border-surface-700 flex-1 md:flex-none text-center">EU</div>
@@ -518,13 +533,13 @@
                             </div>
 
                             <div>
-                                <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em] mb-2">Model Matrix · Current Hour</div>
+                                <div class="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-2">Model Matrix · Current Hour</div>
                                 <div id="focus-model-table" class="font-mono text-[10px] md:text-xs"></div>
                             </div>
 
                             <div>
                                 <div class="flex items-center justify-between mb-2">
-                                    <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em]">6H Rain Outlook</div>
+                                    <div class="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em]">6H Rain Outlook</div>
                                     <span id="focus-incoming" class="hidden text-[9px] font-black text-brand-warning uppercase tracking-widest"><i class="fa-solid fa-bolt mr-1"></i>Incoming 1-3H</span>
                                 </div>
                                 <div id="focus-outlook" class="flex gap-1"></div>
@@ -532,7 +547,7 @@
                             </div>
 
                             <div>
-                                <div class="text-[10px] font-black text-gray-500 uppercase tracking-[0.25em] mb-2">Atmospheric Telemetry Plot · 24H</div>
+                                <div class="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-2">Atmospheric Telemetry Plot · 24H</div>
                                 <div class="chart-wrapper w-full relative h-[300px] md:h-[360px]">
                                     <canvas id="mainChart"></canvas>
                                 </div>
@@ -549,8 +564,8 @@
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
-                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-500 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> <span id="gps-acc-text">Tracking</span></span>
-                <span id="route-status" class="text-xs md:text-sm font-bold text-gray-600 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
+                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> <span id="gps-acc-text">Tracking</span></span>
+                <span id="route-status" class="text-xs md:text-sm font-bold text-gray-400 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
             <div class="grid grid-cols-5 justify-items-center gap-2 sm:flex sm:flex-row sm:items-center shrink-0">
                     <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all hover:scale-[1.03] active:scale-[0.97] hover:shadow-[0_0_15px_rgba(245,158,11,0.4)] flex items-center gap-0 sm:gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)] will-change-transform">
@@ -683,8 +698,9 @@
             <span class="text-sm font-bold uppercase tracking-widest text-brand-teal"><i class="fa-solid fa-route mr-2"></i> En-Route Intelligence</span>
             <button onclick="toggleFocus('sec-intel')" aria-label="Focus Intel" class="tap-48 w-11 h-11 flex items-center justify-center text-brand-teal hover:text-white transition-colors"><i class="fa-solid fa-expand text-lg" id="icon-sec-intel"></i></button>
         </div>
-        <div id="timeline-container" class="pb-2 no-select w-full"></div>
-    </div>
+<div id="timeline-container" class="pb-2 no-select w-full"></div>
+</div>
+</main>
 
     <!-- U3-PLOT: #sec-plot removed — the Atmospheric Telemetry Plot now lives
          inside the sec-telemetry focus-only block (single Chart instance,
@@ -704,11 +720,11 @@
                     </summary>
                     <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
                         <div>
-                            <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Target Brand</label>
+                            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Target Brand</label>
                             <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                         </div>
                         <div>
-                            <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Variant (Optional)</label>
+                            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Variant (Optional)</label>
                             <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                         </div>
                         <div class="grid grid-cols-2 gap-2 pt-2">
@@ -748,7 +764,7 @@
                         <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
                     </summary>
                     <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
-                        <label class="block text-xs text-gray-500 mb-1 uppercase tracking-widest">Search Mode</label>
+                        <label class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Search Mode</label>
                         <select id="pref-opening-mode" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-blue outline-none transition-colors"></select>
                     </div>
                 </details>
@@ -860,9 +876,9 @@
             </div>
 
             <div class="flex flex-col gap-1">
-                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-500"><span>X axis</span><span id="magcal-x-range">--</span></div>
-                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-500"><span>Y axis</span><span id="magcal-y-range">--</span></div>
-                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-500"><span>Z axis</span><span id="magcal-z-range">--</span></div>
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-400"><span>X axis</span><span id="magcal-x-range">--</span></div>
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-400"><span>Y axis</span><span id="magcal-y-range">--</span></div>
+                <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-gray-400"><span>Z axis</span><span id="magcal-z-range">--</span></div>
                 <div class="flex justify-between text-[10px] uppercase tracking-widest font-mono text-brand-purple pt-2 border-t border-surface-700"><span>Quality</span><span id="magcal-quality">UNCALIBRATED</span></div>
             </div>
 
@@ -5229,7 +5245,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (!input || !box) return;
             const q = (input.value || '').trim();
             if (q.length < 2) { box.classList.add('hidden'); return; }
-            updateHTML(box, `<div class="px-3 py-2 text-gray-500 text-xs font-bold uppercase tracking-widest">SEARCHING…</div>`);
+            updateHTML(box, `<div class="px-3 py-2 text-gray-400 text-xs font-bold uppercase tracking-widest">SEARCHING…</div>`);
             box.classList.remove('hidden');
             const j = await fetchSiblingJSON('geo', `${CONFIG.geoApi}?name=${encodeURIComponent(q)}&count=5&language=en&format=json`);
             if (mySeq !== _geoSeq) return; // stale response loses to the newer search
@@ -5564,7 +5580,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const scrollTrack = document.getElementById('timeline-scroll-track');
             if (scrollTrack) scrollPos = scrollTrack.scrollTop;
             if (!scrollTrack) {
-                updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-500 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
+                updateHTML(DOM.timelineContainer, `<div class="w-full text-center py-8 text-gray-400 font-bold uppercase tracking-widest animate-pulse"><i class="fa-solid fa-microchip mr-3"></i> Processing Route Telemetry...</div>`);
             }
 
             if (!state.routeNodes || state.routeNodes.length === 0) {
@@ -5994,7 +6010,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     const windStr  = (ws != null && wd != null) ? `${ws}km/h ${getWindDirection(wd)}` : '';
                     const parts = [feelsStr, humStr, windStr].filter(Boolean);
                     if (parts.length > 0) {
-                        extraMeta = `<div class="text-[10px] font-mono font-bold text-gray-500 uppercase tracking-widest mt-1">${parts.join('  ·  ')}</div>`;
+                        extraMeta = `<div class="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest mt-1">${parts.join('  ·  ')}</div>`;
                     }
                 } else if (wp.type === 'current') {
                     bgClass = "bg-brand-blue/10"; borderLeft = "border-brand-blue";
@@ -6152,7 +6168,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 return;
             }
             updateText(hint, 'GPS: CHECKING PERMISSION…');
-            updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-gray-500');
+            updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-gray-400');
             navigator.permissions.query({ name: 'geolocation' }).then(p => {
                 if (p.state === 'granted') {
                     updateText(hint, 'GPS: PERMISSION OK — RE-VERIFIED DURING RESET.');
@@ -7206,7 +7222,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     }).length;
                     const lcSuffix = deadGlobals > 0 ? ` • ⚠ ${deadGlobals} GLOBAL NODE${deadGlobals > 1 ? 'S' : ''} OFFLINE` : '';
                     updateText(DOM.metricTempSpread, spreadStr + regimeTag + lcSuffix);
-                    updateClass(DOM.metricTempSpread, `text-[10px] font-mono font-bold uppercase tracking-widest ${lowConfidence ? 'text-brand-warning' : 'text-gray-500'}`);
+                    updateClass(DOM.metricTempSpread, `text-[10px] font-mono font-bold uppercase tracking-widest ${lowConfidence ? 'text-brand-warning' : 'text-gray-400'}`);
                 } else {
                     updateText(DOM.metricTempSpread, '');
                 }
@@ -7217,8 +7233,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // Prob column added with native Open-Meteo precipitation_probability (per-model, weighted same as precip).
             if (DOM.focusModelTable && data.focus) {
                 const cell = (v, unit, digits = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '--' : Number(v).toFixed(digits) + unit;
-                const vote = (mm) => (mm === null || mm === undefined) ? ['NO DATA', 'text-gray-500'] : (mm >= 0.1 ? ['WET', 'text-brand-blue'] : ['DRY', 'text-brand-success']);
-                const head = '<div class="grid grid-cols-8 gap-x-2 text-gray-500 font-bold uppercase tracking-widest border-b border-surface-800 pb-1 mb-1">'
+                const vote = (mm) => (mm === null || mm === undefined) ? ['NO DATA', 'text-gray-400'] : (mm >= 0.1 ? ['WET', 'text-brand-blue'] : ['DRY', 'text-brand-success']);
+                const head = '<div class="grid grid-cols-8 gap-x-2 text-gray-400 font-bold uppercase tracking-widest border-b border-surface-800 pb-1 mb-1">'
                     + '<span>Node</span><span class="text-right">Temp</span><span class="text-right">Wind</span><span class="text-right">Gust</span><span class="text-right">Rain</span><span class="text-right">Prob</span><span class="text-right">Vote</span><span class="text-right">Cov</span></div>';
                 const rows = data.focus.perModel.map(p => {
                     const [voteTxt, voteCls] = vote(p.precip);
@@ -7230,7 +7246,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         + `<span class="text-right text-gray-300">${cell(p.precip, 'mm', 2)}</span>`
                         + `<span class="text-right text-gray-300">${cell(p.prob, '%', 0)}</span>`
                         + `<span class="text-right font-bold ${voteCls}">${voteTxt}</span>`
-                        + `<span class="text-right ${p.coverage !== null && p.coverage < 80 ? 'text-brand-warning' : 'text-gray-500'}">${p.coverage === null ? '--' : p.coverage + '%'}</span>`
+                        + `<span class="text-right ${p.coverage !== null && p.coverage < 80 ? 'text-brand-warning' : 'text-gray-400'}">${p.coverage === null ? '--' : p.coverage + '%'}</span>`
                         + '</div>';
                 }).join('');
                 updateHTML(DOM.focusModelTable, head + rows);
@@ -7240,8 +7256,8 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     const cls = o.pct >= 75 ? 'border-brand-red/60 text-brand-red'
                               : o.pct >= 30 ? 'border-brand-warning/50 text-brand-warning'
                               : 'border-brand-success/40 text-brand-success';
-                    const mm = (o.mm !== null && o.mm >= 0.1) ? `<div class="text-[8px] text-gray-500">${o.mm.toFixed(1)}mm</div>` : '';
-                    return `<div class="flex-1 text-center border ${cls} rounded-md py-1 bg-black/30"><div class="text-[8px] text-gray-500">${o.label}</div><div class="text-xs font-black">${Math.round(o.pct)}%</div>${mm}</div>`;
+                    const mm = (o.mm !== null && o.mm >= 0.1) ? `<div class="text-[8px] text-gray-400">${o.mm.toFixed(1)}mm</div>` : '';
+                    return `<div class="flex-1 text-center border ${cls} rounded-md py-1 bg-black/30"><div class="text-[8px] text-gray-400">${o.label}</div><div class="text-xs font-black">${Math.round(o.pct)}%</div>${mm}</div>`;
                 }).join('');
                 updateHTML(DOM.focusOutlook, chips);
             }
@@ -8500,7 +8516,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     <div class="flex items-center gap-2">
                         <i class="fa-solid fa-gas-pump text-brand-orange"></i>
                         <span class="font-bold text-sm">${brandName}</span>
-                        <span class="text-[10px] text-gray-500">${sizeMB} MB</span>
+                        <span class="text-[10px] text-gray-400">${sizeMB} MB</span>
                     </div>
                     <div class="flex items-center gap-2">
                         ${statusHtml}
@@ -8878,7 +8894,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
                             </div>
                             <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">${meta.label}</span>
-                            <i class="fa-solid ${meta.icon} text-[10px] text-gray-500 ml-1"></i>
+                            <i class="fa-solid ${meta.icon} text-[10px] text-gray-400 ml-1"></i>
                         `;
                         list.appendChild(label);
                     });
@@ -9210,8 +9226,15 @@ function checkDependenciesAndRun() {
                         })
                         .catch(err => console.warn('ServiceWorker registration failed: ', err));
                 });
-                let refreshing = false;
-                navigator.serviceWorker.addEventListener('controllerchange', () => { if (!refreshing) { refreshing = true; window.location.reload(); } });
+let refreshing = false;
+// 1.15.0: defer the self-reload out of the SW activation window. Probe
+// evidence (1.14.3 rig): the immediate reload fired from inside the
+// controllerchange dispatch — which lands DURING activation (clients.claim)
+// — fails with net::ERR_FAILED in chrome-headless-shell and lands on
+// chrome-error:// (first-install + SKIP_WAITING flows). Settled-SW manual
+// reloads and fresh SW-controlled navigations are 200. One macrotask
+// escapes the race; imperceptible to users.
+navigator.serviceWorker.addEventListener('controllerchange', () => { if (!refreshing) { refreshing = true; setTimeout(() => window.location.reload(), 50); } });
                 // Update-available detector: ./VERSION is the release marker.
                 // Polled (no-store, so neither HTTP nor SW cache can lie) at
                 // boot + every 5 min while visible + on foreground. A mismatch
@@ -9250,8 +9273,10 @@ function checkDependenciesAndRun() {
                                     // Fallback reloads after 15 s if no update
                                     // exists (e.g. index-only push with an
                                     // unchanged sw.js).
-                                    let _done = false;
-                                    const _doReload = () => { if (!_done) { _done = true; window.location.reload(); } };
+let _done = false;
+// 1.15.0: same activation-window deferral as the generic controllerchange
+// listener — this funnel fires from the SAME event class (SKIP_WAITING).
+const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.location.reload(), 50); } };
                                     if (swReg && typeof swReg.update === 'function') {
                                         // 1.14.1: shared evict-then-reload — the 15s
                                         // fallback's shell eviction (the 1.10.2 fix
@@ -9305,7 +9330,7 @@ function checkDependenciesAndRun() {
                         const el = DOM.cacheGauge;
                         if (!el) return;
                         const pct = Math.min(1.0, bytes / maxBytes);
-                        let cls = 'text-gray-500';
+                        let cls = 'text-gray-400';
                         if (pct > 0.9) cls = 'text-brand-red';
                         else if (pct > 0.7) cls = 'text-brand-warning';
                         else if (bytes > 0) cls = 'text-brand-teal';
@@ -9479,9 +9504,9 @@ function checkDependenciesAndRun() {
                     
                     <div id="ui-radar-ring" class="absolute inset-0 rounded-full border-[3px] border-surface-700/80 pointer-events-none shadow-[inset_0_0_15px_rgba(0,0,0,0.4)] z-10">
                         <div class="absolute -top-3 left-1/2 -translate-x-1/2 text-[8px] text-brand-red font-black bg-surface-900 px-1 rounded border border-surface-700">N</div>
-                        <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[8px] text-gray-600 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
-                        <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[8px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
-                        <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[8px] text-gray-600 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
+                        <div class="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[8px] text-gray-400 font-black bg-surface-900 px-1 rounded border border-surface-700">S</div>
+                        <div class="absolute top-1/2 -left-3 -translate-y-1/2 text-[8px] text-gray-400 font-black bg-surface-900 py-0.5 rounded border border-surface-700">W</div>
+                        <div class="absolute top-1/2 -right-3 -translate-y-1/2 text-[8px] text-gray-400 font-black bg-surface-900 py-0.5 rounded border border-surface-700">E</div>
                     </div>
                     <div class="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
                         <div class="w-0 h-0 border-l-[5px] border-r-[5px] border-b-[8px] border-transparent border-b-cyan-500 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,1)]"></div>
@@ -9506,7 +9531,7 @@ function checkDependenciesAndRun() {
                     <div style="position:absolute;left:50%;top:63%;transform:translateX(-50%);text-align:center;z-index:20;pointer-events:none">
                         <div class="font-mono font-bold text-brand-blue uppercase" style="font-size:8px;letter-spacing:0.2em">WIND</div>
                         <div id="ui-radar-wind-speed" class="font-mono font-black text-brand-blue" style="font-size:16px;line-height:1.1;text-shadow:0 0 8px rgba(59,130,246,0.5)">--</div>
-                        <div id="ui-tape-wind-unit" class="font-mono font-bold text-gray-500" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
+                        <div id="ui-tape-wind-unit" class="font-mono font-bold text-gray-400" style="font-size:7px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
                 <!-- SPEED TAPE (stage-left edge) — readout stacked BELOW the
@@ -9520,7 +9545,7 @@ function checkDependenciesAndRun() {
                     </div>
                     <div id="ui-tape-spd-box" title="Toggle km/h · knots" style="width:56px;background:rgba(0,0,0,0.85);border:1px solid #3b82f6;border-radius:6px;text-align:center;padding:3px 0;cursor:pointer;pointer-events:auto">
                         <div id="ui-tape-spd-num" class="font-mono text-base font-black text-brand-blue" style="line-height:1.1">---</div>
-                        <div id="ui-tape-spd-unit" class="font-mono font-bold text-gray-500" style="font-size:8px;letter-spacing:0.1em">KM/H</div>
+                        <div id="ui-tape-spd-unit" class="font-mono font-bold text-gray-400" style="font-size:8px;letter-spacing:0.1em">KM/H</div>
                     </div>
                 </div>
                 <div id="aero-tape-alt" class="aero-focus-only" style="position:absolute;right:-1rem;top:50%;transform:translateY(-50%);z-index:20;pointer-events:none;flex-direction:column;align-items:center;gap:4px">
@@ -9530,7 +9555,7 @@ function checkDependenciesAndRun() {
                     </div>
                     <div style="width:56px;background:rgba(0,0,0,0.85);border:1px solid #f59e0b;border-radius:6px;text-align:center;padding:3px 0">
                         <div id="ui-tape-alt-num" class="font-mono text-base font-black text-brand-orange" style="line-height:1.1">---</div>
-                        <div class="font-mono font-bold text-gray-500" style="font-size:8px;letter-spacing:0.1em">ALT M</div>
+                        <div class="font-mono font-bold text-gray-400" style="font-size:8px;letter-spacing:0.1em">ALT M</div>
                     </div>
                 </div>
                 </div>
@@ -9540,22 +9565,22 @@ function checkDependenciesAndRun() {
                 </div>
                 <div id="aero-row-top" class="aero-focus-only hidden absolute left-4 right-4 top-20 flex-row justify-between gap-2 pointer-events-none">
                     <div id="aero-corner-tl" class="flex flex-col gap-2 w-40 md:w-44">
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-gauge-high mr-1"></i>Pressure</div><div id="ui-radar-pressure" class="text-sm font-mono font-bold text-gray-300">-- hPa</div><div id="ui-radar-pressub" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-droplet mr-1"></i>Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-dewpoint" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-gauge-high mr-1"></i>Pressure</div><div id="ui-radar-pressure" class="text-sm font-mono font-bold text-gray-300">-- hPa</div><div id="ui-radar-pressub" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-droplet mr-1"></i>Humidity</div><div id="ui-radar-humidity" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-dewpoint" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
                     </div>
                     <div id="aero-corner-tr" class="flex flex-col gap-2 w-40 md:w-44">
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-temperature-half mr-1"></i>Temp</div><div id="ui-radar-temp" class="text-sm font-mono font-bold text-gray-300">--°</div><div id="ui-radar-feels" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-wind mr-1"></i>Wind</div><div id="ui-radar-winddir" class="text-sm font-mono font-bold text-gray-300">--</div><div id="ui-radar-windgust" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-temperature-half mr-1"></i>Temp</div><div id="ui-radar-temp" class="text-sm font-mono font-bold text-gray-300">--°</div><div id="ui-radar-feels" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-wind mr-1"></i>Wind</div><div id="ui-radar-winddir" class="text-sm font-mono font-bold text-gray-300">--</div><div id="ui-radar-windgust" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
                     </div>
                 </div>
                 <div id="aero-row-bottom" class="aero-focus-only hidden absolute left-4 right-4 bottom-24 flex-row justify-between gap-2 pointer-events-none">
                     <div id="aero-corner-bl" class="flex flex-col gap-2 w-40 md:w-44">
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-cloud mr-1"></i>Cloud</div><div id="ui-radar-cloud" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-oktas" class="text-[10px] font-mono text-gray-500 leading-tight">--</div></div>
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-eye mr-1"></i>Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-cloud mr-1"></i>Cloud</div><div id="ui-radar-cloud" class="text-sm font-mono font-bold text-gray-300">--%</div><div id="ui-radar-oktas" class="text-[10px] font-mono text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-eye mr-1"></i>Visibility</div><div id="ui-radar-vis2" class="text-sm font-mono font-bold text-gray-300">--</div></div>
                     </div>
                     <div id="aero-corner-br" class="flex flex-col gap-2 w-40 md:w-44">
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-cloud-rain mr-1"></i>Rain</div><div id="ui-radar-rain" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">---</div></div>
-                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-500 uppercase tracking-widest"><i class="fa-solid fa-sun mr-1"></i>Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-cloud-rain mr-1"></i>Rain</div><div id="ui-radar-rain" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">---</div></div>
+                        <div class="aero-chip bg-surface-800/80 border border-surface-700 rounded-lg px-2.5 py-2"><div class="text-[9px] text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-sun mr-1"></i>Sun</div><div id="ui-radar-sun-a" class="text-[11px] font-mono font-bold text-brand-orange leading-tight">--</div><div id="ui-radar-sun-b" class="text-[11px] font-mono font-bold text-gray-400 leading-tight">--</div></div>
                     </div>
                 </div>
             `;
@@ -10556,8 +10581,8 @@ function checkDependenciesAndRun() {
         checkDependenciesAndRun();
     </script>
     <footer class="w-full text-center pb-4 mt-2 flex flex-col items-center gap-1">
-        <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest uppercase opacity-40 hover:opacity-100 transition-opacity" title="MeteoNexus Tactical HUD — deployed version" data-version-badge></span>
-        <span class="text-[10px] font-mono text-gray-500 tracking-widest">Weather data by <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline hover:text-brand-teal">Open-Meteo.com</a> • CC BY 4.0</span>
+        <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest uppercase opacity-70 hover:opacity-100 transition-opacity" title="MeteoNexus Tactical HUD — deployed version" data-version-badge></span>
+        <span class="text-[10px] font-mono text-gray-400 tracking-widest">Weather data by <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline hover:text-brand-teal">Open-Meteo.com</a> • CC BY 4.0</span>
     </footer>
     <script>
         (async function hydrateVersion() {
