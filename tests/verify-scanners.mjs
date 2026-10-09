@@ -274,6 +274,59 @@ check('PHASE F negative control (rate-capped planted-feel) -> fluidity 0',
     writeMutation(original + '\nfunction fluidityNeg() { const moving = true; const dt = 16; let dHeading = 5; const timeConstant = moving ? 600 : 250; let lerpHeading = 1 - Math.exp(-dt / timeConstant); const maxStepD = (dt / 1000) * MAP_ROT_MAX_DEG_S; if (Math.abs(dHeading * lerpHeading) > maxStepD) lerpHeading = maxStepD / Math.abs(dHeading); }\n');
   });
 
+// ---------- Phase CE: csp-evaluator gate (CSP bypass/weakness, 1.14.3) ----------
+// Positive: inject a known-bypass origin (ajax.googleapis.com — canonical
+// JSONP/Angular host, rated HIGH by the evaluator) into script-src of a TEMP
+// COPY -> NOT in the gate's charter-cited exception list -> must FAIL. Proves
+// the documented-exception list cannot silently absorb new weaknesses.
+// ('unsafe-eval' was tried first — the evaluator rates it MEDIUM_MAYBE here,
+// non-blocking; the known-bypass origin is the deterministic HIGH.)
+{
+  const tmp = path.join(here, '_csp_tmp.html');
+  try {
+    fs.copyFileSync(path.join(repo, 'index.html'), tmp);
+    let s = fs.readFileSync(tmp, 'utf8');
+    const meta = /<meta[^>]+http-equiv="Content-Security-Policy"[^>]+content="([^"]+)"/i.exec(s);
+    const injected = meta[1].replace("script-src 'self' 'unsafe-inline'", "script-src 'self' 'unsafe-inline' https://ajax.googleapis.com");
+    fs.writeFileSync(tmp, s.replace(meta[1], injected), 'utf8');
+    const r = runScanner('csp-evaluator-gate.mjs', [tmp]);
+    const ok = r.code === 2 && (r.err.includes('undocumented') || r.out.includes('ajax.googleapis.com'));
+    if (ok) { pass++; results.push('  PASS  PHASE CE known-bypass origin injection -> csp-evaluator-gate nonzero (exit=' + r.code + ')'); }
+    else { fail++; results.push('  FAIL  PHASE CE known-bypass origin injection -> csp-evaluator-gate (exit=' + r.code + ') ' + (r.err.slice(0, 120) || r.out.slice(0, 120))); }
+  } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
+}
+// Negative: the production CSP passes (documented exceptions only).
+{
+  const r = runScanner('csp-evaluator-gate.mjs');
+  const ok = r.code === 0 && r.out.includes('PASS');
+  if (ok) { pass++; results.push('  PASS  PHASE CE negative control (production CSP) -> csp-evaluator-gate 0'); }
+  else { fail++; results.push('  FAIL  PHASE CE negative control (production CSP) -> csp-evaluator-gate (exit=' + r.code + ')'); }
+}
+
+// ---------- Phase O: osv supply-chain gate (1.14.3) ----------
+// Positive: temp manifest declaring a known-vulnerable pinned version
+// (lodash 4.17.15 — prototype-pollution advisories live in the offline DB)
+// -> must FAIL. Not installed -> the gate falls back to the declared version.
+{
+  const tmp = path.join(here, '_osv_tmp.json');
+  try {
+    const p = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
+    p.devDependencies['lodash'] = '4.17.15';
+    fs.writeFileSync(tmp, JSON.stringify(p, null, 2), 'utf8');
+    const r = runScanner('osv-audit.mjs', [tmp]);
+    const ok = r.code === 2 && (r.err.includes('GHSA') || r.err.includes('CVE'));
+    if (ok) { pass++; results.push('  PASS  PHASE O vulnerable pinned dep -> osv-audit nonzero (exit=' + r.code + ')'); }
+    else { fail++; results.push('  FAIL  PHASE O vulnerable pinned dep -> osv-audit (exit=' + r.code + ') ' + (r.err.slice(0, 120) || r.out.slice(0, 120))); }
+  } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
+}
+// Negative: the production manifest scans clean.
+{
+  const r = runScanner('osv-audit.mjs');
+  const ok = r.code === 0 && r.out.includes('PASS');
+  if (ok) { pass++; results.push('  PASS  PHASE O negative control (production manifest) -> osv-audit 0'); }
+  else { fail++; results.push('  FAIL  PHASE O negative control (production manifest) -> osv-audit (exit=' + r.code + ')'); }
+}
+
 restore();
 console.log('Scanner verification results:');
 console.log(results.join('\n'));

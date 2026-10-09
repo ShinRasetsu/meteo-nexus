@@ -2,11 +2,14 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /visual-regression\.spec\.js/,
+  testMatch: /visual-regression\.spec\.js|a11y-audit\.spec\.js/,
   timeout: 30_000,
   expect: { timeout: 5000 },
   use: {
-    baseURL: 'http://localhost:3000',
+    // 127.0.0.1 explicit: chrome-headless-shell fails name-resolution on
+    // 'localhost' (lands on chrome-error://chromewebdata/ — found 2026-10-08
+    // when wiring the a11y fixture; loopback is always proxy-bypassed).
+    baseURL: 'http://127.0.0.1:3000',
     trace: 'on-first-retry',
   },
   projects: [

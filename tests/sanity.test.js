@@ -722,6 +722,35 @@ if (opencodeCfg && opencodeCfg.mcp) {
 assert(!opencodeJsonRaw.includes("@pipeworx/mcp-geoapify"), "opencode.json no longer wires geoapify (RETIRED 2026-10-04, data-plane class) — negative retention guard");
 
 // ---------------------------------------------------------------------------
+// 1.14.3 cyber-safety pipeline: csp-evaluator gate + osv supply-chain gate +
+// axe-core a11y fixture (the 1.14.2-approved scanner backlog, shipped as
+// pipeline scanners, NOT MCPs — the §12 data-plane ban). Every gate carries
+// verify-scanners controls; extending an exception list without a charter
+// citation is forbidden (§1.6).
+// ---------------------------------------------------------------------------
+const cspGateSrc = readFileSync(join(repoRoot, "tests", "csp-evaluator-gate.mjs"), "utf8");
+assertIncludes(cspGateSrc, "DOCUMENTED_EXCEPTIONS", "1.14.3: csp-evaluator gate carries the charter-cited exception list");
+assertIncludes(cspGateSrc, "AGENTS.md §1.5 load-bearing", "1.14.3: the unsafe-inline exception cites the charter §1.5");
+assertIncludes(cspGateSrc, "Removal path: self-host the CDN libraries", "1.14.3: the CDN-origin exception documents its compensating control (SRI) + removal path");
+const osvSrc = readFileSync(join(repoRoot, "tests", "osv-audit.mjs"), "utf8");
+assertIncludes(osvSrc, "never silence", "1.14.3: osv gate resolution rule — bump past the advisory fixed version, never silence");
+assertIncludes(osvSrc, "installedVersion", "1.14.3: osv gate scans INSTALLED versions from node_modules, not declared ranges");
+const a11ySpecSrc = readFileSync(join(repoRoot, "tests", "a11y-audit.spec.js"), "utf8");
+assertIncludes(a11ySpecSrc, "new Set(['color-contrast', 'landmark-one-main', 'region'])", "1.14.3: axe fixture pins the documented violation set (1.15.0 shrinks it; new violations fail loudly)");
+assertIncludes(a11ySpecSrc, "chrome-error", "1.14.3: a11y fixture documents the headless-shell controllerchange-reload artifact + one-renav workaround");
+const pkgJson1 = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+assert(!!(pkgJson1.scripts && pkgJson1.scripts["audit:csp-eval"]), "package.json wires audit:csp-eval");
+assert(!!(pkgJson1.scripts && pkgJson1.scripts["audit:osv"]), "package.json wires audit:osv");
+assertIncludes(pkgJson1.scripts["audit"], "npm run audit:csp-eval && npm run audit:osv", "the MANDATORY audit chain runs both cyber gates (now 10 scanners)");
+assert(!!(pkgJson1.devDependencies && pkgJson1.devDependencies["csp_evaluator"]), "devDep csp_evaluator pinned (Google CSP-bypass analyzer)");
+assert(!!(pkgJson1.devDependencies && pkgJson1.devDependencies["@renovatebot/osv-offline"]), "devDep @renovatebot/osv-offline pinned (offline OSV DB)");
+assert(!!(pkgJson1.devDependencies && pkgJson1.devDependencies["@axe-core/playwright"]), "devDep @axe-core/playwright pinned (a11y fixture engine)");
+assert(!(pkgJson1.dependencies && pkgJson1.dependencies.sharp) && !(pkgJson1.devDependencies && pkgJson1.devDependencies.sharp), "sharp stays RETIRED (2 known vulns at 0.35.3, zero imports — the osv gate's first real finding 2026-10-08)");
+const pwCfgSrc = readFileSync(join(repoRoot, "playwright.config.js"), "utf8");
+assertIncludes(pwCfgSrc, "a11y-audit\\.spec\\.js", "playwright rig includes the axe a11y fixture in testMatch");
+assertIncludes(pwCfgSrc, "127.0.0.1:3000", "playwright rig baseURL is explicit loopback (headless-shell localhost artifact, 2026-10-08)");
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 console.log("");

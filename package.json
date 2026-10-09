@@ -1,6 +1,6 @@
 {
   "name": "meteonexus-tactical-hud",
-  "version": "1.14.2",
+  "version": "1.14.3",
   "private": true,
   "type": "module",
   "description": "Active Telemetry HUD with real-time weather and routing intelligence.",
@@ -17,19 +17,24 @@
     "audit:dom": "node tests/extract-module.mjs && node tests/domnull-audit.mjs",
     "audit:visual": "node tests/extract-module.mjs && node tests/visual-audit.mjs",
     "audit:shell": "node tests/shell-audit.mjs",
+    "audit:csp-eval": "node tests/csp-evaluator-gate.mjs",
+    "audit:osv": "node tests/osv-audit.mjs",
     "audit:fluidity": "node tests/extract-module.mjs && node tests/ui-fluidity-audit.mjs",
     "audit:unified": "node tests/audit-unified.mjs",
     "audit:verify": "node tests/verify-scanners.mjs",
-    "audit": "npm run audit:extract && npm run audit:tdz && npm run audit:fp && npm run audit:brace && npm run audit:csp && npm run audit:dom && npm run audit:visual && npm run audit:shell",
+    "audit": "npm run audit:extract && npm run audit:tdz && npm run audit:fp && npm run audit:brace && npm run audit:csp && npm run audit:dom && npm run audit:visual && npm run audit:shell && npm run audit:csp-eval && npm run audit:osv",
     "build:css": "npx @tailwindcss/cli --input src/tailwind.css --output tailwind.min.css --minify",
     "precheck": "npm run build:css && npm run audit"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@renovatebot/osv-offline": "^3.0.12",
     "@tailwindcss/cli": "^4.3.3",
+    "csp_evaluator": "^1.1.8",
     "eslint": "^10.8.0",
     "globals": "^17.9.0",
-    "sharp": "^0.35.3",
     "tailwindcss": "^4.3.3"
   }
 }

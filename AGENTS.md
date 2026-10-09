@@ -64,6 +64,7 @@ it - never earlier.
 | Live DOM / interpolator / RAF bar / progress-fill | Pipeline + Fluidity Audit (sec 5.6) |
 | processTelemetryPayload / normalizeTelemetryData / fetchData / fetch triggers | Pipeline + Fetch Gate (sec 6) |
 | manifest.json / PWA install surfaces (icons, screenshots, install prompt) | Full pipeline + PWA standards gate: the unified audit's `pwa-manifest` check enforces the `/progressive-web-app` skill's Checklist Before Shipping (all icons maskable, install screenshots with narrow+wide form factors, name/short_name/local icons/display=standalone). Load the skill when touching these surfaces. |
+| package.json deps / audit pipeline / playwright rig | Full pipeline — the osv supply-chain gate + csp-evaluator CSP-bypass gate ride the MANDATORY audit chain (10 scanners); `npx playwright test` covers the axe-core a11y fixture (pinned violations shrink only via documented fixes) |
 | Version bump requested | Release Gate (sec 9) |
 
 ## 3. Canonical pipelines
@@ -88,6 +89,8 @@ Individual scanners (each re-extracts the module itself):
   audit:brace    E3 shape        audit:dom    E4 null guards
                                  audit:visual E4 transform contracts
   audit:shell    E1 document integrity (doctype/BOM/mojibake/U+FFFD)
+  audit:csp-eval E4 CSP bypass/weakness analysis (Google csp_evaluator; charter-cited exceptions only)
+  audit:osv      E4 supply-chain (offline OSV DB vs installed dep versions)
   audit:fluidity E5 fluidity (plug-in, perf + UI correctness) — not in mandatory chain; run via `npm run audit:fluidity` or `node tests/ui-fluidity.test.js`
 
 Meta-audit (audits the auditors via positive + negative controls):
@@ -111,6 +114,9 @@ git add; a failure there aborts deployment.
 | visual-audit.mjs | E4: every rendered layer honors its transform contract (sec 5); prints a code-derived inventory table | PASS = all readable overlays resolve upright |
 | tests/unit/ (node --test) | E5: executes worker.js end-to-end (dispatcher incl. error path), polyline codec round-trip, route-node planner, overpass parser, brand adapters + findNearby funnel; proves the fastDistance duplication stays bit-identical (sec 10) | all fixtures pass |
 | shell-audit.mjs | E1: HTML DOCUMENT integrity - doctype first bytes, BOM, charset, U+FFFD, mojibake signatures. Exists because the encoding incident shipped "?<!DOCTYPE html>" (quirks mode + stray glyph) through a fully green module-level audit. Runtime twin: compatMode tripwire at module start | PASS = document shell intact |
+| csp-evaluator-gate.mjs | E4: the CSP POLICY itself carries no undocumented bypasses/weaknesses (Google csp_evaluator: known-bypass origins, injection vectors, syntax). csp-audit proves origin coverage — this proves policy hygiene. FAIL on any HIGH/SYNTAX/MEDIUM finding not in the charter-cited DOCUMENTED_EXCEPTIONS list; extending that list without a §1.6 revision is forbidden | PASS = 0 undocumented blocking findings |
+| osv-audit.mjs | E4: supply-chain — INSTALLED dep versions (node_modules, not declared ranges) vs the @renovatebot/osv-offline offline OSV DB. No network, no key, deterministic. Resolution rule: bump past the advisory fixed version, never silence | PASS = 0 advisories affecting installed versions |
+| a11y-audit.spec.js (Playwright rig) | E5: axe-core FULL-ruleset scan on the real booted 390x844 surface (the primary a11y instrument — both Lighthouse paths are platform-blocked on this box). Pinned violations (documented fail-set) are tracked; any NEW violation fails the rig. Pin shrinks only via documented fixes | 3 tests pass; 0 unknown violations |
 | ui-fluidity-audit.mjs | E5: live DOM driven by low-freq sources (1→60 Hz) stays fluid — no stair/jank (G0-G4: inventory, hard fails, precision, hygiene, a11y) | Perfection verdict PASS (0 stairs, 0 janks) |
 | verify-scanners.mjs | audits the auditors: injects known-good/bad fixtures into every scanner above | all controls behave |
 
@@ -293,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
-- sanity.test.js - 353 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 369 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -327,20 +333,28 @@ From HISTORY.md "How to bump version in a new session":
   ban, Standard/Technique Reference pins, osrm user-scope record, negative
   geoapify-absence guard on opencode.json; −3 retired geoapify loop
   asserts; 2 guards consciously RETARGETED per §1.6: geoapify pin →
-  "RETIRED 2026-10-04" record, "Heading still local" → "No data-plane MCP"))
+  "RETIRED 2026-10-04" record, "Heading still local" → "No data-plane MCP"),
+  +16 from the 1.14.3 cyber-safety pipeline (csp-evaluator gate: exception
+  list + charter citation + removal-path pins; osv gate: never-silence rule
+  + installed-version pin; axe fixture: violation pin + headless artifact
+  note; chain + devDep wiring ×7; sharp-retirement negative guard; rig
+  testMatch + loopback baseURL pins))
 - tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
   search funnel + Caltex id-table proven against live JSON, WGS84 distance
   arcs, fastDistance mirror parity). The unified audit's fixture count is a
   PIN (catches accidental deletion) — bump it when intentionally adding
   tests; see tests/audit-unified.mjs:569.
-- audit:verify - 26 self-test controls, all passing (incl. PHASE V var-era
+- audit:verify - 30 self-test controls, all passing (incl. PHASE V var-era
   layer contracts + PHASE S shell integrity + PHASE F fluidity rate-cap
-  contract: uncapped slow lerp FAILs, rate-capped planted-feel PASSes)
-- Scanners: 8 mandatory (tdz, fp, brace, csp, domnull, visual, shell, extract+parse)
+  contract: uncapped slow lerp FAILs, rate-capped planted-feel PASSes +
+  PHASE CE csp-evaluator both directions: known-bypass origin FAILs,
+  production CSP PASSes + PHASE O osv both directions: vulnerable pinned
+  dep FAILs, production manifest PASSes)
+- Scanners: 10 mandatory (tdz, fp, brace, csp, csp-eval, osv, domnull, visual, shell, extract+parse)
   + 1 plug-in (fluidity: G0-G4 perfection gate; G1 accepts a slow tc ONLY
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
-  + unified audit-unified.mjs (single-extract, 37 checks, E1-E6)
+  + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
 - index.html - ~10581 lines / ~741 KB; inline module lines 880-10557 (~651 KB)
 - worker.js - 272 lines; sw.js - 493 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
@@ -382,8 +396,8 @@ and can normalize away the exact API shape traps the audits exist to catch
 (the 1.9.0 daily suffixed-unixtime and 1.10.0 marine ISO8601 traps were
 both found by hitting the raw API). Agent-side ground-truth probing = raw
 fetch + chrome-devtools network panel. Cyber-safety upgrades belong in the
-audit pipeline as scanners (csp_evaluator / osv-offline / axe-core
-candidates, logged 2026-10-04), not behind new MCPs.
+audit pipeline as scanners (SHIPPED 1.14.3: csp-evaluator-gate.mjs +
+osv-audit.mjs + the axe-core a11y fixture), not behind new MCPs.
 
 Verified wiring - every entry was proven two ways before install: `npm
 view` (package exists on the registry) + a live MCP initialize handshake

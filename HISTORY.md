@@ -118,6 +118,165 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.14.3 — 2026-10-08 (patch: cyber-safety pipeline — csp-evaluator + osv supply-chain gates + axe-core a11y fixture + sharp retirement)
+
+### Bump rationale
+
+Patch bump 1.14.2 → 1.14.3 (user-approved Phase 1 of the refinement plan;
+the 1.14.2-logged scanner backlog shipped as PIPELINE SCANNERS, not MCPs —
+the §12 data-plane ban). No app-code changes — index.html/worker.js/sw.js/
+fuel-stations.js untouched, so no `APP_CACHE` bump. The mandatory audit
+chain grew 8 → 10 scanners; `audit:verify` grew 26 → 30 controls; unified
+grew 37 → 39 checks; the Playwright rig gained the axe-core a11y fixture.
+
+### Phase 0 baseline evidence (captured this session, pre-bump tree)
+
+- Fetch-Gate-grade boot via the Playwright rig (granted geolocation at the
+  user's pin): badge **v1.14.2**, `#hud-glance-temp` **25°C**, status
+  OVERCAST (code 3, 24.8°C), radar covered+clear, METAR **RPLL wet=false**,
+  0 app red console errors (sole entries: favicon 404 + the documented
+  Wake-Lock gesture-policy warning).
+- **First real CWV trace** (chrome-devtools, localhost): **LCP 341 ms**
+  (TTFB 15 + render-delay 326) — excellent; **CLS 0.10** — at the
+  good/needs-improvement boundary, culprit analyzed: **web-font swap**
+  (Inter + JetBrains Mono from fonts.gstatic) shifting `#status-text` +
+  `#sec-map` header (0.0946 of the 0.10) → Phase 2/3 target (font metric
+  reservation). ForcedReflow insight: 61 ms unattributed — minor.
+- **Heap protocol** (the §8 "no leak detector" blind spot, closed with
+  owned instruments): 6.5 MB → 7.3 MB across 11 mode/radar-overlay toggle
+  cycles (+0.8 MB, bounded retained garbage, no leak signature).
+- Lighthouse on this box: BOTH paths re-probed and still dead — the
+  chrome-devtools wrapper audits `chrome-error://chromewebdata/` in all 3
+  modes (2+ reproductions this session) and the danielsogl runner hit the
+  Windows `\\?\` EPERM a **third** time → **axe-core is now the primary
+  a11y instrument** (documented in §4).
+
+### The osv gate's first real finding: sharp RETIRED
+
+First run of `osv-audit.mjs` FAILED on real data: **sharp@0.35.3 carried 2
+known advisories** (GHSA-rgj7-g3m4-5g8c bundling libheif GHSA-g89c-p67h-r497
++ GHSA-2jg2-4ch7-h545; GHSA-wq5f-xc86-pv6w for librsvg CVE-2026-96889).
+Repo grep proved sharp had **zero imports** — every other "sharp" hit is
+the Figma "sharp/lively" design-language wording — so the resolution was
+REMOVAL, not a version bump: the supply chain shrinks by ~25 native
+`@img/sharp-*` platform packages. A negative sanity guard pins sharp's
+absence from the manifest.
+
+### csp-evaluator gate: real findings, charter-cited dispositions
+
+`tests/csp-evaluator-gate.mjs` (Google csp_evaluator, the policy-hygiene
+twin of origin-coverage csp-audit) found **3 HIGH findings on the CDN
+script-src origins** (cdn.jsdelivr.net, www.gstatic.com, cdnjs.cloudflare.com
+— the known JSONP/Angular bypass class) plus the §1.5 unsafe-inline pair.
+Dispositions (all printed on every run, never silent):
+- unsafe-inline ×2 → charter §1.5 (load-bearing inline engine; extraction
+  is the documented removal path).
+- CDN script origins → **DOCUMENTED_EXCEPTION with compensating control**:
+  every CDN script tag carries SRI sha384 + crossorigin=anonymous
+  (mechanically enforced by the sanity negative-pair guards + unified
+  sri-audit) and the app renders no user-authored HTML (no injection sink);
+  removal path: self-host the CDN libraries into the SW precache
+  (documented future major).
+- Advisory classes (unpkg/'self' MEDIUM_MAYBE) logged, non-blocking.
+- Note: `'unsafe-eval'` rates only MEDIUM_MAYBE in csp_evaluator 1.1.8 —
+  the verify-control positive injection uses the known-bypass origin
+  `ajax.googleapis.com` (deterministic HIGH) instead.
+
+### The headless-shell controllerchange artifact (found, proven, deferred)
+
+Wiring the a11y fixture exposed a **headless-shell-only** failure: the
+app's first-install `controllerchange` self-reload (index.html:9214) lands
+on `chrome-error://chromewebdata/` (net::ERR_FAILED) IN CHROME-HEADEDLESS-
+SHELL ONLY. Probe-proven mechanics: fresh SW-controlled navigations 200 ✓,
+manual reloads on the settled SW 200 ✓ (title intact), APP_CACHE keys all
+present + every `cache.match` form 200 ✓, plain-page reloads fine ✓ — the
+failure is confined to the reload fired during SW activation. Headed
+Chrome + user devices are unaffected (MCP browser + live clients boot
+fine). Fixture workaround: one documented re-navigation. Deferred 1.15.0
+candidate: defer the controllerchange reload out of the activation window
+(one line, rides the Phase 2/3 batch).
+
+### axe-core a11y fixture (tests/a11y-audit.spec.js)
+
+Full-ruleset axe scan on the real booted 390×844 surface. The REAL
+violation set: **color-contrast (serious, 14 nodes)** — confirms the
+Lighthouse 1.14.0 record — plus **landmark-one-main** and **region (14
+nodes)**. document-title / html-lang / page-has-heading-one all PASS on
+the real surface (earlier flags were artifacts of scanning the
+chrome-error page). The pin (`KNOWN_VIOLATION_IDS = color-contrast,
+landmark-one-main, region`) fails on any NEW violation and shrinks in
+1.15.0 when Phase 2 lands the contrast tokens + `<main>` landmark.
+
+### Rig fixes found while wiring (playwright)
+
+- `@playwright/test` was never a pinned devDep — `npx playwright test`
+  silently resolved a cached CLI (config import ERR_MODULE_NOT_FOUND).
+  Pinned `@playwright/test@1.63.0` + chromium headless shell installed.
+- `baseURL` localhost → `127.0.0.1`: headless-shell fails name resolution
+  on `localhost` (lands on chrome-error) — loopback is always
+  proxy-bypassed. Documented in playwright.config.js.
+
+### Changes
+
+- `tests/csp-evaluator-gate.mjs` — NEW E4 scanner (optional argv target
+  for verify controls; charter-cited DOCUMENTED_EXCEPTIONS).
+- `tests/osv-audit.mjs` — NEW E4 scanner (installed versions from
+  node_modules; OSV introduced/fixed/last_affected range semantics;
+  optional argv manifest for verify controls).
+- `tests/a11y-audit.spec.js` — NEW E5 fixture (axe full ruleset; pinned
+  documented fail-set; headless artifact workaround documented).
+- `tests/verify-scanners.mjs` — +4 controls (PHASE CE ×2, PHASE O ×2).
+- `tests/audit-unified.mjs` — 2 new E4 Cyber checks (39 total).
+- `tests/sanity.test.js` — +16 guards (369 total).
+- `package.json` — devDeps +csp_evaluator, +@renovatebot/osv-offline,
+  +@axe-core/playwright, +@playwright/test, −sharp; scripts +audit:csp-eval,
+  +audit:osv, both wired into the mandatory `audit` chain.
+- `playwright.config.js` — testMatch +a11y-audit.spec.js; baseURL 127.0.0.1.
+- `AGENTS.md` — §2 trigger row (deps/pipeline/rig), §3 scanner listing,
+  §4 roster + counts, §11 numbers, §12 shipped-scanner note.
+- `VERSION` → 1.14.3, `package.json` synced, `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **369/369** + unit 36/36 ·
+  `npm run audit` **10/10 PASS** (TDZ 0, fp 0, brace 0, CSP 0 gaps,
+  domnull 0, visual PASS, shell PASS, **csp-evaluator: 4 documented + 2
+  advisory + 0 blocking**, **osv: 9 deps, 0 vulns**) ·
+  `npm run audit:verify` **30/30** · `node tests/audit-unified.mjs`
+  **39 checks PASS**, Perfection PASS (0 stairs, 0 janks) ·
+  `npx playwright test` **3 passed** (2 visual-regression + 1 a11y).
+- No index.html changes → Fetch Gate §6 / Visual §7 not re-triggered
+  (§2 matrix); the pre-bump rig boot evidence above stands for this tree;
+  no APP_CACHE bump (no shell change to deliver).
+
+### Blind spots considered (§8)
+
+The csp-evaluator exceptions are contract, not suppression: every entry
+prints with its charter citation + removal path on every run, and
+PHASE CE proves the gate still bites (known-bypass injection → exit 2).
+The osv DB is a snapshot — freshness rides devDep updates (`npm update
+@renovatebot/osv-offline` renews it); PHASE O proves the gate bites on a
+vulnerable pinned dep. The axe fixture scans the boot surface only —
+focus mode, modals, and drive states are a documented future extension.
+The headless artifact workaround re-navigates INSIDE the fixture; it must
+not mask a real app regression — the pre/post artifact diagnostics (title,
+lang, h1) are logged every run to keep the scanned surface provably real.
+Lint: the spec carries the same `/* eslint-disable no-undef */` precedent
+as visual-regression.spec.js. No app code touched — races/leaks/coercion
+surfaces unchanged.
+
+### PENDING (user / next session)
+
+- Phase 2+3 (the 1.15.0 minor): a11y fail-set fixes (contrast tokens,
+  `<main>`, region), CLS font-swap fix, controllerchange-reload hardening,
+  perf micros + HUD polish (the unified-audit rec list), APP_CACHE v21,
+  Fetch Gate + Visual runtime passes, re-baseline evidence.
+- User device passes (standing 1.14.1 list, unchanged).
+- Lighthouse PWA category + iOS/Android device checks (tooling-blocked
+  standing items).
+
+---
+
 ## 1.14.2 — 2026-10-04 (patch: MCP plane doctrine finalization — geoapify retired, data-plane class banned)
 
 ### Bump rationale
