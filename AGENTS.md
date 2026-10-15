@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
-- sanity.test.js - 379 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 406 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -343,13 +343,29 @@ From HISTORY.md "How to bump version in a new session":
   </main> close, meta description, display=optional + font preload + SW
   precache pins, gray-500/600 retirement negative guard, opacity-80 accent,
   controllerchange deferral ×2; incl. 1 guard consciously REVISED per §1.6:
-  APP_CACHE v20 → v21; and the 1.14.3 axe-pin guard retargeted to the
-  EMPTY pin — the fail-set was fixed))
-- tests/unit/ - 36 executable fixtures / 0 failing (worker kernel, fuel
-  search funnel + Caltex id-table proven against live JSON, WGS84 distance
-  arcs, fastDistance mirror parity). The unified audit's fixture count is a
-  PIN (catches accidental deletion) — bump it when intentionally adding
-  tests; see tests/audit-unified.mjs:569.
+   APP_CACHE v20 → v21; and the 1.14.3 axe-pin guard retargeted to the
+   EMPTY pin — the fail-set was fixed),
+   +5 from the 1.15.1 perf riders (PF-1 pool + willReadFrequently +
+   pooled-draw + exact-one-canvas negative guard + PF-2 SW batch; incl. 1
+   guard consciously REVISED per §1.6: APP_CACHE v21 → v22),
+   +4 from the 1.16.0 Brier closed loop (pure adaptWeightsBySkill pin,
+   wEff wiring through both setters, _activeSkillSig memo field,
+   meteo_skill_v1 persistence key; incl. 1 guard consciously REVISED
+   per §1.6: _MI w → wEff retarget — contract unchanged),
+   +18 from the 1.16.1 four-agent bug-hunt round (swReg hoist, speed-glitch
+   leaky latch, COG 90° cap, remaining-dist + ETA countdown, offline + denied
+   sibling age gates, Overpass poison-skip, route-tile body budget + frame
+   recency, restoreWeights skill-memo reset, payloadSig skill/regime/minutely
+   + radar-ts bucket, chartSig code+gust probes, purge second fence,
+   readBodyOrNull timer hygiene, SW eviction batching ×2; incl. 1 guard
+   consciously REVISED per §1.6: APP_CACHE v23 → v24))
+- tests/unit/ - 47 executable fixtures / 0 failing (worker kernel, fuel
+   search funnel + Caltex id-table proven against live JSON, WGS84 distance
+   arcs, fastDistance mirror parity + 10 skill-adaptation fixtures executing
+   the shipped adaptWeightsBySkill bytes via vm slicing, incl. the live-log
+   replay + 1 Overpass poison-element fixture). The unified audit's fixture count is a
+   PIN (catches accidental deletion) — bump it when intentionally adding
+   tests; see tests/audit-unified.mjs:579.
 - audit:verify - 30 self-test controls, all passing (incl. PHASE V var-era
   layer contracts + PHASE S shell integrity + PHASE F fluidity rate-cap
   contract: uncapped slow lerp FAILs, rate-capped planted-feel PASSes +
@@ -361,8 +377,8 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
-- index.html - ~10606 lines / ~726 KB; inline module lines 896-10582 (~652 KB)
-- worker.js - 272 lines; sw.js - 493 lines; fuel-stations.js - 358 lines
+- index.html - ~10855 lines / ~762 KB; inline module lines 896-10831 (~686 KB)
+- worker.js - 276 lines; sw.js - 523 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.

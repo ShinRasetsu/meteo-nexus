@@ -1,13 +1,13 @@
 {
   "name": "meteonexus-tactical-hud",
-  "version": "1.15.0",
+  "version": "1.16.1",
   "private": true,
   "type": "module",
   "description": "Active Telemetry HUD with real-time weather and routing intelligence.",
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "node tests/sanity.test.js && node --test tests/unit/worker.test.mjs tests/unit/fuel-stations.test.mjs",
+    "test": "node tests/sanity.test.js && node --test tests/unit/worker.test.mjs tests/unit/fuel-stations.test.mjs tests/unit/skill-adapt.test.mjs",
     "check": "npm run lint && npm run test",
     "audit:extract": "node tests/extract-module.mjs && node --check tests/_module_extract.mjs",
     "audit:tdz": "node tests/ast-scan-tdz.mjs",

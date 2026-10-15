@@ -171,8 +171,13 @@ function processOverpassPayload(data, lat, lon, targetBrand, targetVariant, reqO
 
     for (let i = 0; i < data.elements.length; i++) {
         const el = data.elements[i];
-        const tLat = el.lat != null ? el.lat : el.center.lat;
-        const tLon = el.lon != null ? el.lon : el.center.lon;
+        // 1.16.1: one centerless way/relation threw inside the loop and the
+        // dispatcher rejected the WHOLE task — ~600 good stations discarded
+        // for one poisoned element. Skip unresolvable coords instead.
+        const _c = el.center || {};
+        const tLat = el.lat != null ? el.lat : _c.lat;
+        const tLon = el.lon != null ? el.lon : _c.lon;
+        if (!Number.isFinite(tLat) || !Number.isFinite(tLon)) continue;
 
         // 53-bit Safe Integer hash — 5-decimal resolution (~1.1 m at equator)
         // keeps adjacent stations (e.g. multi-brand at same interchange) unique.

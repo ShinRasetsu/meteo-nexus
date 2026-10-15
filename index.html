@@ -968,14 +968,19 @@ grid inside #sec-telemetry, not the page landmark. -->
         // own timer; a stall resolves null — every caller already treats
         // null as "no data" (the never-throw contract).
         async function readBodyOrNull(res, ms, reader) {
+            // 1.16.1: clear the race timer on settle (one live timer per body
+            // read lingered past the race) + debug on catch so a malformed-but-
+            // fast body is distinguishable from a stall in diagnostics.
+            let _t = null;
             try {
                 if (!res) return null;
                 const body = await Promise.race([
                     reader(res),
-                    new Promise(resolve => setTimeout(() => resolve(null), ms))
+                    new Promise(resolve => { _t = setTimeout(() => resolve(null), ms); })
                 ]);
                 return body || null;
-            } catch (e) { return null; }
+            } catch (e) { console.debug('readBodyOrNull failed:', e && e.message); return null; }
+            finally { if (_t) clearTimeout(_t); }
         }
 
         // --- SIBLING APIs (Open-Meteo family: air-quality, marine, geocoding,
@@ -1052,6 +1057,20 @@ grid inside #sec-telemetry, not the page landmark. -->
         // In-memory caches — fetch cadence, never per frame.
         let _radarFramesCache = null;   // { json, ts }
         let _radarCoverageCache = null; // { key, covered, ts }
+        // PF-1 (1.15.1): pooled radar decode canvas. The three decode sites
+        // (coverage probe, pin sample, route tiles) each built a throwaway
+        // canvas + default (GPU-backed) 2d context per call, so every
+        // getImageData paid a GPU→CPU readback stall — Chrome logged the
+        // willReadFrequently warning on every sample. One shared canvas +
+        // CPU-backed context; same-size assigns are skipped and a resize
+        // auto-clears, so no stale-pixel risk.
+        // SHARING CONTRACT: every drawImage→getImageData pair is synchronous
+        // (no await between, single-threaded fetch chain) — including the
+        // parallel route-tile jobs, whose draw→read runs contiguously after
+        // their last await. A future await inserted between a draw and its
+        // read would break this; keep the pairs atomic.
+        const _radarCv = document.createElement('canvas');
+        const _radarCx = _radarCv.getContext('2d', { willReadFrequently: true });
 
         // Nearest-core-color match: sampled pixel (smoothed tiles blend edges,
         // so the RGB lands between two cores — ±1 class tolerance is acceptable
@@ -1086,11 +1105,10 @@ grid inside #sec-telemetry, not the page landmark. -->
                 const blob = await readBodyOrNull(r, 8000, x => x.blob());
                 if (!blob) return null;
                 const bmp = await createImageBitmap(blob);
-                const cv = document.createElement('canvas');
-                cv.width = bmp.width; cv.height = bmp.height;
-                const cx = cv.getContext('2d');
-                cx.drawImage(bmp, 0, 0);
-                const px = cx.getImageData(Math.floor(bmp.width / 2), Math.floor(bmp.height / 2), 1, 1).data;
+                // PF-1 (1.15.1): pooled decode canvas (see _radarCv note).
+                if (_radarCv.width !== bmp.width || _radarCv.height !== bmp.height) { _radarCv.width = bmp.width; _radarCv.height = bmp.height; }
+                _radarCx.drawImage(bmp, 0, 0);
+                const px = _radarCx.getImageData(Math.floor(bmp.width / 2), Math.floor(bmp.height / 2), 1, 1).data;
                 covered = px[3] === 0; // transparent = covered (docs)
                 bmp.close && bmp.close();
             } catch (e) { console.debug('[radar] coverage probe failed:', e && e.message); return null; }
@@ -1140,13 +1158,12 @@ grid inside #sec-telemetry, not the page landmark. -->
                 const blob = await readBodyOrNull(r, 8000, x => x.blob());
                 if (!blob) return null;
                 const bmp = await createImageBitmap(blob);
-                const cv = document.createElement('canvas');
-                cv.width = bmp.width; cv.height = bmp.height;
-                const cx = cv.getContext('2d');
-                cx.drawImage(bmp, 0, 0);
+                // PF-1 (1.15.1): pooled decode canvas (see _radarCv note).
+                if (_radarCv.width !== bmp.width || _radarCv.height !== bmp.height) { _radarCv.width = bmp.width; _radarCv.height = bmp.height; }
+                _radarCx.drawImage(bmp, 0, 0);
                 // 3×3 around center (z7 ≈ 1.2 km/px → ~2 km sample radius)
                 const c0 = Math.floor(bmp.width / 2), c1 = Math.floor(bmp.height / 2);
-                const img = cx.getImageData(c0 - 1, c1 - 1, 3, 3).data;
+                const img = _radarCx.getImageData(c0 - 1, c1 - 1, 3, 3).data;
                 bmp.close && bmp.close();
                 let bestA = 0, bi = -1;
                 // 1.13.2 audit fix: the loop bound was i < 12 (3 pixels of a
@@ -1221,14 +1238,22 @@ grid inside #sec-telemetry, not the page landmark. -->
                             const url = `${CONFIG.radarTileHost}${frame.path}/256/${z}/${tx}/${ty}/2/1_1.png`;
                             try {
                                 const r = await fetchWithRetry(url, { priority: 'low', timeout: 5000 }, 1, 500);
-                                const blob = await r.blob();
+                                // 1.16.1: body raced — fetchWithRetry's timer covers
+                                // headers only; a headers-then-stall tile hung this
+                                // Promise.all forever (every other body read rides
+                                // readBodyOrNull). Null blob → tile skipped, its
+                                // nodes abstain (missing ≠ clear).
+                                const blob = await readBodyOrNull(r, 8000, x => x.blob());
+                                if (!blob) return;
                                 const bmp = await createImageBitmap(blob);
-                                const cv = document.createElement('canvas');
-                                cv.width = bmp.width; cv.height = bmp.height;
-                                const cx = cv.getContext('2d');
-                                cx.drawImage(bmp, 0, 0);
+                                // PF-1 (1.15.1): pooled decode canvas — draw→read is
+                                // synchronous (no await between), so sharing the module
+                                // canvas across the parallel tile jobs is safe (see
+                                // the _radarCv sharing contract).
+                                if (_radarCv.width !== bmp.width || _radarCv.height !== bmp.height) { _radarCv.width = bmp.width; _radarCv.height = bmp.height; }
+                                _radarCx.drawImage(bmp, 0, 0);
                                 bmp.close && bmp.close();
-                                tileData.set(tx + ',' + ty, cx.getImageData(0, 0, cv.width, cv.height).data);
+                                tileData.set(tx + ',' + ty, _radarCx.getImageData(0, 0, bmp.width, bmp.height).data);
                             } catch (e) { console.debug('[radar] route tile fetch failed:', e && e.message); }
                         })());
                     }
@@ -1281,6 +1306,12 @@ grid inside #sec-telemetry, not the page landmark. -->
             try {
                 if (!rs) return false;
                 if (state.routeNodes !== sampledNodesRef) return false; // route swapped mid-flight
+                // 1.16.1: frame recency — a hung sample for frame T1 resolving
+                // after T2 (same route) regressed the timeline to older weather
+                // with no log. Older frameTime never overwrites newer.
+                if (state.routeNodesRadar && typeof rs.frameTime === 'number' &&
+                    typeof state.routeNodesRadar.frameTime === 'number' &&
+                    rs.frameTime < state.routeNodesRadar.frameTime) return false;
                 if (state.routeNodesRadar &&
                     state.routeNodesRadar.frameTime === rs.frameTime &&
                     state.routeNodesRadar.nodesRef === sampledNodesRef) return false; // same frame, same route
@@ -1672,6 +1703,89 @@ grid inside #sec-telemetry, not the page landmark. -->
             return REGIONAL_WEIGHTS[getWeightRegime(lat, lon)] || REGIONAL_WEIGHTS.default;
         }
 
+        // AC-1 (1.16.0): Brier closed loop — adapt ensemble weights from
+        // measured skill. PURE: no DOM, state, IO, or time — only args plus
+        // Math plus Object, so tests/unit/skill-adapt.test.mjs can slice this
+        // exact function out of the shipped file and execute it. Keep the
+        // body free of unbalanced braces inside strings or comments (the
+        // test slicer counts braces naively).
+        // Contract: skillByModel maps model key to brier mean in [0,1] plus
+        // observation count; baseW maps model key to static weight. Returns
+        // a fresh renormalized weights object (sums to 1); returns base
+        // values unchanged when evidence is thin (cold start), unanimous,
+        // or degenerate — neutrality is the safe default, never a guess.
+        function adaptWeightsBySkill(skillByModel, baseW, opts) {
+            const o = opts || {};
+            const minObs = (typeof o.minObs === 'number' && o.minObs > 0) ? o.minObs : 30;
+            const clampLo = (typeof o.clampLo === 'number' && o.clampLo > 0) ? o.clampLo : 0.6;
+            const clampHi = (typeof o.clampHi === 'number' && o.clampHi >= 1) ? o.clampHi : 1.4;
+            const minDelta = (typeof o.minDelta === 'number' && o.minDelta >= 0) ? o.minDelta : 0.10;
+            const keys = baseW ? Object.keys(baseW) : [];
+            const neutral = {};
+            for (const k of keys) neutral[k] = baseW[k];
+            if (!skillByModel || keys.length === 0) return neutral;
+            // Skill is 1 minus Brier; only models with enough scored hours vote.
+            const skillOf = {};
+            let sumSkill = 0, qualCount = 0;
+            for (const k of keys) {
+                const s = skillByModel[k];
+                const b = s ? s.brier : null;
+                const n = s ? s.n : 0;
+                if (typeof b !== 'number' || !(b >= 0) || !(b <= 1) || typeof n !== 'number' || n < minObs) continue;
+                const sk = 1 - b;
+                skillOf[k] = sk;
+                sumSkill += sk;
+                qualCount++;
+            }
+            if (qualCount === 0 || !(sumSkill > 0)) return neutral;
+            const meanSkill = sumSkill / qualCount;
+            if (!(meanSkill > 0)) return neutral;
+            const factors = {};
+            let maxDev = 0;
+            for (const k of keys) {
+                let f = 1;
+                if (skillOf[k] !== undefined) {
+                    f = skillOf[k] / meanSkill;
+                    if (f < clampLo) f = clampLo;
+                    else if (f > clampHi) f = clampHi;
+                }
+                factors[k] = f;
+                const dev = f >= 1 ? f - 1 : 1 - f;
+                if (dev > maxDev) maxDev = dev;
+            }
+            // Hysteresis: sub-threshold gaps keep the static tables — no
+            // churn, no feedback-loop dither on noise.
+            if (maxDev < minDelta) return neutral;
+            const out = {};
+            let total = 0;
+            for (const k of keys) { out[k] = baseW[k] * factors[k]; total += out[k]; }
+            if (!(total > 0)) return neutral;
+            for (const k of keys) out[k] = out[k] / total;
+            return out;
+        }
+
+        // Skill-overlay state: the Brier tick publishes _skillSummary as
+        // per-model brier mean plus observation count; the setters consume it.
+        let _skillSummary = null;
+        // Stable signature of the current summary (rounded, key-ordered) so
+        // the setActiveWeights memo stays free on repeat calls.
+        function _skillSig() {
+            if (!_skillSummary) return '';
+            return Object.keys(_skillSummary).sort().map((k) => {
+                const s = _skillSummary[k] || {};
+                const b = (typeof s.brier === 'number') ? s.brier.toFixed(4) : 'x';
+                const n = (typeof s.n === 'number') ? s.n : -1;
+                return k + ':' + b + ':' + n;
+            }).join('|');
+        }
+        // Applies the skill overlay to a plain weights object. Returns the
+        // input unchanged when no skill data exists (cold start keeps the
+        // static tables, provably neutral). Never mutates its input.
+        function applySkillAdaptation(wObj) {
+            if (!_skillSummary || !wObj) return wObj;
+            return adaptWeightsBySkill(_skillSummary, wObj, null);
+        }
+
         // Linear-interpolate two weight tables by factor f in [0,1].
         // f=0 returns shortLead weights, f=1 returns longLead weights. Both inputs
         // must share the same keys; result is *not* guaranteed to sum to 1.0 unless
@@ -1715,6 +1829,10 @@ grid inside #sec-telemetry, not the page landmark. -->
             // shape as ENSEMBLE_WEIGHTS and used unchanged by every bulk/per-index API
             // — no per-API changes needed; they all read this._MI.
             _activeRegime: 'default',
+            // AC-1 (1.16.0): memo key for the skill overlay — pre-declared so
+            // the first skill-aware recompute does not transition the hidden
+            // class (the 1.3.10 state-literal doctrine, applied to this object).
+            _activeSkillSig: '',
             _defaultMI: Object.entries(ENSEMBLE_WEIGHTS).map(([m, w]) => ({ m, w })),
             _defaultACK : ENSEMBLE_WEIGHTS.ecmwf_ifs025 + ENSEMBLE_WEIGHTS.gfs_seamless,
             // setActiveWeights(lat, lon) — sets this._MI from REGIONAL_WEIGHTS and
@@ -1723,11 +1841,19 @@ grid inside #sec-telemetry, not the page landmark. -->
             // 0.70, so a "regional-only" verdict is reached only at lower thresholds).
             setActiveWeights(lat, lon) {
                 const regime = getWeightRegime(lat, lon);
-                if (regime === this._activeRegime) return;
+                // AC-1 (1.16.0): the memo spans regime AND skill — a fresh
+                // Brier summary must recompute even inside one regime.
+                const sig = _skillSig();
+                if (regime === this._activeRegime && sig === this._activeSkillSig) return;
                 this._activeRegime = regime;
+                this._activeSkillSig = sig;
                 const w = getEnsembleWeights(lat, lon);
-                this._MI = Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }));
-                this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
+                // AC-1: skill overlay — adapted weights feed _MI AND the
+                // _GLOBAL_ACK quorum baseline together, so the quorum rule
+                // stays coherent with the weights that cast the votes.
+                const wEff = applySkillAdaptation(w);
+                this._MI = Object.entries(wEff).map(([m, wVal]) => ({ m, w: wVal }));
+                this._GLOBAL_ACK = (wEff.ecmwf_ifs025 || 0) + (wEff.gfs_seamless || 0);
             },
             // Lead-time-aware variant — used by long-range route timelines where
             // tail hours (+36h .. +48h) drift toward the long-lead weight table.
@@ -1743,14 +1869,23 @@ grid inside #sec-telemetry, not the page landmark. -->
                 const LEAD_WINDOW_HRS = 60;    // 12..72h: linear interpolation
                 const f = Math.max(0, Math.min(1, ((leadHours || 0) - LEAD_START_HRS) / LEAD_WINDOW_HRS));
                 const w = _lerpWeights(shortW, longW, f);
-                this._MI = Object.entries(w).map(([m, wVal]) => ({ m, w: wVal }));
+                // AC-1 (1.16.0): same skill overlay as setActiveWeights —
+                // long-lead tables adapt too; sig kept coherent for the memo.
+                const wEff = applySkillAdaptation(w);
+                this._MI = Object.entries(wEff).map(([m, wVal]) => ({ m, w: wVal }));
                 this._activeRegime = regime;
-                this._GLOBAL_ACK = (w.ecmwf_ifs025 || 0) + (w.gfs_seamless || 0);
+                this._activeSkillSig = _skillSig();
+                this._GLOBAL_ACK = (wEff.ecmwf_ifs025 || 0) + (wEff.gfs_seamless || 0);
             },
             restoreWeights() {
                 this._MI = this._defaultMI;
                 this._GLOBAL_ACK = this._defaultACK;
                 this._activeRegime = 'default';
+                // 1.16.1: reset the skill memo too — otherwise a default-regime
+                // caller restoring then re-setting hits the memo (regime +
+                // stale sig both match) and keeps STATIC weights while skill
+                // evidence says adapt. Sentinel forces exactly one recompute.
+                this._activeSkillSig = '\0';
             },
             getActiveRegime() { return this._activeRegime; },
             WET_THRESHOLD_MM: 0.1,    // Brier-skill observation threshold — used by brierRecordObservation
@@ -2389,7 +2524,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             // handler creates _draggable lazily on first interaction, so the hook
             // must be installed the first time dragstart fires — not at initMap().
             _panRotateHookInstalled: false,
-            lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0,
+            lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0, _speedGlitchStreak: 0,
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             appliedHudRot: 0,  // rotation actually written to the map (predrag compensation base)
             driveRouteKm: null, driveRouteMin: null, lastAutoCacheSig: null,
@@ -3191,7 +3326,25 @@ let delta = heading - state.lastHeading;
                         // 1.13.2 (perf): toFixed+' KM' was built EVERY frame —
                         // the last unquantized per-frame string in this block.
                         // Quantize to 0.1 km first, build only on change.
-                        const rKm2 = (typeof state.driveRouteKm === 'number') ? state.driveRouteKm : null;
+                        // 1.16.1: REMAINING not total — driveRouteKm is the
+                        // departure total (set once per route) but was displayed
+                        // verbatim, so DIST never counted down and ETA drifted
+                        // forward as you drove. Remaining = live leg (nav.distKm
+                        // to the next node, 1 Hz) + untouched tail; nav-absent
+                        // first frames fall back to total-minus-covered.
+                        let rKm2 = (typeof state.driveRouteKm === 'number') ? state.driveRouteKm : null;
+                        if (rKm2 !== null) {
+                            const _navRem = window.__METEO_CORE_STATE ? window.__METEO_CORE_STATE.nav : null;
+                            const _totalN = (state.routeNodes && state.routeNodes.length) ? state.routeNodes.length : 0;
+                            const _cur2 = state.routeNodesCursor || 0;
+                            const _intervalKm = (CONFIG.routingIntervalNodeDist || 5000) / 1000;
+                            if (_navRem && _navRem.arrived) rKm2 = 0;
+                            else if (_navRem && Number.isFinite(_navRem.distKm) && _totalN > 0) {
+                                rKm2 = Math.max(0, _navRem.distKm + Math.max(0, _totalN - _cur2 - 1) * _intervalKm);
+                            } else if (_totalN > 0) {
+                                rKm2 = Math.max(0, state.driveRouteKm - _cur2 * _intervalKm);
+                            }
+                        }
                         const _distQ2 = rKm2 !== null ? Math.round(rKm2 * 10) : -1;
                         let distTxt = _trackingEtaKeys.distCached || '-- KM';
                         if (_distQ2 !== _trackingEtaKeys.distQ) {
@@ -4536,10 +4689,13 @@ let delta = heading - state.lastHeading;
                 state._verdictLat = (typeof state.telemetryCache.lat === 'number' && state.telemetryCache.lat !== 0) ? state.telemetryCache.lat : null;
                 state._verdictLon = (typeof state.telemetryCache.lon === 'number' && state.telemetryCache.lon !== 0) ? state.telemetryCache.lon : null;
                 await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
+                // 1.16.1: same ≤10-min age guard as the offline catch above —
+                // denied-boot trusted any age (same stale-sea-state class).
                 try {
                     const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
-                    publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
-                    publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
+                    const _nowMs2 = Date.now();
+                    publishAirQuality(cAQ && cAQ.dAQ && (typeof cAQ.timestamp === 'number') && ((_nowMs2 - cAQ.timestamp) <= 600000) ? cAQ.dAQ : null);
+                    publishMarine(cMar && cMar.dMarine && (typeof cMar.timestamp === 'number') && ((_nowMs2 - cMar.timestamp) <= 600000) ? cMar.dMarine : null);
                 } catch (sibErr) { console.debug('Denied-cache sibling restore failed:', sibErr && sibErr.message); }
             } catch (cacheErr) { console.debug('Denied-cache render failed:', cacheErr && cacheErr.message); }
         }
@@ -4639,7 +4795,17 @@ let delta = heading - state.lastHeading;
                             const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
                             if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) isGlitch = true;
                         }
+                        // 1.16.1: leaky glitch latch — a sustained hard accel
+                        // (0-60 in 6 s ≈ 10 km/h/s) tripped the 8/s gate and then
+                        // FROZE currentSpeed forever (frozen baseline → every next
+                        // delta still > 8). Accept after 3 consecutive trips: a
+                        // real accel persists, a multipath spike does not.
+                        if (isGlitch) {
+                            state._speedGlitchStreak = (state._speedGlitchStreak || 0) + 1;
+                            if (state._speedGlitchStreak >= 3) isGlitch = false;
+                        }
                         if (!isGlitch) {
+                            state._speedGlitchStreak = 0;
                             if (state.smoothedSpeed === null) state.smoothedSpeed = rawSpeedKmh;
                             else state.smoothedSpeed = state.smoothedSpeed + EMA_ALPHA_SPEED * (rawSpeedKmh - state.smoothedSpeed);
                             const displaySpeedKmH = Math.round(state.smoothedSpeed);
@@ -4758,7 +4924,18 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     if (cDiff < -180) cDiff += 360;
                                     selfConsistent = Math.abs(cDiff) <= MAP_ROT_SELF_CONSISTENT_DEG;
                                 }
-                                if (state.mapHeading === null || Math.abs(hDelta) <= MAP_ROT_NEAR_CURRENT_DEG || selfConsistent) {
+                                // 1.16.1: self-consistent path capped at 90° — the old
+                                // OR let a 2-fix multipath burst self-validate
+                                // (spike1 rejected but stored in _prevCog, spike2
+                                // within 25° of spike1 accepted despite 100°+ from
+                                // the map). A real turn converges gradually
+                                // (≤35°/fix accepts directly; a 90° intersection
+                                // still passes the cap on its second fix) while a
+                                // canyon echo pair jumping 100°+ stays rejected.
+                                // _prevCog still updates every fix so genuine
+                                // sustained turns build consistency.
+                                const _selfConsistentCapped = selfConsistent && Math.abs(hDelta) <= 90;
+                                if (state.mapHeading === null || Math.abs(hDelta) <= MAP_ROT_NEAR_CURRENT_DEG || _selfConsistentCapped) {
                                     state.mapHeading = gpsHeading;
                                 }
                                 state._prevCog = gpsHeading;
@@ -6263,6 +6440,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // modal disabled forever — no Escape handler covers this modal. Race
             // the wipe: past 10 s fall through to the reload (a partially-failed
             // purge is recoverable by purging again; a parked modal is not).
+            // 1.16.1: second prefetch fence — the pre-wipe abort ran BEFORE the
+            // prompt-gated 6 s GPS wait, so a routesfound/timer event during the
+            // wait minted a FRESH controller + debounce whose batch put tiles
+            // back AFTER caches.delete. Re-abort + clear immediately before the
+            // wipe; the window between the two fences is synchronous.
+            try { if (state._prefetchAbort) state._prefetchAbort.abort(); } catch (_) {}
+            state._prefetchQueued = false;
+            try { if (state._prefetchDebounce) { clearTimeout(state._prefetchDebounce); state._prefetchDebounce = null; } } catch (_) {}
             try {
                 const _wipeOps = (async () => {
                     localStorage.clear(); sessionStorage.clear();
@@ -7665,6 +7850,28 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         const s = scores[m]; return `${m}=${(s == null ? 'NA' : s.toFixed(3))}`;
                     }).join('  '));
                 }
+                // AC-1 (1.16.0): Brier closed loop — publish the per-model
+                // skill summary the weight adapter consumes. `scores` above
+                // keeps its display shape untouched; the summary carries the
+                // observation counts the minObs gate needs.
+                const _skill = {};
+                for (const _m of votesByModel) {
+                    _skill[_m] = { brier: (tally[_m].n > 0 ? tally[_m].sum / tally[_m].n : null), n: tally[_m].n };
+                }
+                _skillSummary = _skill;
+                try { await localforage.setItem('meteo_skill_v1', { skill: _skill, ts: Date.now() }); }
+                catch (e) { console.debug('Skill persist failed (intentional silencer):', e && e.message); }
+                // AC-1 observability: live adaptation factors on the skill
+                // line, so a device pass can verify the loop is engaged
+                // (all x1.00 until models cross the minObs gate).
+                try {
+                    const _adapted = adaptWeightsBySkill(_skill, WeatherEnsemble.weights, null);
+                    console.info('BrierAdapt: ' + WeatherEnsemble.models.map((_m2) => {
+                        const _b = WeatherEnsemble.weights[_m2] || 0;
+                        const _f = _b > 0 ? _adapted[_m2] / _b : 1;
+                        return _m2 + 'x' + _f.toFixed(2);
+                    }).join(' '));
+                } catch (_) { /* display-only */ }
             }
             // PERF-15: only persist when the log was actually mutated. The
             // previous code unconditionally called `_saveBrierLog(log)` at
@@ -7678,6 +7885,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         }
         // Expose a small getter for future UI usage.
         window.getMeteoBrierScores = function() { return window.__METEO_CORE_STATE.brierScores || null; };
+        // AC-1 (1.16.0): boot-restore the persisted skill summary so scored
+        // evidence survives a reload. Fire-and-forget from runApp: neutral
+        // base weights stand until it lands; a missing row is the cold start
+        // (also the correct state).
+        async function loadSkillSummary() {
+            try {
+                const row = await localforage.getItem('meteo_skill_v1');
+                if (row && row.skill && typeof row.skill === 'object') _skillSummary = row.skill;
+            } catch (_) { /* cold start — base weights stand */ }
+        }
 
         // PERF: last-payload signature gate. While stationary, the SW serves the
         // byte-identical cached response every 5 min; the full normalize + render
@@ -7787,11 +8004,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                              // in the past at its left edge). One extra read
                              // per fetch; re-render ≤ 1/hour.
                              Math.floor(Date.now() / 3600000) + '|' +
-                             // FIX: hourly wind arrays (windEnsemble → Aero HUD)
-                             // were unprobed — a model run touching only wind
-                             // left rendered wind stale until the next 15-min
-                             // current-block roll. +5 array reads per fetch.
-                             WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_speed_10m_' + _m] : null)).join('|') + '|' +
+                              // FIX: hourly wind arrays (windEnsemble → Aero HUD)
+                              // were unprobed — a model run touching only wind
+                              // left rendered wind stale until the next 15-min
+                              // current-block roll. +5 array reads per fetch.
+                              // 1.16.1: + weather_code + wind_gusts probes — a run
+                              // touching only those lanes left the N/M AGREE badge,
+                              // focus-matrix gust column and gustPeak stale (pin
+                              // headline was safe via curr.weather_code in the sig).
+                              WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_speed_10m_' + _m] : null) + '|' + probeCells(_hC ? _hC['weather_code_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_gusts_10m_' + _m] : null)).join('|') + '|' +
                              probeCells(_hS ? _hS.shortwave_radiation : null) + '|' +
                              probeCells(_hS ? _hS.uv_index : null);
             const payloadSig = String(dCurr?.current?.time ?? '') + '|' +
@@ -7840,6 +8061,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                     : '') + '|' +
                                 (window.__METEO_CORE_STATE.metarObs?.obsTime
                                     ? Math.floor((Date.now() - window.__METEO_CORE_STATE.metarObs.obsTime) / (100 * 60 * 1000))
+                                    : '') + '|' +
+                                // 1.16.1: skill + regime + minutely fingerprints — the
+                                // 5-min Brier tick publishes a new _skillSummary with a
+                                // byte-identical payload (stationary, no time roll), so
+                                // the sig skip pinned adapted weights for up to 15 min;
+                                // a minutely-window refresh without a current.time roll
+                                // left rainByMinutely stale the same way.
+                                (function(){ try { return _skillSig(); } catch(_) { return ''; } })() + '|' +
+                                (function(){ try { const _t = state.telemetryCache; return (_t && typeof _t.lat === 'number') ? getWeightRegime(_t.lat, _t.lon) : ''; } catch(_) { return ''; } })() + '|' +
+                                (function(){ try { const _m = window.__METEO_CORE_STATE.minutely; if (!_m || !Array.isArray(_m.time) || !_m.time.length) return ''; const _p = _m.precipitation; const _pv = (a) => (Array.isArray(a) && a.length ? (a[0] + '|' + a[Math.floor(a.length/2)] + '|' + a[a.length-1]) : '||'); return _m.time[0] + '|' + _m.time.length + '|' + _pv(_p); } catch(_) { return ''; } })() + '|' +
+                                // 1.16.1: radar sample-ts age bucket — the 1.14.1 buckets
+                                // cover frameTime + METAR obsTime but not the sample ts;
+                                // a fresh-catalog/stale-sample crossing flipped
+                                // radarFresh with no fingerprint change.
+                                (window.__METEO_CORE_STATE.radarNow?.ts
+                                    ? Math.floor((Date.now() - window.__METEO_CORE_STATE.radarNow.ts) / 1800000)
                                     : '');
             if (payloadSig === _lastPayloadSig) return;
             // NOTE: _lastPayloadSig is stamped AFTER normalize+render below —
@@ -8439,10 +8676,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 // not escape as an unhandled rejection.
                                 await processTelemetryPayload(cached.dCurr, cached.dFore, cached.dSolar, true, cached.timestamp, cached.dDaily);
                                 // Restore sibling rows (backward compat: old installs have no rows → '--'/hidden).
+                                // 1.16.1: same ≤10-min age guard as the live-path
+                                // backfill — the offline restore trusted any age, so
+                                // a days-old marine row rendered a 47h-ahead cell as
+                                // CURRENT sea state (the 1.14.1 class). AQ/marine
+                                // have no verdict-time freshness recompute (unlike
+                                // radar/METAR), so the restore is the only gate.
                                 try {
                                     const [cAQ, cMar] = await Promise.all([localforage.getItem('sibling_aq'), localforage.getItem('sibling_marine')]);
-                                    publishAirQuality(cAQ && cAQ.dAQ ? cAQ.dAQ : null);
-                                    publishMarine(cMar && cMar.dMarine ? cMar.dMarine : null);
+                                    const _nowMs = Date.now();
+                                    publishAirQuality(cAQ && cAQ.dAQ && (typeof cAQ.timestamp === 'number') && ((_nowMs - cAQ.timestamp) <= 600000) ? cAQ.dAQ : null);
+                                    publishMarine(cMar && cMar.dMarine && (typeof cMar.timestamp === 'number') && ((_nowMs - cMar.timestamp) <= 600000) ? cMar.dMarine : null);
                                 } catch (sibErr) { console.debug('Sibling cache restore failed:', sibErr && sibErr.message); }
                             }
                         } catch (cacheErr) { console.error("Cache Read Failed:", cacheErr); }
@@ -9054,6 +9298,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             requestWakeLock();
             await loadMagCalibration();
             initializeCloudServices();
+            loadSkillSummary().catch(() => {});
             startBackgroundTracking();
             watchGeoPermissionRecovery();
             await FuelManager.init();
@@ -9211,9 +9456,13 @@ function checkDependenciesAndRun() {
 
         // --- PWA ---
         (function initPWA() {
+            // 1.16.1: swReg hoisted to initPWA scope — it lived inside the
+            // load callback while the update-pill handler (sibling closure)
+            // read it, so every tap threw ReferenceError (module strict mode)
+            // before arming the fallback: a dead UPDATE button.
+            let swReg = null;
             if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                    let swReg = null;
                     navigator.serviceWorker.register('./sw.js', { scope: './' })
                         .then(registration => {
                             swReg = registration;

@@ -239,14 +239,17 @@ assert(!/timelineIdleTimer/.test(html), "state.timelineIdleTimer dead property r
 // WeatherEnsemble _MI entries must use field 'w' (not 'weight') for consistent destructuring
 // The pattern `({ m, weight })` in setActiveWeights/setActiveWeightsAtLead was a critical bug
 // causing NaN weights across all ensemble math. Verify it's fixed.
+// 1.16.0 §1.6-conscious retarget: both setters now build _MI from the
+// skill-adapted `wEff` (AC-1 Brier closed loop) — the contract (field 'w',
+// both setters) is unchanged, only the source variable name moved.
 {
-  const setAW = html.slice(html.indexOf("this._MI = Object.entries(w).map(([m, wVal])"), html.indexOf("this._MI = Object.entries(w).map(([m, wVal])") + 120);
+  const setAW = html.slice(html.indexOf("this._MI = Object.entries(wEff).map(([m, wVal])"), html.indexOf("this._MI = Object.entries(wEff).map(([m, wVal])") + 120);
   assert(setAW.includes("w: wVal"), "_MI uses field 'w' (not 'weight') in setActiveWeights");
 }
 {
   // Find the second occurrence (setActiveWeightsAtLead)
-  const firstIdx = html.indexOf("this._MI = Object.entries(w).map(([m, wVal])");
-  const secondIdx = html.indexOf("this._MI = Object.entries(w).map(([m, wVal])", firstIdx + 1);
+  const firstIdx = html.indexOf("this._MI = Object.entries(wEff).map(([m, wVal])");
+  const secondIdx = html.indexOf("this._MI = Object.entries(wEff).map(([m, wVal])", firstIdx + 1);
   assert(secondIdx > firstIdx, "both setActiveWeights and setActiveWeightsAtLead use 'w' field");
 }
 
@@ -664,7 +667,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v21'", "sw.js APP_CACHE v21 — 1.15.0 release gate step 6 (the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v24'", "sw.js APP_CACHE v24 — 1.16.1 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -766,6 +769,55 @@ assert(!/text-gray-500|text-gray-600/.test(html), "1.15.0: gray-500/600 text tok
 assertIncludes(html, "text-brand-teal tracking-[0.3em] uppercase opacity-80", "1.15.0: Local Telemetry accent raised to opacity-80 (3.43:1 → passes; also the vibrant-accent design rec)");
 assertIncludes(html, "setTimeout(() => window.location.reload(), 50); } });", "1.15.0: generic controllerchange self-reload deferred out of the SW activation window (headless-shell ERR_FAILED probe, 1.14.3)");
 assertIncludes(html, "setTimeout(() => window.location.reload(), 50); } };", "1.15.0: update-pill _doReload deferred — same event class (SKIP_WAITING controllerchange)");
+
+// ---------------------------------------------------------------------------
+// 1.15.1 perf riders: PF-1 pooled radar decode canvas + PF-2 batched SW
+// seed. No behavior change — same pixels decoded, same byte sums; only the
+// readback path (GPU→CPU) and the seed concurrency change.
+// ---------------------------------------------------------------------------
+assertIncludes(html, "const _radarCv = document.createElement('canvas');", "index.html 1.15.1 PF-1: pooled radar decode canvas exists at module scope (declared before first use — TDZ-safe)");
+assertIncludes(html, "getContext('2d', { willReadFrequently: true })", "index.html 1.15.1 PF-1: pooled context is CPU-backed — kills the Chrome willReadFrequently readback warning logged on every sample");
+assertIncludes(html, "_radarCx.drawImage(bmp, 0, 0);", "index.html 1.15.1 PF-1: all three decode sites (coverage, pin, route tiles) draw through the pooled context");
+assert(
+  (html.match(/document\.createElement\(['"]canvas['"]\)/g) || []).length === 1,
+  "index.html 1.15.1 PF-1: exactly ONE canvas creation remains (the _radarCv pool) — the three per-call sites are gone (negative guard)"
+);
+assertIncludes(swSrc, "const BATCH = 32;", "sw.js 1.15.1 PF-2: map-cache seed reads in bounded parallel batches, not sequential awaits");
+
+// ---------------------------------------------------------------------------
+// 1.16.0 Brier closed loop (AC-1): adaptWeightsBySkill pure function +
+// wiring through both weight setters (quorum coherence via the _GLOBAL_ACK
+// recompute) + persisted skill summary. The static tables are never
+// mutated; cold start keeps them provably (fixture-pinned).
+// ---------------------------------------------------------------------------
+assertIncludes(html, "function adaptWeightsBySkill(skillByModel, baseW, opts)", "index.html 1.16.0 AC-1: pure skill-adaptation function exists (args + Math + Object only — sliced and executed by tests/unit/skill-adapt.test.mjs)");
+assertIncludes(html, "const wEff = applySkillAdaptation(w);", "index.html 1.16.0 AC-1: both weight setters route through the skill overlay (adapted weights feed _MI AND the _GLOBAL_ACK quorum baseline together)");
+assertIncludes(html, "_activeSkillSig: '',", "index.html 1.16.0 AC-1: skill signature pre-declared on the ensemble object (memo spans regime + skill; hidden-class doctrine)");
+assertIncludes(html, "meteo_skill_v1", "index.html 1.16.0 AC-1: skill summary persisted across reloads (scored evidence must survive to reach the minObs gate)");
+
+// ---------------------------------------------------------------------------
+// 1.16.1 four-agent bug-hunt round (13 fixes: 7 HIGH + 4 MED accuracy + 1 MED
+// perf + 1 MED lifecycle + timer hygiene). Each guard pins the fix line so a
+// future edit silently reverting it fails loudly (§1.6: guards are contract).
+// ---------------------------------------------------------------------------
+assertIncludes(html, "swReg hoisted to initPWA scope", "index.html 1.16.1: swReg hoisted to initPWA scope (update pill was ReferenceError-dead)");
+assertIncludes(html, "_speedGlitchStreak", "index.html 1.16.1: leaky speed-glitch latch (sustained accel accepted after 3 trips, spikes still rejected)");
+assertIncludes(html, "_selfConsistentCapped", "index.html 1.16.1: COG self-consistent path capped at 90deg (2-fix multipath burst can no longer self-validate)");
+assertIncludes(html, "Remaining = live leg (nav.distKm", "index.html 1.16.1: tracking DIST/ETA count down remaining (nav leg + tail), not departure total");
+assertIncludes(html, "same ≤10-min age guard as the live-path", "index.html 1.16.1: offline sibling restore age-guarded (stale sea-state class)");
+assertIncludes(html, "same ≤10-min age guard as the offline catch above", "index.html 1.16.1: denied-boot sibling restore age-guarded");
+assertIncludes(workerSrc, "Skip unresolvable coords instead.", "worker.js 1.16.1: single poisoned Overpass element can no longer blank the whole fuel result");
+assertIncludes(html, "const blob = await readBodyOrNull(r, 8000, x => x.blob());", "index.html 1.16.1: route-tile bodies budgeted (headers-then-stall no longer hangs Promise.all)");
+assertIncludes(html, "Older frameTime never overwrites newer.", "index.html 1.16.1: route radar commit has frame recency (no time regression)");
+assertIncludes(html, "this._activeSkillSig = '\\0';", "index.html 1.16.1: restoreWeights resets the skill memo (default-regime skill loop stays engaged)");
+assertIncludes(html, "skill + regime + minutely fingerprints", "index.html 1.16.1: payloadSig carries skill/regime/minutely (adapted weights engage without waiting for a time roll)");
+assertIncludes(html, "radar sample-ts age bucket", "index.html 1.16.1: payloadSig carries the radar ts bucket (freshness crossing re-renders)");
+assertIncludes(html, "weather_code_' + _m", "index.html 1.16.1: chartSig probes weather_code + gusts (model-only shifts re-render)");
+assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-aborts before the wipe (6 s GPS-wait window closed)");
+assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
+assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
+assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
+assertIncludes(swSrc, "meteonexus-app-v24", "sw.js 1.16.1: APP_CACHE v24 (index.html changed)");
 
 // ---------------------------------------------------------------------------
 // Report

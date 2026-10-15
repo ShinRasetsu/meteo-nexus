@@ -118,6 +118,388 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.1 — 2026-10-15 (patch: four-agent bug-hunt round — dead update pill, frozen speed, total-vs-remaining ETA, stale offline siblings)
+
+### Bump rationale
+
+Patch bump 1.16.0 → 1.16.1 (user-directed "bugs fixes and accuracy and
+performance improvement"; `sw.js` `APP_CACHE` `v23` → `v24` — index.html,
+worker.js and sw.js all changed). No new capability: every fix is a
+correctness, accuracy, or performance repair. Four exploration agents
+(rotation/tracking; fetch/verdict/radar/METAR; SW/lifecycle/fuel/worker;
+perf hot-paths) produced ~40 candidate findings; every one was hand-verified
+against source (§0 E6) before applying. **14 fixes landed** (7 HIGH, 4 MED
+accuracy, 1 MED perf, 1 MED lifecycle, + timer hygiene); the rest were
+discarded or deferred with rationale below. Baseline was green before the
+hunt (lint 0 · 388/388 · 46/46 · 10 scanners · verify 30/30 · fluidity
+Perfection PASS · unified 39), so every finding is a code defect, not
+tooling noise.
+
+### Applied (HIGH, all hand-verified)
+
+1. **Update pill dead (HIGH)** — `let swReg` lived inside the `load` callback
+   while the pill handler (sibling closure) read it: every tap threw
+   `ReferenceError` in module strict mode before arming the 15 s fallback —
+   a dead UPDATE button leaving the SWR shell one-load-behind indefinitely.
+   No scanner models cross-closure visibility (TDZ tracks declared bindings;
+   a free variable reads as global). Fixed by hoisting to `initPWA` scope.
+2. **DIST/ETA showed TOTAL, never REMAINING (HIGH, accuracy)** — `updateRouteStatus`
+   sets `driveRouteKm` once from `totalDistance`; the loop displayed it verbatim
+   (comment said "Remaining"). Distance never counted down, ETA drifted forward.
+   Remaining now = live leg (`CORE_STATE.nav.distKm` to the next node, 1 Hz) +
+   untouched tail (`(N-cursor-1) × interval`); nav-absent first frames fall back
+   to total-minus-covered; `arrived` pins 0.
+3. **Speed-glitch latch froze speed forever (HIGH)** — an 8 km/h/s trip left
+   `currentSpeed` un-updated and reset `smoothed` to the frozen value, so every
+   next delta still tripped: legit hard accel (0-60 in 6 s ≈ 10/s) latched until
+   the car stopped, poisoning the moving/rotation/ETA/dead-reckoning gates.
+   Leaky latch: accept after 3 consecutive trips (real accel persists, a spike
+   does not); `_speedGlitchStreak` pre-declared (hidden-class doctrine).
+4. **COG 2-fix burst defeated the spike filter (HIGH)** — `_prevCog` updated on
+   reject, so spike1 stored, spike2 within 25° self-validated despite 100°+ from
+   the map (urban-canyon echo pair rotated the map). The self-consistent path is
+   now capped at `|hDelta| ≤ 90`: genuine turns (gradual, or a 90° intersection
+   on its second fix) still pass; canyon pairs stay rejected. `_prevCog` still
+   updates every fix so sustained turns build consistency (the first-draft
+   accept-only variant latched real turns — caught by reasoning, replaced).
+5. **Offline + denied sibling restore bypassed the age guard (HIGH)** — the live
+   path backfills AQ/marine only within ≤10 min (the 1.14.1 stale-sea-state fix),
+   but both offline paths restored unconditionally; AQ/marine have no
+   verdict-time freshness recompute (unlike radar/METAR), so a days-old marine
+   row rendered a 47 h-ahead cell as CURRENT sea state. Both restores now carry
+   the same bound (missing timestamp = corrupt = null, matching live).
+6. **One poisoned Overpass element blanked all fuel (HIGH)** — `el.center.lat`
+   threw on a centerless way/relation; the dispatcher rejected the whole
+   `PROCESS_OVERPASS` task (~600 good stations discarded). Defensive resolve +
+   `continue` on non-finite coords; unit fixture added (47th).
+7. **Route-tile bodies unbudgeted + frame regression (HIGH)** — `r.blob()` bypassed
+   `readBodyOrNull` (headers-then-stall hung `Promise.all` forever); a hung T1
+   sample resolving after T2 committed older weather over newer with no log.
+   Tiles now race 8 s (null → tile skipped, nodes abstain); commit rejects
+   `rs.frameTime < stored.frameTime`.
+
+### Applied (MED accuracy + perf + lifecycle)
+
+8. **`restoreWeights()` reset drops the skill memo (MED accuracy)** — memo spans
+   regime + sig but restore reset only `_MI/_GLOBAL_ACK/_activeRegime`: a
+   default-regime caller restoring then re-setting hit the memo and kept STATIC
+   weights while skill said adapt (geography-dependent hole). Sentinel reset
+   forces exactly one recompute.
+9. **`payloadSig` blind to skill/regime/minutely (MED accuracy)** — the 5-min Brier
+   tick published a new `_skillSummary` under a byte-identical payload → sig skip
+   pinned adapted weights ≤15 min; minutely refreshes without a `current.time`
+   roll left `rainByMinutely` stale the same way. Sig now carries `_skillSig()` +
+   `getWeightRegime()` + a minutely fingerprint (`time[0]|len|precip probes`).
+10. **`chartSig` missed code + gust lanes (MED accuracy)** — a model run touching
+    only `weather_code_*`/`wind_gusts_10m_*` left the N/M AGREE badge, focus-matrix
+    gust column and `gustPeak` stale (pin headline was safe via `curr.weather_code`
+    in the sig). Probe list extended (2×5 models, same pattern).
+11. **Radar `ts` bucket missing (MED accuracy)** — the 1.14.1 buckets covered
+    `frameTime` + METAR `obsTime` but not sample `ts`: a fresh-catalog/stale-sample
+    crossing flipped `radarFresh` with no fingerprint change. 30-min `ts` bucket
+    added alongside.
+12. **SW eviction scans sequential (MED perf)** — PF-2 batched the seeds but the two
+    evict paths kept per-entry `cache.match` stalls (~1700 serialized at eviction).
+    Same bounded-32 batching; sum/sort after collect, deletes in policy order.
+13. **Purge 6 s re-arm window (MED lifecycle)** — the pre-wipe abort ran BEFORE the
+    prompt-gated GPS wait; a routesfound/timer event during the wait minted a fresh
+    controller whose batch `put` tiles back after `caches.delete`. Second fence
+    (re-abort + clear) immediately before the wipe.
+14. **Timer hygiene** — `readBodyOrNull` never cleared its race timer (one live timer
+    per body read lingered) and conflated malformed/fast/stall nulls. `clearTimeout`
+    on settle + `console.debug` on catch (file silencer convention).
+
+### Discarded / deferred with rationale
+
+- Coarse-first bootstrap "defeats" the boot accuracy gate — BY DESIGN (comment says
+  ANY fix: weather grid ~10 km, pill shows truth); the retry budget covers coarse-
+  failure only. Documented tradeoff, not a bug.
+- Watch first-fix `>3000 m` bypass (`lastHudLat !== 0` sentinel) — intentional
+  bootstrap for WiFi-only devices (no fix < 3000 ever); map already painted by
+  coarse path; self-heals next fix. Left as-is.
+- Teleport gate waving precise teleports (`accuracy ≤ 10` + >350 km/h accepted) —
+  one-tick consume, high-accuracy glitches need device evidence before tightening.
+- Single-flight cross-coordinate coalescing — window is TTL+5 s gated boot paths
+  self-exclude; meters of error, self-corrects. Redesign deferred (queue/key).
+- ETA wall-clock staleness between rebuilds, progress-bar node jumps, low-speed
+  static total, relock seed from lagged visual, sensor/render wrap gate, recenter
+  timer clearing, mag freshness, Aero dt 100 vs 32 — real but LOW/cosmetic; each
+  needs device evidence or risks churn without frame-budget proof. Noted for a
+  polish round.
+- Minutely synthesis lanes, Brier log line static weights, elevation sig + blocking,
+  snowfall cm/mm mixing, TRACE outside METAR range — safe-direction or documented;
+  product decisions, not patch fixes.
+- Perf LOWs (ETA fmt literal, offline is_day literal, times/uvData on skip, distKey
+  strings, dead-reckoning trig, chart tick Dates, tile RGBA) — measured trivial
+  (allocs/day or ns/frame); correctly left alone. Unified `perf-optimizations` recs
+  re-proven STALE (hMagSq shipped 4141-4142, syncClock hoist shipped 6208, fetchOpts
+  hoist shipped 919/934).
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **406/406** (+18 guards, 1 consciously
+  revised per §1.6: APP_CACHE v23 → v24) + unit **47/47** (+1 Overpass
+  poison-element fixture; unified pin 46 → 47) · `npm run audit` 10/10 PASS
+  (extract+parse OK module 896..10831 / 685663 B, TDZ 0, fp 0, brace
+  depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — single `--hud-rot`
+  writer preserved, shell PASS, csp-evaluator 4 documented + 2 advisory + 0
+  blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** ·
+  `node tests/audit-unified.mjs` **39 checks PASS**, Perfection PASS (0 stairs,
+  0 janks).
+- Fetch Gate §6 RE-TRIGGERED by §2 (remaining-dist feeds ETA display, payloadSig/
+  chartSig gate the verdict render, sibling restore touches the offline render):
+  OWED, no browser rig in this environment (user device pass) — `models=` URL
+  HTTP 200, telemetry non-`--`, glance temp numeric, 0 red errors, PLUS remaining
+  DIST counting down with the cursor and ETA wall-clock rebuilding per 0.1 km.
+  Visual runtime §7 not triggered (no transform surfaces touched — visual-audit
+  inventory unchanged).
+
+### Blind spots considered (§8)
+
+Races: remaining-dist reads `nav` (1 Hz single-writer) + cursor on the rAF chain —
+no interleave window; commit recency is single-threaded last-write-wins with a
+monotonic guard; purge double-fence is synchronous between fences; skill memo
+reset is a sentinel string, no cross-thread. Leaks: `readBodyOrNull` timer now
+cleared; one pre-declared counter; SW batches are bounded slices (no new retained
+handles). Coercion: `Number.isFinite` on every new numeric gate (nav.distKm,
+Overpass coords, timestamps); the `arrived` boolean short-circuits before math;
+`_skillSig` try/caught (never throws the sig build). Off-by-one: remaining clamps
+`≥ 0`; tail `(N-cursor-1)` is zero at the last node (leg only); frame recency is
+strict `<` (equal-frame dedup unchanged). Unhandled rejections: tile null-blob
+returns inside the job (caught by the job's own catch); sig IIFEs try/caught.
+Perf: remaining math ~6 ops/frame inside existing gates; sig gains ~15 string ops
+per fetch (5-min cadence); SW batches strictly fewer stalls. A11y: untouched
+surfaces.
+
+### PENDING (user / next session)
+
+- User device pass for this patch (Fetch Gate + remaining countdown + ETA rebuild
+  + second-boot v24 update path on installed clients + `BrierAdapt:` line with
+  skill engaged).
+- Standing: AC-3 ETA product decision, opencode restart (geoapify + osm v0.6.0
+  re-probe), GITHUB_TOKEN, Lighthouse PWA + device checks.
+
+---
+
+## 1.16.0 — 2026-10-15 (minor: AC-1 Brier closed loop — ensemble weights adapt to measured skill)
+
+### Bump rationale
+
+Minor bump 1.15.1 → 1.16.0 (new capability, user-approved "then minor":
+the consensus weights now learn from the Brier skill log instead of
+standing on static tables; `sw.js` `APP_CACHE` `v22` → `v23` —
+index.html changed). The `brierScores` pipeline existed since 1.3.x and
+was consumed by exactly zero in-app logic (verified: `getMeteoBrierScores`
+has no callers; the focus Brier chip is retired) — this release spends
+that accumulated evidence. AC-2 stays declined (both-required bound
+stands); AC-3 stays parked.
+
+### Evidence that the static tables misprice skill (measured, not argued)
+
+The project's own rig logs carry the case:
+`.playwright-mcp/console-2026-09-26T09-42-32-892Z.log:139` —
+`BrierSkill (n=24): ecmwf_ifs025=0.300 gfs_seamless=0.948
+icon_seamless=0.573 jma_seamless=0.337 gem_seamless=0.500`.
+At the pin, GFS is nearly maximally wrong while JMA runs second only to
+ECMWF — yet the east_asia table seats GFS at 0.21 and JMA at 0.26.
+Replayed as a unit fixture (n lifted to 40 so the minObs gate engages):
+EU 0.34→~0.41, US 0.21→~0.11, JP 0.26→~0.32, renormalized to 1.0.
+
+### Changes (all `index.html` unless noted)
+
+- **`adaptWeightsBySkill(skillByModel, baseW, opts)`** (ensemble engine,
+  after `getEnsembleWeights`): PURE — args + Math + Object only. Skill
+  is 1−Brier over models with n ≥ `minObs` (default 30); factors are
+  skill/mean-skill clamped to [0.6, 1.4]; hysteresis (`minDelta` 0.10)
+  keeps static tables on sub-threshold gaps (no dither on noise);
+  renormalizes to 1.0; never mutates its input; degenerate inputs
+  (null/NaN/out-of-range Brier, missing models, empty base) return base
+  values. The test-slicer brace constraint is pinned in-code above it.
+- **Wiring through both setters** (`setActiveWeights`,
+  `setActiveWeightsAtLead`): tables flow through `applySkillAdaptation`
+  before `_MI` is built, and `_GLOBAL_ACK` is recomputed FROM the
+  adapted weights — the quorum baseline follows automatically, so the
+  quorum rule stays coherent with the weights that cast the votes. The
+  regime memo now spans regime AND skill (`_activeSkillSig`,
+  pre-declared on the object per the hidden-class doctrine) so a fresh
+  Brier summary recomputes inside one regime while repeat calls stay
+  free. `restoreWeights()` deliberately untouched — it remains the
+  static clean slate.
+- **Brier tick publishes `_skillSummary`** (`{ m: { brier, n } }`) next
+  to the untouched display-shaped `scores`, persists
+  `meteo_skill_v1`, and prints a `BrierAdapt:` factor line (all ×1.00
+  until models cross the gate — the device-pass observable).
+  `loadSkillSummary()` boot-restores fire-and-forget from `runApp`
+  (neutral base weights until it lands; missing row = cold start).
+- `tests/unit/skill-adapt.test.mjs` — NEW, 10 fixtures slicing the
+  SHIPPED function bytes out of index.html (brace-walk + vm, the
+  worker.test.mjs precedent): cold-start neutrality, empty base,
+  minObs gate, unanimity, live-log replay, both clamps, hysteresis,
+  degenerate abstention, input-immutability (frozen table), custom
+  opts. `package.json` test script extended; unified pin 36 → 46
+  (regex + label, per its own bump comment at
+  `tests/audit-unified.mjs:579`).
+- `tests/sanity.test.js` — +4 guards (384 → 388), 1 consciously
+  revised per §1.6 (`_MI` w → wEff retarget — the field-'w'/both-setters
+  contract is unchanged, only the source variable moved).
+- `VERSION` → 1.16.0, `package.json` synced, `AGENTS.md` §11 synced
+  (sanity 388, unit 46, module 896..10728, file ~10752 lines),
+  `HISTORY.md` — this chapter. `tailwind.min.css` rebuilt by precheck —
+  byte-identical, no diff.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **388/388** + unit **46/46** ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 896..10728 /
+  676495 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0,
+  visual PASS — inventory unchanged, single `--hud-rot` writer, shell
+  PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9
+  deps 0 vulns) · `npm run audit:verify` **30/30** · `npm run precheck`
+  green · `node tests/audit-unified.mjs` **39 checks PASS**,
+  Perfection PASS (0 stairs, 0 janks).
+- **Fetch Gate §6 RE-TRIGGERED by §2 (verdict weights feed
+  normalizeTelemetryData) — OWED, no browser rig in this environment
+  (user device pass):** `models=` URL HTTP 200, telemetry
+  non-`--`, glance temp numeric, 0 red errors, PLUS the `BrierAdapt:`
+  line visible (all ×1.00 until n≥30) and recorded before/after Brier
+  deltas from the shipped log once adaptation engages. Visual runtime
+  §7 not triggered (no transform surfaces touched).
+- Session incident, recorded honestly: 7 of the 10 new fixtures failed
+  first-run on a **test-harness artifact, not shipped code** — the vm
+  realm's `Object.prototype` trips `node:assert/strict` deepEqual on
+  identical values (the approx-based fixtures passed throughout,
+  proving the math). Fixed with a JSON-normalization helper
+  documented in the test file.
+
+### Blind spots considered (§8)
+
+Races: `_skillSummary` is written by the 5-min Brier tick and read by
+the setters on the same single-threaded fetch chain; the boot restore
+lands whenever it lands with neutral weights before it. Feedback-loop
+oscillation (weights → forecasts → scores → weights) is damped three
+deep: 0.6–1.4× clamps, 10% hysteresis deadband, and evidence-gated
+(n≥30) engagement — residual risk is slow drift, observable on the
+`BrierAdapt:` line, reversible by clearing one IDB key. Leaks: one
+~200-byte persisted row + a short memo string per regime call.
+Coercion: every numeric gate is typeof + range checked, NaN-safe via
+the `!(b >= 0)` pattern (NaN comparisons are false — the 1.5.0 NaN
+lesson applied). No time-decay on the tally (FIFO 600 bounds memory;
+a transcontinental move adapts only as new observations dilute old
+ones — documented residual, bounded by turnover, not a defect).
+Self-reference inherits the documented Brier limitation (observation
+is the best-match re-forecast, not a rain gauge) — relative ordering
+is the signal, and adaptation uses only that. Perf: ~30 flops per
+regime change (memoized); one small IDB write per change-tick.
+A11y: untouched surfaces.
+
+### PENDING (user / next session)
+
+- User device pass for this minor (Fetch Gate + `BrierAdapt:`
+  observation + before/after Brier deltas from the shipped log once
+  n≥30 — expect ~1–2 days of regular use before factors move).
+- Standing: AC-3 ETA product decision, opencode restart (geoapify +
+  osm v0.6.0 re-probe), GITHUB_TOKEN, Lighthouse PWA + device checks.
+
+---
+
+## 1.15.1 — 2026-10-15 (patch: PF-1 pooled radar decode canvas + PF-2 batched SW seed)
+
+### Bump rationale
+
+Patch bump 1.15.0 → 1.15.1 (user-approved "patch first, then minor":
+perf riders from the accuracy+performance sweep; `sw.js` `APP_CACHE`
+`v21` → `v22` — index.html and sw.js both changed). No behavior change
+by construction: the same pixels are decoded, the same byte sums are
+computed — only the readback path (GPU→CPU) and the seed concurrency
+change. AC-2 (radar-only tie-break tier) was explicitly declined by the
+user in the same session — `measuredClear` keeps the both-required bound
+(`index.html:7011`); AC-3 (speed-profile ETA) stays parked as a product
+decision. Phase 2 (1.16.0 Brier closed loop) is next.
+
+### Changes
+
+- **PF-1 — pooled radar decode canvas** (`index.html`, radar engine
+  `~1067` + three decode sites): the coverage probe, pin sample, and
+  route-tile decoder each built a throwaway canvas + default
+  (GPU-backed) 2d context per call, so every `getImageData` paid a
+  GPU→CPU readback stall — Chrome logged the `willReadFrequently`
+  warning on every sample (captured in the project's own Playwright
+  console logs). One module-scope 256px canvas + CPU-backed context
+  (`_radarCv`/`_radarCx`), sized per decode (same-size assigns skipped;
+  a resize auto-clears — no stale-pixel risk). SHARING CONTRACT
+  documented in-code: every drawImage→getImageData pair is synchronous
+  (no await between, single-threaded fetch chain) — including the
+  parallel route-tile jobs, whose draw→read runs contiguously after
+  their last await. A future await inserted between a draw and its read
+  would break the pool; the comment says so at the declaration site.
+- **PF-2 — batched SW seed** (`sw.js:81-99`, `125-133`): `seedMapCacheBytes`
+  and the activate-path API seed awaited `cache.match` sequentially per
+  entry — O(N) serialized backend round-trips (thousands after a large
+  prefetch; the CACHE_STATS keep-alive comment exists because of this
+  cost). Bounded `Promise.all` batches of 32: same sums (order-irrelevant
+  pure addition), ~32× fewer stalls. Resync still zeroes before re-seed
+  (no double-count — verified by reading the path, not assumed).
+- `tests/sanity.test.js` — +5 guards (379 → 384), 1 consciously revised
+  per §1.6 (APP_CACHE v21 → v22): pool presence, `willReadFrequently`,
+  pooled-draw reuse, exact-one-canvas negative guard, SW batch pin. The
+  negative guard counts occurrences (=== 1, the pool) after the first
+  draft tripped on the pool's own creation line — the guard now proves
+  the three per-call sites are gone rather than merely asserting absence.
+- `VERSION` → 1.15.1, `package.json` synced, `AGENTS.md` §11 synced
+  (sanity 384, module 896..10596, file ~10620 lines, sw.js 500 lines),
+  `HISTORY.md` — this chapter. `tailwind.min.css` rebuilt by precheck —
+  byte-identical, no diff (no CSS surface changed).
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **384/384** + unit 36/36 ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 896..10596 /
+  668823 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0,
+  visual PASS — inventory unchanged, single `--hud-rot` writer, shell
+  PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9
+  deps 0 vulns) · `npm run audit:verify` **30/30** · `npm run precheck`
+  green (Tailwind v4.3.3, CSS byte-identical).
+- Fetch Gate §6 not re-triggered by §2 (no fetch URLs/triggers/math
+  changed — decode + seed only); Visual runtime §7 not triggered (no
+  transform surfaces touched).
+- **Runtime proof OWED (no browser rig in this environment — user
+  device pass):** radar sample live at the pin (`radarNow` populated,
+  frames HTTP 200), console shows NO Canvas2D `willReadFrequently`
+  warnings, tile gauge byte-identical to pre-patch, 0 red errors.
+
+### Blind spots considered (§8)
+
+Races: the pool-sharing contract is the one new invariant — verified by
+reading all three sites (draw→read contiguous, no await between) and
+pinned by comment; a future edit adding an await inside a pair would
+interleave parallel tile draws (caught only by review — the fluidity
+scanner doesn't model canvas sharing; noted here so the next session
+knows). Canvas resize clears context STATE but not creation attributes
+(`willReadFrequently` persists) — and only stateless drawImage +
+getImageData are used, so even a state reset is harmless. Leaks: one
+persistent 256px canvas replaces N throwaway canvases per sample —
+strictly less retained garbage. Coercion: `parseInt(...) || 15000`
+unchanged from the sequential form (opaque no-cors tiles still hide
+their true sizes — the 15 KB estimate is unknowable-by-construction,
+not a defect). SW batch order is irrelevant (pure addition into two
+counters). Perf: strictly less work per seed; decode stalls removed at
+fetch cadence (no 60 Hz surface touched — fluidity contract unaffected).
+A11y: untouched surfaces.
+
+### PENDING (user / next session)
+
+- User device pass for this patch (runtime proof above: radar live,
+  warning gone, gauge identical, 0 red errors).
+- Phase 2 (1.16.0): AC-1 Brier closed loop — `adaptWeightsBySkill`
+  pure function + wiring (quorum coherence via the `_GLOBAL_ACK`
+  recompute) + persistence + unit fixtures (remember the unified pin:
+  36 → N at `tests/audit-unified.mjs:569`) + Fetch Gate §6 + recorded
+  before/after Brier deltas from the shipped log.
+- Standing: AC-3 ETA product decision, opencode restart (geoapify +
+  osm v0.6.0 re-probe), GITHUB_TOKEN, Lighthouse PWA + device checks.
+
+---
+
 ## 1.15.0 — 2026-10-09 (minor: a11y fail-set fixed — axe pin EMPTY — + CLS font fix + controllerchange hardening)
 
 ### Bump rationale

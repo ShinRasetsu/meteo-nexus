@@ -3,7 +3,7 @@
 // the old shell indefinitely — no index.html change alone ever reaches an
 // installed client. MAP/API/CDN names stay fixed so tiles + telemetry
 // survive version bumps (activate purges only unknown names).
-const APP_CACHE = 'meteonexus-app-v21';
+const APP_CACHE = 'meteonexus-app-v24';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
@@ -82,11 +82,16 @@ async function seedMapCacheBytes() {
     try {
         const mapCache = await caches.open(MAP_CACHE);
         const tileReqs = await mapCache.keys();
-        for (const req of tileReqs) {
-            const res = await mapCache.match(req);
-            if (res) {
-                const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
-                _mapCacheBytes += cl;
+        // PF-2 (1.15.1): the sequential await-per-tile made resync/activate
+        // O(N) serialized cache-backend round-trips (thousands after a large
+        // prefetch — the keep-alive comment on the CACHE_STATS handler
+        // below exists because of this). Bounded parallel batches: same sum,
+        // ~batch-size× fewer stalls. Sum order is irrelevant (pure addition).
+        const BATCH = 32;
+        for (let i = 0; i < tileReqs.length; i += BATCH) {
+            const batch = await Promise.all(tileReqs.slice(i, i + BATCH).map(r => mapCache.match(r)));
+            for (const res of batch) {
+                if (res) _mapCacheBytes += parseInt(res.headers.get('content-length'), 10) || 15000;
             }
         }
     } catch { /* seed fails silently — counter starts at 0, self-heals over time */ }
@@ -118,11 +123,11 @@ self.addEventListener('activate', (e) => {
         try {
             const apiCache = await caches.open(API_CACHE);
             const apiReqs = await apiCache.keys();
-            for (const req of apiReqs) {
-                const res = await apiCache.match(req);
-                if (res) {
-                    const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
-                    _apiCacheBytes += cl;
+            // PF-2 (1.15.1): same bounded-batch treatment as seedMapCacheBytes.
+            for (let i = 0; i < apiReqs.length; i += 32) {
+                const batch = await Promise.all(apiReqs.slice(i, i + 32).map(r => apiCache.match(r)));
+                for (const res of batch) {
+                    if (res) _apiCacheBytes += parseInt(res.headers.get('content-length'), 10) || 15000;
                 }
             }
         } catch { /* seed fails silently — counter starts at 0, self-heals over time */ }
@@ -236,13 +241,19 @@ async function evictOldestApiEntries(cache) {
     const task = (async () => {
         const keys = await cache.keys();
         const entries = [];
-        for (const req of keys) {
-            const res = await cache.match(req);
-            if (!res) continue;
-            const tsStr = res.headers.get('X-SW-Cached-At');
-            const ts = tsStr ? parseInt(tsStr, 10) : 0;
-            const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
-            entries.push({ req, cl, ts });
+        // 1.16.1: bounded-batch match (PF-2 class) — the sequential await per
+        // entry paid ~1700 serialized backend round-trips at eviction; same
+        // sum/sort after collect, ~32x fewer stalls. Order irrelevant.
+        for (let i = 0; i < keys.length; i += 32) {
+            const batch = await Promise.all(keys.slice(i, i + 32).map(r => cache.match(r)));
+            for (let j = 0; j < batch.length; j++) {
+                const res = batch[j];
+                if (!res) continue;
+                const tsStr = res.headers.get('X-SW-Cached-At');
+                const ts = tsStr ? parseInt(tsStr, 10) : 0;
+                const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+                entries.push({ req: keys[i + j], cl, ts });
+            }
         }
         entries.sort((a, b) => a.ts - b.ts); // oldest first
         for (const ent of entries) {
@@ -291,11 +302,22 @@ async function evictOldestTiles(cache) {
         };
         const keys = await cache.keys();
         keys.sort((a, b) => zoomOf(a) - zoomOf(b)); // ascending zoom — coarse first
+        // 1.16.1: batched size collection first (PF-2 class), then delete in
+        // policy order — the old match-then-delete interleaving serialized a
+        // backend round-trip per tile inside the eviction loop.
+        const _sizes = new Map();
+        for (let i = 0; i < keys.length; i += 32) {
+            const batch = await Promise.all(keys.slice(i, i + 32).map(r => cache.match(r)));
+            for (let j = 0; j < batch.length; j++) {
+                const res = batch[j];
+                if (!res) continue;
+                _sizes.set(keys[i + j], parseInt(res.headers.get('content-length'), 10) || 15000);
+            }
+        }
         for (const req of keys) {
             if (_mapCacheBytes <= MAP_CACHE_MAX_BYTES) break;
-            const res = await cache.match(req);
-            if (!res) continue;
-            const cl = parseInt(res.headers.get('content-length'), 10) || 15000;
+            if (!_sizes.has(req)) continue;
+            const cl = _sizes.get(req);
             await cache.delete(req);
             _mapCacheBytes = Math.max(0, _mapCacheBytes - cl);
         }

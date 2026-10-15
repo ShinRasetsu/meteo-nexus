@@ -243,6 +243,17 @@ test('processOverpassPayload: empty payload returns empty non-strict result', ()
   assert.deepEqual(host(w.processOverpassPayload({}, 0, 0, 'X', 'Y', null)), { stations: [], isStrict: false });
 });
 
+test('processOverpassPayload: centerless way/relation skipped, good stations kept (1.16.1)', () => {
+  const data = { elements: [
+    overpassEl(1, CENTER.lat + 0.01, CENTER.lon),
+    { id: 2, tags: {} }, // way without center — the poison shape
+    { id: 3, center: {}, tags: {} }, // center present but empty
+    overpassEl(4, CENTER.lat + 0.02, CENTER.lon)
+  ] };
+  const res = w.processOverpassPayload(data, CENTER.lat, CENTER.lon, 'Shell', 'Diesel', null);
+  assert.equal(res.stations.length, 2);
+});
+
 // ---------- dispatcher (real message flow through self.onmessage) ----------
 
 test('dispatcher: valid task posts { messageId, result }', () => {
