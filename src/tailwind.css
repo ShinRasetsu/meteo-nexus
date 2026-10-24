@@ -15,4 +15,14 @@
   --color-surface-900: #111111;
   --color-surface-800: #1a1a1a;
   --color-surface-700: #2a2a2a;
+  /* 1.16.5 (UI audit F1): surface-600/400 were USED in ~20 markup + JS-
+     generated class strings but never defined here, so the built CSS
+     carried ZERO rules for them (byte-proven) — the 1.9.0 token-skew
+     class. Live-proven fallout: the focus-drag handle rendered
+     transparent (bg-surface-600), the version badges + HUD separators
+     inherited near-white instead of dim, checkbox/toggle borders fell
+     back to currentColor, and hover:bg-surface-600 affordances were
+     dead. Ladder arithmetic stays neutral-gray: 111 → 1a → 2a → 3a. */
+  --color-surface-600: #3a3a3a;
+  --color-surface-400: #9ca3af;
 }

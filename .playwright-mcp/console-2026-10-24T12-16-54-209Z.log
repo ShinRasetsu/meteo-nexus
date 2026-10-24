@@ -1,0 +1,40 @@
+[     392ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:3210/favicon.ico:0
+[     393ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:3210/:0
+[    2025ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:3210/:0
+[  187023ms] [WARNING] Wake Lock request failed: NotAllowedError: Wake Lock permission request denied @ http://127.0.0.1:3210/:3629
+[  187060ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://127.0.0.1:3210/:0
+[ 4387215ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 4687218ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 4987223ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 5287227ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 5587231ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 5887237ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 6187247ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 6487261ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 6787264ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 7087269ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 7387272ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 7687276ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 7987283ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 8287300ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 8587306ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 8887309ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 9187314ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 9487317ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[ 9787321ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[10087326ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[10387330ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[10687334ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[10987340ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[11287361ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[11587379ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[11887384ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[12187388ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[12487392ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[12787396ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[13087399ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[13387423ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[13687439ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[13987446ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[14287449ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0
+[14587453ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:3210/VERSION:0

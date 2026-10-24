@@ -114,6 +114,15 @@ them for instant render on every later boot. -->
            precompiled stylesheet can never drop it. */
         :root { color-scheme: dark; }
         input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
+        /* 1.16.5 (UI audit F2): sr-only custom controls (checkboxes,
+           toggles) CLIP their own focus ring away — clip-path:inset(50%)
+           clips the box-shadow too — so keyboard users had NO focus
+           indicator on any of them (live-proven: focused #pref-toll shows
+           the ring on the 1px input, none on the visual track). Ring the
+           VISUAL control (the div immediately after the input) instead.
+           :focus-visible only — label taps forward :focus to the input,
+           and a ring on every tap would be visual noise on a driving HUD. */
+        input.sr-only:focus-visible + div { box-shadow: 0 0 0 2px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
         .leaflet-routing-container { display: none !important; } 
@@ -279,6 +288,15 @@ them for instant render on every later boot. -->
         /* U3: minimum touch target for driving-relevant controls (bumpy-road /
            glove test). Desktop density barely changes (min wins only when smaller). */
         .tap-48 { min-width: 48px; min-height: 48px; }
+        /* 1.16.5 (UI audit F7): the focus-drag handle is a 40x4px visual —
+           far under any hit-area floor, and (F1) its bg token was dead so
+           it was also INVISIBLE. ::after extends the hittable band to
+           ~28px with ZERO layout growth (the wrapper sits in the card's
+           first row; padding would push the map down). Taps in the band
+           perform the same toggleFocus('sec-telemetry') the adjacent
+           expand button does, so an extended zone cannot mis-fire. */
+        #focus-drag-handle { position: relative; cursor: pointer; }
+        #focus-drag-handle::after { content: ''; position: absolute; left: -6px; right: -6px; top: -12px; bottom: -12px; }
         /* U2-FOCUS: density-by-mode. Diagnostic rows (node strip, model table,
            spread/regime line) exist only for the fullscreen readout — hidden in
            the driving glance, revealed by the existing focus class. Zero JS. */
@@ -376,6 +394,14 @@ them for instant render on every later boot. -->
         @media (prefers-reduced-motion: reduce) {
             #radar-dial-scaler { transition: none !important; }
             #ui-radar-wind-ghost-1, #ui-radar-wind-ghost-2, #ui-radar-wind-ghost-3 { transition: none !important; }
+            /* 1.16.5 (UI audit F5): Tailwind's animate-pulse/bounce ship no
+               reduced-motion guard of their own, while Font Awesome's own
+               block DOES stop fa-spin (live-proven at the pin under
+               emulate reduce: fa-spin 0.001s vs pulse 2s still running).
+               Kill them the same way FA does — effectively single-shot at
+               0.01ms. Users: low-conf dot, recenter chip icon, install
+               button; the color/glow state cues all survive without motion. */
+            .animate-bounce, .animate-pulse { animation-duration: 0.01ms; animation-iteration-count: 1; }
         }
         /* AERO-VECTOR: the radar card is DOM-nested inside main-grid but owns an
          INDEPENDENT focus mode (radar-expand-btn). Excluded from Local-Telemetry
@@ -392,7 +418,7 @@ them for instant render on every later boot. -->
             <h1 class="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-2 sm:gap-3">
                 <i class="fa-solid fa-satellite-dish text-brand-teal text-2xl sm:text-3xl"></i>
             METEONEXUS <span class="font-bold text-gray-400 tracking-widest text-sm hidden sm:inline">HUD</span>
-            <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
+            <span class="text-[10px] font-mono font-bold text-surface-400 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
         </h1>
 
         <div class="flex items-center gap-2">
@@ -416,7 +442,7 @@ rules. The nested #main-grid stays a plain div: it is an inner U2-MERGE
 grid inside #sec-telemetry, not the page landmark. -->
 <main id="app-main" class="contents">
 <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
-        <div class="flex justify-center -mb-1"><div onclick="toggleFocus('sec-telemetry')" class="w-10 h-1 bg-surface-600 rounded-full cursor-pointer hover:bg-brand-teal transition-colors" title="Swipe to expand diagnostics"></div></div>
+        <div onclick="toggleFocus('sec-telemetry')" class="flex justify-center -mb-1 cursor-pointer" title="Tap to expand diagnostics"><div id="focus-drag-handle" class="w-10 h-1 bg-surface-600 rounded-full hover:bg-brand-teal transition-colors"></div></div>
         <div class="flex justify-between items-center px-2">
             <span class="text-xs font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
             <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="tap-48 w-11 h-11 flex items-center justify-center text-brand-teal hover:text-white transition-colors"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
@@ -443,7 +469,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                                 <i class="fa-regular fa-clock text-brand-blue opacity-80"></i>
                                 <span id="local-time-text">--:--:--</span>
                             </div>
-                            <div id="tracking-progress-bar" class="fixed md:absolute top-0 md:top-auto left-0 right-0 md:left-auto md:right-auto md:w-full h-2 md:h-1 bg-surface-800 md:rounded-full mt-0 md:mt-2 overflow-hidden hidden z-50 md:z-auto pointer-events-none" style="contain:layout"><div id="tracking-progress-fill" class="h-full bg-brand-teal will-change-transform" style="width:0%; will-change:width; contain:layout; transition:none"></div></div>
+                            <div id="tracking-progress-bar" class="fixed md:absolute top-0 md:top-auto left-0 right-0 md:left-auto md:right-auto md:w-full h-2 md:h-1 bg-surface-800 md:rounded-full mt-0 md:mt-2 overflow-hidden hidden z-50 md:z-auto pointer-events-none overlay-safe" style="contain:layout"><div id="tracking-progress-fill" class="h-full bg-brand-teal will-change-transform" style="width:0%; will-change:width; contain:layout; transition:none"></div></div>
                         </div>
 
                         <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-400"></i>
@@ -586,7 +612,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                     <i class="fa-solid fa-bolt text-base sm:text-sm"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
                 <div class="relative col-span-5 order-first sm:order-none sm:col-span-1 flex items-center gap-2 w-full sm:w-auto">
-                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place…" aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl px-3 text-base md:text-sm font-bold text-white placeholder-gray-500 flex-1 min-w-0 sm:flex-none sm:w-44 focus:border-brand-teal" />
+                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place…" aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl px-3 text-base md:text-sm font-bold text-white placeholder-gray-400 flex-1 min-w-0 sm:flex-none sm:w-44 focus:border-brand-teal" />
                     <button id="geo-search-btn" onclick="handleGeoSearch()" aria-label="Search place" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 flex items-center justify-center rounded-xl text-xs md:text-sm transition-all shadow-sm shrink-0">
                         <i class="fa-solid fa-magnifying-glass text-base sm:text-sm"></i>
                     </button>
@@ -628,7 +654,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                     </div>
                 </div>
             </div>
-            <div id="tracking-eta-bar" aria-live="polite" aria-atomic="true" class="fixed md:absolute top-2 md:top-4 left-2 right-2 md:left-auto md:right-4 z-[1000] hidden bg-surface-900/95 border border-brand-teal/50 px-4 md:px-3 py-2.5 md:py-1.5 rounded-xl md:rounded-lg shadow-xl backdrop-blur-md pointer-events-none flex items-center justify-between md:justify-start gap-2 md:gap-3 text-xs md:text-[10px] font-mono font-bold uppercase tracking-widest">
+            <div id="tracking-eta-bar" aria-live="polite" aria-atomic="true" class="fixed md:absolute top-2 md:top-4 left-2 right-2 md:left-auto md:right-4 z-[1000] hidden bg-surface-900/95 border border-brand-teal/50 px-4 md:px-3 py-2.5 md:py-1.5 rounded-xl md:rounded-lg shadow-xl backdrop-blur-md pointer-events-none flex items-center justify-between md:justify-start gap-2 md:gap-3 text-xs md:text-[10px] font-mono font-bold uppercase tracking-widest overlay-safe">
                 <span id="tracking-eta-next" class="text-brand-teal">NEXT --</span>
                 <span class="text-surface-600">|</span>
                 <span id="tracking-eta-eta" class="text-white">ETA --:--</span>
@@ -638,7 +664,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             <div id="tracking-recenter-chip" class="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-4 md:px-3 py-2 md:py-1 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
                 <i class="fa-solid fa-location-crosshairs animate-pulse"></i>
                 <span id="tracking-recenter-text">RECENTER IN 5s</span>
-                <button onclick="window.recenterNow && window.recenterNow()" class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs">NOW</button>
+                <button onclick="window.recenterNow && window.recenterNow()" class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs tap-48">NOW</button>
             </div>
 
             <!-- Quick-glance summary strip — single condensed line for driving mode.
@@ -714,9 +740,9 @@ grid inside #sec-telemetry, not the page landmark. -->
          inside the sec-telemetry focus-only block (single Chart instance,
          resized on focus open via toggleFocus). -->
 
-    <div id="fuel-settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+    <div id="fuel-settings-modal" role="dialog" aria-modal="true" aria-labelledby="fuel-settings-title" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-orange rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(245,158,11,0.3)] max-h-[90vh] overflow-y-auto">
-            <h3 class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Pit Stop Parameters</h3>
+            <h3 id="fuel-settings-title" class="text-xl font-black text-brand-orange uppercase tracking-widest mb-4"><i class="fa-solid fa-gas-pump"></i> Pit Stop Parameters</h3>
             <div class="space-y-3 font-mono" id="fuel-modal-accordion">
                 <!-- FUELS SECTION -->
                 <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-orange/50" open>
@@ -736,13 +762,14 @@ grid inside #sec-telemetry, not the page landmark. -->
                             <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                         </div>
                         <div class="grid grid-cols-2 gap-2 pt-2">
-                            <label class="flex items-center gap-2 cursor-pointer group" id="pref-ev-wrap">
+                            <!-- 1.16.5 (F4): label is relative — the check mark div is a SIBLING of the sr-only input (peer-checked compiles to :where(.peer):checked~*, sibling-only) and needs a positioned ancestor to land centered in the box, not at the modal corner. Mirrors the amenity template. -->
+                            <label class="relative flex items-center gap-2 cursor-pointer group" id="pref-ev-wrap">
                                 <input type="checkbox" id="pref-ev" class="peer sr-only">
                                 <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange flex items-center justify-center"></div>
                                 <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
                                 <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">EV Charging</span>
                             </label>
-                            <label class="flex items-center gap-2 cursor-pointer group" id="pref-h2-wrap">
+                            <label class="relative flex items-center gap-2 cursor-pointer group" id="pref-h2-wrap">
                                 <input type="checkbox" id="pref-h2" class="peer sr-only">
                                 <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange flex items-center justify-center"></div>
                                 <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
@@ -849,9 +876,9 @@ grid inside #sec-telemetry, not the page landmark. -->
         </div>
     </div>
 
-    <div id="custom-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+    <div id="custom-modal" role="dialog" aria-modal="true" aria-labelledby="purge-modal-title" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-red rounded-2xl p-6 max-w-sm w-full shadow-[0_0_30px_rgba(239,68,68,0.3)]">
-            <h3 class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
+            <h3 id="purge-modal-title" class="text-xl font-black text-brand-red uppercase tracking-widest mb-2"><i class="fa-solid fa-triangle-exclamation"></i> Critical Warning</h3>
             <p id="purge-confirm-text" class="text-gray-300 font-mono text-sm mb-6">This will completely wipe current session configurations, clear all cached data, and restart the system. Proceed?</p>
             <p id="purge-gps-hint" class="hidden"></p>
             <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
@@ -866,9 +893,9 @@ grid inside #sec-telemetry, not the page landmark. -->
          Manual cache clearing still available via PURGE (wipes all caches). -->
 
     <!-- MAGNETOMETER CALIBRATION MODAL (8-pattern capture) -->
-    <div id="magcal-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+    <div id="magcal-modal" role="dialog" aria-modal="true" aria-labelledby="magcal-modal-title" class="hidden fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
         <div class="bg-surface-900 border-4 border-brand-purple rounded-2xl p-6 max-w-md w-full shadow-[0_0_30px_rgba(168,85,247,0.4)] flex flex-col gap-4">
-            <h3 class="text-xl font-black text-brand-purple uppercase tracking-widest mb-1">
+            <h3 id="magcal-modal-title" class="text-xl font-black text-brand-purple uppercase tracking-widest mb-1">
                 <i class="fa-solid fa-compass mr-2"></i> Compass Calibration
             </h3>
             <p id="magcal-msg" class="text-gray-300 font-mono text-xs leading-relaxed">
@@ -3788,7 +3815,7 @@ let delta = heading - state.lastHeading;
 
         // UI entry point (invoked by the compass button)
         window.openMagCalModal = function() {
-            DOM.modals.magCal.classList.remove('hidden');
+            showAppModal('magcal-modal');
             // FIX-1.4.1c (MED-1): cache the five UI refs once here — updateMagCalUI
             // reads them per rAF tick during capture.
             if (!magCalState._qEl) {
@@ -6467,7 +6494,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         }
 
         window.purgeSystem = function() {
-            DOM.modals.custom.classList.remove('hidden');
+            showAppModal('custom-modal');
             // GPS-aware purge: executePurge re-requests a fix via
             // requestGpsFixOnce, but that only re-prompts while the browser
             // permission is still "prompt" — a DENIED permission lives in the
@@ -6503,15 +6530,104 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // read; getElementById remains only as a degraded fallback for ids
             // that are not in the map. Also no longer throws on unknown ids.
             const el = MODAL_BY_ID[modalId] || document.getElementById(modalId);
-            if (el) el.classList.add('hidden');
+            if (!el || el.classList.contains('hidden')) return;
+            el.classList.add('hidden');
+            // 1.16.5 modal-a11y close half (UI audit F3): unlock body scroll
+            // once no app modal is open, and return focus to the opener.
+            // Return ONLY while focus is still inside the just-closed modal
+            // (or on body) — never steal it from an unrelated element the
+            // user moved to meanwhile.
+            if (_modalA11y.scrollLocked && !APP_MODAL_IDS.some(_appModalVisible)) {
+                document.body.style.overflow = '';
+                _modalA11y.scrollLocked = false;
+            }
+            const _rf = _modalA11y.returnFocus;
+            if (_rf) {
+                _modalA11y.returnFocus = null;
+                if (el.contains(document.activeElement) || document.activeElement === document.body) _rf.focus();
+            }
         };
+        // --- APP MODAL A11Y (1.16.5 UI audit F3) ---------------------------
+        // The three app modals were hidden/visible divs with no dialog
+        // semantics, no Escape, no backdrop dismiss, no focus management and
+        // no body scroll lock (grep-proven: only the Aero focus mode had an
+        // Escape handler — 28 focusables inside the fuel modal, background
+        // fully tabbable). role="dialog" + aria-modal + aria-labelledby ship
+        // in the markup; this block supplies the behaviour half:
+        //   showAppModal — stores the opener, locks body scroll, focuses the
+        //     first enabled control (aria-modal hides the rest of the a11y
+        //     tree, so keyboard + SR users must LAND inside the dialog; the
+        //     purge modal's first control is Cancel = the cancel-first
+        //     dialog convention);
+        //   closeModal (above) — unlocks scroll + returns focus;
+        //   one boot-once keydown — Escape dismisses; Tab wraps at the
+        //     modal's focusable edges (basic focus trap);
+        //   one boot-once click — a click landing on the backdrop container
+        //     itself (the panel is a child, so target===container means the
+        //     dark area) dismisses.
+        // Escape/backdrop mirror the CLOSE button's semantics exactly: both
+        // skip while every button in the modal is disabled — the 1.14.0 purge
+        // progress state disables Close+Confirm for the whole wipe window,
+        // and a mid-wipe dismissal would strand the narrated flow (the
+        // 1.16.4 _purging fence keeps running; the reload ends it).
+        const APP_MODAL_IDS = ['custom-modal', 'fuel-settings-modal', 'magcal-modal'];
+        const _modalA11y = { returnFocus: null, scrollLocked: false };
+        const _appModalVisible = id => {
+            const el = MODAL_BY_ID[id] || document.getElementById(id);
+            return !!(el && !el.classList.contains('hidden'));
+        };
+        const _appModalDismissible = el => {
+            const btns = el.querySelectorAll('button');
+            for (let k = 0; k < btns.length; k++) if (!btns[k].disabled) return true;
+            return btns.length === 0;
+        };
+        const showAppModal = modalId => {
+            const el = MODAL_BY_ID[modalId] || document.getElementById(modalId);
+            if (!el || !el.classList.contains('hidden')) return;
+            _modalA11y.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            el.classList.remove('hidden');
+            // The panel scrolls internally (max-h + overflow-y-auto); the
+            // page behind it must not.
+            if (!_modalA11y.scrollLocked) { document.body.style.overflow = 'hidden'; _modalA11y.scrollLocked = true; }
+            const f = el.querySelectorAll('button, input, select, summary');
+            for (let k = 0; k < f.length; k++) {
+                if (!f[k].disabled && f[k].getClientRects().length > 0) { f[k].focus(); break; }
+            }
+        };
+        document.addEventListener('keydown', e => {
+            const openId = APP_MODAL_IDS.find(_appModalVisible);
+            if (!openId) return;
+            const el = MODAL_BY_ID[openId] || document.getElementById(openId);
+            if (!el) return;
+            if (e.key === 'Escape') {
+                if (!_appModalDismissible(el)) return;
+                e.preventDefault();
+                closeModal(openId);
+            } else if (e.key === 'Tab') {
+                const f = [];
+                const all = el.querySelectorAll('button, input, select, summary');
+                for (let k = 0; k < all.length; k++) if (!all[k].disabled && all[k].getClientRects().length > 0) f.push(all[k]);
+                if (!f.length) return;
+                const first = f[0], last = f[f.length - 1];
+                const ae = document.activeElement;
+                if (e.shiftKey && (ae === first || !el.contains(ae))) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && (ae === last || !el.contains(ae))) { e.preventDefault(); first.focus(); }
+            }
+        });
+        document.addEventListener('click', e => {
+            const t = e.target;
+            if (!(t instanceof Element)) return;
+            const openId = APP_MODAL_IDS.find(_appModalVisible);
+            if (!openId) return;
+            const el = MODAL_BY_ID[openId] || document.getElementById(openId);
+            if (el && t === el && _appModalDismissible(el)) closeModal(openId);
+        });
         // FIX-1.4.1c (LOW-5): dedicated opener for the inline fuel-settings
         // button — the raw inline getElementById was the only modal opener not
         // routed through the cached DOM.modals map, and it threw if the markup
         // ever changed the id.
         window.openFuelSettings = function() {
-            const el = MODAL_BY_ID['fuel-settings-modal'] || DOM.modals.fuelSettings;
-            if (el) el.classList.remove('hidden');
+            showAppModal('fuel-settings-modal');
         };
 
         window.executePurge = async function() {
@@ -9350,12 +9466,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         if (!meta) return;
                         const disabled = !brandData?.ev && (key === 'ev' || key === 'hydrogen');
                         const label = document.createElement('label');
-                        label.className = 'flex items-center gap-2 cursor-pointer group' + (disabled ? ' opacity-40 pointer-events-none' : '');
+                        // 1.16.5 (F4): label is relative + the check mark is a
+                        // SIBLING of the sr-only input — peer-checked compiles to
+                        // :where(.peer):checked~* (sibling-only), so the old
+                        // nested-inside-the-box mark never matched and the
+                        // checked glyph never showed (state was carried only by
+                        // the green fill). Mirrors the static EV/H2 markup.
+                        label.className = 'relative flex items-center gap-2 cursor-pointer group' + (disabled ? ' opacity-40 pointer-events-none' : '');
                         label.innerHTML = `
                             <input type="checkbox" data-amenity="${key}" class="peer sr-only" ${disabled ? 'disabled' : ''}>
-                            <div class="relative w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-green peer-checked:bg-brand-green peer-checked:border-brand-green flex items-center justify-center">
-                                <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
-                            </div>
+                            <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-green peer-checked:bg-brand-green peer-checked:border-brand-green flex items-center justify-center"></div>
+                            <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
                             <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">${meta.label}</span>
                             <i class="fa-solid ${meta.icon} text-[10px] text-gray-400 ml-1"></i>
                         `;
@@ -11067,7 +11188,7 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
         checkDependenciesAndRun();
     </script>
     <footer class="w-full text-center pb-4 mt-2 flex flex-col items-center gap-1">
-        <span class="text-[10px] font-mono font-bold text-surface-600 tracking-widest uppercase opacity-70 hover:opacity-100 transition-opacity" title="MeteoNexus Tactical HUD — deployed version" data-version-badge></span>
+        <span class="text-[10px] font-mono font-bold text-surface-400 tracking-widest uppercase opacity-80 hover:opacity-100 transition-opacity" title="MeteoNexus Tactical HUD — deployed version" data-version-badge></span>
         <span class="text-[10px] font-mono text-gray-400 tracking-widest">Weather data by <a href="https://open-meteo.com" target="_blank" rel="noopener" class="underline hover:text-brand-teal">Open-Meteo.com</a> • CC BY 4.0</span>
     </footer>
     <script>

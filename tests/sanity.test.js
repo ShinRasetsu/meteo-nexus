@@ -159,7 +159,7 @@ assertIncludes(html, "mySeq !== _geoSeq", "stale geocoding responses lose to new
 assertIncludes(html, "text-xl sm:text-2xl md:text-3xl", "header title scales down so 360px never overflows");
 assertIncludes(html, 'Focus Telemetry" class="tap-48', "telemetry expand button meets the 48px touch target");
 assertIncludes(html, "flex flex-col sm:flex-row gap-3 sm:justify-end", "modal footers stack full-width on portrait");
-assertIncludes(html, "text-base md:text-sm font-bold text-white placeholder-gray-500", "search input stays 16px on mobile (no iOS focus zoom)");
+assertIncludes(html, "text-base md:text-sm font-bold text-white placeholder-gray-400", "search input stays 16px on mobile (no iOS focus zoom; 1.16.5 consciously revised per §1.6: placeholder-gray-500 was the one gray-500 the 1.15.0 contrast sweep couldn't see — ~3.6:1 on surface-800, exempt from axe but below the project's own gray-400 standard)");
 assertIncludes(html, "flex flex-wrap items-center gap-x-3 gap-y-1", "telemetry sub-line wraps instead of clipping on narrow screens");
 assertIncludes(html, "handleGeoSearch", "search results route through activateLiveNavigation");
 assertIncludes(html, "fetchRouteElevation", "route elevation batch fetch present");
@@ -667,7 +667,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v26'", "sw.js APP_CACHE v26 — 1.16.4 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v27'", "sw.js APP_CACHE v27 — 1.16.5 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -822,7 +822,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v26", "sw.js 1.16.4: APP_CACHE v26 (index.html + sw.js changed)");
+assertIncludes(swSrc, "meteonexus-app-v27", "sw.js 1.16.5: APP_CACHE v27 (index.html + sw.js changed)");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
@@ -907,6 +907,86 @@ assertIncludes(html, "state.lastHeading !== null && !isNaN(state.lastHeading)", 
 assertIncludes(html, "Math.min(cursor + 4, nodesToProcess.length)", "index.html 1.16.4: processNodes bypass lookahead checks 3 future nodes as its comment (and the intel mirror) always claimed");
 assertIncludes(html, "_trackingEtaKeys.pshow !== shouldShowBar", "index.html 1.16.4: tracking progress-bar visibility toggle is key-gated (was an un-gated DOMTokenList op 60×/s)");
 assertIncludes(html, "_trackingEtaKeys.recSecs !== secs", "index.html 1.16.4: RECENTER countdown template builds only when the integer second flips (was 60 strings/s)");
+
+// ---------------------------------------------------------------------------
+// 1.16.5 UI improvement audit round (live-proven at the pin, 390x844, night
+// mode, 0 red console errors; Basecoat design-reference + built-CSS byte
+// checks + Playwright computed-style probes). Seven findings, all fixed:
+// F1 surface-600/400 tokens were USED in ~20 markup + JS class strings but
+// MISSING from @theme — the built CSS carried zero rules for them (the
+// 1.9.0 skew class, live-proven: the focus handle rendered transparent,
+// the version badges + HUD separators inherited near-white, checkbox/toggle
+// borders fell back to currentColor, hover:bg-surface-600 affordances dead);
+// F2 sr-only control focus rings were clipped away by clip-path (keyboard
+// users got NO focus indicator on any custom checkbox/toggle);
+// F3 the three app modals had no dialog semantics/Escape/backdrop-dismiss/
+// focus-management/scroll-lock (grep-proven: only Aero focus had Escape);
+// F4 the EV/H2 check mark rendered at the modal corner (absolute sibling,
+// no positioned ancestor) and the amenity template's NESTED mark never
+// matched peer-checked at all (v4 compiles :where(.peer):checked~* —
+// sibling-only, live-proven via the built CSS selector);
+// F5 animate-pulse/bounce ignored prefers-reduced-motion (FA's own block
+// DOES stop fa-spin — live-proven under emulate reduce);
+// F6 the search placeholder was the last gray-500 (~3.6:1);
+// F7 fixed HUD elements ignored safe-area insets, the driving-critical
+// recenter NOW button was ~32px, and the focus handle was invisible AND
+// a 40x4 tap target.
+// ---------------------------------------------------------------------------
+const twSrc = readFileSync(join(repoRoot, "src", "tailwind.css"), "utf8");
+// F1 — theme tokens defined + badge sites retargeted (surface-600 at 1.85:1
+// would have regressed the 1.15.0 badge-contrast fix, so the two badges move
+// to surface-400; the footer opacity-70 -> 80 mirrors the 1.15.0 accent-label
+// precedent and keeps the effective badge ≥ 4.5:1).
+assertIncludes(twSrc, "--color-surface-600: #3a3a3a", "src/tailwind.css 1.16.5: surface-600 token DEFINED — the ~20 dead class usages (handle bg, separators, checkbox borders, hover states) resolve at last");
+assertIncludes(twSrc, "--color-surface-400: #9ca3af", "src/tailwind.css 1.16.5: surface-400 token DEFINED (SONAR OFF dim state, version badges)");
+assertIncludes(html, "text-surface-400 tracking-widest ml-1 mt-1", "index.html 1.16.5: header version badge reads surface-400, not the dead surface-600 (was rendering inherited WHITE at 21:1 — loud, not dim)");
+assertIncludes(html, "text-surface-400 tracking-widest uppercase opacity-80", "index.html 1.16.5: footer version badge surface-400 + opacity-80 (effective ~5:1 — the 1.15.0 badge-contrast decision preserved, now via a token that exists)");
+// F2 — keyboard focus reveal for sr-only custom controls (real CSS, GEOMETRY-PIN: survives a stale precompiled stylesheet).
+assertIncludes(html, "input.sr-only:focus-visible + div { box-shadow: 0 0 0 2px #14b8a6; }", "index.html 1.16.5: sr-only focus ring lands on the VISUAL control (the input's own ring is clip-path-clipped away — live-proven on #pref-toll)");
+// F5 — reduced-motion guard for Tailwind's animations (FA ships its own; Tailwind's did not).
+assertIncludes(html, ".animate-bounce, .animate-pulse { animation-duration: 0.01ms; animation-iteration-count: 1; }", "index.html 1.16.5: low-conf dot / recenter chip icon / install button respect prefers-reduced-motion (live-proven: pulse 2s kept running under emulate reduce while fa-spin was already FA-guarded at 0.001s)");
+// F4 — check marks: label gets `relative` (EV/H2 static + amenity JS template), mark stays a SIBLING of the input.
+assert(
+  (html.match(/class="relative flex items-center gap-2 cursor-pointer group" id="pref-(ev|h2)-wrap"/g) || []).length === 2,
+  "index.html 1.16.5: EV/H2 labels are positioned ancestors — the check mark (absolute left-1.5 top-1.5) lands centered in the 24px box, not at the modal corner (live-proven mark rect [6,6] vs box [57,339] pre-fix)"
+);
+assertIncludes(html, "'relative flex items-center gap-2 cursor-pointer group' + (disabled", "index.html 1.16.5: amenity label template gets the same relative fix");
+assert(
+  (html.match(/<div class="absolute left-1\.5 top-1\.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"><\/div>/g) || []).length === 3,
+  "index.html 1.16.5: three check marks (EV + H2 + amenity template), all siblings of their sr-only input — peer-checked compiles :where(.peer):checked~* (sibling-only), so the old nested amenity mark never matched and the glyph never showed"
+);
+assert(
+  !/justify-center">\s*<div class="absolute left-1\.5/.test(html),
+  "index.html 1.16.5 (negative guard): the nested-mark-inside-the-box pattern is GONE from the amenity template (the peer sibling combinator can never reach it)"
+);
+// F3 — dialog semantics in markup.
+assert(
+  (html.match(/role="dialog" aria-modal="true" aria-labelledby="/g) || []).length === 3,
+  "index.html 1.16.5: all three app modals carry role=dialog + aria-modal + aria-labelledby (previously plain divs — SR users could wander the background; axe cannot require a role that was never declared, hence the empty pin)"
+);
+assertIncludes(html, 'id="fuel-settings-title"', "index.html 1.16.5: fuel modal accessible name (Pit Stop Parameters heading)");
+assertIncludes(html, 'id="purge-modal-title"', "index.html 1.16.5: purge modal accessible name (Critical Warning heading)");
+assertIncludes(html, 'id="magcal-modal-title"', "index.html 1.16.5: magcal modal accessible name (Compass Calibration heading)");
+// F3 — behaviour half: showAppModal/closeModal/Escape/Tab-trap/backdrop.
+assertIncludes(html, "const APP_MODAL_IDS = ['custom-modal', 'fuel-settings-modal', 'magcal-modal'];", "index.html 1.16.5: modal registry for the a11y behaviours");
+assertIncludes(html, "showAppModal('custom-modal');", "index.html 1.16.5: purgeSystem opens through the a11y funnel (opener stored, scroll locked, first control focused — Cancel-first convention)");
+assertIncludes(html, "showAppModal('fuel-settings-modal');", "index.html 1.16.5: openFuelSettings opens through the a11y funnel");
+assertIncludes(html, "showAppModal('magcal-modal');", "index.html 1.16.5: openMagCalModal opens through the a11y funnel");
+assertIncludes(html, "if (!_appModalDismissible(el)) return;", "index.html 1.16.5: Escape/backdrop mirror the CLOSE button's semantics — both skip while every button is disabled (the purge progress state disables Cancel+Confirm for the whole wipe window; a mid-wipe dismissal would strand the narrated flow)");
+assertIncludes(html, "const _rf = _modalA11y.returnFocus;", "index.html 1.16.5: closeModal returns focus to the opener (only while focus is still inside the closing modal — never steals)");
+assertIncludes(html, "document.body.style.overflow = 'hidden'; _modalA11y.scrollLocked = true;", "index.html 1.16.5: body scroll locks while a modal is open (the panel scrolls internally)");
+// F6 — the last gray-500.
+assert(
+  !html.includes("placeholder-gray-500"),
+  "index.html 1.16.5 (negative guard): placeholder-gray-500 RETIRED (~3.6:1 on surface-800 — the one gray-500 the 1.15.0 contrast sweep couldn't see because axe exempts placeholders)"
+);
+// F7 — handle visibility (rides F1's token) + hit area + copy; safe-area insets; NOW button tap-48.
+assertIncludes(html, 'id="focus-drag-handle"', "index.html 1.16.5: focus handle carries an id for the hit-area rule");
+assertIncludes(html, "#focus-drag-handle::after { content: ''; position: absolute; left: -6px; right: -6px; top: -12px; bottom: -12px; }", "index.html 1.16.5: handle hit band ~28px with ZERO layout growth (was the only sub-44px target on screen — 40x4 — while also invisible)");
+assertIncludes(html, 'title="Tap to expand diagnostics"', "index.html 1.16.5: handle title says Tap (it is a tap target; 'Swipe' was a copy lie)");
+assertIncludes(html, 'uppercase tracking-widest overlay-safe">', "index.html 1.16.5: ETA bar honors the notch safe-area (fixed top-2 on mobile previously sat under the status bar)");
+assertIncludes(html, 'pointer-events-none overlay-safe"', "index.html 1.16.5: tracking progress bar honors the notch safe-area (fixed top-0)");
+assertIncludes(html, 'class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs tap-48"', "index.html 1.16.5: recenter NOW button meets the driving tap-48 doctrine (was ~32px for a driving-critical control)");
 
 // ---------------------------------------------------------------------------
 // Report

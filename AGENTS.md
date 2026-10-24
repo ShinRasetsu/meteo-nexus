@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
-- sanity.test.js - 455 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 483 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -381,6 +381,15 @@ From HISTORY.md "How to bump version in a new session":
       parity, progress-bar + recenter key gates; incl. 3 guards consciously
       REVISED per §1.6: APP_CACHE v25 → v26 ×2 + the tier-0 paint guard
       retargeted to the freshness-gated line)
+    +28 from the 2026-10-25 UI improvement audit round (surface-600/400
+      theme tokens ×2, version-badge retargets ×2, sr-only focus-visible
+      reveal, reduced-motion animate-pulse/bounce pair, EV/H2 + amenity
+      relative-label + mark-count ×2 + nested-mark negative guard,
+      dialog role/aria count + 3 modal title ids, modal-a11y behaviour
+      block ×7, placeholder-gray-500 negative guard, focus-drag-handle id +
+      ::after hit-band + Tap title, overlay-safe ×2, NOW tap-48; incl. 3
+      guards consciously REVISED per §1.6: APP_CACHE v26 → v27 ×2,
+      placeholder-gray-500 → gray-400)
 - tests/unit/ - 47 executable fixtures / 0 failing (worker kernel, fuel
    search funnel + Caltex id-table proven against live JSON, WGS84 distance
    arcs, fastDistance mirror parity + 10 skill-adaptation fixtures executing
@@ -399,7 +408,7 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
-- index.html - ~11092 lines / ~763 KB; inline module lines 904-11068 (~704 KB)
+- index.html - ~11213 lines / ~771 KB; inline module lines 931-11189 (~710 KB)
 - worker.js - 276 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)

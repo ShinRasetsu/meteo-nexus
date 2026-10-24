@@ -118,6 +118,212 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.5 — 2026-10-25 (patch: UI improvement audit round — token skew, modal dialog semantics, focus visibility, reduced-motion, checkmarks, safe-area)
+
+### Bump rationale
+
+Patch bump 1.16.4 → 1.16.5 (user-directed: *"is it an upgrade? if yes apply them"* —
+the seven findings of the UI improvement audit, all §9-patch class: correctness
++ a11y repairs, no product redesign; `sw.js` `APP_CACHE` `v26` → `v27` —
+index.html, src/tailwind.css and sw.js all changed). Audit method: full markup
+read + live computed-style/geometry probes (Playwright rig, emulated GPS at
+the user's pin, 390x844, night mode) + byte-exact built-CSS checks + the
+Basecoat design-reference MCP (creative-director hierarchy/operate, dialog
+composition rules, Stage-4 validate_composition on the modal slice — which
+re-confirmed the 1.16.3 triage: profile-mismatch items are guidance, the
+one "contrast error" is a token-parse false positive on hover:bg-orange-500).
+Every finding was verified at the exact source lines AND live before fixing;
+the app booted healthy at the pin before, during and after (MAINLY CLEAR,
+25°C, 0 red console errors).
+
+### F1 (MED) — surface-600/400 tokens missing from @theme: ~20 dead classes (the 1.9.0 skew class)
+
+`src/tailwind.css` defined only surface-900/800/700 while `*surface-600` and
+`text-surface-400` were used in ~20 markup + JS-generated class strings — the
+built CSS carried ZERO rules for them (byte-exact Contains=False on all six
+variants). Live-proven fallout: the focus-drag handle rendered TRANSPARENT
+(bg-surface-600, `rgba(0,0,0,0)` computed) — the "expand diagnostics"
+affordance was invisible; the version badges + ETA/glance/timeline separators
+inherited near-white instead of dim; the SONAR OFF button rendered bright; all
+checkbox/toggle borders fell back to currentColor; `hover:bg-surface-600` and
+`open:border-surface-600/50` affordances were dead. Fix: `--color-surface-600:
+#3a3a3a` (ladder arithmetic 111→1a→2a→3a, neutral) + `--color-surface-400:
+#9ca3af` (the 1.15.0 gray-400 standard); the two version badges RETARGETED to
+surface-400 (surface-600 at 1.85:1 would have regressed the 1.15.0 badge-
+contrast fix) and the footer badge opacity-70 → 80 (the 1.15.0 accent-label
+precedent; effective ≈5:1). Post-build byte-check: all six variants now
+present in tailwind.min.css.
+
+### F2 (MED) — keyboard focus invisible on every sr-only custom control
+
+Live-proven: a focused `#pref-toll` shows the teal ring on the 1px sr-only
+input — clipped away by `clip-path:inset(50%)` (clips box-shadow too) — while
+the visual track reads `box-shadow: none`. Every custom checkbox/toggle
+(EV, H2, toll/highway/ferry, amenities) had NO keyboard focus indicator
+(axe cannot see 2.4.7 rendering, hence the empty pin). Fix: one real-CSS
+rule (GEOMETRY-PIN doctrine, survives a stale precompiled stylesheet):
+`input.sr-only:focus-visible + div { box-shadow: 0 0 0 2px #14b8a6; }` —
+`:focus-visible` only, so label taps (which forward :focus to the input)
+don't ring on a driving HUD. Live post-fix: track rings `rgb(20,184,166)
+0px 0px 0px 2px` on focus.
+
+### F3 (MED) — the three app modals: dialog semantics + Escape + backdrop + focus + scroll-lock
+
+Grep-proven: no role/aria-modal on the modal divs, Escape existed only for
+Aero focus, 28 focusables inside the fuel modal with the background fully
+tabbable, no body scroll-lock, no focus management (index.html:6591 even
+documented "no Escape handler covers this modal"). Fix: `role="dialog"
+aria-modal="true" aria-labelledby` on the three roots + heading ids
+(Basecoat's dialog composition rules applied to the existing divs — a
+Basecoat `<dialog>` swap was declined for the same dependency-lean
+reasoning as the 1.16.3 select decline), plus a behaviour half in the
+module: `showAppModal()` (stores opener, locks body scroll, focuses the
+first enabled control — Cancel-first on the purge modal, the cancel-first
+convention), patched `closeModal` (unlocks scroll + returns focus only
+while focus is still inside the closing modal), one boot-once keydown
+(Escape dismisses; Tab wraps at the focusable edges — basic trap) and one
+boot-once click (backdrop = the container itself). SAFETY: Escape/backdrop
+mirror the Close button exactly — both skip while every button in the modal
+is disabled, which is precisely the 1.14.0 purge progress state (the wipe
+cannot be dismissed mid-flight; the 1.16.4 `_purging` fence keeps running
+and the reload ends it). Live post-fix: role/aria present, focus lands
+inside, scroll locks, Escape → CLOSED + UNLOCKED, focus returns.
+
+### F4 (LOW) — check marks: EV/H2 at the modal corner, amenity glyph never shown
+
+Tailwind v4 compiles `peer-checked:` to `:where(.peer):checked~*` —
+SIBLING-only (built-CSS-proven). Two divergent bugs: (a) the static EV/H2
+check mark was an `absolute left-1.5 top-1.5` SIBLING of the input with no
+positioned ancestor — it rendered at the MODAL's corner (live: mark [6,6]
+vs box [57,339]) while still flipping opacity-1 when checked; (b) the
+amenity template nested the mark INSIDE the box div — the sibling
+combinator can never reach it, so the checked glyph never showed (state
+was carried only by the green fill). Fix: both sites get `relative` on the
+label + the mark as a direct sibling (one shape, mirroring the correct
+half of each pattern). Live post-fix: mark [63,346] inside box [57,340],
+`markInsideBoxAndVisible: true`.
+
+### F5 (LOW) — animate-pulse/bounce ignored prefers-reduced-motion
+
+Live-proven under emulate reduce: FA's own block stops fa-spin (0.001s)
+while Tailwind's `pulse 2s` / `bounce 1s` kept running (low-conf dot,
+recenter chip icon, install button). Fix: the existing reduced-motion block
+gains `.animate-bounce, .animate-pulse { animation-duration: 0.01ms;
+animation-iteration-count: 1; }` (FA's own pattern; the color/glow state
+cues all survive without motion; the G4 fluidity contract stays boot-only
+CSS). Live post-fix: both `1e-05s` under reduce.
+
+### F6 (LOW) — the last gray-500
+
+`placeholder-gray-500` on the geo-search input ≈3.6:1 on surface-800 — the
+one gray-500 the 1.15.0 contrast sweep couldn't see (axe exempts
+placeholders). → `placeholder-gray-400` (live: oklch 0.707), matching the
+1.15.0 gray doctrine. Note: the dead `.placeholder-gray-500` RULE still
+rides along in built CSS because Tailwind's content scan also reads the
+frozen `Index.ref/` reference snapshot — no consumer, documented here so
+no future session hunts it.
+
+### F7 (LOW) — safe-area insets, hit areas, driving tap targets
+
+`#tracking-eta-bar` (fixed top-2) and `#tracking-progress-bar` (fixed top-0)
+gained `overlay-safe` (the app's own notch-inset class; on desktop env()=0 is
+a no-op). The focus handle gained `id="focus-drag-handle"` + a `::after`
+hit band (52×28px measured) with ZERO layout growth — it was the only
+sub-44px target on screen (40×4) AND invisible (F1); its title now says
+"Tap" (was "Swipe" — a tap target). The recenter NOW button gained tap-48
+(was ~32px for a driving-critical control).
+
+### Changes
+
+- `index.html` — F1 badge retargets ×2; F2/F5/F7 CSS rules (inline style
+  block); F4 relative labels ×2 + amenity template restructure; F3 markup
+  (3 containers + 3 heading ids) + the modal-a11y behaviour block; F6
+  placeholder; F7 overlay-safe ×2 + NOW tap-48 + handle restructure.
+- `src/tailwind.css` — the two surface tokens (+rationale comment).
+- `tailwind.min.css` — rebuilt (new utilities live: all six surface-600/400
+  variants + placeholder-gray-400 byte-verified present).
+- `sw.js` — APP_CACHE v26 → v27.
+- `tests/sanity.test.js` — **+28 guards (455 → 483; incl. 3 negative-pair
+  guards: nested-mark pattern, placeholder-gray-500, and the modal-corner
+  mark shape via the relative-label count); 3 guards consciously REVISED
+  per §1.6: APP_CACHE v26 → v27 ×2, placeholder-gray-500 → gray-400.**
+- `VERSION` → 1.16.5, `package.json` synced, `AGENTS.md` §11 synced,
+  `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **483/483** + unit **47/47** ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 931..11189 /
+  709879 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps — no new origins,
+  domnull 0 — the new getElementById fallbacks all guarded, visual PASS —
+  single `--hud-rot` writer untouched, rotation inventory unchanged through
+  the modal/handle edits, shell PASS, csp-evaluator 4 documented + 2
+  advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify`
+  **30/30** · `npm run precheck` green (Tailwind v4.3.3 rebuild + full
+  audit chain) · `node tests/audit-unified.mjs` **39 checks PASS** +
+  **Perfection PASS (0 stairs, 0 janks)** · `npm run audit:fluidity`
+  (unified) Perfection PASS · `npx playwright test` **3 passed — axe: 0
+  violations, pin stays EMPTY** (the release's a11y surfaces are the
+  rig's proving instrument; the boot surface stays clean with the new
+  dialog semantics live).
+- **Live runtime pass (E5, Playwright, emulated GPS at the user's pin,
+  390×844, night mode):** handle bg `rgb(58,58,58)` (was transparent) +
+  ::after hit band 52×28; header badge `rgb(156,163,175)` (was white) and
+  reads **v1.16.5**; ETA separator `rgb(58,58,58)` (was gray-100);
+  SONAR-off text dim gray-400; placeholder gray-400; toll toggle track
+  rings teal `rgb(20,184,166) 0 0 0 2px` on focus (was `none`); EV
+  checkmark [63,346] INSIDE box [57,340], visible when checked (was
+  [6,6] at the modal corner); modal: role/aria-modal/labelledby present,
+  focus lands inside, body scroll `hidden` while open, Escape → CLOSED +
+  scroll unlocked + focus returned, backdrop-click path wired; pulse and
+  bounce `1e-05s` under emulate reduce (was 2s/1s); telemetry live
+  (MAINLY CLEAR, 25°C, Calamba, SW controlled) with **0 red console
+  errors**.
+- Fetch Gate §6 NOT re-triggered by §2 (no fetch URLs/triggers/math
+  touched — markup/CSS/modal listeners only); the same-session live boot
+  above captured the healthy chain on this exact tree anyway. Visual
+  runtime §7 NOT triggered (no transform/rotation surfaces touched —
+  visual-audit inventory byte-stable, scanner-proven).
+
+### Blind spots considered (§8)
+
+Races: modal a11y state (`_modalA11y`) is written on the single-threaded
+open/close chain; the boot-once keydown/click listeners early-exit unless a
+modal is visible (O(3) classList checks); Escape/backdrop during the purge
+progress window is inert by the all-buttons-disabled guard — the wipe
+cannot be orphaned (the reload in the finally still ends the flow, same as
+the pre-existing disabled Close button). Leaks: two boot-once listeners,
+no timers added; `_modalA11y.returnFocus` is cleared on every close (no
+retained element chain). Coercion: focusable filtering uses
+`getClientRects().length > 0` (rendered-only, display:none-safe) and
+`.disabled` checks; `document.activeElement instanceof HTMLElement` guards
+the opener store. Off-by-one: the Tab trap wraps at the first/last VISIBLE
+focusable — `Array` index 0/length-1, no arithmetic. Unhandled
+rejections: the a11y block is fully synchronous. Perf: ::after extends the
+handle hit area with zero layout cost; tokens add zero runtime work; the
+listeners are event-cadence, not rAF. A11y: the sr-only focus ring and
+dialog semantics only ADD signal; axe pin stays empty (rig-proven);
+reduced-motion coverage extended without dynamic listeners (G4-compliant).
+`Index.ref` content-scan note recorded under F6. focusReturn nuance: the
+probe opened modals programmatically so the returned target was body —
+the mechanism (store → restore) is code-proven and the real-tap path owes
+a device confirmation.
+
+### PENDING (user / next session)
+
+- User device pass: real-tap each modal open (focus should return to the
+  opener button on close), Escape + backdrop dismiss feel, EV/H2/amenity
+  check glyphs on the phone, keyboard Tab wrap in the fuel modal, notch
+  safe-area on the ETA bar + progress bar (needs a real notched device),
+  second-boot v27 update path on installed clients.
+- Standing: AC-3 ETA product decision, GITHUB_TOKEN, osm v0.6.0
+  Nominatim re-probe, Lighthouse PWA + device checks, content-CLS slot
+  reservation (1.15.0 deferred), night-mode dimming contrast tradeoff,
+  Aero token polish round (screenshot iteration), backdrop-blur ETA bar
+  (needs device GPU trace).
+
+---
+
 ## 1.16.4 — 2026-10-24 (patch: four-agent bug-hunt + performance round — 31 fixes: rotation-authority wedge, remaining-DIST tail, purge IDB fencing, Aero/UI write waste)
 
 ### Bump rationale
