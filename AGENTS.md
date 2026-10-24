@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
-- sanity.test.js - 406 substring assertions / 0 failing (incl. 4 negative-pair
+- sanity.test.js - 455 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -357,8 +357,30 @@ From HISTORY.md "How to bump version in a new session":
    sibling age gates, Overpass poison-skip, route-tile body budget + frame
    recency, restoreWeights skill-memo reset, payloadSig skill/regime/minutely
    + radar-ts bucket, chartSig code+gust probes, purge second fence,
-   readBodyOrNull timer hygiene, SW eviction batching ×2; incl. 1 guard
-   consciously REVISED per §1.6: APP_CACHE v23 → v24))
+    readBodyOrNull timer hygiene, SW eviction batching ×2; incl. 1 guard
+    consciously REVISED per §1.6: APP_CACHE v23 → v24),
+     +9 from the 2026-10-23 tailwindcss + basecoat-ui MCP wiring (opencode.json
+     key-presence ×2, enabled+launch ×4, §12 pins ×2, Tailkits npm-404
+     counter-example pin ×1),
+      +4 from the 1.16.3 first-real-use polish round (3× explicit label[for]
+      form-field association — the Chrome issue-panel advisory closed — + the
+      UA color-scheme dark declaration; incl. 2 guards consciously REVISED
+      per §1.6: APP_CACHE v24 → v25 pins)),
+      +36 from the 1.16.4 four-agent bug-hunt + perf round (COG sustain-streak
+      rescue, remaining-dist tail + arrived-branch countdown, standstill
+      spike gate, route-node radar freshness gate, Brier geo-bucket identity,
+      route-intel body budgets, offline fetch backoff, chartSig direction +
+      prob lanes, minutely lane-drop clear, degenerate-payload guard,
+      lead-blend memo sentinel, skill-row 14d bound, prefetch-debounce
+      clear-before-rearm, route_intel key widening, purge IDB fencing ×4,
+      insecure-context geolocation guard, SW dead-client reply, install
+      dismissed-hide, offline fuel-module error row, Sun-chip identity gate,
+      degraded-tooltip title, vis-key quantisation, removed per-render
+      CACHE_STATS NEGATIVE guard, wxm-duplicate removal note, relock
+      deadline-clear, Map-Mode pre-exit gate, DR falsy-zero fix, lookahead
+      parity, progress-bar + recenter key gates; incl. 3 guards consciously
+      REVISED per §1.6: APP_CACHE v25 → v26 ×2 + the tier-0 paint guard
+      retargeted to the freshness-gated line)
 - tests/unit/ - 47 executable fixtures / 0 failing (worker kernel, fuel
    search funnel + Caltex id-table proven against live JSON, WGS84 distance
    arcs, fastDistance mirror parity + 10 skill-adaptation fixtures executing
@@ -377,8 +399,8 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
-- index.html - ~10855 lines / ~762 KB; inline module lines 896-10831 (~686 KB)
-- worker.js - 276 lines; sw.js - 523 lines; fuel-stations.js - 358 lines
+- index.html - ~11092 lines / ~763 KB; inline module lines 904-11068 (~704 KB)
+- worker.js - 276 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.
@@ -403,7 +425,8 @@ Two planes:
 | Plane | Job | MCP | Why |
 |---|---|---|---|
 | Knowledge - Standard Reference | Spec truth | W3C/WHATWG MCP | Service Worker, Web App Manifest, Sensor / Device Orientation - the webref corpus, not blog paraphrases |
-| Knowledge - Technique Reference | Live library docs | Context7 | MapLibre, Leaflet, vis.gl, geomagnetism - stops hallucinated APIs |
+| Knowledge - Technique Reference | Live library docs | Context7 + TailwindCSS MCP | MapLibre, Leaflet, vis.gl, geomagnetism - stops hallucinated APIs; TailwindCSS MCP adds the Tailwind-specific layer (utility lookup, palette, CSS-to-Tailwind conversion, component templates) that Context7's general library docs don't cover (added 2026-10-23) |
+| Knowledge - Design Reference | UI component + token reference | Basecoat UI MCP | 57 shadcn-look component templates without React, macro layout blocks, theming/dark-mode guidance, FSM recipes, static markup validation - offline, no runtime network; the design source for UI polish passes (added 2026-10-23) |
 | Quality - Runtime QA evidence | Device QA | Chrome DevTools MCP | GPS emulation, sensors, Permissions-Policy, network + console inspection, perf traces - the Fetch Gate sec 6 / Visual sec 7 instrument |
 | Quality - Regression | 390x844 visual rig | Playwright MCP | Real drags, offline proofs, visual regression |
 | Quality - Compliance audit | PWA audit | Lighthouse MCP | Installability, HTTPS, SW - not sensors |
@@ -427,6 +450,10 @@ view` (package exists on the registry) + a live MCP initialize handshake
 call per server class. No package is wired on name-recognition. Standing
 counter-example: `@googlemaps/mcp` returns npm 404 - Google's official
 Maps MCP is not npm-distributed and this box has neither uv nor docker.
+Second counter-example (2026-10-23): Tailkits UI MCP is not npm-distributed
+(`npm view` 404, zero registry matches) - it is a proprietary paid ($49/yr)
+local-connector service for Tailkits' own component library, unwirable via
+the `npx -y` convention (rule 2); revisit only if they publish a package.
 
 | opencode key | Launch (`npx -y <package>`) | Verified | Notes |
 |---|---|---|---|
@@ -435,6 +462,8 @@ Maps MCP is not npm-distributed and this box has neither uv nor docker.
 | `lighthouse` | `@danielsogl/lighthouse-mcp` | v2.0.1, handshake OK | Runner stays Windows-blocked (`\\?\` EPERM, 2 reproductions); the chrome-devtools `lighthouse_audit` wrapper is the working compliance path (A11y 91 / BP 100 / SEO 91 at 1.14.0). |
 | `chrome-devtools` | `chrome-devtools-mcp@latest` | in config since 1.8.x; re-proven live 2026-10-04 | GPS emulation, sensors, Permissions-Policy, network + console, perf traces, Lighthouse wrapper. |
 | `openstreetmap` | `@cyanheads/openstreetmap-mcp-server` | v0.5.2, handshake OK | Overpass class proven live (fuel stations 413 m from the pin, 1.14.0); the 3 Nominatim-shaped tools fail their own output schema in v0.5.2 (`boundingbox` items declared `false`). v0.6.0 released 2026-10-03 - re-probe after the next restart (`npx -y` pulls latest). |
+| `tailwindcss` | `tailwindcss-mcp-server` | v0.1.1, handshake OK; real tool call proven (get_tailwind_colors → full blue palette, 10 shades) | Tailwind CSS Technique Reference: utility lookup by category/property, color palette, config guides, CSS→Tailwind conversion, component templates, docs search. Fills the Tailwind-specific gap Context7's general library docs don't cover. Keyless. |
+| `basecoat-ui` | `@intellmedia/basecoat-ui-mcp` | v1.8.0, handshake OK; real tool call proven (search_components → button/button-group/toggle) | Basecoat UI (shadcn/ui look without React): component templates (57 components), macro layout blocks, theming/dark-mode guidance, FSM recipes, static markup validation. Offline (no runtime network), stdio. Design reference for UI polish passes. |
 | `playwright` | `@playwright/mcp` | pre-existing; 390x844 rig | Visual regression + runtime proofs (recenter drags, offline reloads). |
 | `github` | remote (`api.githubcopilot.com/mcp/`) | pre-existing; handshake protocol not re-proven | Dark until `GITHUB_TOKEN` is set as a user env var + opencode restarted. |
 

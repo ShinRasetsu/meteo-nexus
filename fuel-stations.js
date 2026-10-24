@@ -219,7 +219,7 @@ export const BrandAdapters = {
       amenities,
       hours: {
         operating: raw.operating_hours,
-        openStatus: raw.operating_hours ? 'unknown' : 'unknown',
+        openStatus: 'unknown',
         hoursKnown: raw.operating_hours != null || raw.twenty_four_hour === true
       },
       // "24 hours"/"24hours" spellings appear in 4 live rows alongside 24/7.

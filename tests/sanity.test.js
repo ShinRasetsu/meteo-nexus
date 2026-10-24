@@ -361,7 +361,7 @@ assertIncludes(html, "const target = (overviewNorth || state.visual.heading === 
 assertIncludes(html, "const entryRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z || state.visual.heading === null)", "index.html Drive Mode entry seeds the rotation at once AND honors the overview threshold (no-coords path)");
 // 1.13.0 — per-route-node radar: WET NOW per node via tile-batch sampling.
 assertIncludes(html, "async function fetchRadarRouteSample(nodes)", "index.html route radar sampler: one decoded tile batch covers a whole route (spatial radar, not 99 point calls)");
-assertIncludes(html, "const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls);", "index.html per-node tier-0: a radar echo at a node outranks the model vote");
+assertIncludes(html, "const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls && _rrFresh);", "index.html per-node tier-0: a radar echo at a node outranks the model vote (1.16.4 consciously revised per §1.6: the paint is freshness-gated — a fresh echo still outranks the vote, a stale frame abstains exactly like the pin verdict)");
 assertIncludes(html, "'WET NOW · RADAR'", "index.html radar-wet nodes are source-labelled with intensity (measurement, not model consensus)");
 assertIncludes(html, "routeNodesRadarSummary = {", "index.html publishes the route-radar diagnostic summary to CORE_STATE (nodes sampled + wet count)");
 // 1.13.0 — METAR ground truth via the user's Cloudflare Worker proxy
@@ -667,7 +667,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v24'", "sw.js APP_CACHE v24 — 1.16.1 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v26'", "sw.js APP_CACHE v26 — 1.16.4 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -689,6 +689,9 @@ assertIncludes(agentsMd, "@shuji-bonji/w3c-mcp", "§12 pins w3c (Service Worker,
 assertIncludes(agentsMd, "@danielsogl/lighthouse-mcp", "§12 pins lighthouse (PWA audit: installability, HTTPS, SW — not sensors)");
 assertIncludes(agentsMd, "chrome-devtools-mcp", "§12 pins chrome-devtools (device QA: GPS emulation, sensors, Permissions-Policy)");
 assertIncludes(agentsMd, "@cyanheads/openstreetmap-mcp-server", "§12 pins openstreetmap (tiles/routing backend: Nominatim + Overpass)");
+assertIncludes(agentsMd, "tailwindcss-mcp-server", "§12 pins tailwindcss (Tailwind utility lookup, palette, CSS-to-Tailwind conversion — the Tailwind-specific Technique Reference layer Context7's general docs don't cover)");
+assertIncludes(agentsMd, "@intellmedia/basecoat-ui-mcp", "§12 pins basecoat-ui (Basecoat UI: 57 shadcn-look component templates without React, macro layouts, theming/dark-mode guidance — offline design reference for UI polish passes)");
+assertIncludes(agentsMd, "Tailkits UI MCP is not npm-distributed", "§12 records the Tailkits npm-404 counter-example (proprietary $49/yr local-connector service — unwirable via npx -y, so future sessions don't re-research it)");
 assertIncludes(agentsMd, "RETIRED 2026-10-04", "§12 records the geoapify retirement (data-plane class — the 2026-10-04 plane doctrine)");
 assertIncludes(agentsMd, "Do not put compass on a server", "§12 keeps the boundary rule: compass/heading never goes through an MCP server");
 assertIncludes(agentsMd, "No data-plane MCP", "§12 pins the 2026-10-04 data-plane ban (weather/Open-Meteo/METAR wrappers duplicate the app's keyless fetches — ground-truth probes use raw fetch + chrome-devtools)");
@@ -705,14 +708,16 @@ try {
   assert(false, "opencode.json parses as JSON — " + err.message);
 }
 if (opencodeCfg && opencodeCfg.mcp) {
-  for (const key of ["playwright", "github", "chrome-devtools", "context7", "w3c", "lighthouse", "openstreetmap"]) {
+  for (const key of ["playwright", "github", "chrome-devtools", "context7", "w3c", "lighthouse", "openstreetmap", "tailwindcss", "basecoat-ui"]) {
     assert(Object.prototype.hasOwnProperty.call(opencodeCfg.mcp, key), `opencode.json mcp block has '${key}'`);
   }
   const doctrineServers = {
     context7: "@upstash/context7-mcp",
     w3c: "@shuji-bonji/w3c-mcp",
     lighthouse: "@danielsogl/lighthouse-mcp",
-    openstreetmap: "@cyanheads/openstreetmap-mcp-server"
+    openstreetmap: "@cyanheads/openstreetmap-mcp-server",
+    tailwindcss: "tailwindcss-mcp-server",
+    "basecoat-ui": "@intellmedia/basecoat-ui-mcp"
   };
   for (const [key, pkg] of Object.entries(doctrineServers)) {
     const srv = opencodeCfg.mcp[key];
@@ -817,7 +822,91 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v24", "sw.js 1.16.1: APP_CACHE v24 (index.html changed)");
+assertIncludes(swSrc, "meteonexus-app-v26", "sw.js 1.16.4: APP_CACHE v26 (index.html + sw.js changed)");
+
+// ---------------------------------------------------------------------------
+// 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
+// Tailwind technique-reference MCPs, the 1.16.2 PENDING item): the Chrome
+// issue-panel "No label associated with a form field (count: 3)" advisory
+// (pending since 1.15.0) is closed by explicit label[for] association, and
+// the Basecoat native-select dark-mode contract ships as a real-CSS
+// declaration (immune to stale precompiled stylesheets). Runtime-proven:
+// advisory gone, colorScheme dark live, label.control === select ×3.
+// tabular-nums was considered and DECLINED with evidence: every
+// high-frequency numeric surface is already monospaced (tabular by
+// construction) — no live jitter target, and 1.15.0 forbids blind styling.
+// ---------------------------------------------------------------------------
+assertIncludes(html, '<label for="pref-brand"', "index.html 1.16.3: Target Brand label programmatically associated (Chrome form-field advisory #1)");
+assertIncludes(html, '<label for="pref-variant"', "index.html 1.16.3: Variant label programmatically associated (Chrome form-field advisory #2)");
+assertIncludes(html, '<label for="pref-opening-mode"', "index.html 1.16.3: Search Mode label programmatically associated (Chrome form-field advisory #3)");
+assertIncludes(html, ":root { color-scheme: dark; }", "index.html 1.16.3: UA control color-scheme declared (Basecoat theming contract — native select popups/carets/autofill/scrollbars render dark, not light-on-black)");
+
+// ---------------------------------------------------------------------------
+// 1.16.4 four-agent bug-hunt + performance round (user-directed "Bug Fixes,
+// Optimizations, Performance Upgrade"): 31 applied fixes across rotation
+// authority, tracking/ETA display, the fetch/verdict/Brier chain, purge
+// fencing, PWA lifecycle, and the Aero/UI write paths. Two HIGHs: the COG
+// accept-gate permanent wedge (>90° accumulated course change had no
+// convergence path — the sideways-arrow class reborn) and the remaining-DIST
+// un-gridded tail (display dropped on activation + pinned 0.0 KM up to ~5 km
+// early). Every guard below pins a shipped fix line.
+// ---------------------------------------------------------------------------
+// HIGH-1: COG sustained-new-course rescue
+assertIncludes(html, "mapHeading: null, _prevCog: null, _cogSustainStreak: 0", "index.html 1.16.4: _cogSustainStreak pre-declared (hidden-class doctrine; the 1.14.0 rotation-authority literal line extended, pin at 591 preserved)");
+assertIncludes(html, "state._cogSustainStreak >= 3", "index.html 1.16.4: 3 consecutive self-consistent fixes beyond the 90° cap accept — a canyon echo PAIR never reaches 3, an accumulated >90° real course unwedges in ~3 fixes instead of forever");
+// HIGH-2: remaining-distance tail + honest arrived branch
+assertIncludes(html, "* _intervalKm + _tailKm", "index.html 1.16.4: leg branch carries the un-gridded tail (total − N×interval, up to 5 km) — DIST no longer drops the moment nodes+nav populate");
+assertIncludes(html, "fastDistance(state.autoCoords.lat, state.autoCoords.lon, state.targetCoords.lat, state.targetCoords.lon) / 1000", "index.html 1.16.4: arrived branch counts down to the DESTINATION (straight-line), not a frozen 0.0 KM / '1M' with up to ~5 km left");
+// Speed-spike gate at standstill (consumes the previously-dead lastSpeedTimestamp)
+assertIncludes(html, "const _speedSeededRecent = (now - (state.lastSpeedTimestamp || 0)) < 30000;", "index.html 1.16.4: accel gate applies from 0 km/h when a recent accepted fix exists — one multipath Doppler spike from standstill no longer latches ~3 fixes of false speed");
+// Route-node radar paint freshness (mirrors the pin's own bounds)
+assertIncludes(html, "const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls && _rrFresh);", "index.html 1.16.4: per-node WET NOW paint is freshness-gated — a RainViewer outage no longer paints stale echoes while the pin verdict abstains");
+// Brier geo-bucket identity
+assertIncludes(html, "if (bucketLat === null || bucketLon === null || e.lat !== bucketLat || e.lon !== bucketLon) continue;", "index.html 1.16.4: forecast votes are scored only against the SAME 0.1° bucket's observation — cross-geo (f,o) pairs no longer feed the skill adapter noise");
+// Route-intel body budgets (the last unbudgeted .json() sites)
+assertIncludes(html, "readBodyOrNull(results[0].value, 15000, x => x.json())", "index.html 1.16.4: route-intel body reads race a 15 s budget — a headers-then-stall no longer freezes the intel timeline for 5 min");
+// Offline fetch backoff
+assertIncludes(html, "const _retryFloorMs = (state._fetchFailStreak > 0) ? 30000 : 5000;", "index.html 1.16.4: after a failed attempt the GPS-tick trigger paces retries at 30 s — offline no longer re-deserializes the full payload every ~5-6 s (IDB hammering on battery)");
+// chartSig lanes
+assertIncludes(html, "wind_direction_10m_' + _m", "index.html 1.16.4: chartSig probes wind_direction (Aero wind readout no longer stale ≤1 h on a direction-only model run)");
+assertIncludes(html, "precipitation_probability_' + _m", "index.html 1.16.4: chartSig probes precipitation_probability (focus prob column + nativePrecipProb no longer stale ≤1 h)");
+// Minutely lane-drop honesty
+assertIncludes(html, "window.__METEO_CORE_STATE.minutely = null;", "index.html 1.16.4: a payload WITHOUT minutely_15 clears the published window — rainByMinutely cannot fire off a nowcast up to 3 h old");
+// Degenerate-payload guard
+assertIncludes(html, "degenerate telemetry payload: hourly.time missing/empty", "index.html 1.16.4: a 200 body without an hourly block throws a NAMED error into the render catch (no freshness stamp, honest retry) instead of a raw TypeError");
+// Skill-adaptation hardening
+assertIncludes(html, "this._activeSkillSig = '\\0';", "index.html 1.16.4: setActiveWeightsAtLead memo sentinel — a lead-blended table can no longer poison a following short-lead verdict via the regime+skill memo");
+assertIncludes(html, "14 * 24 * 3600 * 1000", "index.html 1.16.4: persisted skill row older than 14 days is a cold start, not an adaptation driver from another era's model versions");
+// Prefetch debounce invariant
+assertIncludes(html, "if (state._prefetchDebounce) clearTimeout(state._prefetchDebounce);", "index.html 1.16.4: re-arm clears the pending debounce — the field always names the pending timer (the purge fences' invariant), no orphaned tile runs");
+// Route-intel key widening
+assertIncludes(html, "Math.round(route.summary.totalDistance)", "index.html 1.16.4: route_intel cache key carries the route signature — the offline fallback can no longer render a different route's (e.g. pre-pitstop) waypoints");
+// Purge fencing of IDB writers
+assertIncludes(html, "state._purging = true;", "index.html 1.16.4: purge sets the writer fence flag + kills the GPS watch (no 1 Hz fetch triggers through the wipe window)");
+assertIncludes(html, "if (state._purging) return Promise.resolve();", "index.html 1.16.4: fetchData refuses to start inside the purge window");
+assertIncludes(html, "if (!state._purging) await localforage.setItem('telemetry_payload'", "index.html 1.16.4: in-flight telemetry persist is fenced during purge — no rows re-land after the wipe");
+assertIncludes(html, "if (!state._purging) localforage.setItem('sibling_radar'", "index.html 1.16.4: in-flight radar persist fenced during purge");
+// Insecure-context boot honesty
+assertIncludes(html, "if (!navigator.geolocation) return;", "index.html 1.16.4: plain-HTTP serves no longer die mid-runApp on an undefined watchPosition — the boot ladder paints the honest card");
+// SW reply to dead client
+assertIncludes(swSrc, "dead client — reply discarded, non-fatal", "sw.js 1.16.4: CACHE_STATS reply wrapped — posting to a client that reloaded mid-resync no longer rejects unhandled inside waitUntil");
+// PWA install button
+assertIncludes(html, "hide on BOTH outcomes", "index.html 1.16.4: dismissed install prompt hides the button (previously visible-but-dead until beforeinstallprompt happened to re-fire)");
+// Offline fuel module honesty
+assertIncludes(html, "OFFLINE DATASET MODULE FAILED TO LOAD", "index.html 1.16.4: a failed dynamic import renders an honest error row instead of an unhandled rejection + silent blank list");
+// Aero/UI perf + correctness
+assertIncludes(html, "_uiCache._sunPairRef !== sp", "index.html 1.16.4: Sun chip gates on pair identity — no more 3 discarded strings/frame (~180 allocs/s)");
+assertIncludes(html, "data coverage — degraded, weight scaled", "index.html 1.16.4: node-health tooltip titles are branch-specific — the FAULTED/no-coverage/degraded hover strings are no longer overwritten by the generic one");
+assertIncludes(html, "(km < 1.0 ? Math.round(km * 100) : Math.round(km * 10));", "index.html 1.16.4: visibility keys quantise the ≥1 km range uniformly at 0.1 km — 7.0 km and 70 km no longer alias to one cache key");
+assert(!html.includes("if (typeof window.requestCacheStats === 'function') window.requestCacheStats();"), "index.html 1.16.4 (negative guard): the per-render CACHE_STATS query is GONE — its only consumer (#cache-gauge) was retired at 1.8.0, and the SW enumerated the whole map cache per render for a discarded reply");
+assertIncludes(html, "printing the mm total twice", "index.html 1.16.4: the duplicate Aero wxm intensity append is documented as removed at its surviving block (double '0.3mm 0.3mm' during active rain)");
+// Tracking/recenter hygiene
+assertIncludes(html, "a relock makes any armed recenter deadline moot", "index.html 1.16.4: relockDriveMode clears the recenter deadline + both timers — no lying armed state past a mode-button relock");
+assertIncludes(html, "(!state.isMapLocked && state.tacticalMode > 0 && !!state.autoCoords)", "index.html 1.16.4: stationary pre-exit's unlocked term is Drive-Mode-gated — Map Mode parked no longer burns full 60 fps frames");
+assertIncludes(html, "state.lastHeading !== null && !isNaN(state.lastHeading)", "index.html 1.16.4: dead-reckoning heading fallback has no falsy-zero trap (a true 0° due-north read is respected)");
+assertIncludes(html, "Math.min(cursor + 4, nodesToProcess.length)", "index.html 1.16.4: processNodes bypass lookahead checks 3 future nodes as its comment (and the intel mirror) always claimed");
+assertIncludes(html, "_trackingEtaKeys.pshow !== shouldShowBar", "index.html 1.16.4: tracking progress-bar visibility toggle is key-gated (was an un-gated DOMTokenList op 60×/s)");
+assertIncludes(html, "_trackingEtaKeys.recSecs !== secs", "index.html 1.16.4: RECENTER countdown template builds only when the integer second flips (was 60 strings/s)");
 
 // ---------------------------------------------------------------------------
 // Report

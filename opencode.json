@@ -40,6 +40,16 @@
       "type": "local",
       "command": ["npx", "-y", "@cyanheads/openstreetmap-mcp-server"],
       "enabled": true
+    },
+    "tailwindcss": {
+      "type": "local",
+      "command": ["npx", "-y", "tailwindcss-mcp-server"],
+      "enabled": true
+    },
+    "basecoat-ui": {
+      "type": "local",
+      "command": ["npx", "-y", "@intellmedia/basecoat-ui-mcp"],
+      "enabled": true
     }
   },
   "references": {

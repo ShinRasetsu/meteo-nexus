@@ -118,6 +118,590 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.4 — 2026-10-24 (patch: four-agent bug-hunt + performance round — 31 fixes: rotation-authority wedge, remaining-DIST tail, purge IDB fencing, Aero/UI write waste)
+
+### Bump rationale
+
+Patch bump 1.16.3 → 1.16.4 (user-directed *"Bug Fixes, Optimizations, Performance
+Upgrade"* — the 1.16.1 precedent shape; `sw.js` `APP_CACHE` `v25` → `v26` —
+index.html, sw.js and fuel-stations.js all changed). Four parallel exploration
+agents (rotation/tracking; fetch/verdict/radar/METAR; SW/lifecycle/fuel/worker;
+perf hot-paths + UI correctness) produced ~34 candidate findings; every one was
+hand-verified against source (§0 E6) before applying. **31 fixes landed**
+(2 HIGH, 15 MED, 14 LOW); 3 were declined/deferred with recorded rationale.
+The baseline was verified green BEFORE the hunt (lint 0 · sanity 419/419 ·
+unit 47/47 · 10 scanners · verify 30/30 · unified 39 + Perfection PASS), so
+every finding is a code defect, not tooling noise.
+
+### HIGH (both verified at the exact source lines before fixing)
+
+1. **COG accept-gate permanent wedge (HIGH)** — the 1.16.1 90° self-consistency
+   cap has NO convergence path: for any sustained new course with |hDelta| in
+   (90°, 180°], the direct path needs ≤35°, the capped path needs ≤90°, and
+   `_prevCog` updating every fix only proves consistency — the cap still
+   rejects, **forever**. A heading change >90° that accumulated while the
+   accept block was dormant (parked U-turn below the 8 km/h gate, a COG-null
+   tunnel exit) wedged `mapHeading` until the driver physically steered back
+   within 90° of the stale heading — the map rendered wrong by up to 180° and
+   dead-reckoning projected along the stale course (the lateral-snap class
+   the 1.14.0 authority was built to kill). Fixed with a persistence
+   distinction (the `_speedGlitchStreak` doctrine): `_cogSustainStreak`
+   counts consecutive self-consistent fixes beyond the cap; 3 accepts
+   outright. A 2-fix canyon echo pair never reaches 3 (the cap's protected
+   case); a real course unwedges in ~3 fixes. The 1.16.1 base cases
+   (gradual turns, exactly-90° intersections) still pass unchanged.
+2. **Remaining-distance dropped the un-gridded tail (HIGH)** — route nodes
+   exist only at 5, 10, …, N×5 km (`N = floor(total/5000)`); the 1.16.1
+   remaining formula measured to the LAST NODE, dropping the final
+   `total − N×5` km (up to 5 km). Pre-nav frames showed the true total, so
+   DIST **visibly dropped** on route activation without the car moving
+   (12.3 KM → ≈9.2 KM a second later), and the `arrived` branch pinned
+   0.0 KM / "1M" ETA with up to ~5 km still to drive. Fixed: the leg branch
+   carries `_tailKm`; the arrived branch counts down straight-line to the
+   destination itself instead of pinning 0.
+
+### MED fixes (applied, all hand-verified)
+
+3. **Standstill speed-spike bypass (MED)** — the `currentSpeed > 0` guard
+   disabled the 8 km/h/s glitch gate at 0 km/h, so one urban-canyon Doppler
+   spike from standstill latched a false speed for ~3 fixes (return-to-0
+   tripped the gate, then the leaky latch held 2 more) — flapping the
+   moving/arrow/DR gates from a single bad fix. The gate now applies at 0
+   whenever a recent ACCEPTED speed fix exists (parked-at-a-light keeps
+   `lastSpeedTimestamp` fresh at 1 Hz — this also gives the previously
+   write-only field its designed consumer); true cold start (>30 s without
+   an accepted fix) still accepts unconditionally.
+4. **Route-node radar paint had no age bound (MED)** — the per-node tier-0
+   paint read the stored sample map unconditionally: a RainViewer catalog
+   outage kept painting red "WET NOW · RADAR" from arbitrarily old frames
+   while the pin's own verdict basis printed "Radar stale — abstained" —
+   two radar surfaces contradicting each other. The paint is now gated by
+   the pin's own bounds (frame ≤15 min, commit ≤30 min) via `_rrFresh`.
+   The pre-existing tier-0 sanity guard was consciously REVISED per §1.6 to
+   the gated line (the doctrine is unchanged: a fresh echo still outranks
+   the vote; a stale frame abstains).
+5. **Brier cross-geo (f,o) pairs (MED)** — forecast votes recorded at 0.1°
+   bucket A were scored 1-3 h later against the observation from wherever
+   the driver was then (bucket B) — at 80 km/h a bucket crosses every ~8
+   min, so most in-car verifications were cross-geo noise feeding the
+   1.16.0 skill adapter. The verification loop now requires geo-bucket
+   identity; mismatched entries expire unverified (no information, no vote).
+6. **Route-intel body reads unbudgeted (MED)** — the last `.json()` calls
+   outside the `readBodyOrNull` contract: a headers-then-stall parked the
+   intel timeline until the 60 s loop's 5-min gate re-fired and aborted.
+   Both reads now race a 15 s budget; null renders the existing honest
+   partial-failure path.
+7. **Offline fetch-failover hammering (MED, perf)** — with every fetch
+   failing, the stamp-only-on-live-render freshness gate stays permanently
+   open, so the 5 s floor re-ran the full chain — including the
+   ~0.3-0.5 MB `telemetry_payload` IndexedDB deserialize — every ~5-6 s for
+   as long as the device sat offline (~10-12 reads/min on battery). A
+   `_fetchFailStreak` backoff paces retries at 30 s after any failed
+   attempt (reconnect recovery ≤30 s); the first success resets.
+8. **chartSig blind to two consumed lanes (MED)** — `wind_direction_10m_*`
+   (the Aero wind readout via wdBlend) and `precipitation_probability_*`
+   (focus prob column + nativePrecipProb) were unprobed: a model run
+   touching only those arrays left them stale until the hourly anchor
+   flipped (≤1 h). Both lanes joined the probe map (the 1.16.1 gust-probe
+   class, now complete over every consumed hourly lane).
+9. **Prefetch debounce re-arm orphaned the pending timer (MED)** — two
+   routesfound events <5 s apart left timer A live-but-untracked whose
+   callback nulled the SHARED field while timer B was pending — breaking
+   the "field names the pending timer" invariant the two purge fences rely
+   on (a fence seeing `null` cannot cancel the pending timer → tiles
+   re-land after `caches.delete`), plus everyday double-run churn. Re-arm
+   now clears the pending id; the callback nulls the field only when it
+   still names its own timer.
+10. **route_intel cache key was destination-only (MED)** — the offline
+    fallback rendered whatever route last succeeded TO that destination:
+    a pitstop re-route whose intel fetch failed painted the PRE-pitstop
+    node list under the OFFLINE banner; a daily commute to the same
+    destination from a different origin rendered the previous origin's
+    nodes. The key now carries the route signature (totalDistance + coord
+    count, mirroring the prefetch sig); the 7d boot TTL sweep matches by
+    prefix and still reaps old-format rows.
+11. **Purge didn't fence the IDB writers (MED)** — the purge window runs a
+    live app for up to ~8 s and then awaits `localforage.clear()`; the GPS
+    watch kept firing fetch triggers whose persist paths (telemetry,
+    siblings, radar, METAR, Brier, skill row, intel) committed AFTER the
+    wipe — re-landing the rows the user asked deleted. Fixed with a
+    `_purging` flag: set at purge start (with the GPS watch cleared — the
+    one-shot re-ask needs no watch), gating the two fetch entry points
+    (fetchData, fetchRouteIntelligence) and all nine fetch-chain persist
+    sites for the in-flight window; cleared in the finally before reload.
+12. **Insecure-context boot death (MED)** — plain-HTTP LAN serves have
+    geolocation spec-removed; the unguarded `watchPosition` call threw
+    inside runApp and silently killed EVERYTHING downstream (no rAF loop,
+    no boot ladder, no honest GPS-unavailable card — one unhandled
+    rejection on a placeholder screen). `startBackgroundTracking` now
+    guards `navigator.geolocation` exactly like the boot ladder.
+13. **Aero Sun chip built 3 strings per frame (MED, perf)** — the one site
+    the PERF-AERO-KEYS pass missed: `aTxt`/`bTxt`/key concat ran 60×/s for
+    a pair that changes at fetch cadence (~180 transient allocs/s, the
+    ghost-trail class). Gated on pair identity (`_sunPairRef` — the pair
+    object is replaced per publish).
+14. **Aero wxm chip printed the mm total twice (MED, visible)** — two
+    generations of the "append intensity" feature both fired during
+    active rain: "Light Drizzle 0.3mm 0.3mm (R:0.2 S:0.1)". The older
+    duplicate block is deleted; the surviving block carries the total.
+15. **Node-health tooltip titles were dead (MED)** — the FAULTED and
+    no-coverage branch titles were overwritten by an unconditional
+    generic assignment in the same pass, so the 1.5.0 N2 gray-vs-red
+    distinction never reached the user through hover. Branch titles now
+    own their branches (degraded gains an explicit title).
+16. **Visibility key 10× aliasing (MED)** — three cache-key packers mixed
+    quantisers whose ranges overlapped: inside the ≥5 km bucket,
+    `round(km*10)` for [5,10) and `round(km)` for ≥10 made **7.0 km and
+    70 km produce the identical key** — a fog-to-clear 10× jump left the
+    stale string until the next value change. All three sites (VIS meter,
+    glance strip, focus chip) quantise ≥1 km uniformly at 0.1 km.
+17. **Per-render CACHE_STATS query for a removed gauge (MED, perf)** — the
+    `#cache-gauge` pill was retired at 1.8.0, but the per-render stats
+    query survived: the SW enumerated the ENTIRE map cache (thousands of
+    entries near the 50 MB budget) on every telemetry render to post a
+    reply the page discarded. Call deleted (negative-guarded); the
+    functional resync caller after tile prefetch — which also drives
+    SW-side eviction — stays.
+
+### LOW fixes (applied)
+
+18. relockDriveMode clears the recenter deadline + both timers (a relock
+    made the deadline moot; it previously survived masked by the
+    !isMapLocked chip gate).
+19. Stationary pre-exit's unlocked term is Drive-Mode-gated — Map Mode is
+    unlocked by design, so the pre-exit never fired there (full 60 fps
+    frames while parked with no route = pure battery cost).
+20. Dead-reckoning heading fallback falsy-zero trap removed (`0 &&` read
+    a true due-north as absent; `!== null` form).
+21. processNodes bypass lookahead extended to 3 future nodes — the code
+    checked 2 against its own comment and the intel mirror.
+22. A payload without a minutely_15 block clears the published window (a
+    stale nowcast up to 3 h old could otherwise keep rainByMinutely
+    voting); the offline path was already anchor-protected.
+23. Degenerate-payload guard at the top of normalizeTelemetryData — a 200
+    body without an hourly block now throws a NAMED error into the render
+    catch (no freshness stamp, honest retry) instead of a raw TypeError
+    mid-normalize.
+24. setActiveWeightsAtLead (dead code, sanity-pinned double-occurrence
+    guard) poisons its memo with the sentinel — the latent
+    lead-blend-poisons-short-lead path can never fire if it's ever wired.
+25. loadSkillSummary bounds the persisted skill row to 14 days — a
+    months-old row (older model versions, different climate) no longer
+    drives adaptation from boot; older = cold start.
+26. sw.js CACHE_STATS reply wrapped — posting to a client that reloaded
+    mid-resync can reject inside the waitUntil as an unhandled SW
+    rejection; the reply is now non-fatal.
+27. PWA install button hides on BOTH prompt outcomes — a dismissed prompt
+    previously left the button visible-but-dead until beforeinstallprompt
+    happened to re-fire.
+28. renderOfflineBrandList renders an honest error row when the
+    fuel-stations dynamic import rejects (all three callers are
+    fire-and-forget; the rejection escaped unhandled AND the list sat
+    silently blank).
+29. Caltex adapter dead ternary collapsed (`openStatus` was 'unknown' on
+    both arms — the 1.4.1 lying-contract class, zero behavior change).
+30. Tracking progress-bar visibility toggle key-gated (was an un-gated
+    DOMTokenList op 60×/s while a route was active).
+31. RECENTER countdown template builds only when the integer second
+    flips (was 60 strings + 60 Date.now() calls per second during the
+    ≤5 s episodes).
+
+### Declined / deferred with rationale (§0 E6)
+
+- **Brier observation = ECMWF's own re-forecast (agent-2, MED)** — the
+  mechanism is real (the first-found model array IS the observation
+  source, so one contestant is also the answer key) but it is the
+  1.16.0-documented residual ("observation is the best-match re-forecast
+  … relative ordering is the signal"), and the project's own recorded
+  `BrierSkill` log line bounds the concern in practice: EU's self-score
+  is 0.300, not the structurally-near-zero the wedge theory predicts —
+  model-run-to-run revision keeps the self-score informative. Changing
+  the observation semantics (blend-scoring, self-exclusion) is a product
+  decision for a future minor, not a patch.
+- **Hidden glance strip removal (agent-4, LOW)** — the strip was hidden
+  per user direction at 1.8.0; `#hud-glance-temp` is the Fetch Gate §6
+  step-4 instrument; the surviving cost is 5 key-compares/frame
+  (measured-trivial class). Full removal is a product decision bundled
+  with a Fetch Gate §6 charter revision.
+- **Backdrop-blur on the fixed ETA bar (agent-4 watch item)** — small
+  area, fluidity gate passes, needs a device GPU trace before it can be
+  called a defect. Deferred to a polish round with screenshot iteration.
+- **routeNodesRadar not cleared on route swap (agent-2 footnote)** — a
+  same-coords re-route can briefly paint the old map; bounded by the
+  immediate routesfound re-sample and now by the B1 freshness gate.
+  Hygiene residual, recorded.
+
+### Changes
+
+- `index.html` — all 31 fixes (2 HIGH, 13 MED, 14 LOW in-file + the sw/
+  fuel-file items below); state literal pre-declarations
+  (`_cogSustainStreak`, `_fetchFailStreak`, `_purging`) per the
+  hidden-class doctrine.
+- `sw.js` — APP_CACHE v26 + the dead-client CACHE_STATS reply guard.
+- `fuel-stations.js` — Caltex dead ternary.
+- `tests/sanity.test.js` — **+36 guards (419 → 455; incl. 1 negative
+  guard on the removed per-render stats call)**; 3 guards consciously
+  REVISED per §1.6 (APP_CACHE v25 → v26 ×2; the tier-0 paint guard
+  retargeted to the freshness-gated line).
+- `VERSION` → 1.16.4, `package.json` synced, `AGENTS.md` §11 numbers
+  synced, `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **455/455** + unit **47/47** ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 904..11068 /
+  704080 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0,
+  visual PASS — single `--hud-rot` writer preserved through the COG
+  rework, inventory unchanged, shell PASS, csp-evaluator 4 documented +
+  2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify`
+  **30/30** · `npm run precheck` green · **tailwind.min.css rebuilt
+  byte-identical (zero CSS drift — the 1.16.2 prose-leak lesson honored)**
+  · `node tests/audit-unified.mjs` **39 checks PASS** +
+  **Perfection PASS (0 stairs, 0 janks)**.
+- One self-caught near-miss during application, recorded honestly: the
+  wxm duplicate-block deletion initially removed the `prec` definition
+  the surviving block consumes — caught by re-reading the edit before
+  any scanner ran, restored immediately (the E2 TDZ scanner would have
+  flagged it; the discipline is fix-at-source, not wait-for-scanner).
+- Fetch Gate §6 RE-TRIGGERED by §2 (payloadSig/chartSig/minutely/persist
+  surfaces changed): runtime evidence OWED on the user device pass —
+  `models=` URL HTTP 200, telemetry non-`--`, glance temp numeric, 0 red
+  console errors, PLUS a live-traffic activation observing DIST NOT
+  dropping on node-grid population, and an offline window showing the
+  30 s retry pacing in the Network tab.
+- Visual runtime §7 RE-TRIGGERED by §2 (the COG authority changed): the
+  sustained-course rescue is a >90° accumulated-change path the
+  emulator's injected-mag sweep cannot drive (needs real COG at ≥8 km/h
+  sustained on a new course) — device pass owed: after a parked U-turn,
+  the map should re-orient within ~3-4 fixes of reaching driving speed,
+  canyon echo pairs still rejected.
+
+### Blind spots considered (§8)
+
+Races: `_purging` is written on the user-tap chain and read on the fetch
+chain — single-threaded, no interleaving window; the in-flight fetch's
+WRITES are fenced at their persist sites (the reads it already did are
+harmless — nothing renders post-wipe because the reload follows). The
+prefetch debounce id is now single-owner by construction (clear-before-
+re-arm; callback self-identifies). COG streak is written on the 1 Hz fix
+chain only; the rAF lerp consumes mapHeading read-only. Leaks: no new
+listeners/timers; one pre-declared counter + two flags. Coercion: the
+arrived-branch fastDistance is Number.isFinite-gated on all four coords;
+`_speedSeededRecent` uses the `(now - (x || 0))` NaN-safe form;
+`_rrFresh` typeof-gates both timestamps. Off-by-one: `_tailKm` derives
+from the same totalDistance the worker used for the node count (0.1 km
+rounding ≤0.05 km, below display quantisation); the streak accepts at
+exactly 3 (a pair reaches 2 max — verified against the canyon-pair
+trace). Unhandled rejections: the offline brand-list import failure now
+lands in a catch with an honest row; the SW reply is try/caught; the
+fetchData entry gate returns a resolved promise for awaiting callers.
+Perf: removed work at 60 Hz (sun-chip strings, un-gated toggle, recenter
+templates) + per-render (SW map-cache enumeration) + offline (IDB
+deserialise pacing); added work is 1-2 comparisons per GPS fix and two
+typeof-gated Date.now() reads per timeline render. A11y: untouched
+surfaces (tooltip text changes are additive information). Visual
+compositing: single `--hud-rot` writer preserved (visual-audit inventory
+byte-stable post-rework).
+
+### PENDING (user / next session)
+
+- User device pass for this patch (Fetch Gate §6 + the two §7 rotation
+  observations above + second-boot v26 update path on installed clients
+  + purge end-to-end: modal narration, wipe, AND no telemetry rows
+  resurrected after the reload).
+- Standing: AC-3 ETA product decision, GITHUB_TOKEN, osm v0.6.0
+  Nominatim re-probe, Lighthouse PWA + device checks, content-CLS slot
+  reservation (1.15.0 deferred), real-hud/game-hud token polish round.
+
+---
+
+## 1.16.3 — 2026-10-23 (patch: first-real-use polish pass — Basecoat + Tailwind MCPs exercised end-to-end; Chrome label advisory closed; UA dark color-scheme declared)
+
+### Bump rationale
+
+Patch bump 1.16.2 → 1.16.3 (user-directed "yes please" to the polish round,
+offered after both 1.16.2-wired servers were proven live in-session — the
+1.16.2 PENDING "first real in-session use" item made real). The Basecoat
+design-reference + Tailwind technique-reference MCPs drove an evidence-first
+UI polish pass; what shipped is what survived the audits, and what the
+audits killed is recorded below with its evidence. `sw.js` `APP_CACHE`
+`v24` → `v25` (index.html changed). Note: **1.16.2 is also still uncommitted
+in the working tree** (HEAD is at the 1.16.1 commit) — deploy.bat commits
+both releases together after its own pipeline re-run.
+
+### What shipped (2 changes, both static — zero JS path touched)
+
+1. **Chrome form-field advisory closed (pending since 1.15.0)** — the live
+   chrome-devtools console carried `[issue] No label associated with a form
+   field (count: 3)` at every boot: the Pit Stop modal's three selects
+   (brand / variant / hours search mode) had visible labels but no
+   programmatic association. Fix: explicit `for` attributes on the three
+   label elements (1:1 with unique select ids). Runtime-proven post-fix:
+   the issue entry is GONE from the console, and `label.control === select`
+   holds for all three (clicking the label now focuses its select — the
+   intended behavior delta; no conflicting handlers exist).
+2. **UA dark color-scheme declared** — the Basecoat theming contract
+   (basecoat://design/theming) states the native `<select>` popup contract:
+   without a color-scheme declaration the UA renders option popups, carets,
+   autofill and scrollbars in the LIGHT scheme on Windows/Linux — a white
+   dropdown over this app's black modal. The app is permanently dark
+   (body #000; night mode only dims further; manifest theme #000000), so
+   one real-CSS `:root` declaration (deliberately NOT a utility — immune to
+   a stale precompiled stylesheet, the GEOMETRY-PIN doctrine) ships the
+   contract. Runtime-proven: computed colorScheme reads "dark" post-fix.
+
+### Examined and DECLINED with evidence (§0 E6 — the pass's negative results)
+
+- **Tabular numerals** (the stale real-hud reference token + Basecoat's
+  "KPI numerals tabular" guidance): every high-frequency numeric surface
+  (clock, speed, ETA bar, tapes, focus model table) is ALREADY monospaced —
+  tabular by construction; no live jitter target exists. Shipping it would
+  be blind styling, which 1.15.0 explicitly forbade. The unified audit's
+  real-hud tabular-numerals "full sync" rec is STALE for the same
+  reason (the 1.15.0 assessment re-proven). (Name-free phrasing per the
+  1.16.2 prose-leak lesson — the utility token is deliberately unquoted.)
+- **Stale reference tokens** — `--green 0.5→0.7`, gauge-core:435 radial,
+  crossFraction:1589: none exist in current source (grep-proven; the 1.15.0
+  line-drift finding extends to the whole token set). The polish round
+  works from current source truth, not planning relics.
+- **Basecoat select/listbox component swap** — would add runtime JS
+  dependencies + rewire the fuel-manager population logic; the native
+  select + label association is the doctrine-correct fix (sensor-side/app
+  surface stays dependency-lean). Considered, declined.
+- **Validator findings triaged** (validate_composition + quality_inspector
+  on the modal slice): the profile-mismatch items (project's own @theme
+  token system vs Basecoat's shadcn palette, space-xy preference,
+  arbitrary-dimension modal clamp) are design-reference guidance, not
+  defects — recorded as such; the two a11y-flagged items (focus-ring,
+  contrast) are slice-truncation false positives ground-tred by the axe
+  empty pin (the global focus-indicator CSS rule and the checked-state
+  color pair both live outside the passed slice and both pass axe on the
+  real surface).
+
+### MCP first-real-use evidence (§12 rule 2 tier — both servers, this session)
+
+- **Basecoat 4 stages, all exercised on real project surfaces**: Stage 1
+  setup_config (vanilla/vega token contract); Stage 2 rules_enforcer
+  (semantic-html rules) + creative_director (hierarchy/operate/compact);
+  Stage 3 theming + rhythm resource reads (the two audit-path documents)
+  + component details (button via search, select — the select details
+  revealed the JS listbox, grounding the decline above); Stage 4
+  validate_composition + quality_inspector on the post-edit modal source.
+  Zero findings remained on the label/select fix pattern itself.
+- **Tailwind 3 tools exercised**: palette lookup (no-arg returns the slate/
+  blue index; per-color filtering is degenerate in v0.1.1 — recorded), the
+  margin-scale utility lookup (re-proving the 1.16.2-recorded call), and
+  CSS→Tailwind conversion run on the app's own caret-triangle CSS — the
+  converter's "unsupported" output (transform + border-triangle geometry)
+  VALIDATES the project's existing GEOMETRY-PIN decision (plain classes,
+  not utilities) with tool evidence.
+- **Skew-check clean (the 1.9.0 lesson, mechanically re-run)**: 8/8
+  markup utilities verified present in built CSS (group-open chevron
+  rotation, peer-checked states, surface alpha pairs, responsive radii);
+  the two non-hits are the intentional real-CSS pins (tap-target + focus
+  reveal classes) verified present in the inline style block.
+
+### Runtime evidence (chrome-devtools rig, local serve, emulated GPS at the user's pin)
+
+- BEFORE (v1.16.2 tree): advisory `count: 3` in console; computed
+  colorScheme "normal"; telemetry live (CALAMBA, OVERCAST 29°, AQI 61,
+  GNSS HIGH 0M); screenshot `polish-1.16.3-before.png`.
+- AFTER (v1.16.3 edits, ignoreCache reload): advisory GONE; console =
+  favicon 404 (documented browser-automatic class) + beforeinstallprompt
+  info (documented) + **the BrierAdapt line, all factors ×1.00** (the
+  1.16.0 observable — first time captured in a session screenshot log);
+  computed colorScheme "dark"; label.control === select ×3; **0 red
+  console errors**; screenshot `polish-1.16.3-after.png`.
+
+### Perfection-auditor verdict (the designated gate)
+
+FIX-FIRST on the staged TREE only because APP_CACHE had not yet been
+bumped (the release gate — fixed in this chapter's flow). The diff hunks
+themselves: PASS — 0 stairs, 0 janks, 0 a11y regressions; hand-verified
+that no JS path rewrites the labels (fuel manager populates only the
+selects' innerHTML), no CSS selector keys on labelless state, no
+system-color keyword (Canvas/ButtonFace/Highlight) or currentColor
+dependency contradicts the dark declaration, scrollbars carry explicit
+dark colors already, the sr-only checkboxes never show UA rendering, and
+no existing sanity/unified/axe/fluidity guard pinned the old markup.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **419/419** (+4 new: 3 label
+  associations + the color-scheme declaration; 2 consciously REVISED per
+  §1.6: the APP_CACHE v24 → v25 pins) + unit **47/47** · `npm run audit`
+  **10/10 PASS** (extract+parse OK module 904..10839 / 685663 B —
+  byte-identical to the 1.16.2-recorded module size: ZERO JS drift, only
+  the +8-line CSS shift above the module; TDZ 0, fp 0, brace depth=0/
+  max=12, CSP 0 gaps, domnull 0, visual PASS — inventory unchanged,
+  single --hud-rot writer, shell PASS, csp-evaluator 4 documented + 2
+  advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify`
+  **30/30** · `npm run precheck` green · **tailwind.min.css rebuilt
+  byte-identical (zero CSS drift — the 1.16.2 prose-leak lesson honored;
+  re-verified again after this chapter was written)** ·
+  `npm run audit:fluidity` **Perfection PASS (0 stairs, 0 janks)** ·
+  `node tests/audit-unified.mjs` **39 checks PASS** + Perfection PASS ·
+  `npx playwright test` **3 passed** — **axe: 0 violations, the pin stays
+  EMPTY**.
+- Fetch Gate §6 not re-triggered by §2 (no fetch URLs/triggers/math
+  changed — static markup + one CSS declaration); the same-session live
+  boot above captured the full fetch chain on this exact tree anyway
+  (telemetry + tiles + AQ all 200, temp 29° live, 0 red errors).
+- Visual runtime §7 not triggered (no transform/rotation surfaces — the
+  visual-audit inventory is unchanged).
+
+### Blind spots considered (§8)
+
+Races/leaks/coercion: none added — zero executable app path touched
+(module extract byte-identical). color-scheme affects UA control painting
+only; the auditor's sweep (system colors, scrollbars, sr-only controls,
+manifest theme) found nothing contradicting dark-only. Label association
+is additive; ids are unique 1:1; the JS population path rewrites option
+lists inside the selects, never the labels. The validator's contrast and
+focus-ring flags are slice artifacts ground-truthed by the axe empty pin.
+A11y: this change can only shrink violations (proven — axe still 0);
+intended behavior delta: label taps focus their selects.
+
+### PENDING (user / next session)
+
+- User device pass: native select dropdown renders dark (Windows/Linux
+  desktop + Android WebView); tapping "Target Brand"/"Variant"/"Search
+  Mode" labels focuses the matching select; second-boot v25 update path
+  on installed clients (delivers BOTH the 1.16.2 tooling + this polish).
+- Deploy note: run deploy.bat when ready — it re-runs the full pipeline
+  before committing the combined 1.16.2 + 1.16.3 tree.
+- Standing: AC-3 ETA product decision, GITHUB_TOKEN, osm v0.6.0 Nominatim
+  re-probe, Lighthouse PWA + device checks.
+
+---
+
+## 1.16.2 — 2026-10-23 (patch: MCP tooling additions — tailwindcss + basecoat-ui wired, Tailkits proven unwirable, doctrine + guards completed)
+
+### Bump rationale
+
+Patch bump 1.16.1 → 1.16.2 (user-directed: *"i think adding would greatly help in our project"*
+naming Tailkits UI MCP, tailwindcss-mcp-server, Basecoat UI MCP; recording follows the
+1.14.2 precedent — doctrine + guard changes, NO app-code changes: index.html, worker.js,
+sw.js, fuel-stations.js untouched, so no `APP_CACHE` bump — the SW update detector exists
+to deliver shell changes and there is none). Two of the three named servers were verified
+per §12 rule 2 and wired; the third was proven unwirable and recorded as standing
+counter-example #2 so no future session re-researches it.
+
+### Verification evidence (rule 2: npm view + initialize handshake + first real call)
+
+- **`tailwindcss-mcp-server` v0.1.1** (npm view OK; bin `tailwindcss-server`) — MCP
+  initialize handshake OK (`serverInfo tailwindcss-server 0.1.0`); real tool calls proven:
+  `get_tailwind_colors` → full 10-shade blue palette, `get_tailwind_utilities`
+  (property=margin) → the complete default margin scale (0 through 2rem) with
+  responsive/hover/focus/dark modifiers + examples. Tools: utility lookup by
+  category/property/search, color palette, config guides, docs search, install commands,
+  CSS→Tailwind conversion, custom palette generation, component template generation.
+  Keyless. Classified: **Knowledge - Technique Reference** (Tailwind-specific layer
+  Context7's general library docs don't cover).
+- **`@intellmedia/basecoat-ui-mcp` v1.8.0** (npm view OK; bin `basecoat-ui-mcp`, stdio) —
+  handshake OK (`serverInfo basecoat-ui-mcp 1.8.0`, tools+resources capabilities); real
+  tool calls proven: `search_components` → button/button-group/toggle,
+  `get_component_details` (dialog) → real Basecoat dialog markup + dependency list +
+  composition rules. 27 tools incl. design sessions (begin_design / apply_design_patch /
+  validate_design), macro layout blocks, FSM recipes, semantic rhythm rules, quality
+  inspector (validate_composition). Offline (no runtime network). Classified: **Knowledge -
+  Design Reference** (the design source for UI polish passes).
+- **Tailkits UI MCP — NOT WIRED, proven unwirable**: `npm view tailkits-ui-mcp-server` →
+  404; `npm search tailkits` → zero registry matches. It is a proprietary paid ($49/yr)
+  local-connector service for Tailkits' own component library, not an npm package, so it
+  cannot be launched under the `npx -y` convention (rule 2). Recorded in §12 as standing
+  counter-example #2 (the `@googlemaps/mcp` precedent), pinned by a sanity guard.
+
+### Changes (3 files, +31/−6 lines — verified via git diff review)
+
+- `opencode.json` — 2 new mcp entries (`tailwindcss`, `basecoat-ui`), identical shape to
+  the existing 7 (type local, npx -y launch, enabled). 9 servers total.
+- `AGENTS.md` §12 — plane classification extended: Technique Reference row now
+  "Context7 + TailwindCSS MCP"; NEW "Knowledge - Design Reference" row for Basecoat UI
+  MCP. Verified-wiring table +2 rows (package, version, handshake + first-real-call
+  evidence, classification, keyless/offline notes). Second standing counter-example
+  paragraph (Tailkits npm 404, $49/yr, unwirable via npx -y). Rule 5 note: restart
+  required. §11 reference numbers synced (sanity 406 → 415 with changelog entry).
+- `tests/sanity.test.js` — **+9 guards** (the `state.lastCssHeading` retention doctrine
+  applied to the new tooling): §12 pins ×3 (`tailwindcss-mcp-server`,
+  `@intellmedia/basecoat-ui-mcp`, "Tailkits UI MCP is not npm-distributed"),
+  opencode.json key-presence ×2 (`tailwindcss`, `basecoat-ui` in the mcp-block loop),
+  enabled+launch ×4 (doctrineServers map: enabled === true, command includes the exact
+  package string).
+- `VERSION` → 1.16.2, `package.json` synced. package-lock root version intentionally left
+  (repo convention: it refreshes only on real npm installs; it has said 1.14.2 since then).
+
+### Double-check pass (user-directed "double check the implementation")
+
+Every claim re-verified mechanically before recording:
+
+- **Retention triple intact** — repo-wide grep: the new package names exist ONLY in the
+  three sanctioned surfaces (§12 charter, opencode.json mcp block, sanity guards); ZERO
+  hits in index.html/sw.js/worker.js/fuel-stations.js (rule 4, the 1.14.0 check re-run).
+- **Guards proven BOTH directions** (the verify-scanners doctrine applied to the new
+  guards): negative control #1 — removing the `tailwindcss` opencode.json block → exactly
+  3 FAILs (has/enabled/launches), exit 1; negative control #2 — mangling the package
+  string in the §12 wiring row → exactly 1 FAIL (§12 pin), exit 1. Both restored
+  BYTE-EXACT (SHA-256 hash match against pre-mangle backups) and re-proven green.
+- **Count integrity** — sanity reports exactly 415 = 406 + 9, matching §11's changelog
+  arithmetic; stale "406 substring" refs: 0.
+- **Encoding** (the §10 PowerShell lesson) — no U+FFFD/mojibake in any edited file
+  (all edits via the byte-safe Edit tool).
+- **Live re-proof post-wiring** — both launch commands re-handshaken + re-exercised with
+  real tool calls after all file edits (npx cache warm, no registry drift).
+- **App-source zero-drift proof** — audit extract reports module 896..10831 / 685663 B,
+  byte-identical to the 1.16.1 recorded value.
+- **Prose→build leak caught at the release gate** (the 1.9.0 Tailwind-skew mirror): the
+  first post-chapter precheck rebuilt `tailwind.min.css` with ONE new dead selector
+  (a margin utility for spacing step 8, +37 B) because Tailwind v4 auto-content-detection
+  scans project text — the chapter's evidence line had quoted the literal margin-scale
+  utility names. The draft chapter was reworded to name-free phrasing (and this bullet
+  with it), the CSS rebuilt **byte-identical to 1.16.1** (byte-level HEAD-vs-working
+  diff: 0 selectors changed), so a pure-tooling patch ships zero CSS drift. Lesson for
+  future chapters: record tool-call evidence as descriptions, not literal utility
+  tokens — prose mentioning class-shaped names leaks them into the built artifact.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **415/415** + unit **47/47** (exit 0) ·
+  `npm run audit` **10/10 PASS, exit 0** (extract+parse OK, TDZ 0, fp 0, brace depth=0/
+  max=12, CSP 0 gaps, domnull 0, visual PASS, shell PASS, csp-evaluator 4 documented +
+  2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** ·
+  `node tests/audit-unified.mjs` **39 checks PASS**, Perfection PASS (0 stairs, 0 janks).
+- Fetch Gate §6 / Visual runtime §7 **not re-triggered by §2**: no fetch URLs/triggers,
+  no transform surfaces, no app files touched at all (extract byte-identity above).
+- No `APP_CACHE` bump: nothing to deliver to installed clients.
+
+### Blind spots considered (§8)
+
+Races/leaks/coercion: none — config + docs + test assertions only, zero executable app
+path touched. **osv-audit reach**: npx-streamed MCP packages sit outside the osv gate
+(it scans installed node_modules versions); accepted for all 9 servers per doctrine —
+they never touch the app ship surface (rule 4, mechanically re-proven), are keyless,
+and run agent-side only; tailwindcss-mcp-server's older `@modelcontextprotocol/sdk ^0.6.0`
+dep is agent-side-only with no app exposure (noted, not blocking — the server speaks the
+protocol, proven by handshake). **Memory**: 2 additional resident stdio processes per
+opencode session — same class as the existing 7. **Guard substring semantics**: the
+`includes()` launch guards are substring pins (a hypothetical `tailwindcss-mcp-server-evil`
+would pass the substring) — same accepted trade as every existing doctrineServers guard;
+the §12-pin mechanism was proven to bite in both directions. **Declined with rationale**:
+a Tailkits absence guard on opencode.json — the geoapify negative guard was
+regression-prevention for a REMOVED server; Tailkits was never wired, so there is nothing
+to regress, and the §12 counter-example pin already retains the finding.
+
+### PENDING (user / next session)
+
+- **Restart opencode** (§12 rule 5) — the two new servers load on next startup only.
+- First real in-session use of both servers (a UI polish pass should exercise the
+  Basecoat 4-stage workflow + validate_composition on generated markup, and the Tailwind
+  palette/conversion tools against the precompiled `tailwind.min.css` v4.3.3 surface —
+  remembering the 1.9.0 Tailwind-skew lesson: hand-written utilities must exist in the
+  built CSS or be pinned in real CSS).
+- Standing: opencode restart re-probes (osm v0.6.0 Nominatim schema fix), AC-3 ETA
+  product decision, GITHUB_TOKEN, Lighthouse PWA + device checks.
+
+---
+
 ## 1.16.1 — 2026-10-15 (patch: four-agent bug-hunt round — dead update pill, frozen speed, total-vs-remaining ETA, stale offline siblings)
 
 ### Bump rationale

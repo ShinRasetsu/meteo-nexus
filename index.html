@@ -105,6 +105,14 @@ them for instant render on every later boot. -->
         .vertical-scroll::-webkit-scrollbar-thumb { background: #14b8a6; border-radius: 4px; }
         
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; background-color: #000000; overscroll-behavior-y: none; }
+        /* Native UA control theming contract (Basecoat design reference,
+           first real-use polish pass 2026-10-23): the app is permanently
+           dark. Without this declaration the UA renders native <select>
+           option popups, text carets, autofill and page scrollbars in the
+           LIGHT scheme on Windows/Linux — a white dropdown over a black
+           modal. Declared in real CSS (not a utility) so a stale
+           precompiled stylesheet can never drop it. */
+        :root { color-scheme: dark; }
         input:focus, button:focus, select:focus { outline: none; box-shadow: 0 0 0 2px #14b8a6; }
         .no-select { user-select: none; -webkit-user-select: none; }
 
@@ -720,11 +728,11 @@ grid inside #sec-telemetry, not the page landmark. -->
                     </summary>
                     <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
                         <div>
-                            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Target Brand</label>
+                            <label for="pref-brand" class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Target Brand</label>
                             <select id="pref-brand" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                         </div>
                         <div>
-                            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Variant (Optional)</label>
+                            <label for="pref-variant" class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Variant (Optional)</label>
                             <select id="pref-variant" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                         </div>
                         <div class="grid grid-cols-2 gap-2 pt-2">
@@ -764,7 +772,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                         <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
                     </summary>
                     <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
-                        <label class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Search Mode</label>
+                        <label for="pref-opening-mode" class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Search Mode</label>
                         <select id="pref-opening-mode" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-blue outline-none transition-colors"></select>
                     </div>
                 </details>
@@ -1117,7 +1125,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                 try {
                     const row = (await localforage.getItem('radar_coverage_v1')) || {};
                     row[key] = _radarCoverageCache;
-                    localforage.setItem('radar_coverage_v1', row).catch(() => {});
+                    if (!state._purging) localforage.setItem('radar_coverage_v1', row).catch(() => {});
                 } catch (_) { /* best-effort */ }
             }
             return covered;
@@ -1876,6 +1884,14 @@ grid inside #sec-telemetry, not the page landmark. -->
                 this._activeRegime = regime;
                 this._activeSkillSig = _skillSig();
                 this._GLOBAL_ACK = (wEff.ecmwf_ifs025 || 0) + (wEff.gfs_seamless || 0);
+                // 1.16.4: poison the memo — this variant (currently uncalled)
+                // stamps regime+skill while leaving LEAD-BLENDED weights in
+                // _MI; a following setActiveWeights in the same regime+skill
+                // would hit the memo and run the short-lead verdict on
+                // long-lead-blended tables. The sentinel (never equal to a
+                // real _skillSig()) forces exactly one recompute — the
+                // restoreWeights doctrine.
+                this._activeSkillSig = '\0';
             },
             restoreWeights() {
                 this._MI = this._defaultMI;
@@ -2519,7 +2535,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             // the single-fix spike filter. Null until a source first speaks —
             // the follow block then falls back to cumulativeHeading (1.13.x
             // boot parity).
-            mapHeading: null, _prevCog: null,
+            mapHeading: null, _prevCog: null, _cogSustainStreak: 0,
             // Idempotency flag for the rotated-drag predrag hook. Leaflet's Drag
             // handler creates _draggable lazily on first interaction, so the hook
             // must be installed the first time dragstart fires — not at initMap().
@@ -2547,7 +2563,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             // it (an armed timer inside the purge window mints a FRESH tile run
             // whose cache.put re-lands tiles after caches.delete).
             _prefetchDebounce: null,
-            lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 },
+            lastSpeedTimestamp: 0, lastLocationTimestamp: 0, telemetryCache: { timestamp: 0, lat: 0, lon: 0 }, _fetchFailStreak: 0, _purging: false,
             lastFetchAttempt: 0, isCachingMap: false, fuelMarkers: [],
             isFuelOnlyRoute: false, customRouteWaypoints: null,
             renderPending: false, renderAccuracy: null, renderSpeed: null, renderHeading: null,
@@ -3095,7 +3111,12 @@ let delta = heading - state.lastHeading;
             // heading (1.13.x boot parity). Computed once; the pre-exit below
             // and the follow block below both consume it.
             const _rotTarget = state.mapHeading !== null ? state.mapHeading : state.cumulativeHeading;
-            const _needTrackingUi = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0)) || (!state.isMapLocked && !!state.autoCoords);
+            // 1.16.4: the unlocked term is Drive-Mode-gated — Map Mode is
+            // unlocked BY DESIGN, so without the gate this pre-exit never
+            // fired there (full 60 fps frames while parked with no route =
+            // pure battery cost; the recenter chip can never render in
+            // mode 0, so the term bought nothing in Map Mode).
+            const _needTrackingUi = !!(state.routeCtrl || (state.routeNodes && state.routeNodes.length > 0)) || (!state.isMapLocked && state.tacticalMode > 0 && !!state.autoCoords);
             if (!_needTrackingUi && state.currentSpeed < 2 && state.rawSensorHeading === null) {
                 // 1.14.1: wrap-safe compare. visual.heading is an UNBOUNDED
                 // accumulator (only ever += shortest-path deltas) while
@@ -3125,7 +3146,7 @@ let delta = heading - state.lastHeading;
                 // source has ever spoken.
                 const rawHeading = (state.mapHeading !== null)
                     ? state.mapHeading
-                    : ((state.lastHeading && !isNaN(state.lastHeading))
+                    : ((state.lastHeading !== null && !isNaN(state.lastHeading))
                         ? state.lastHeading
                         : (state.visual.heading !== null ? state.visual.heading : (state.cumulativeHeading || 0)));
                 if (!isNaN(rawHeading)) {
@@ -3338,9 +3359,26 @@ let delta = heading - state.lastHeading;
                             const _totalN = (state.routeNodes && state.routeNodes.length) ? state.routeNodes.length : 0;
                             const _cur2 = state.routeNodesCursor || 0;
                             const _intervalKm = (CONFIG.routingIntervalNodeDist || 5000) / 1000;
-                            if (_navRem && _navRem.arrived) rKm2 = 0;
+                            // 1.16.4: the worker grid ends at N×interval — the un-gridded
+                            // tail (total − N×interval, up to 5 km short of the
+                            // destination) was dropped from the leg branch, so DIST
+                            // visibly DROPPED the moment nodes+nav populated (pre-nav
+                            // frames showed the true total) and the arrived branch
+                            // pinned 0.0 KM / "1M" up to ~5 km early.
+                            const _tailKm = Math.max(0, rKm2 - _totalN * _intervalKm);
+                            if (_navRem && _navRem.arrived) {
+                                // Past the last node: remaining = straight-line to the
+                                // destination itself (the grid never covered this leg;
+                                // road curvature can overstate it, but an honest
+                                // countdown beats a frozen 0.0 KM with 2 km to drive).
+                                rKm2 = (state.autoCoords && state.targetCoords &&
+                                    Number.isFinite(state.autoCoords.lat) && Number.isFinite(state.autoCoords.lon) &&
+                                    Number.isFinite(state.targetCoords.lat) && Number.isFinite(state.targetCoords.lon))
+                                    ? Math.max(0, fastDistance(state.autoCoords.lat, state.autoCoords.lon, state.targetCoords.lat, state.targetCoords.lon) / 1000)
+                                    : 0;
+                            }
                             else if (_navRem && Number.isFinite(_navRem.distKm) && _totalN > 0) {
-                                rKm2 = Math.max(0, _navRem.distKm + Math.max(0, _totalN - _cur2 - 1) * _intervalKm);
+                                rKm2 = Math.max(0, _navRem.distKm + Math.max(0, _totalN - _cur2 - 1) * _intervalKm + _tailKm);
                             } else if (_totalN > 0) {
                                 rKm2 = Math.max(0, state.driveRouteKm - _cur2 * _intervalKm);
                             }
@@ -3390,7 +3428,14 @@ let delta = heading - state.lastHeading;
                         const fill = _te.pfill;
                         if (bar && fill) {
                             const shouldShowBar = shouldShow && totalNodes>0;
-                            bar.classList.toggle('hidden', !shouldShowBar);
+                            // 1.16.4: gate the visibility toggle too — the fill write
+                            // below was key-gated but this classList.toggle ran (a
+                            // DOMTokenList contains-check) every frame while a route
+                            // was active. Sibling toggles in this block are all keyed.
+                            if (_trackingEtaKeys.pshow !== shouldShowBar) {
+                                _trackingEtaKeys.pshow = shouldShowBar;
+                                bar.classList.toggle('hidden', !shouldShowBar);
+                            }
                             if (shouldShowBar && _trackingEtaKeys.prog !== prog) { _trackingEtaKeys.prog = prog; if (fill) fill.style.width = prog+'%'; }
                         }
                     }
@@ -3417,7 +3462,11 @@ let delta = heading - state.lastHeading;
                         let secs = 5;
                         if (state._recenterDeadline) secs = Math.max(0, Math.ceil((state._recenterDeadline - Date.now())/1000));
                         const txtEl = _te.rtxt;
-                        if (txtEl) {
+                        // 1.16.4: build the 1 Hz template only when the integer
+                        // flips — the string + Date.now() ran 60×/s for a text
+                        // that changes once per second.
+                        if (txtEl && _trackingEtaKeys.recSecs !== secs) {
+                            _trackingEtaKeys.recSecs = secs;
                             const t = `RECENTER IN ${secs}s`;
                             if (txtEl.textContent !== t) txtEl.textContent = t;
                         }
@@ -4551,7 +4600,7 @@ let delta = heading - state.lastHeading;
             // missed legit bypasses near the equator. Now both
             // comparisons use the true haversine for symmetry.
             let bypassed = false;
-            const lookaheadEnd = Math.min(cursor + 3, nodesToProcess.length);
+            const lookaheadEnd = Math.min(cursor + 4, nodesToProcess.length);
             const d = fastDistance(lat, lon, activeNode.lat, activeNode.lon);
             for (let j = cursor + 1; j < lookaheadEnd; j++) {
                 const futureDist = fastDistance(lat, lon, nodesToProcess[j].lat, nodesToProcess[j].lon);
@@ -4705,6 +4754,13 @@ let delta = heading - state.lastHeading;
         // ~15-25% battery/hour. Resumes on visibilitychange → visible via
         // restart of the watch. Also cleans up on pagehide.
         function startBackgroundTracking() {
+            // 1.16.4: insecure contexts (plain-HTTP LAN serves) have geolocation
+            // spec-removed — navigator.geolocation is undefined there, and the
+            // unguarded watchPosition call threw inside runApp, killing
+            // EVERYTHING downstream (no rAF loop, no boot ladder, no honest
+            // GPS-unavailable card — one silent unhandled rejection on a
+            // placeholder screen). Mirrors the boot ladder's own guard.
+            if (!navigator.geolocation) return;
             if (state.gpsWatchId) return;
             const EMA_ALPHA_SPEED = 0.85;  // 85 % weight towards latest sample (responsive EMA)
             state.gpsWatchId = navigator.geolocation.watchPosition(
@@ -4781,7 +4837,17 @@ let delta = heading - state.lastHeading;
                         // coordinate pair as distMovedM above, reversed) was dead:
                         // zero consumers anywhere. Removed; the glitch check at the
                         // top of this callback already covers movement distance.
-                        if ((now - state.telemetryCache.timestamp > CONFIG.cacheTTL) && (now - state.lastFetchAttempt > 5000)) {
+                        // 1.16.4: offline failure backoff — with every fetch
+                        // failing, the stamp-only-on-live-render freshness gate
+                        // stays permanently open, so the 5 s floor re-ran the
+                        // full chain (incl. the ~0.3-0.5 MB telemetry_payload IDB
+                        // deserialize) every ~5-6 s for as long as the device
+                        // sat offline: ~10-12 reads/min of battery on the target
+                        // platform. After a failed attempt, pace retries at 30 s
+                        // (reconnect recovery ≤30 s); the first success resets
+                        // the normal 5 s floor.
+                        const _retryFloorMs = (state._fetchFailStreak > 0) ? 30000 : 5000;
+                        if ((now - state.telemetryCache.timestamp > CONFIG.cacheTTL) && (now - state.lastFetchAttempt > _retryFloorMs)) {
                             state.lastFetchAttempt = now; fetchData(lat, lon, false);
                         }
 
@@ -4793,7 +4859,16 @@ let delta = heading - state.lastHeading;
                             const maxAccelKmhPerSec = 8;  // ~0.22 g — rejects GPS speed-spike glitches while allowing legit braking/accel
                             const maxAllowedDelta = maxAccelKmhPerSec * timeDeltaSec;
                             const speedDelta = Math.abs(rawSpeedKmh - state.currentSpeed);
-                            if (state.currentSpeed > 0 && speedDelta > maxAllowedDelta) isGlitch = true;
+                            // 1.16.4: gate from standstill too — the old `> 0` bypass
+                            // let a single multipath Doppler spike from 0 km/h latch a
+                            // false speed for ~3 fixes (the return-to-0 fix tripped the
+                            // gate, then the leaky latch held 2 more). Apply the accel
+                            // gate at 0 whenever a recent ACCEPTED speed fix exists
+                            // (parked at a light keeps lastSpeedTimestamp fresh at 1 Hz);
+                            // true cold start (no accepted fix in 30 s) accepts
+                            // unconditionally, preserving boot behavior.
+                            const _speedSeededRecent = (now - (state.lastSpeedTimestamp || 0)) < 30000;
+                            if ((state.currentSpeed > 0 || _speedSeededRecent) && speedDelta > maxAllowedDelta) isGlitch = true;
                         }
                         // 1.16.1: leaky glitch latch — a sustained hard accel
                         // (0-60 in 6 s ≈ 10 km/h/s) tripped the 8/s gate and then
@@ -4937,6 +5012,26 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 const _selfConsistentCapped = selfConsistent && Math.abs(hDelta) <= 90;
                                 if (state.mapHeading === null || Math.abs(hDelta) <= MAP_ROT_NEAR_CURRENT_DEG || _selfConsistentCapped) {
                                     state.mapHeading = gpsHeading;
+                                    state._cogSustainStreak = 0;
+                                } else if (selfConsistent) {
+                                    // 1.16.4: sustained-new-course rescue. The 1.16.1 cap
+                                    // has no convergence path: a heading change >90° that
+                                    // accumulated while this block was dormant (parked
+                                    // U-turn below the speed gate, a COG-null tunnel exit)
+                                    // is permanently indistinguishable from a canyon echo
+                                    // pair — the map stayed wrong until the driver steered
+                                    // back within 90° of the stale heading. Distinguish by
+                                    // persistence (the _speedGlitchStreak doctrine): 3
+                                    // consecutive self-consistent fixes beyond the cap
+                                    // accept outright. A 2-fix echo pair never reaches 3;
+                                    // a real course unwedges in ~3 fixes.
+                                    state._cogSustainStreak = (state._cogSustainStreak || 0) + 1;
+                                    if (state._cogSustainStreak >= 3) {
+                                        state.mapHeading = gpsHeading;
+                                        state._cogSustainStreak = 0;
+                                    }
+                                } else {
+                                    state._cogSustainStreak = 0;
                                 }
                                 state._prevCog = gpsHeading;
                             }
@@ -5057,6 +5152,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // user had chosen — contradicting the free-zoom Drive Mode contract.
         // Lock + seed rotation + re-center, no setView.
         function relockDriveMode() {
+            // 1.16.4: a relock makes any armed recenter deadline moot. Clear the
+            // deadline + both timers here too — the dragend 5s chain + mode-button
+            // paths both land in this function, and the deadline previously
+            // outlived the relock (masked by the !isMapLocked chip gate, but a
+            // lying armed state for any future consumer of the deadline).
+            if (state._recenterTimer) { clearTimeout(state._recenterTimer); state._recenterTimer = null; }
+            if (state._recenterLockTimer) { clearTimeout(state._recenterLockTimer); state._recenterLockTimer = null; }
+            state._recenterDeadline = null;
             if (state.tacticalMode > 0 && state.autoCoords) {
                 state.isMapLocked = true;
                 const seedRot = (state.mapObj.getZoom() < DRIVE_NORTH_Z || state.visual.heading === null)
@@ -5670,12 +5773,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // in-flight abort (an armed timer inside the purge window minted
                 // a FRESH tile run whose cache.put re-landed tiles after
                 // caches.delete, surviving the reload via the SW keep-list).
-                state._prefetchDebounce = setTimeout(() => {
-                    state._prefetchDebounce = null;
+                // 1.16.4: clear any pending debounce before re-arming — two
+                // routesfound events <5 s apart previously left timer A
+                // orphaned (still live, untracked) whose callback nulled the
+                // SHARED field while timer B was pending — breaking the
+                // "field names the pending timer" invariant the purge fences
+                // rely on, and re-landing tiles after caches.delete.
+                if (state._prefetchDebounce) clearTimeout(state._prefetchDebounce);
+                const _pfTid = setTimeout(() => {
+                    if (state._prefetchDebounce === _pfTid) state._prefetchDebounce = null;
                     // FIX: call unconditionally — downloadMapCache self-guards
                     // (online/coords) and chains when busy instead of dropping.
                     if (navigator.onLine) window.downloadMapCache();
                 }, 5000);
+                state._prefetchDebounce = _pfTid;
             }
             const conf = FuelManager.getConfig();
             const hasExclusions = conf.avoidTolls || conf.avoidHighways || conf.avoidFerries;
@@ -5750,6 +5861,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         let _lastIntelWriteSig = null;
         async function fetchRouteIntelligence(route, signal) {
             if (signal && signal.aborted) return;
+            // 1.16.4: purge fence — the 60 s intel loop may fire inside the
+            // purge window; its route_intel cache write would re-land after
+            // the wipe.
+            if (state._purging) return;
 
             if ((state.focusedSection === null || state.focusedSection === 'sec-intel') && DOM.secIntel) DOM.secIntel.classList.remove('hidden');
 
@@ -5880,9 +5995,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 return;
             }
 
-            // Keyed on destination — stable for the whole nav session.
+            // Keyed on destination + route signature (totalDistance + coord
+            // count, mirroring the prefetch sig) — stable for re-fetches of
+            // the SAME route, but a pitstop insert / different origin changes
+            // the geometry. 1.16.4: the old destination-only key made the
+            // offline fallback render a DIFFERENT route's cached waypoints
+            // (e.g. the pre-pitstop node list) under the OFFLINE banner.
             const routeIntelCacheKey = state.targetCoords
-                ? `route_intel_${state.targetCoords.lat.toFixed(3)}_${state.targetCoords.lon.toFixed(3)}`
+                ? `route_intel_${state.targetCoords.lat.toFixed(3)}_${state.targetCoords.lon.toFixed(3)}_${route && route.summary ? Math.round(route.summary.totalDistance) : 0}m${route && route.coordinates ? route.coordinates.length : 0}`
                 : null;
 
             try {
@@ -5905,9 +6025,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const modelResOk = results[1].status === 'fulfilled';
                 // PERF: parallel JSON parse — the telemetry path got this treatment
                 // (PERF-16); these two intel responses were still parsed serially.
+                // 1.16.4: budget the reads too — fetchWithRetry clears its
+                // per-attempt timer at HEADERS, so a headers-then-stall parked
+                // these .json() awaits until the 60 s intel loop's 5-min gate
+                // re-fired and aborted (the last unbudgeted body-read site;
+                // the 1.16.1 readBodyOrNull class). 15 s matches the fetch
+                // timeout; null renders the honest partial-failure path.
                 const [baseData, modelData] = await Promise.all([
-                    baseResOk ? results[0].value.json() : Promise.resolve(null),
-                    modelResOk ? results[1].value.json() : Promise.resolve(null)
+                    baseResOk ? readBodyOrNull(results[0].value, 15000, x => x.json()) : Promise.resolve(null),
+                    modelResOk ? readBodyOrNull(results[1].value, 15000, x => x.json()) : Promise.resolve(null)
                 ]);
 
                 // FIX: also drop the render if the route was superseded DURING
@@ -5938,7 +6064,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     const prevSig = _lastIntelWriteSig && _lastIntelWriteSig.key === routeIntelCacheKey ? _lastIntelWriteSig.sig : null;
                     if (intelSig !== prevSig) {
                         _lastIntelWriteSig = { key: routeIntelCacheKey, sig: intelSig };
-                        localforage.setItem(routeIntelCacheKey, { waypoints, baseData, modelData, timestamp: Date.now() })
+                        if (!state._purging) localforage.setItem(routeIntelCacheKey, { waypoints, baseData, modelData, timestamp: Date.now() })
                             .catch(e => console.warn('Route intel cache write failed:', e));
                     }
                 }
@@ -6135,7 +6261,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     ? Math.round(wp.lat * 10000) + ',' + Math.round(wp.lon * 10000) : null;
                 const _nodeRadar = (_radarKey && state.routeNodesRadar && state.routeNodesRadar.map)
                     ? (state.routeNodesRadar.map.get ? state.routeNodesRadar.map.get(_radarKey) : state.routeNodesRadar.map[_radarKey]) : null;
-                const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls);
+                // 1.16.4: freshness-gate the tier-0 paint. The stored sample map
+                // carried no age bound, so a RainViewer catalog outage kept
+                // painting "WET NOW · RADAR" from arbitrarily old frames while
+                // the pin's own verdict honestly abstained ("Radar stale —
+                // abstained") — two radar surfaces contradicting each other.
+                // Mirror the pin's bounds exactly: frame ≤15 min, sample
+                // commit ≤30 min.
+                const _rrFresh = !!(state.routeNodesRadar && typeof state.routeNodesRadar.frameTime === 'number' &&
+                    (Date.now() - state.routeNodesRadar.frameTime * 1000) < 15 * 60 * 1000 &&
+                    (typeof state.routeNodesRadar.ts === 'number' ? (Date.now() - state.routeNodesRadar.ts) < 30 * 60 * 1000 : true));
+                const isWetNowByRadar = !!(_nodeRadar && _nodeRadar.cls && _rrFresh);
                 const status   = (isRainingNowNode || isWetNowByRadar) ? 'RAIN_NOW' : WeatherEnsemble.classifyWetness(stats.wetPct);
                 const rainProb = (isRainingNowNode || isWetNowByRadar) ? 100 : stats.wetPct;
                 const isWet    = isRainingNowNode || isWetNowByRadar || status !== 'STABLE';
@@ -6384,6 +6520,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // chain twice (idempotent writes, but a doubled raced reload).
             if (window._purgeRunning) return;
             window._purgeRunning = true;
+            // 1.16.4: fence the IDB writers too — the purge window runs a LIVE
+            // app for up to ~8 s (GPS re-ask) and the watch kept delivering
+            // fixes → fetch triggers → telemetry/sibling/radar/METAR/Brier
+            // persists whose IndexedDB transactions committed AFTER
+            // localforage.clear(), re-landing the rows the user asked wiped.
+            // (a) the flag gates every fetch-chain persist site + the two
+            // fetch entry points (an in-flight chain cannot be un-run, but
+            // its WRITES are fenced); (b) killing the watch removes the 1 Hz
+            // trigger source entirely (requestGpsFixOnce is a one-shot and
+            // needs no watch; the reload re-arms everything).
+            state._purging = true;
+            if (state.gpsWatchId !== null && state.gpsWatchId !== undefined && navigator.geolocation) {
+                try { navigator.geolocation.clearWatch(state.gpsWatchId); } catch (_) { /* already dead */ }
+                state.gpsWatchId = null;
+            }
             // 1.14.0 IMMEDIATE FEEDBACK (user report: "purge button is broken
             // again"): the old flow sat SILENT behind the ≤12 s GPS re-ask
             // before the wipe — a tap that visibly does nothing for seconds
@@ -6460,7 +6611,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 _wipeOps.catch(() => {});
                 await Promise.race([_wipeOps, new Promise(resolve => setTimeout(resolve, 10000))]);
             } catch(e) { console.error('Purge partially failed:', e); }
-            finally { window.location.reload(); }
+            finally { state._purging = false; window.location.reload(); }
         };
 
         async function enforcePersistentStorage() {
@@ -6707,6 +6858,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         //     below ACK baseline, curr is tagged lowConfidence and UI can show a more
         //     conservative rounded value (e.g. "+" half-degree uncertainty badge).
         function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null, needsChart = true) {
+            // 1.16.4: degenerate-payload guard — a 200 response whose hourly
+            // block is missing/empty previously threw a raw TypeError at
+            // `dFore.hourly.time` deep inside the normalize with half-executed
+            // state. The explicit throw lands in fetchData's render catch
+            // (console.error + _renderFailed → no freshness stamp → honest 5 s
+            // retry) with a message that names the defect, instead of the
+            // frozen screen + cryptic stack the implicit path gave.
+            if (!dFore || !dFore.hourly || !Array.isArray(dFore.hourly.time) || !dFore.hourly.time.length) {
+                throw new Error('degenerate telemetry payload: hourly.time missing/empty');
+            }
             if (dCurr.timezone) state.targetTimezone = dCurr.timezone;
             // Cache the API-reported UTC offset (seconds) so the hour-strip in the chart
             // can render LOCAL hours instead of UTC hours. Without this fix the chart
@@ -7359,11 +7520,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 } else if (health.coveragePct < WeatherEnsemble.HEALTH_DEGRADED_PCT) {
                     updateClass(el, "font-bold px-2 py-0.5 bg-brand-warning/20 border border-brand-warning/50 text-brand-warning rounded flex-1 md:flex-none text-center uppercase tracking-widest");
                     updateHTML(el, `<i class="fa-solid fa-circle-half-stroke mr-1"></i> ${id.toUpperCase()}`);
+                    // 1.16.4: branch-specific titles — the unconditional generic
+                    // assignment below previously overwrote the FAULTED and
+                    // no-coverage titles in the same pass, so the 1.5.0 N2
+                    // gray-vs-red distinction never reached the user through
+                    // this surface.
+                    el.title = `${Math.round(health.coveragePct)}% data coverage — degraded, weight scaled`;
                 } else {
                     updateClass(el, "font-bold px-2 py-0.5 bg-brand-success/20 border border-brand-success/50 text-brand-success rounded flex-1 md:flex-none text-center uppercase tracking-widest");
                     updateHTML(el, id.toUpperCase());
+                    el.title = `${Math.round(health.coveragePct)}% data coverage`;
                 }
-                el.title = `${Math.round(health.coveragePct)}% data coverage`;
             });
 
             updateText(DOM.metricTemp,    Math.round(curr.temperature_2m) + '°');
@@ -7733,7 +7900,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             catch (e) { _brierCache = []; }
             return _brierCache;
         }
-        async function _saveBrierLog(arr) { _brierCache = arr; try { await localforage.setItem(BRIER_KEY, arr); } catch (e) { console.debug('Brier log save failed (intentional silencer):', e && e.message); } }
+        async function _saveBrierLog(arr) { _brierCache = arr; try { if (!state._purging) await localforage.setItem(BRIER_KEY, arr); } catch (e) { console.debug('Brier log save failed (intentional silencer):', e && e.message); } }
 
         // Append up to 3 future hours of per-model votes (hour-aligned to the
         // response's hourly.time array so we can match later observations).
@@ -7819,9 +7986,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const tally = {};
             for (const _m of votesByModel) tally[_m] = { sum: 0, n: 0 };
             let changed = false;
+            // 1.16.4: geo-bucket identity — a vote recorded at bucket A must
+            // never be scored against bucket B's observation. A driver
+            // crosses ~11 km buckets every ~8 min at highway speed, so most
+            // verifications were cross-geo pairs: noise that compressed or
+            // distorted the skill ratios feeding the 1.16.0 weight adapter.
+            // Same derivation as brierRecordForecast; a mismatched entry is
+            // skipped (it expires unverified by the hourEpoch gate — no
+            // information, no vote).
+            const bucketLat = (state.telemetryCache && state.telemetryCache.lat != null) ? Math.round(state.telemetryCache.lat * 10) / 10 : null;
+            const bucketLon = (state.telemetryCache && state.telemetryCache.lon != null) ? Math.round(state.telemetryCache.lon * 10) / 10 : null;
             for (const e of log) {
                 if (e.observedMm !== null) continue;       // already observed
                 if (Math.abs(e.hourEpoch - h.time[nowIdx]) > 1800) continue; // only verify THIS hour's predictions
+                if (bucketLat === null || bucketLon === null || e.lat !== bucketLat || e.lon !== bucketLon) continue; // 1.16.4: geo-bucket identity
                 e.observedMm = observedMm;
                 changed = true;
                 // Tally for any completed entry where this model had a non-null vote.
@@ -7859,7 +8037,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     _skill[_m] = { brier: (tally[_m].n > 0 ? tally[_m].sum / tally[_m].n : null), n: tally[_m].n };
                 }
                 _skillSummary = _skill;
-                try { await localforage.setItem('meteo_skill_v1', { skill: _skill, ts: Date.now() }); }
+                try { if (!state._purging) await localforage.setItem('meteo_skill_v1', { skill: _skill, ts: Date.now() }); }
                 catch (e) { console.debug('Skill persist failed (intentional silencer):', e && e.message); }
                 // AC-1 observability: live adaptation factors on the skill
                 // line, so a device pass can verify the loop is engaged
@@ -7892,7 +8070,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         async function loadSkillSummary() {
             try {
                 const row = await localforage.getItem('meteo_skill_v1');
-                if (row && row.skill && typeof row.skill === 'object') _skillSummary = row.skill;
+                // 1.16.4: age bound — a months-old row (recorded under older
+                // model versions or a different climate) previously drove
+                // adaptation from boot until the first Brier tick; the row's
+                // own ts field exists for exactly this. Older than 14 days →
+                // treat as cold start (neutral base weights).
+                if (row && row.skill && typeof row.skill === 'object' &&
+                    typeof row.ts === 'number' && (Date.now() - row.ts) < 14 * 24 * 3600 * 1000) _skillSummary = row.skill;
             } catch (_) { /* cold start — base weights stand */ }
         }
 
@@ -8008,11 +8192,16 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                               // were unprobed — a model run touching only wind
                               // left rendered wind stale until the next 15-min
                               // current-block roll. +5 array reads per fetch.
-                              // 1.16.1: + weather_code + wind_gusts probes — a run
-                              // touching only those lanes left the N/M AGREE badge,
-                              // focus-matrix gust column and gustPeak stale (pin
-                              // headline was safe via curr.weather_code in the sig).
-                              WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_speed_10m_' + _m] : null) + '|' + probeCells(_hC ? _hC['weather_code_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_gusts_10m_' + _m] : null)).join('|') + '|' +
+                               // 1.16.1: + weather_code + wind_gusts probes — a run
+                               // touching only those lanes left the N/M AGREE badge,
+                               // focus-matrix gust column and gustPeak stale (pin
+                               // headline was safe via curr.weather_code in the sig).
+                               // 1.16.4: + wind_direction + precipitation_probability
+                               // — a run touching only those lanes left the Aero wind
+                               // readout (wdBlend → CORE_STATE.windDir) and the focus
+                               // prob column (nativePrecipProb) stale until the hourly
+                               // anchor flipped (≤1 h).
+                               WeatherEnsemble.models.map(_m => probeCells(_hC ? _hC['temperature_2m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_speed_10m_' + _m] : null) + '|' + probeCells(_hC ? _hC['weather_code_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_gusts_10m_' + _m] : null) + '|' + probeCells(_hC ? _hC['wind_direction_10m_' + _m] : null) + '|' + probeCells(_hC ? _hC['precipitation_probability_' + _m] : null)).join('|') + '|' +
                              probeCells(_hS ? _hS.shortwave_radiation : null) + '|' +
                              probeCells(_hS ? _hS.uv_index : null);
             const payloadSig = String(dCurr?.current?.time ?? '') + '|' +
@@ -8195,9 +8384,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 _lastChartSig = chartSig;
                 renderChart(data.times, data.timesUnix, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
             }
-            // Refresh tile-cache gauge — SW reply renders the #cache-gauge pill
-            // asynchronously. Fire-and-forget; no delay introduced.
-            if (typeof window.requestCacheStats === 'function') window.requestCacheStats();
+            // 1.16.4: the per-render CACHE_STATS query is REMOVED — its only
+            // consumer (#cache-gauge) was retired at 1.8.0, so the SW ran an
+            // O(N) map-cache key enumeration (thousands of entries near the
+            // 50 MB budget) on every telemetry render to post a reply the
+            // page discarded. The resync caller after tile prefetch (which
+            // also drives SW-side eviction) is the functional path and stays.
             // FIX: stamp AFTER the render succeeds. Stamping before normalize
             // meant a throw mid-render pinned the sig — every identical retry
             // early-returned, and telemetryCache.timestamp kept the fetch gate
@@ -8211,6 +8403,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // the model list is defined in exactly one place.
         let _lastGeoLat = 0, _lastGeoLon = 0, _lastGeoName = '';
         async function fetchData(lat, lon, skipReverseGeo = false) {
+            // 1.16.4: purge fence — no new telemetry chain may start inside the
+            // purge window (its persists would re-land after the wipe).
+            if (state._purging) return Promise.resolve();
             // PERF-3: single-flight memoization. On cold boot both the
             // `state.autoCoords`-populated path and the first geolocation fix
             // could race into simultaneous `fetchData` calls — previously 6 HTTP
@@ -8315,6 +8510,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // the catch runs the offline failover.
                             const dAll = await rAll.json();
                             clearTimeout(budgetTimerId);
+                            // 1.16.4: the bundle + body read landed — network is alive;
+                            // reset the offline backoff streak (see the GPS-tick
+                            // trigger's _retryFloorMs).
+                            state._fetchFailStreak = 0;
                             // Split single payload into legacy 3-part shape for processTelemetryPayload + cache compat.
                             const dCurr = { current: dAll.current, elevation: dAll.elevation, utc_offset_seconds: dAll.utc_offset_seconds, timezone: dAll.timezone, timezone_abbreviation: dAll.timezone_abbreviation };
                             const dFore = { hourly: dAll.hourly };
@@ -8463,7 +8662,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                             window.__METEO_CORE_STATE.radarNow = radarSample;
                                             state._lastRadarTs = now;
                                             state._lastRadarLat = lat; state._lastRadarLon = lon;
-                                            localforage.setItem('sibling_radar', { radarSample, timestamp: now }).catch(e => console.debug('Radar persist failed:', e && e.message));
+                                            if (!state._purging) localforage.setItem('sibling_radar', { radarSample, timestamp: now }).catch(e => console.debug('Radar persist failed:', e && e.message));
                                         } else {
                                             // Backfill from cache (age-guarded AT VERDICT TIME by
                                             // radarFresh — stale radar is display-only).
@@ -8481,7 +8680,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                             window.__METEO_CORE_STATE.metarObs = metarObs;
                                             state._lastMetarTs = now;
                                             state._lastMetarLat = lat; state._lastMetarLon = lon;
-                                            localforage.setItem('sibling_metar', { metarObs, timestamp: now }).catch(e => console.debug('METAR persist failed:', e && e.message));
+                                            if (!state._purging) localforage.setItem('sibling_metar', { metarObs, timestamp: now }).catch(e => console.debug('METAR persist failed:', e && e.message));
                                         } else {
                                             // Backfill from cache — staleness is re-evaluated at
                                             // verdict time from obsTime (1.13.2: the persisted
@@ -8562,7 +8761,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 if (jAQ && jAQ.current) {
                                     const dAQ = { current: jAQ.current };
                                     publishAirQuality(dAQ);
-                                    try { await localforage.setItem('sibling_aq', { dAQ, timestamp: now }); }
+                                    try { if (!state._purging) await localforage.setItem('sibling_aq', { dAQ, timestamp: now }); }
                                     catch (e) { console.debug('Sibling AQ persist failed:', e && e.message); }
                                 } else {
                                     // FIX: partial-failure backfill — a failed
@@ -8583,7 +8782,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 if (jMar && jMar.hourly) {
                                     const dMarine = { hourly: jMar.hourly, utc_offset_seconds: jMar.utc_offset_seconds };
                                     publishMarine(dMarine);
-                                    try { await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
+                                    try { if (!state._purging) await localforage.setItem('sibling_marine', { dMarine, timestamp: now }); }
                                     catch (e) { console.debug('Sibling marine persist failed:', e && e.message); }
                                 } else {
                                     // 1.14.1: same ≤10-min age guard as AQ — see above.
@@ -8597,7 +8796,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // is tight enough that at most one fetch per pageload is missed.
                             if (!state._lastCacheWriteTs || (now - state._lastCacheWriteTs) > 60000) {
                                 state._lastCacheWriteTs = now;
-                                try { await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, dDaily, dMinutely, timestamp: now }); }
+                                try { if (!state._purging) await localforage.setItem('telemetry_payload', { dCurr, dFore, dSolar, dDaily, dMinutely, timestamp: now }); }
                                 catch (e) { console.warn('Telemetry cache persist failed:', e); }
                             }
                             // Publish minutely to telemetryCache for freshness gate inspection
@@ -8634,6 +8833,9 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         // with no consumer. Single-request consolidation makes this
                         // a single abort instead of the previous 3× sibling abort.
                         if (weatherAbort) weatherAbort.abort();
+                        // 1.16.4: count the failure — the GPS-tick trigger paces
+                        // retries at 30 s while the streak is nonzero.
+                        state._fetchFailStreak = (state._fetchFailStreak || 0) + 1;
                         console.warn("Network Error. Failing over to IndexedDB LocalForage cache.", e);
                         try {
                             const cached = await localforage.getItem('telemetry_payload');
@@ -8665,7 +8867,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 if (cached.dMinutely && cached.dMinutely.minutely_15) {
                                     try { window.__METEO_CORE_STATE.minutely = cached.dMinutely.minutely_15; state.telemetryCache.minutely = cached.dMinutely; } catch(_) {}
                                     computeRainEta();
-                                } else { window.__METEO_CORE_STATE.rainEta = null; }
+                            } else {
+                                // 1.16.4: a payload WITHOUT a minutely_15 block (regional
+                                // lane gap, API shape change) left the previously
+                                // published window live — the verdict's slot search kept
+                                // finding it and rainByMinutely could fire RAIN NOW off
+                                // a nowcast up to 3 h old. Clear it with the ETA.
+                                window.__METEO_CORE_STATE.rainEta = null;
+                                window.__METEO_CORE_STATE.minutely = null;
+                            }
                                 // 1.14.1: stage the verdict coords — the cache's
                                 // fetch position (0 = the boot sentinel) for the
                                 // radar displacement gate.
@@ -8728,8 +8938,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const list = DOM.fuel.offlineBrandList;
             if (!list) return;
             list.innerHTML = '';
-            
-            const mod = await getFuelStationsModule();
+            let mod = null;
+            // 1.16.4: the dynamic import CAN reject (corrupt SW-cached copy,
+            // offline before install completes) — every caller is
+            // fire-and-forget, so the rejection escaped as unhandled AND the
+            // list sat silently blank. Render an honest error row instead.
+            try { mod = await getFuelStationsModule(); }
+            catch (err) {
+                console.error('Fuel stations module failed to load:', err);
+                list.innerHTML = '<div class="text-brand-red text-xs font-bold uppercase tracking-widest p-2"><i class="fa-solid fa-triangle-exclamation mr-1"></i>OFFLINE DATASET MODULE FAILED TO LOAD — RECONNECT AND REOPEN THIS TAB.</div>';
+                return;
+            }
             const brands = ['shell', 'caltex'];
             
             for (const brand of brands) {
@@ -9610,7 +9829,15 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
             window.addEventListener('appinstalled', () => { installBtn.classList.add('hidden'); installBtn.classList.remove('flex'); deferredPrompt = null; });
             window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; if (!window.matchMedia('(display-mode: standalone)').matches) { installBtn.classList.remove('hidden'); installBtn.classList.add('flex'); } });
             installBtn.addEventListener('click', async () => {
-                if (deferredPrompt) { deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice; if (outcome === 'accepted') { installBtn.classList.add('hidden'); installBtn.classList.remove('flex'); } deferredPrompt = null; }
+                if (deferredPrompt) {
+                    deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice;
+                    // 1.16.4: hide on BOTH outcomes — a dismissed prompt left
+                    // the button visible but dead (deferredPrompt nulled, every
+                    // next tap a no-op) until the browser happened to re-fire
+                    // beforeinstallprompt.
+                    installBtn.classList.add('hidden'); installBtn.classList.remove('flex');
+                    deferredPrompt = null;
+                }
             });
         })();
 
@@ -10264,21 +10491,18 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
                             // available, fallback to legacy WMO_CODES. Keeps glance distinct
                             // for 51 vs 63 at same 0.2 mm.
                             let label = (st.wmoDetail && st.wmoDetail.label) ? st.wmoDetail.label : (WMO_CODES[code] || `Code: ${code}`);
-                            // Append precipitation intensity when it is actively raining
-                            // (isRainingNow) and the value is meaningful (>= 0.1 mm).
-                            // The Aero HUD chip is small, so use "Drizzle 0.1mm" format
-                            // instead of a separate line.
-                            const prec = (st.precipitation !== null && typeof st.precipitation === 'number')
-                                         ? st.precipitation : null;
-                            if (st.isRainingNow && prec !== null && prec >= 0.1) {
-                                label = `${label} ${prec.toFixed(1)}mm`;
-                            }
                             // Compose a single cached cache string: iconClass|textClass|label
                             // When precip is active, append the precip type in a compact
                             // "Rain 0.1mm" format so pilots can differentiate between
                             // steady frontal rain and convective showers without leaving
                             // the HUD. Falls back gracefully to the plain WMO label when
                             // the new fields haven't been fetched yet (old cache).
+                            // 1.16.4: the older intensity append above was REMOVED —
+                            // both blocks fired on the same build pass during active
+                            // rain, printing the mm total twice ("... 0.3mm 0.3mm
+                            // (R:0.2 S:0.1)"). This block already carries the total.
+                            const prec = (st.precipitation !== null && typeof st.precipitation === 'number')
+                                         ? st.precipitation : null;
                             if (st.precipitation !== null && st.isRainingNow) {
                                 const pLabel = `${(prec !== null ? prec : 0).toFixed(1)}mm`;
                                 let pType = '';
@@ -10322,10 +10546,12 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
                         // above the displayed-resolution quantisation. The bucket is in
                         // the key because km=4.99 vs km=5.01 render the same "5.0 km"
                         // text but different colours — text-only gating would miss the
-                        // class switch. Quantisation matches each bucket's rendered
-                        // precision (2/1/0 decimals), so a key change ⟺ a display change.
+                        // class switch. 1.16.4: the ≥10 km tail quantises at 0.1 km too —
+                        // the old `Math.round(km)` tail aliased with the [5,10) bucket's
+                        // round(km*10) range (7.0 km and 70 km produced the IDENTICAL
+                        // key 2000070), so a fog-to-clear 10× jump left the stale string.
                         const vBucket = km < 1.0 ? 0 : km < 5.0 ? 1 : 2;
-                        visKey = vBucket * 1000000 + (km < 1.0 ? Math.round(km * 100) : km < 10 ? Math.round(km * 10) : Math.round(km));
+                        visKey = vBucket * 1000000 + (km < 1.0 ? Math.round(km * 100) : Math.round(km * 10));
                     }
                     // FIX-1.4.1 (P1): the toFixed + template builds moved inside the
                     // gate — four allocations ran every frame regardless of change.
@@ -10405,7 +10631,12 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
                     let v2Key = -1;
                     if (typeof st.visibility === 'number') {
                         const km = st.visibility / 1000;
-                        v2Key = km < 1 ? Math.round(km*100) : km < 10 ? Math.round(km*10) : Math.round(km);
+                        // 1.16.4: uniform 0.1 km quantisation above 1 km — the old
+                        // `Math.round(km)` tail aliased with the [5,10) range's
+                        // round(km*10) values INSIDE the same ≥5 bucket (7.0 km
+                        // and 70 km produced the identical key 200070). Same
+                        // packing as the VIS meter fix.
+                        v2Key = km < 1 ? Math.round(km*100) : Math.round(km*10);
                         v2Key += (km < 1 ? 0 : km < 5 ? 100000 : 200000);
                     }
                     if (_uiCache.focusVis2Key !== v2Key) {
@@ -10446,11 +10677,16 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
                     // key so both lines write only when the pair changes
                     // (fetch cadence, not 60fps).
                     const sp = st.sunPair;
-                    const aTxt = (sp && sp[0]) ? ((sp[0].kind === 'rise' ? 'RISE ' : 'SET ') + sp[0].hm) : '--';
-                    const bTxt = (sp && sp[1]) ? ((sp[1].kind === 'rise' ? 'RISE ' : 'SET ') + sp[1].hm) : '--';
-                    const sunKey = aTxt + '|' + bTxt;
-                    if (_uiCache.focusSunKey !== sunKey) {
-                        _uiCache.focusSunKey = sunKey;
+                    // 1.16.4: identity gate — the pair object is replaced only at
+                    // fetch cadence (nextSunPair builds a fresh array per
+                    // publish), so comparing the reference replaces the old
+                    // 3-strings-per-frame key build (~180 transient
+                    // allocations/sec, the one site the PERF-AERO-KEYS pass
+                    // missed).
+                    if (_uiCache._sunPairRef !== sp) {
+                        _uiCache._sunPairRef = sp;
+                        const aTxt = (sp && sp[0]) ? ((sp[0].kind === 'rise' ? 'RISE ' : 'SET ') + sp[0].hm) : '--';
+                        const bTxt = (sp && sp[1]) ? ((sp[1].kind === 'rise' ? 'RISE ' : 'SET ') + sp[1].hm) : '--';
                         _el.focusSunA.textContent = aTxt;
                         if (_el.focusSunB) _el.focusSunB.textContent = bTxt;
                     }
@@ -10503,9 +10739,10 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
                     let glVisKey = -1;
                     if (typeof st.visibility === 'number') {
                         const km = st.visibility / 1000;
-                        // Same bucket+quantisation scheme as the VIS meter above.
+                        // Same bucket+quantisation scheme as the VIS meter above
+                        // (1.16.4: 0.1 km tail — no 10× aliasing).
                         const vBucket = km < 1.0 ? 0 : km < 5 ? 1 : 2;
-                        glVisKey = vBucket * 1000000 + (km < 1.0 ? Math.round(km * 100) : km < 10 ? Math.round(km * 10) : Math.round(km));
+                        glVisKey = vBucket * 1000000 + (km < 1.0 ? Math.round(km * 100) : Math.round(km * 10));
                     }
                     // FIX-1.4.1 (P1): toFixed/template builds moved inside the gate.
                     if (_uiCache.glVisKey !== glVisKey) {

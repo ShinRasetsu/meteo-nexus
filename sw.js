@@ -3,7 +3,7 @@
 // the old shell indefinitely — no index.html change alone ever reaches an
 // installed client. MAP/API/CDN names stay fixed so tiles + telemetry
 // survive version bumps (activate purges only unknown names).
-const APP_CACHE = 'meteonexus-app-v24';
+const APP_CACHE = 'meteonexus-app-v26';
 const API_CACHE = 'meteonexus-api-cache-v2';
 const MAP_CACHE = 'meteonexus-map-cache';
 const CDN_CACHE = 'meteonexus-cdn-cache-v1';
@@ -511,12 +511,18 @@ self.addEventListener('message', (e) => {
                 const c = await caches.open(MAP_CACHE);
                 tileCount = (await c.keys()).length;
             } catch (_err) { tileCount = -1; } // eslint-disable-line no-unused-vars
-            e.source.postMessage({
-                type: 'CACHE_STATS_REPLY',
-                mapCacheBytes: _mapCacheBytes,
-                mapCacheMax: MAP_CACHE_MAX_BYTES,
-                tileCount
-            });
+            // 1.16.4: the resync can outlive its client (seconds of seeding;
+            // the user taps UPDATE / purges mid-resync) — posting to a dead
+            // Client can reject inside the waitUntil promise as an unhandled
+            // SW rejection and silently drop the reply anyway.
+            try {
+                e.source.postMessage({
+                    type: 'CACHE_STATS_REPLY',
+                    mapCacheBytes: _mapCacheBytes,
+                    mapCacheMax: MAP_CACHE_MAX_BYTES,
+                    tileCount
+                });
+            } catch (_err) { /* dead client — reply discarded, non-fatal */ } // eslint-disable-line no-unused-vars
         })());
     }
 });
