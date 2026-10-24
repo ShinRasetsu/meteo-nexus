@@ -13,3 +13,4 @@
 [ 3302313ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:4173/VERSION:0
 [ 3602317ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:4173/VERSION:0
 [ 3902321ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:4173/VERSION:0
+[ 4202325ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:4173/VERSION:0
