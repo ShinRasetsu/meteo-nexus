@@ -567,7 +567,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                             </div>
 
                             <div>
-                                <div class="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-2">Model Matrix · Current Hour</div>
+                                <div class="text-[10px] font-black text-gray-400 uppercase tracking-[0.25em] mb-2">Model Matrix · Current Hour <span class="text-[8px] font-bold text-gray-400 tracking-widest">· wind km/h</span></div>
                                 <div id="focus-model-table" class="font-mono text-[10px] md:text-xs"></div>
                             </div>
 
@@ -709,6 +709,18 @@ grid inside #sec-telemetry, not the page landmark. -->
                     <span class="hud-glance-sep text-surface-600">|</span>
                     <span id="hud-glance-trend" class="text-brand-purple">TREND --</span>
                 </div>
+            </div>
+
+            <!-- 1.16.6 (B1): radar intensity legend. The overlay's colors were
+                 unexplained on the map — the mm/h mapping existed only inside
+                 RADAR_CORE_PALETTE as classifier data (grep 'legend' found just
+                 the Chart.js one). Rows are BUILT from that constant at boot so
+                 the legend can never drift from the classifier. Screen-locked
+                 SIBLING of #hud-map (a child would inherit the map rotation
+                 transform — the SCREEN-LOCKED contract); shown only while the
+                 overlay is on. -->
+            <div id="radar-legend" class="absolute bottom-2 left-2 z-[1000] hidden pointer-events-none overlay-safe">
+                <div id="radar-legend-rows" class="bg-surface-900/90 border border-surface-700 rounded-lg px-3 py-1.5 shadow-lg backdrop-blur-md flex flex-col gap-1"></div>
             </div>
 
             <div class="absolute bottom-6 right-6 z-[1000] flex flex-col gap-3 items-center pointer-events-auto overlay-safe">
@@ -1089,6 +1101,41 @@ grid inside #sec-telemetry, not the page landmark. -->
             { r: 168, g: 0,   b: 0,   cls: 'extreme', mmh: 320 },
             { r: 118, g: 0,   b: 0,   cls: 'extreme', mmh: 400 }
         ];
+        // 1.16.6 (A5): guarded intensity formatting for the three radar mm/h
+        // readouts (pin sources note, verdict basis, node chips). The raw
+        // `${mmh}mm/h` contract had no typeof/shape guard; palette values are
+        // clean numbers (0.5, 2, 400) so integers stay integer-formatted and
+        // sub-10 values keep one decimal without trailing-zero noise.
+        function fmtRadarMmh(v) {
+            if (typeof v !== 'number' || !Number.isFinite(v)) return '--';
+            return v < 10 ? v.toFixed(1).replace(/\.0$/, '') : String(Math.round(v));
+        }
+        // 1.16.6 (B1): build the radar legend rows from the palette constant
+        // itself — one representative swatch per class + its observed mm/h span
+        // (the palette entries ARE the mapping). Boot-once innerHTML write.
+        function buildRadarLegend() {
+            const el = document.getElementById('radar-legend-rows');
+            if (!el || el.dataset.built === '1') return;
+            const row = (cls) => {
+                const entries = RADAR_CORE_PALETTE.filter(p => p.cls === cls);
+                if (!entries.length) return '';
+                const c = entries[Math.floor(entries.length / 2)];
+                const lo = entries[0].mmh, hi = entries[entries.length - 1].mmh;
+                return `<div class="flex items-center gap-1.5 text-[9px] font-mono font-bold uppercase tracking-widest text-gray-300">` +
+                    `<span style="display:inline-block;width:14px;height:8px;border-radius:2px;background:rgb(${c.r},${c.g},${c.b});box-shadow:0 0 4px rgba(${c.r},${c.g},${c.b},0.6)"></span>` +
+                    `${cls.toUpperCase()} <span class="text-gray-400">${fmtRadarMmh(lo)}–${fmtRadarMmh(hi)} mm/h</span></div>`;
+            };
+            el.innerHTML = row('light') + row('moderate') + row('heavy') + row('extreme');
+            el.dataset.built = '1';
+        }
+        // 1.16.6 (B1): single funnel for legend visibility — every ON/OFF path
+        // (chip toggle, initMap preference restore) routes through here.
+        function syncRadarLegend() {
+            const el = document.getElementById('radar-legend');
+            if (!el) return;
+            el.classList.toggle('hidden', !state.radarOverlayOn);
+            if (state.radarOverlayOn) buildRadarLegend();
+        }
         // In-memory caches — fetch cadence, never per frame.
         let _radarFramesCache = null;   // { json, ts }
         let _radarCoverageCache = null; // { key, covered, ts }
@@ -1459,6 +1506,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                     ? "tap-48 bg-surface-800 border-2 border-brand-blue text-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-[0_0_12px_rgba(59,130,246,0.45)]"
                     : "tap-48 bg-surface-800 border-2 border-surface-700 text-gray-400 hover:text-brand-blue hover:border-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm");
             }
+            syncRadarLegend();
             refreshRadarOverlay();
         };
 
@@ -1473,11 +1521,20 @@ grid inside #sec-telemetry, not the page landmark. -->
             window.__METEO_CORE_STATE.aq = (aqi === null && pm === null && pm10 === null && o3 === null) ? null : { aqi, pm25: pm, pm10, o3 };
             if (!DOM.metricAq) return;
             if (aqi === null) {
+                updateClass(DOM.metricAq, 'text-[10px] font-mono font-bold uppercase tracking-widest text-gray-400');
                 updateText(DOM.metricAq, 'AQI --');
                 DOM.metricAq.title = 'Air quality unavailable for this area';
                 return;
             }
-            const band = aqi <= 50 ? 'GOOD' : aqi <= 100 ? 'MODERATE' : aqi <= 150 ? 'USG' : 'UNHEALTHY';
+            // 1.16.6 (B5): full US-EPA band names (151+/201+/301+ previously all
+            // collapsed to "UNHEALTHY") + a tone color on the line — an AQI 250
+            // used to read the same as AQI 55's neighbor tier, in static gray.
+            const band = aqi <= 50 ? 'GOOD' : aqi <= 100 ? 'MODERATE' : aqi <= 150 ? 'UNHEALTHY (SG)' : aqi <= 200 ? 'UNHEALTHY' : aqi <= 300 ? 'VERY UNHEALTHY' : 'HAZARDOUS';
+            const bandCls = aqi <= 50 ? 'text-brand-success'
+                          : aqi <= 100 ? 'text-brand-warning'
+                          : aqi <= 150 ? 'text-brand-orange'
+                          : 'text-brand-red';
+            updateClass(DOM.metricAq, `text-[10px] font-mono font-bold uppercase tracking-widest ${bandCls}`);
             updateText(DOM.metricAq, `AQI ${aqi} ${band} · PM2.5 ${pm !== null ? pm.toFixed(0) : '--'} · PM10 ${pm10 !== null ? pm10.toFixed(0) : '--'}`);
             DOM.metricAq.title = `US AQI ${aqi} (${band}) · O3 ${o3 !== null ? o3.toFixed(0) : '--'} µg/m³ — CAMS via Open-Meteo`;
         }
@@ -1578,11 +1635,16 @@ grid inside #sec-telemetry, not the page landmark. -->
                 // (capped/over-limit) request permanently suppressed retries
                 // for the whole route. Stamp only on a usable result.
                 state._lastElevSig = sig;
-                let mn = Infinity, mx = -Infinity, gain = 0;
+                let mn = Infinity, mx = -Infinity, gain = 0, loss = 0;
                 for (let k = 0; k < arr.length; k++) {
                     if (arr[k] < mn) mn = arr[k];
                     if (arr[k] > mx) mx = arr[k];
                     if (k > 0 && arr[k] > arr[k - 1]) gain += arr[k] - arr[k - 1];
+                    // 1.16.6 (B7): descent total — the strip's ▼ previously showed
+                    // the route MINIMUM elevation formatted exactly like a descent
+                    // figure next to ▲max. Both directions now carry true summed
+                    // deltas (same sampled basis as gain).
+                    if (k > 0 && arr[k] < arr[k - 1]) loss += arr[k - 1] - arr[k];
                 }
                 // Keep a downsampled profile (≈50 pts) for the timeline
                 // sparkline — the full array is fetch-rate transient, the
@@ -1594,7 +1656,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                 // Index-based tail inclusion (was a VALUE compare — a tail whose
                 // elevation equalled the previous sample got silently dropped).
                 if (profLastIdx !== arr.length - 1) prof.push(Math.round(arr[arr.length - 1]));
-                state.routeElev = { min: Math.round(mn), max: Math.round(mx), gain: Math.round(gain), profile: prof };
+                state.routeElev = { min: Math.round(mn), max: Math.round(mx), gain: Math.round(gain), loss: Math.round(loss), profile: prof };
                 window.__METEO_CORE_STATE.routeElev = state.routeElev;
             } catch (e) { console.debug('[sibling:elev] failed:', e && e.message); state.routeElev = null; }
         }
@@ -2755,6 +2817,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             weatherDesc: document.getElementById('weather-desc'), mainCard: document.getElementById('main-status-card'),
             statusIcon: document.getElementById('status-icon'), statusText: document.getElementById('status-text'),
             tacticalBtn: document.getElementById('tactical-btn'), radarOverlayBtn: document.getElementById('radar-overlay-btn'), gmapsPasteBtn: document.getElementById('gmaps-paste-btn'),
+            radarLegend: document.getElementById('radar-legend'),
             secMap: document.getElementById('sec-map'), secTelemetry: document.getElementById('sec-telemetry'),
             secIntel: document.getElementById('sec-intel'),
             modals: { custom: document.getElementById('custom-modal'), fuelSettings: document.getElementById('fuel-settings-modal'), magCal: document.getElementById('magcal-modal') },
@@ -3356,14 +3419,17 @@ let delta = heading - state.lastHeading;
                                 const displayLon = state.visual.lon ?? state.autoCoords.lon;
                                 const displayDistance = Math.sqrt(fastDistanceSqMeters(displayLat, displayLon, n.lat, n.lon));
                                 if (Number.isFinite(displayDistance)) {
-                                    const distStr = displayDistance >= 1000 ? (displayDistance/1000).toFixed(1)+'KM' : Math.round(displayDistance/10)*10+'M';
+                                    // 1.16.6 (B9): space between value and unit — the
+                                    // adjacent remaining field reads "128.4 KM"; NEXT
+                                    // read "1.2KM"/"120M".
+                                    const distStr = displayDistance >= 1000 ? (displayDistance/1000).toFixed(1)+' KM' : Math.round(displayDistance/10)*10+' M';
                                     nextTxt = (n.id!=null ? 'N-'+n.id+' ' : '') + distStr;
                                 }
                             } else if (state.targetCoords && state.autoCoords) {
                                 const displayLat2 = state.visual.lat ?? state.autoCoords.lat;
                                 const displayLon2 = state.visual.lon ?? state.autoCoords.lon;
                                 const displayDistance2 = Math.sqrt(fastDistanceSqMeters(displayLat2, displayLon2, state.targetCoords.lat, state.targetCoords.lon));
-                                if (Number.isFinite(displayDistance2)) nextTxt = displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+'KM' : Math.round(displayDistance2/10)*10+'M';
+                                if (Number.isFinite(displayDistance2)) nextTxt = displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+' KM' : Math.round(displayDistance2/10)*10+' M';
                             }
                             _trackingEtaKeys.nextCached = nextTxt;
                         } else {
@@ -3430,10 +3496,22 @@ let delta = heading - state.lastHeading;
                             _trackingEtaKeys.etaRkm = _rKmQ;
                             const etaDate = new Date(Date.now() + _minsQ * 60000);
                             _trackingEtaKeys.etaCached = etaDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) + ' · ' + (_minsQ>=60 ? Math.floor(_minsQ/60)+'H '+Math.round(_minsQ%60)+'M' : _minsQ+'M');
+                            _trackingEtaKeys.etaLiveTxt = _trackingEtaKeys.etaCached;
+                            _trackingEtaKeys.etaLiveRkm = _rKmQ;
                         }
                         if (_minsQ < 0) {
                             _trackingEtaKeys.minsQ = -1;
-                            if (rKm2 !== null && state.driveRouteMin !== null) etaTxt2 = Math.round(state.driveRouteMin) + 'M';
+                            // 1.16.6 (A3): stopped (<5 km/h) no longer flips the bar
+                            // to the static TOTAL-trip minutes (driveRouteMin) —
+                            // that was mixed semantics inside one bar (the adjacent
+                            // DIST counts down while ETA jumped to a departure-time
+                            // total, re-jumping at every stop light). Now the last
+                            // live wall clock freezes with a STOP qualifier; a route
+                            // swap while stopped (remaining-distance change) or no
+                            // live ETA yet falls back to the honest '--:--'.
+                            if (rKm2 !== null && _trackingEtaKeys.etaLiveTxt && _trackingEtaKeys.etaLiveRkm === _rKmQ) {
+                                etaTxt2 = String(_trackingEtaKeys.etaLiveTxt).split(' · ')[0] + ' · STOP';
+                            }
                         } else {
                             etaTxt2 = _trackingEtaKeys.etaCached;
                         }
@@ -5429,6 +5507,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         if (DOM.radarOverlayBtn) {
                             updateClass(DOM.radarOverlayBtn, "tap-48 bg-surface-800 border-2 border-brand-blue text-brand-blue w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-[0_0_12px_rgba(59,130,246,0.45)]");
                         }
+                        syncRadarLegend();
                         refreshRadarOverlay();
                     }
                 }).catch(() => {});
@@ -6165,7 +6244,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     spark = `<div class="font-mono text-brand-teal" style="font-size:10px;line-height:1.2;letter-spacing:0">` +
                         re.profile.map(v => blocks[Math.min(7, Math.max(0, Math.round((v - re.min) / span * 7)))]).join('') + `</div>`;
                 }
-                htmlBuffer += `<div class="w-full text-center py-1.5 mb-2 text-brand-teal font-mono font-bold uppercase tracking-widest text-xs bg-brand-teal/10 border-2 border-brand-teal/30 rounded-lg"><i class="fa-solid fa-mountain mr-2"></i> ELEV &#9650;${re.max} m &#9660;${re.min} m &middot; CLIMB +${re.gain} m${spark}</div>`;
+                // 1.16.6 (B7): ▲/▼ now show summed ASCENT/DESCENT (true deltas);
+                // the min–max range reads as a range, not as a fake ▼ figure.
+                // The 'CLIMB +' sanity pin is consciously revised to 'ELEV &#9650;'
+                // per §1.6 — the contract (an elevation strip with totals) is
+                // unchanged, only the label grammar.
+                htmlBuffer += `<div class="w-full text-center py-1.5 mb-2 text-brand-teal font-mono font-bold uppercase tracking-widest text-xs bg-brand-teal/10 border-2 border-brand-teal/30 rounded-lg"><i class="fa-solid fa-mountain mr-2"></i> ELEV &#9650;${re.gain} m &#9660;${re.loss || 0} m &middot; ${re.min}&ndash;${re.max} m${spark}</div>`;
             }
             htmlBuffer += `<div id="timeline-scroll-track" class="flex flex-col overflow-y-auto gap-3 pb-4 pt-2 vertical-scroll scroll-smooth w-full relative max-h-[50vh] pr-2">`;
 
@@ -6306,11 +6390,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // Radar-sourced wetness is source-labelled (measurement, not model vote)
                 // with the intensity estimate so the driver reads HOW wet the segment is.
                 const nodePrecipLabel = isWetNowByRadar
-                    ? ('WET NOW · RADAR' + (_nodeRadar.mmh ? ' ~' + _nodeRadar.mmh + 'mm/h' : ''))
+                    ? ('WET NOW · RADAR' + (_nodeRadar.mmh ? ' ~' + fmtRadarMmh(_nodeRadar.mmh) + 'mm/h' : ''))
                     : (isRainingNowNode ? _nodeWmo.label : null);
 
+                // 1.16.6 (A4): RAIN_LIKELY previously rendered BLUE in this bottom
+                // status row while the top block of the SAME chip rendered RED —
+                // two severity colors for one verdict on one card. The main card
+                // paints RAIN_LIKELY red (alert tier, sonar ≥75%); the chip now
+                // agrees. NOW vs LIKELY stays distinguished by the label text +
+                // icon, as RAIN_NOW vs RAIN_LIKELY already are in the top block.
                 const pathColor = status === 'RAIN_NOW'       ? 'text-brand-red font-black drop-shadow-md'
-                                : status === 'RAIN_LIKELY'    ? 'text-brand-blue font-black drop-shadow-md'
+                                : status === 'RAIN_LIKELY'    ? 'text-brand-red font-black drop-shadow-md'
                                 : status === 'RAIN_POSSIBLE'  ? 'text-brand-warning font-black drop-shadow-md'
                                 :                               'text-brand-success drop-shadow-md';
                 const pathIcon  = status === 'RAIN_NOW'       ? 'fa-cloud-showers-heavy'
@@ -6794,6 +6884,39 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         // invocation. Chart.js calls the tick callback both on redraw and on
         // hover; the literal allocation now lives at module scope.
         const _DATE_FMT_LONG_OPTS = { weekday: 'short', month: 'short', day: 'numeric' };
+        const _DATE_FMT_SHORT_OPTS = { weekday: 'short' };
+        // 1.16.6 (B3): "now" vertical marker. The 24h slice always starts at the
+        // current hour (maxSlice = nowIndex + 24), so "now" is data index 0 — but
+        // nothing drew it: the left edge was only IMPLICITLY now. A dashed line +
+        // NOW tag anchors the plot (no new CDN dependency — a 20-line inline
+        // plugin, the annotation plugin was deliberately not added).
+        const _nowLinePlugin = {
+            id: 'nowLine',
+            afterDatasetsDraw(chart) {
+                const xScale = chart.scales && chart.scales.x;
+                if (!xScale) return;
+                const x = xScale.getPixelForValue(0);
+                if (!Number.isFinite(x)) return;
+                const area = chart.chartArea;
+                if (!area) return;
+                const g = chart.ctx;
+                g.save();
+                g.strokeStyle = 'rgba(255,255,255,0.55)';
+                g.lineWidth = 1;
+                g.setLineDash([4, 4]);
+                g.beginPath();
+                g.moveTo(x, area.top);
+                g.lineTo(x, area.bottom);
+                g.stroke();
+                g.setLineDash([]);
+                g.fillStyle = 'rgba(255,255,255,0.8)';
+                g.font = 'bold 9px "JetBrains Mono", monospace';
+                g.textAlign = 'left';
+                g.textBaseline = 'top';
+                g.fillText('NOW', x + 4, area.top + 4);
+                g.restore();
+            }
+        };
         function renderChart(labels, timesUnix, rainData, solarData, uvData, hourlyAgreement, tempBand) {
             const tc = THEME_COLORS;
             // FIX-1.4.1b (F6): two .map() passes over the band became one loop —
@@ -6812,20 +6935,47 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 const oldL = state.chart.data.labels.length;
                 if (L !== oldL || solarData.length !== L || uvData.length !== L || rainData.eu.length !== L ||
                     rainData.us.length !== L || rainData.de.length !== L || rainData.jp.length !== L ||
+                    (rainData.ca && rainData.ca.length !== L) ||
                     tempMin.length !== L || tempMax.length !== L) {
                     state.chart.destroy(); state.chart = null;
                 }
             }
             if (state.chart) {
+                // 1.16.6 (runtime-found, live stack-proven): the rain datasets
+                // are Float64Arrays (zero-GC normalize output) and Chart.js 4.4
+                // installs its array-listener shim on EVERY dataset data object —
+                // the shim wraps 'splice' with `s.apply(this, e)` where s is the
+                // native method captured at install time. Float64Array HAS no
+                // splice, so s is undefined and the first same-length chart
+                // update threw "Cannot read properties of undefined (reading
+                // 'apply')" from inside chart.umd.min.js (line 13, the ot/forEach
+                // shim) — LATENT SINCE 1.4.1: it only fires when a chart
+                // re-render keeps the same window length (a model-run content
+                // change), which short sessions never hit. Plain-array datasets
+                // keep the in-place splice (the shim works there); typed arrays
+                // swap by reference — verified live: Chart.js re-listens the new
+                // object and unlistens the old.
+                const _setDsData = (idx, arr) => {
+                    const ds = state.chart.data.datasets[idx];
+                    if (!ds) return;
+                    if (Array.isArray(ds.data)) ds.data.splice(0, ds.data.length, ...arr);
+                    else ds.data = arr;
+                };
                 state.chart.data.labels.splice(0, state.chart.data.labels.length, ...labels);
-                state.chart.data.datasets[0].data.splice(0, state.chart.data.datasets[0].data.length, ...solarData);
-                state.chart.data.datasets[1].data.splice(0, state.chart.data.datasets[1].data.length, ...uvData);
-                state.chart.data.datasets[2].data.splice(0, state.chart.data.datasets[2].data.length, ...rainData.eu);
-                state.chart.data.datasets[3].data.splice(0, state.chart.data.datasets[3].data.length, ...rainData.us);
-                state.chart.data.datasets[4].data.splice(0, state.chart.data.datasets[4].data.length, ...rainData.de);
-                state.chart.data.datasets[5].data.splice(0, state.chart.data.datasets[5].data.length, ...rainData.jp);
-                state.chart.data.datasets[6].data.splice(0, state.chart.data.datasets[6].data.length, ...tempMin);
-                state.chart.data.datasets[7].data.splice(0, state.chart.data.datasets[7].data.length, ...tempMax);
+                _setDsData(0, solarData);
+                _setDsData(1, uvData);
+                _setDsData(2, rainData.eu);
+                _setDsData(3, rainData.us);
+                _setDsData(4, rainData.de);
+                _setDsData(5, rainData.jp);
+                _setDsData(6, tempMin);
+                _setDsData(7, tempMax);
+                // 1.16.6 (B4): GEM rides as the LAST dataset (index 8) — the
+                // tooltip footer reads [6]/[7] for the temp band, so inserting
+                // mid-array would silently re-point it. Guarded for the
+                // one-session-old chart shape (never happens in-session: the
+                // create path builds all 9 before any splice).
+                _setDsData(8, rainData.ca || []);
                 state.chart.hourlyAgreementRef = hourlyAgreement;
                 // Raw unix-second timestamps for chart hours — refreshed on every
                 // payload so the tick callback can always read the actual local date
@@ -6838,19 +6988,33 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             const ctx = document.getElementById('mainChart').getContext('2d');
             state.chart = new Chart(ctx, {
+                // 1.16.6 (B3): inline NOW marker plugin (no new CDN dep).
+                plugins: [_nowLinePlugin],
                 data: {
                     labels: labels,
                     datasets: [
                         { type: 'bar',  label: 'Solar (W/m²)', data: solarData, backgroundColor: tc.orange + '40', borderColor: tc.orange, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 3, yAxisID: 'y_solar', grouped: true },
                         { type: 'bar',  label: 'UV Index',     data: uvData,    backgroundColor: tc.purple + '40', borderColor: tc.purple, borderWidth: 2, categoryPercentage: 0.6, barPercentage: 0.8, order: 2, yAxisID: 'y_uv',    grouped: true },
-                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.blue,    backgroundColor: tc.blue    + '33', fill: true, borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
-                        { type: 'line', label: 'GFS',   data: rainData.us, borderColor: tc.teal,    backgroundColor: tc.teal    + '33', fill: true, borderDash: [6,6], borderWidth: 3, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        // 1.16.6 (B4): precipitation switched from area-FILLED lines
+                        // (ECMWF/GFS carried fill:true + 0x33 backgrounds) to thin
+                        // lines — at the 0–2 mm consensus scale the filled areas
+                        // occluded each other and the dash patterns were the only
+                        // per-model signal. Per-model identity now reads from
+                        // color + dash alone; the consensus story stays in the
+                        // tooltip footer + node chips. GEM (B4) joins as a 5th
+                        // line so the chart matches the consensus math the
+                        // footer prints (it already included GEM's vote).
+                        { type: 'line', label: 'ECMWF', data: rainData.eu, borderColor: tc.blue,    borderWidth: 2, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
+                        { type: 'line', label: 'GFS',   data: rainData.us, borderColor: tc.teal,    borderWidth: 2, borderDash: [6,6], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'ICON',  data: rainData.de, borderColor: tc.warning,  borderWidth: 2, borderDash: [4,4], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         { type: 'line', label: 'JMA',   data: rainData.jp, borderColor: '#ec4899',   borderWidth: 2, tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' },
                         // Temp band: floor line (hidden from legend + tooltip)
                         { type: 'line', label: 'Temp Min', data: tempMin, borderWidth: 0, pointRadius: 0, fill: false, tension: 0.3, order: 4, yAxisID: 'y_temp' },
                         // Temp band: ceiling fills back to floor with teal tint
-                        { type: 'line', label: 'Temp Range', data: tempMax, borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: tc.teal + '22', tension: 0.3, order: 4, yAxisID: 'y_temp' }
+                        { type: 'line', label: 'Temp Range', data: tempMax, borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: tc.teal + '22', tension: 0.3, order: 4, yAxisID: 'y_temp' },
+                        // 1.16.6 (B4): GEM — LAST dataset (index 8; the tooltip
+                        // footer reads [6]/[7] for the temp band).
+                        { type: 'line', label: 'GEM',   data: rainData.ca || [], borderColor: '#a3a3a3', borderWidth: 2, borderDash: [2,3], tension: 0.3, pointRadius: 0, order: 1, yAxisID: 'y_rain' }
                     ]
                 },
                 options: {
@@ -6870,21 +7034,39 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // Hide temp band from tooltip body lines
                             filter: (item) => !['Temp Min', 'Temp Range'].includes(item.dataset.label),
                             callbacks: {
+                                // 1.16.6 (B10): title gains the weekday — a cache-stale
+                                // slice could hover "01:00" with no day context (the
+                                // disambiguation existed only on the x ticks).
+                                title: function(t) {
+                                    if (!t || !t.length) return '';
+                                    const i = t[0].dataIndex;
+                                    const unixArr = (state.chart && state.chart.timesUnixRef) ? state.chart.timesUnixRef : null;
+                                    if (!unixArr || unixArr[i] === undefined) return String(t[0].label);
+                                    const off = state.utcOffsetSec || 0;
+                                    const dayLabel = new Date((unixArr[i] + off) * 1000).toLocaleDateString('en-US', _DATE_FMT_SHORT_OPTS);
+                                    return `${t[0].label} · ${dayLabel}`;
+                                },
                                 label: function(c) {
-                                    let l = c.dataset.label + ': ' || '';
+                                    // 1.16.6 (B10): the old `label + ': ' || ''` could
+                                    // never take the || branch (concatenation is always
+                                    // truthy) — an unfinished guard, now written as
+                                    // intended.
+                                    let l = c.dataset.label ? c.dataset.label + ': ' : '';
                                     if(c.parsed.y !== null) { l += c.parsed.y.toFixed(1); if(c.dataset.yAxisID==='y_solar') l+=' W/m²'; else if(c.dataset.yAxisID==='y_uv') l+=' Index'; else l+=' mm'; }
                                     return l;
                                 },
                                 footer: function(t) {
                                     if (!state.chart) return '';
                                     const i = t[0].dataIndex;
-                                    const uv    = state.chart.data.datasets[1].data[i];
-                                    const solar = state.chart.data.datasets[0].data[i];
                                     const rainAgr = state.chart.hourlyAgreementRef[i];
                                     const tMin  = state.chart.data.datasets[6].data[i];
                                     const tMax  = state.chart.data.datasets[7].data[i];
+                                    // 1.16.6 (B10): dropped the leading "\n" (blank
+                                    // first footer line) and the "Peak UV/Solar" echo —
+                                    // both duplicate body lines the tooltip already
+                                    // prints for the UV/Solar datasets.
                                     const spreadStr = (tMin !== null && tMax !== null) ? `\nModel Temp Spread: ${tMin.toFixed(1)}°–${tMax.toFixed(1)}°` : '';
-                                    return `\nRain Consensus: ${rainAgr.toFixed(0)}%\nPeak UV: ${uv.toFixed(1)} | Solar: ${solar.toFixed(0)}W${spreadStr}`;
+                                    return `Rain Consensus: ${rainAgr.toFixed(0)}%${spreadStr}`;
                                 }
                             },
                             titleFont: { family: 'JetBrains Mono', size: 14, weight: 'bold' },
@@ -6950,9 +7132,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             }
                         },
                         y_rain:  { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Precipitation (mm)', color: '#6b7280', font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { color: '#2a2a2a' }, ticks: {color: '#9ca3af', font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMin: 0, suggestedMax: 2 },
-                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar Irradiance', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMin: 0, suggestedMax: 1000 },
+                        y_solar: { type: 'linear', display: true, position: 'right', title: { display: true, text: 'Solar (W/m²)', color: tc.orange, font: {family:'Inter', size: 12, weight: 'bold'} }, grid: { drawOnChartArea: false }, ticks: {color: tc.orange, font: {family: 'JetBrains Mono', size: 11, weight: 'bold'}}, suggestedMin: 0, suggestedMax: 1000 },
                         y_uv:    { type: 'linear', display: false, min: 0, max: 15 },
-                        y_temp:  { type: 'linear', display: false, position: 'right' }
+                        // 1.16.6 (B2): the temperature band previously lived on a
+                        // HIDDEN axis with no scale — the teal area rendered as an
+                        // unreadable decoration (live screenshot proof: a shapeless
+                        // blob). A visible, compact right axis (° ticks, teal to
+                        // match the band fill) makes the band actually readable.
+                        // Chart.js offsets the two right axes automatically.
+                        y_temp:  { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, border: { display: false }, ticks: { color: tc.teal, font: { family: 'JetBrains Mono', size: 10, weight: 'bold' }, maxTicksLimit: 5, callback: function(v) { return Math.round(v) + '°'; } } }
                     }
                 }
             });
@@ -7162,19 +7350,22 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // so we avoid both the old `clean(arr).slice(...)` chain and a duplicate pass.
             // Float64Array: zero-GC fixed memory, tight numeric access, 8x faster in TurboFan.
             // FIX-1.4.1b (F1): chart-only — skipped entirely when the chart is not re-rendered.
-            let rainData = null, rEU = null, rUS = null, rDE = null, rJP = null;
+            let rainData = null, rEU = null, rUS = null, rDE = null, rJP = null, rCA = null;
             if (needsChartArg) {
                 const rEUNull = precipModels.ecmwf_ifs025, rUSNull = precipModels.gfs_seamless,
-                      rDENull = precipModels.icon_seamless, rJPNull = precipModels.jma_seamless;
+                      rDENull = precipModels.icon_seamless, rJPNull = precipModels.jma_seamless,
+                      rCANull = precipModels.gem_seamless;
                 rEU = new Float64Array(sliceLen); rUS = new Float64Array(sliceLen);
                 rDE = new Float64Array(sliceLen); rJP = new Float64Array(sliceLen);
+                rCA = new Float64Array(sliceLen);
                 for (let i = 0, j = nowIndex; j < maxSlice; i++, j++) {
                     rEU[i] = !rEUNull ? 0 : (rEUNull[j] === null || rEUNull[j] === undefined ? 0 : rEUNull[j]);
                     rUS[i] = !rUSNull ? 0 : (rUSNull[j] === null || rUSNull[j] === undefined ? 0 : rUSNull[j]);
                     rDE[i] = !rDENull ? 0 : (rDENull[j] === null || rDENull[j] === undefined ? 0 : rDENull[j]);
                     rJP[i] = !rJPNull ? 0 : (rJPNull[j] === null || rJPNull[j] === undefined ? 0 : rJPNull[j]);
+                    rCA[i] = !rCANull ? 0 : (rCANull[j] === null || rCANull[j] === undefined ? 0 : rCANull[j]);
                 }
-                rainData = { eu: rEU, us: rUS, de: rDE, jp: rJP };
+                rainData = { eu: rEU, us: rUS, de: rDE, jp: rJP, ca: rCA };
             }
 
             // PERF-9: only `windSpdAll[nowIndex]` / `windGustAll[nowIndex]` are
@@ -7302,15 +7493,26 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
             // U2-FOCUS: precompute the fullscreen diagnostic payload. Pure reads
             // of arrays already extracted above — no new fetches, no math changes.
-            const focusPerModel = WeatherEnsemble.models.map((m, idx) => ({
-                label: WeatherEnsemble.labels[m],
-                temp:    tempModels[m]     ? tempModels[m][nowIndex]     : null,
-                wind:    windSpdModels[m]  ? windSpdModels[m][nowIndex]  : null,
-                gust:    windGustModels[m] ? windGustModels[m][nowIndex] : null,
-                precip:  precipModels[m]   ? precipModels[m][nowIndex]   : null,
-                prob:    precipProbModels && precipProbModels[m] ? precipProbModels[m][nowIndex] : null,
-                coverage: nodeHealth[idx]  ? Math.round(nodeHealth[idx].coveragePct) : null
-            }));
+            const focusPerModel = WeatherEnsemble.models.map((m, idx) => {
+                // 1.16.6 (B5): the matrix Cov column gains the badge strip's
+                // tone tiers (it previously merged a <20% FAULTED node into the
+                // same amber as an 79% degraded one, and showed no-coverage as
+                // degraded). Gray sentinel / red faulted / amber degraded / gray ok.
+                const _cov = nodeHealth[idx] ? Math.round(nodeHealth[idx].coveragePct) : null;
+                const _nocov = nodeHealth[idx] ? (nodeHealth[idx].sentinelDead || _cov === 0) : false;
+                return {
+                    label: WeatherEnsemble.labels[m],
+                    temp:    tempModels[m]     ? tempModels[m][nowIndex]     : null,
+                    wind:    windSpdModels[m]  ? windSpdModels[m][nowIndex]  : null,
+                    gust:    windGustModels[m] ? windGustModels[m][nowIndex] : null,
+                    precip:  precipModels[m]   ? precipModels[m][nowIndex]   : null,
+                    prob:    precipProbModels && precipProbModels[m] ? precipProbModels[m][nowIndex] : null,
+                    coverage: _cov,
+                    covTone: _nocov ? 'none'
+                           : (_cov !== null && _cov < WeatherEnsemble.HEALTH_DOWN_PCT) ? 'down'
+                           : (_cov !== null && _cov < WeatherEnsemble.HEALTH_DEGRADED_PCT) ? 'low' : 'ok'
+                };
+            });
             // U2-FOCUS FIX (found at the 1.6.1 release gate): rainData is an
             // OBJECT ({eu,us,de,jp} Float64Arrays), not a flat array — the first
             // draft indexed it numerically (rainData[i] → undefined → mm never
@@ -7323,11 +7525,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const mmAll = WeatherEnsemble.weightedValueAll(precipModels, nowIndex, maxSlice);
             const outlookHours = [];
             const outlookLen = Math.min(6, mmAll.length);
+            // 1.16.6 (B8): the label language was per-chip — times[] is only fully
+            // populated on chart renders, so on chart-skip fetches a single
+            // UV-formatted cell could render "14:00" next to "+3h" neighbors, and
+            // consecutive renders oscillated between the two grammars. All-or-
+            // nothing: absolute times only when the whole strip can carry them.
+            const outlookAbs = needsChartArg && Array.isArray(times) && times.length >= outlookLen;
             for (let i = 0; i < outlookLen; i++) {
                 const pct = (i < hourlyAgreement.length) ? hourlyAgreement[i]
                           : WeatherEnsemble.weightedWetnessAt(precipModels, nowIndex + i).pct;
                 outlookHours.push({
-                    label: (times && times[i]) ? String(times[i]).slice(-5) : `+${i}h`,
+                    label: outlookAbs ? String(times[i]).slice(-5) : `+${i}h`,
                     pct,
                     mm: mmAll[i]
                 });
@@ -7433,7 +7641,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const rainByRadar = radarFresh && radarNear && _rd.covered === true && typeof _rd.cls === 'string';
             const radarClear = radarFresh && radarNear && _rd.covered === true && _rd.cls === null;
             const radarNote = rainByRadar
-                ? 'radar ' + _rd.cls + ' ~' + _rd.mmh + 'mm/h'
+                ? 'radar ' + _rd.cls + ' ~' + fmtRadarMmh(_rd.mmh) + 'mm/h'
                 : (radarClear ? 'radar: clear' : null);
             // METAR (1.13.0): the regional station observation. WET side only —
             // a station reporting precip independently corroborates a rain claim
@@ -7649,9 +7857,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 }
             });
 
-            updateText(DOM.metricTemp,    Math.round(curr.temperature_2m) + '°');
-            updateText(DOM.metricFeels,   Math.round(curr.apparent_temperature) + '°');
-            updateText(DOM.metricHum,     curr.relative_humidity_2m + '%');
+            // 1.16.6 (A2): the live path had no null guards here — Math.round(null)
+            // rendered a plausible fake "0°" and null + '%' printed the literal
+            // "null%", while pressure/visibility two lines below were always
+            // typeof-guarded. Missing field now renders the honest '--'.
+            updateText(DOM.metricTemp,    (typeof curr.temperature_2m === 'number') ? Math.round(curr.temperature_2m) + '°' : '--');
+            updateText(DOM.metricFeels,   (typeof curr.apparent_temperature === 'number') ? Math.round(curr.apparent_temperature) + '°' : '--');
+            updateText(DOM.metricHum,     (typeof curr.relative_humidity_2m === 'number') ? curr.relative_humidity_2m + '%' : '--');
             updateText(DOM.metricAgree,   `${currentAgreement.toFixed(0)}%`);
 
             // U2-MERGE: confidence moved OFF the value onto the ⚠ dot. A 0% in
@@ -7706,6 +7918,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     + '<span>Node</span><span class="text-right">Temp</span><span class="text-right">Wind</span><span class="text-right">Gust</span><span class="text-right">Rain</span><span class="text-right">Prob</span><span class="text-right">Vote</span><span class="text-right">Cov</span></div>';
                 const rows = data.focus.perModel.map(p => {
                     const [voteTxt, voteCls] = vote(p.precip);
+                    // 1.16.6 (B5): coverage tone mirrors the badge strip above
+                    // (gray no-coverage / red FAULTED / amber degraded / gray ok).
+                    const covCls = p.covTone === 'down' ? 'text-brand-red'
+                                 : p.covTone === 'low' ? 'text-brand-warning'
+                                 : 'text-gray-400';
                     return '<div class="grid grid-cols-8 gap-x-2 py-0.5 border-b border-surface-800/50">'
                         + `<span class="font-black text-gray-300">${p.label}</span>`
                         + `<span class="text-right text-gray-300">${cell(p.temp, '°', 0)}</span>`
@@ -7714,7 +7931,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         + `<span class="text-right text-gray-300">${cell(p.precip, 'mm', 2)}</span>`
                         + `<span class="text-right text-gray-300">${cell(p.prob, '%', 0)}</span>`
                         + `<span class="text-right font-bold ${voteCls}">${voteTxt}</span>`
-                        + `<span class="text-right ${p.coverage !== null && p.coverage < 80 ? 'text-brand-warning' : 'text-gray-400'}">${p.coverage === null ? '--' : p.coverage + '%'}</span>`
+                        + `<span class="text-right ${covCls}">${p.coverage === null ? '--' : p.coverage + '%'}</span>`
                         + '</div>';
                 }).join('');
                 updateHTML(DOM.focusModelTable, head + rows);
@@ -7736,7 +7953,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 if (f.tMin !== null && f.tMax !== null) parts.push(`Today ${Math.round(f.tMin)}°/${Math.round(f.tMax)}°`);
                 if (f.accum24 > 0) parts.push(`24h Accum ${f.accum24.toFixed(1)}mm`);
                 if (f.gustPeak !== null) parts.push(`Gust Peak ${Math.round(f.gustPeak)} km/h`);
-                if (temperatureTrend !== null && temperatureTrend !== undefined) parts.push(`Trend ${temperatureTrend >= 0 ? '+' : ''}${temperatureTrend}°/1h`);
+                if (temperatureTrend !== null && temperatureTrend !== undefined) parts.push(`Trend ${temperatureTrend > 0 ? '+' : ''}${temperatureTrend}°/1h`);
                 updateText(DOM.focusEnvelope, parts.length ? parts.join(' · ') : '--');
             }
             // 1.14.0 VERDICT BASIS (user-directed): the glance desc is the
@@ -7774,7 +7991,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     typeof state._verdictLat === 'number' && typeof state._verdictLon === 'number' &&
                     fastDistance(state._verdictLat, state._verdictLon, rN.lat, rN.lon) <= 5000);
                 if (rFresh && rNear && rN.covered === true) {
-                    basis.push(rN.cls ? `Radar echo ${rN.cls} ~${rN.mmh}mm/h over pin` : 'Radar clear — no echo over pin');
+                    basis.push(rN.cls ? `Radar echo ${rN.cls} ~${fmtRadarMmh(rN.mmh)}mm/h over pin` : 'Radar clear — no echo over pin');
                 } else if (rFresh && rNear) {
                     basis.push('Radar no coverage (abstains)');
                 } else if (rN) {
@@ -7795,8 +8012,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     ? `${codeAgreement.agreeingCount}/${codeAgreement.modelsReporting} MODELS AGREE` : '');
             }
 
-            updateText(DOM.metricWindSpeed, Math.round(curr.wind_speed_10m));
-            updateHTML(DOM.metricWindDir, `${getWindDirection(curr.wind_direction_10m)} <i class="fa-solid fa-arrow-up" style="transform: rotate(${curr.wind_direction_10m + 180}deg);"></i>`);
+            // 1.16.6 (A2): null/NaN wind guard — Math.round(null) rendered "0"
+            // km/h, and `null + 180` drew a SOUTH-pointing arrow beside the '--'
+            // cardinal (a directional cue implied by missing data). The arrow is
+            // omitted entirely when the direction is unknown.
+            updateText(DOM.metricWindSpeed, (typeof curr.wind_speed_10m === 'number') ? Math.round(curr.wind_speed_10m) : '--');
+            const _wdVal = (typeof curr.wind_direction_10m === 'number' && Number.isFinite(curr.wind_direction_10m)) ? curr.wind_direction_10m : null;
+            updateHTML(DOM.metricWindDir, getWindDirection(_wdVal) + (_wdVal !== null ? ` <i class="fa-solid fa-arrow-up" style="transform: rotate(${_wdVal + 180}deg);"></i>` : ''));
             // Pressure + visibility — two fields the old dashboard never fetched.
             // Pressure is the best short-term weather-change heuristic available:
             // a falling barometer (below ~1010 hPa) usually means deteriorating
@@ -7812,10 +8034,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (typeof vRaw === 'number') {
                 // Visibility comes in metres from the API; convert to km for
                 // easy human scanning. < 1.0 km → hazmat.
-                const visKm = (vRaw / 1000).toFixed(vRaw < 1000 ? 2 : 1);
-                updateText(DOM.metricVisibility, `${visKm} km vis`);
+                // 1.16.6 (B6): the "< 1 km is fog/rain hazard" contract existed
+                // only on the Aero VIS meter + hidden glance strip — the CARD's
+                // row was static gray. The hazard color now mirrors the Aero
+                // thresholds (<1 red / <5 amber), and the precision ladder
+                // matches too (2dp <1 km · 1dp <10 km · integer ≥10 — the card
+                // previously printed 1dp at every range, so "40.7 km" here vs
+                // "VIS 41 km" on the Aero meter for the same moment).
+                const visKm = vRaw / 1000;
+                const visStr = visKm < 1 ? visKm.toFixed(2) : visKm < 10 ? visKm.toFixed(1) : String(Math.round(visKm));
+                updateText(DOM.metricVisibility, `${visStr} km vis`);
+                updateClass(DOM.metricVisibility, `text-[10px] font-mono font-bold uppercase tracking-widest ${visKm < 1 ? 'text-brand-red' : visKm < 5 ? 'text-brand-warning' : 'text-gray-400'}`);
             } else {
                 updateText(DOM.metricVisibility, '-- km');
+                updateClass(DOM.metricVisibility, 'text-[10px] font-mono font-bold uppercase tracking-widest text-gray-400');
             }
 
             // PERF-1.4.1 (P7): single pass — track the max index in the loop instead
@@ -7824,13 +8056,31 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             for (let i = 0; i < uvData.length; i++) { if (uvData[i] > maxUV) { maxUV = uvData[i]; maxUvIdx = i; } }
             updateText(DOM.metricUvVal, maxUV.toFixed(1));
             // U2-MERGE: WHO UV band — a number without a scale isn't actionable.
+            // 1.16.6 (B5): the band was text-only; tone colors now match the
+            // escalation the WHO bands encode (green → amber → orange → red).
             if (DOM.metricUvBand) {
                 const uvBand = maxUV < 3 ? 'LOW' : maxUV < 6 ? 'MODERATE' : maxUV < 8 ? 'HIGH' : maxUV < 11 ? 'VERY HIGH' : 'EXTREME';
+                const uvBandCls = maxUV < 3 ? 'text-brand-success'
+                                : maxUV < 6 ? 'text-brand-warning'
+                                : maxUV < 8 ? 'text-brand-orange'
+                                : 'text-brand-red';
+                updateClass(DOM.metricUvBand, `text-[9px] font-bold uppercase tracking-widest ${maxUV > 0 ? uvBandCls : 'text-gray-400'}`);
                 updateText(DOM.metricUvBand, maxUV > 0 ? uvBand : '--');
             }
-            updateText(DOM.metricUvTime, (maxUvIdx >= 0 && times[maxUvIdx]) ? "@ " + times[maxUvIdx].replace(" (+1d)", "") : "--");
+            updateText(DOM.metricUvTime, (maxUvIdx >= 0 && times[maxUvIdx]) ? "@ " + times[maxUvIdx] : "--");
 
-            updateClass(DOM.mainCard, "col-span-1 rounded-2xl p-4 md:p-6 transition-colors duration-500 border-4 relative overflow-hidden ");
+            // 1.16.6 (A1): updateClass REPLACES the whole className, so the
+            // base string must carry `hud-card` — dropping it silently killed
+            // the night-mode dim (`body.night .hud-card { filter:
+            // brightness(0.72) }`) on the primary Environment card — the
+            // driver's main surface stayed at FULL brightness at night while
+            // header/footer dimmed to 0.7. Live-proven 2026-10-26:
+            // night:true + cardFilter:"none" + hud-card:false.
+            // The surface-800/900 base colors stay MARKUP-ONLY (the historical
+            // pre-merge pattern): every render branch adds a tone pair
+            // (cardBg/cardBd) in the same synchronous block, so tone classes
+            // must never compete with the surface base in stylesheet order.
+            updateClass(DOM.mainCard, "hud-card col-span-1 rounded-2xl p-4 md:p-6 transition-colors duration-500 border-4 relative overflow-hidden");
 
             // Reset status-specific classes before applying the new state.
             DOM.mainCard.classList.remove(
@@ -9674,7 +9924,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 // because startBackgroundTracking's watchPosition may deliver
                 // the first fix at any moment and rescue this card anyway.
                 const paintGpsDownFace = (desc, badge) => {
-                    updateClass(DOM.mainCard, "lg:col-span-5 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
+                    // 1.16.6 (A1): same hud-card restoration as renderTelemetryUI
+                    // (night dim) + drop the stale wide-screen column class from
+                    // the pre-U2-MERGE grid (#main-grid is grid-cols-1 now).
+                    updateClass(DOM.mainCard, "hud-card col-span-1 rounded-2xl p-4 md:p-6 flex flex-col items-center justify-center text-center border-4 border-brand-orange/50 bg-brand-orange/10 min-h-[200px] md:min-h-[250px] relative overflow-hidden");
                     updateClass(DOM.statusIcon, 'text-6xl md:text-7xl mb-2 fa-solid fa-map-location-dot text-brand-orange');
                     updateText(DOM.statusText, "SEARCH LOCATION");
                     updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-orange uppercase');
@@ -11058,7 +11311,10 @@ const _doReload = () => { if (!_done) { _done = true; setTimeout(() => window.lo
                         const snKey = (gv !== null) ? Math.round(gv) : -1;
                         if (_uiCache.spdNumKey !== snKey) {
                             _uiCache.spdNumKey = snKey;
-                            _el.spdNum.textContent = (snKey >= 0) ? String(snKey) : '---';
+                            // 1.16.6 (B10): 3-digit pad matches the tracking card's
+                            // speed pill (005 vs 5 for the same reading) and pins the
+                            // digital box width against per-frame layout jitter.
+                            _el.spdNum.textContent = (snKey >= 0) ? String(snKey).padStart(3, '0') : '---';
                         }
                     }
                 }

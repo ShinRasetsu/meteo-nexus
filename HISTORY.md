@@ -118,6 +118,233 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.6 — 2026-10-27 (patch: data-visualization correctness round — night-dim restoration, radar legend, readable chart, honest ETA/units + a runtime-found Chart.js typed-array landmine)
+
+### Bump rationale
+
+Patch bump 1.16.5 → 1.16.6 (user-directed *"check for possible UI improvements in
+terms of Data, Correct visualization… overall UI"*). Audit method: three
+parallel exploration agents over the four data-visualization territories
+(chart, telemetry card + focus diagnostics, route timeline + map surfaces,
+Aero HUD), every candidate hand-verified against source AND live-proven on
+the chrome-devtools rig (emulated GPS at the user's pin, 390×844, night
+mode) before applying. 26 planned fixes landed (Tier 1 correctness ×5,
+Tier 2 visualization ×5, Tier 3 consistency ×8) — plus ONE runtime-found
+HIGH bug the static audit could not see (the Chart.js typed-array splice
+landmine, below), caught by the live pass's console and stack-proven to
+its root cause. `sw.js` `APP_CACHE` `v27` → `v28`.
+
+### The runtime-found bug (the round's headline — caught live, not statically)
+
+The first post-edit live boot logged `Telemetry render failed: TypeError:
+Cannot read properties of undefined (reading 'apply') (2 args)` — 8× on one
+boot, once on the next. A console-error interceptor (init-script) captured
+the full stack: throw INSIDE `chart.umd.min.js` line 13, called from the
+chart update path. Byte-level inspection of the fetched CDN file identified
+the exact mechanism: Chart.js 4.4's array-listener shim installs a wrapped
+splice/push/pop/shift/unshift on EVERY dataset data object; the wrapper
+invokes the NATIVE method captured at install time. The four rain datasets
+are Float64Arrays (zero-GC normalize output since 1.4.1) — Float64Array has
+no splice, so the captured method is undefined and the wrapper's
+`s.apply(...)` throws on the FIRST same-length chart update. **Latent since
+1.4.1**: it only fires when a chart re-render keeps the same window length
+(a model-run content change between two fetches) — every prior audit
+session was too short to hit one. Fix: the update path now routes through a
+typed-aware writer — plain-array datasets keep the in-place splice (the
+shim works there); typed arrays swap the data reference (verified live
+in-page: Chart.js re-listens the new object and unlistens the old, no
+throw, chart renders). Live A/B proof: the same rig, same pin, same natural
+boot fetch cadence — pre-fix boots threw repeatedly; post-fix boot ran
+75+ s spanning multiple fetch cycles with **zero console errors**.
+
+### Tier 1 — correctness (live-proven)
+
+1. **A1 Night dim never applied to the merged card (MED, live-proven)** — the
+   telemetry render REPLACES the whole main-card className but dropped the
+   night-dim hook class, so `body.night` dimming (brightness 0.72) never
+   reached the primary Environment card — at night it was the BRIGHTEST
+   element on screen while header/footer dimmed (live probe pre-fix:
+   night:true + card filter "none"). Both JS class strings (telemetry
+   render + GPS-down face) now carry the hook; the stale wide-screen column
+   class from the pre-merge grid is gone (negative guard). Surface colors
+   stay markup-only so the tone pairs never compete in stylesheet order
+   (the historical pre-merge pattern). Live post-fix: card filter reads
+   brightness(0.72) saturate(0.85).
+2. **A2 Live-path null guards (MED)** — Math.round(null) rendered a
+   plausible fake `0°` for temp/feels, `null%` humidity, and `null + 180`
+   drew a SOUTH-pointing wind arrow beside the `--` cardinal — while
+   pressure/visibility two lines below were always guarded. All guarded
+   now; the arrow is omitted when direction is unknown.
+3. **A3 Stopped-ETA semantics flip (MED)** — below 5 km/h the bar flipped
+   from the live wall-clock+remaining countdown to the static TOTAL-trip
+   minutes (the departure-time figure), re-jumping at every stop light —
+   mixed semantics inside one bar. Now the last live wall clock freezes
+   with a STOP qualifier; a route swap while stopped (remaining-distance
+   signature mismatch) or no live ETA yet falls back to the honest `--:--`.
+4. **A4 Two severities on one chip (LOW)** — the route-node chip painted
+   RAIN_LIKELY red in its top block but blue in its status row (two colors
+   for one verdict on one card); unified to red (the main card's alert tier).
+5. **A5 Radar intensity format guard (LOW)** — the three `~Xmm/h` readouts
+   (pin sources note, verdict basis, node chips) interpolated the raw
+   palette float; now a guarded formatter (integers stay integer, sub-10
+   keeps one decimal, non-finite renders `--`).
+
+### Tier 2 — visualization (the "correct visualization" core)
+
+6. **B1 Radar intensity legend (HIGH, the biggest gap)** — the map overlay
+   painted unexplained colors (pale cyan → navy → yellow → red); the mm/h
+   mapping existed only inside the palette constant as classifier data
+   (grep for a legend found only the Chart.js one). New legend strip over
+   the map's bottom-left corner — SCREEN-LOCKED sibling of the rotating map
+   pane (a child would inherit the rotation transform), rows BUILT from the
+   palette constant itself (light/moderate/heavy/extreme + observed mm/h
+   spans) so legend and classifier can never drift, shown only while the
+   overlay is on, single visibility funnel wired through both paths (chip
+   toggle + persisted-preference restore). Live-proven: 4 rows render at
+   boot from the restored preference without a tap; the toggle cycle
+   hides/shows correctly.
+7. **B2 Temperature band readable (HIGH)** — the band lived on a HIDDEN
+   axis with no scale; the live screenshot showed an unreadable teal blob.
+   The axis is now visible (compact right-side ° ticks, teal to match the
+   band) so the band carries actual values.
+8. **B3 NOW marker (MED)** — "now" was only the implicit left edge of the
+   24h window. A 20-line inline afterDatasetsDraw plugin draws a dashed
+   vertical line + NOW tag at index 0 (no new CDN dependency — the
+   annotation plugin was deliberately not added).
+9. **B4 Precipitation legibility + chart/consensus model parity (MED)** —
+   the four model lines carried area fills that occluded each other at the
+   0–2 mm scale; fills removed (thin lines + dash identity). GEM joins as a
+   5th line — the tooltip footer's "Rain Consensus %" always included GEM's
+   vote, but GEM's line was never drawn. GEM rides as the LAST dataset
+   (index 8) so the tooltip footer's temp-band indices stay pinned.
+10. **B5 Unit/band honesty (MED batch)** — the solar axis title carries its
+    unit; the AQI band no longer collapses 151+/201+/301+ into one
+    UNHEALTHY (full US-EPA names) and the AQI/UV band lines carry tone
+    colors matching their escalation; the model-matrix gains a wind/gust
+    unit hint and its coverage column mirrors the badge strip's tiers
+    (gray no-coverage ≠ amber degraded ≠ red FAULTED — it previously
+    merged all three).
+
+### Tier 3 — consistency polish (code-proven)
+
+11. **B6 Visibility hazard color + precision ladder (MED)** — the "< 1 km is
+    fog/rain hazard" color existed only on the Aero meter + hidden glance
+    strip; the card row was static gray. The card now mirrors the Aero
+    thresholds AND its precision ladder (2 dp <1 km · 1 dp <10 km ·
+    integer ≥10 — the card previously printed 40.7 km where the Aero
+    meter printed 41 km for the same moment).
+12. **B7 Elevation strip honesty (LOW)** — `▲max ▼min` read as if max/min
+    were ascent/descent totals; the strip now shows true summed
+    ascent/descent deltas (new loss accumulator) plus a real min–max range
+    label. The `CLIMB +` sanity pin is consciously REVISED per §1.6 to the
+    new grammar (contract unchanged: an elevation strip with totals +
+    sparkline).
+13. **B8 Outlook label grammar (LOW)** — the 6H chips could render one
+    absolute-time label beside `+3h` neighbors (the labels array is only
+    fully populated on chart renders); now all-or-nothing absolute when the
+    whole strip can carry them.
+14. **B9 NEXT unit spacing (LOW)** — `1.2KM`/`120M` → spaced to match the
+    adjacent remaining-distance field's grammar.
+15. **B10 cosmetics batch** — chart tooltip title gains the weekday (a
+    cache-stale slice could hover "01:00" with no day context); tooltip
+    footer loses its blank leading line and the Peak-UV/Solar echo of body
+    lines; the dead `|| ''` guard in the tooltip label callback written as
+    intended; zero trend no longer prints `+0°/1h`; the vestigial day-suffix
+    strip call removed; the Aero speed-tape digital readout pads to 3 digits
+    (matches the tracking pill for the same reading, pins the box width).
+
+### Changes
+
+- `index.html` — all 26 planned fixes + the typed-array update-path fix.
+- `sw.js` — APP_CACHE v28.
+- `tests/sanity.test.js` — **+34 guards net (483 → 517; incl. 3 negative
+  guards: the stale column class, the removed area-fill background, the
+  removed direct Float64Array splice)**; 3 guards consciously REVISED per
+  §1.6: APP_CACHE v27 → v28 ×2, `CLIMB +` → the new elevation grammar.
+- `VERSION` → 1.16.6, `package.json` synced, `AGENTS.md` §11 synced,
+  `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **517/517** + unit **47/47** ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 943..11445 /
+  727547 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps — no new
+  origins, domnull 0, visual PASS — single `--hud-rot` writer untouched,
+  rotation inventory unchanged; the radar legend is a screen-locked static
+  sibling, no transform contract touched, shell PASS, csp-evaluator 4
+  documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) ·
+  `npm run audit:verify` **30/30** · `npm run precheck` green (Tailwind
+  v4.3.3 rebuild; new legend utilities byte-verified present post-build)
+  · `node tests/audit-unified.mjs` **39 checks PASS** +
+  **Perfection PASS (0 stairs, 0 janks)** · `npx playwright test`
+  **3 passed — axe: 0 violations, pin stays EMPTY**.
+- **Live runtime pass (E5, chrome-devtools rig, GPS-stubbed boot at the
+  user's pin, 390×844, night mode):** night card filter brightness(0.72)
+  saturate(0.85) with the hook class present (was none/absent); radar
+  legend renders 4 palette-built rows from the restored preference and
+  toggles OFF/ON cleanly; chart instance carries 9 datasets (GEM last,
+  only the temp band keeps an area fill), visible temp axis, NOW-line
+  plugin registered; tooltip callbacks invoked directly: title
+  "06:00 · Tue", footer "Rain Consensus: 0% + temp spread" (no blank
+  line, no echo), GEM label line live; AQI 66-76 reads MODERATE in amber,
+  UV 8.0 reads HIGH/VERY HIGH in red; matrix renders the unit hint + tiered
+  coverage; outlook strip coherent; envelope prints Trend 0°/1h (no sign
+  lie); **0 red console errors** on the fixed shell across the boot + 75 s
+  multi-fetch window (the pre-fix shells threw the typed-array TypeError
+  8×/1× in the identical window).
+- Fetch Gate §6 not re-triggered by §2 (no fetch URLs/triggers/math
+  changed — display + chart data plumbing only); the live boots above
+  captured the healthy chain on this exact tree anyway (CLEAR 25-26°,
+  AQI + METAR + radar all rendering). Visual runtime §7 not triggered
+  (no transform/rotation surfaces touched — visual-audit inventory
+  unchanged; the legend is screen-locked static markup).
+
+### Blind spots considered (§8)
+
+Races: the ETA freeze is written on the single-threaded render chain and
+its validity gate is the remaining-distance signature captured with the
+frozen string (a reroute while stopped cannot show the old destination's
+arrival). The legend builder is idempotent (dataset.built flag) and its
+visibility funnel is called only from the two single-threaded toggle
+paths. Leaks: one boot-once legend innerHTML write + two boot-once
+listeners? None added — the legend reuses existing toggle wiring; the
+NOW-line plugin allocates only inside afterDatasetsDraw at chart redraw
+cadence. Coercion: every new numeric gate is typeof/Number.isFinite
+checked (fmtRadarMmh, visKm, _wdVal, ETA signature equality); the typed-
+array writer checks Array.isArray before splicing. Off-by-one: the GEM
+dataset deliberately rides LAST (index 8) so the footer's [6]/[7] temp-band
+indices stay correct — pinned by guards; the outlook absolute-label gate
+requires the whole strip's labels to exist before switching grammar.
+Unhandled rejections: none added (all display paths synchronous; legend
+funnel null-guarded). Perf: reference-swap instead of splice is strictly
+LESS work on typed arrays; the NOW line is one stroke per redraw; legend
+is one boot write; no 60 Hz surface touched (fluidity Perfection PASS).
+A11y: the legend is `pointer-events-none` decorative text (the overlay
+chip keeps its accessible name); axe pin stays EMPTY (rig-proven); new
+tones only ADD signal. Visual compositing: the legend is a static
+screen-locked sibling — no transform contract, visual-audit byte-stable.
+Chart.js residual: the listener shim still installs splice-wrapped
+methods on every dataset object including typed arrays — nothing in the
+app calls mutation methods on dataset data anymore (the update path was
+the only mutator; negative-guarded); a future edit calling .push/.splice
+on a typed-array dataset would hit the same shim and throw LOUDLY (the
+1.4.1-landmine is now a tripwire, not a silent trap).
+
+### PENDING (user / next session)
+
+- User device pass: night dim on the real screen (the card should visibly
+  dim at night), radar legend over a REAL rain event (intensity colors
+  vs falling rain), chart NOW marker + readable temp band + GEM line in
+  focus mode, stopped-ETA STOP qualifier at traffic lights (frozen wall
+  clock, no total-trip jump), a route with elevation (true descent total),
+  second-boot v28 update path on installed clients.
+- Standing: AC-3 ETA product decision, GITHUB_TOKEN, osm v0.6.0 Nominatim
+  re-probe, Lighthouse PWA + device checks, content-CLS slot reservation,
+  night-mode dimming contrast tradeoff, Aero token polish round,
+  backdrop-blur ETA bar.
+
+---
+
 ## 1.16.5 — 2026-10-25 (patch: UI improvement audit round — token skew, modal dialog semantics, focus visibility, reduced-motion, checkmarks, safe-area)
 
 ### Bump rationale

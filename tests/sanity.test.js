@@ -163,7 +163,12 @@ assertIncludes(html, "text-base md:text-sm font-bold text-white placeholder-gray
 assertIncludes(html, "flex flex-wrap items-center gap-x-3 gap-y-1", "telemetry sub-line wraps instead of clipping on narrow screens");
 assertIncludes(html, "handleGeoSearch", "search results route through activateLiveNavigation");
 assertIncludes(html, "fetchRouteElevation", "route elevation batch fetch present");
-assertIncludes(html, "CLIMB +", "route timeline renders the elevation strip");
+// 1.16.6 consciously REVISED per §1.6: 'CLIMB +' → the new strip grammar
+// (▲/▼ = summed ascent/descent deltas; the range reads as min–max, no longer
+// formatted like a fake descent figure). The contract — an elevation strip
+// with totals + sparkline — is unchanged.
+assertIncludes(html, "ELEV &#9650;${re.gain} m &#9660;${re.loss || 0} m", "route timeline renders the elevation strip with summed ascent/descent (1.16.6 B7)");
+assertIncludes(html, "loss += arr[k - 1] - arr[k]", "route elevation accumulates a true descent total (1.16.6 B7)");
 assertIncludes(html, "PM10 ${", "telemetry card renders PM10 (fetched-but-unused no more)");
 assertIncludes(html, "_lastSiblingTs", "sibling APIs refresh on a 10-minute TTL, not every telemetry tick");
 assertIncludes(html, "profile: prof", "route elevation keeps its climb profile for the sparkline");
@@ -667,7 +672,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v27'", "sw.js APP_CACHE v27 — 1.16.5 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v28'", "sw.js APP_CACHE v28 — 1.16.6 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -822,7 +827,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v27", "sw.js 1.16.5: APP_CACHE v27 (index.html + sw.js changed)");
+assertIncludes(swSrc, "meteonexus-app-v28", "sw.js 1.16.6: APP_CACHE v28 (index.html + sw.js changed)");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
@@ -987,6 +992,89 @@ assertIncludes(html, 'title="Tap to expand diagnostics"', "index.html 1.16.5: ha
 assertIncludes(html, 'uppercase tracking-widest overlay-safe">', "index.html 1.16.5: ETA bar honors the notch safe-area (fixed top-2 on mobile previously sat under the status bar)");
 assertIncludes(html, 'pointer-events-none overlay-safe"', "index.html 1.16.5: tracking progress bar honors the notch safe-area (fixed top-0)");
 assertIncludes(html, 'class="ml-2 bg-black/20 px-4 py-2 rounded-full text-xs tap-48"', "index.html 1.16.5: recenter NOW button meets the driving tap-48 doctrine (was ~32px for a driving-critical control)");
+
+// ---------------------------------------------------------------------------
+// 1.16.6 — UI/data-visualization correctness round (live-proven findings)
+// ---------------------------------------------------------------------------
+// A1 — night-mode dim restored on the merged Environment card. updateClass
+// REPLACES the whole className; the JS base string dropped `hud-card`, so
+// `body.night .hud-card { filter: brightness(0.72) }` never applied — the
+// driver's primary surface stayed FULL-brightness at night while
+// header/footer dimmed (live-proven: night:true + cardFilter:"none").
+assertIncludes(html, 'updateClass(DOM.mainCard, "hud-card col-span-1 rounded-2xl p-4 md:p-6 transition-colors duration-500 border-4 relative overflow-hidden")', "1.16.6 (A1): the telemetry render's mainCard base string carries hud-card (night dim applies again); surface colors stay markup-only so tone pairs never compete in stylesheet order");
+assertIncludes(html, 'updateClass(DOM.mainCard, "hud-card col-span-1 rounded-2xl p-4 md:p-6 flex flex-col', "1.16.6 (A1): paintGpsDownFace carries hud-card too");
+assert(
+  !html.includes("lg:col-span-5"),
+  "1.16.6 (A1, negative guard): the stale lg:col-span-5 from the pre-U2-MERGE grid is GONE (#main-grid is grid-cols-1)"
+);
+// A2 — live-path null guards (Math.round(null) rendered a plausible fake "0°";
+// null + '%' printed the literal "null%"; the wind arrow rotated SOUTH on null).
+assertIncludes(html, "(typeof curr.temperature_2m === 'number') ? Math.round(curr.temperature_2m) + '°' : '--'", "1.16.6 (A2): metric temp guards null (no more fake 0°)");
+assertIncludes(html, "(typeof curr.relative_humidity_2m === 'number') ? curr.relative_humidity_2m + '%' : '--'", "1.16.6 (A2): metric humidity guards null (no more literal null%)");
+assertIncludes(html, "getWindDirection(_wdVal) + (_wdVal !== null ? ` <i class=\"fa-solid fa-arrow-up\" style=\"transform: rotate(${_wdVal + 180}deg);\"></i>` : '')", "1.16.6 (A2): wind-direction arrow omitted when the direction is unknown (null + 180 drew a south arrow beside '--')");
+// A3 — stopped-ETA semantics: the bar previously flipped from a live
+// wall-clock+remaining countdown to the static TOTAL-trip minutes
+// (driveRouteMin) at <5 km/h — mixed semantics, re-jumping at every stop light.
+assertIncludes(html, "String(_trackingEtaKeys.etaLiveTxt).split(' · ')[0] + ' · STOP'", "1.16.6 (A3): stopped ETA freezes the last live wall clock with a STOP qualifier (no more total-trip flip)");
+assertIncludes(html, "_trackingEtaKeys.etaLiveRkm = _rKmQ;", "1.16.6 (A3): the frozen ETA carries the remaining-distance signature (a route swap while stopped invalidates it → honest '--:--')");
+// A4 — RAIN_LIKELY node chip: the bottom status row was BLUE while the top
+// block of the SAME chip was RED — two severity colors for one verdict.
+assertIncludes(html, "status === 'RAIN_LIKELY'    ? 'text-brand-red font-black drop-shadow-md'", "1.16.6 (A4): RAIN_LIKELY chip status row unified to red (matches the top block + the main card's alert tier)");
+// A5 — radar mm/h readouts were unguarded raw float interpolation.
+assertIncludes(html, "function fmtRadarMmh(v) {", "1.16.6 (A5): guarded radar intensity formatter exists");
+assert(
+  (html.match(/fmtRadarMmh\(/g) || []).length >= 6,
+  "1.16.6 (A5): fmtRadarMmh consumed at all three radar mm/h surfaces (definition + sources note + verdict basis + node chips incl. legend builder)"
+);
+// B1 — radar intensity legend. The overlay's colors were unexplained; the
+// mm/h mapping lived only inside RADAR_CORE_PALETTE as classifier data.
+assertIncludes(html, 'id="radar-legend"', "1.16.6 (B1): radar legend container exists over the map");
+assertIncludes(html, "function buildRadarLegend() {", "1.16.6 (B1): legend rows are BUILT from RADAR_CORE_PALETTE (legend can never drift from the classifier)");
+assertIncludes(html, "RADAR_CORE_PALETTE.filter(p => p.cls === cls)", "1.16.6 (B1): legend rows derive from the palette constant, not a hand-copied table");
+assertIncludes(html, "function syncRadarLegend() {", "1.16.6 (B1): single visibility funnel");
+assert(
+  (html.match(/syncRadarLegend\(\);/g) || []).length === 2,
+  "1.16.6 (B1): both ON/OFF paths wired (chip toggle + initMap preference restore) — a restored session shows the legend without a tap"
+);
+// B2 — the temperature band previously lived on a HIDDEN axis with no scale
+// (live screenshot: an unreadable teal blob with no readable values).
+assertIncludes(html, "y_temp:  { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }", "1.16.6 (B2): the temp band axis is VISIBLE with ° ticks (band becomes readable; Chart.js offsets the two right axes)");
+// B3 — "now" was only the implicit left edge of the 24h slice.
+assertIncludes(html, "const _nowLinePlugin = {", "1.16.6 (B3): inline NOW-marker plugin exists (no new CDN dependency)");
+assertIncludes(html, "plugins: [_nowLinePlugin],", "1.16.6 (B3): the plugin is registered on the chart");
+// B4 — precipitation switched from occluding area-fills to thin lines; GEM
+// joins the chart (the footer's consensus % always included GEM's vote).
+assertIncludes(html, "label: 'GEM',   data: rainData.ca || []", "1.16.6 (B4): GEM rides as the LAST dataset (index 8 — the tooltip footer reads [6]/[7] for the temp band)");
+assertIncludes(html, "rainData = { eu: rEU, us: rUS, de: rDE, jp: rJP, ca: rCA };", "1.16.6 (B4): the GEM precip slice is built in normalizeTelemetryData");
+assert(
+  !html.includes("backgroundColor: tc.blue    + '33'"),
+  "1.16.6 (B4, negative guard): the ECMWF area-fill is GONE (filled lines occluded each other at the 0–2 mm consensus scale)"
+);
+// B5 — unit/band honesty: AQI top-of-scale collapse + toneless bands.
+assertIncludes(html, "aqi <= 300 ? 'VERY UNHEALTHY' : 'HAZARDOUS'", "1.16.6 (B5): AQI bands no longer collapse 151+/201+/301+ into one UNHEALTHY");
+assertIncludes(html, "· wind km/h</span>", "1.16.6 (B5): the matrix carries the wind/gust unit hint (Wind/Gust cells were the only unitless columns)");
+assertIncludes(html, "covTone: _nocov ? 'none'", "1.16.6 (B5): matrix Cov tone mirrors the badge strip (no-coverage ≠ degraded ≠ FAULTED)");
+// B6 — the "< 1 km is fog/rain hazard" color existed only on the Aero meter.
+assertIncludes(html, "visKm < 1 ? 'text-brand-red' : visKm < 5 ? 'text-brand-warning'", "1.16.6 (B6): card visibility row carries the hazard colors + Aero-matching precision ladder");
+// B8 — outlook chip labels oscillated between HH:MM and +Nh across renders.
+assertIncludes(html, "const outlookAbs = needsChartArg && Array.isArray(times) && times.length >= outlookLen;", "1.16.6 (B8): outlook labels are all-or-nothing absolute times (no mixed grammars on one strip)");
+// B10 — cosmetics batch.
+assertIncludes(html, "String(snKey).padStart(3, '0')", "1.16.6 (B10): Aero speed readout pads to 3 digits (matches the tracking pill; pins box width)");
+assertIncludes(html, "temperatureTrend > 0 ? '+' : ''", "1.16.6 (B10): zero trend no longer prints the '+0°/1h' sign lie");
+// Runtime-found (live stack-proven at the rig): Chart.js 4.4 installs its
+// array-listener shim on EVERY dataset data object; the shim wraps 'splice'
+// via `s.apply(...)` with s = the NATIVE method captured at install time.
+// Float64Array has no splice → s undefined → the first same-length chart
+// update threw "Cannot read properties of undefined (reading 'apply')" from
+// inside chart.umd.min.js. LATENT SINCE 1.4.1 (only fires when a same-length
+// model-run change re-renders the chart; short sessions never hit it).
+assertIncludes(html, "const _setDsData = (idx, arr) => {", "1.16.6 (runtime fix): typed-aware dataset data writer exists (splice plain arrays, reference-swap Float64Arrays)");
+assertIncludes(html, "if (Array.isArray(ds.data)) ds.data.splice(0, ds.data.length, ...arr);", "1.16.6 (runtime fix): plain-array datasets keep the in-place splice (the Chart.js shim works there)");
+assertIncludes(html, "else ds.data = arr;", "1.16.6 (runtime fix): typed-array datasets swap by reference — verified live: Chart.js re-listens the new object and unlistens the old");
+assert(
+  !html.includes("datasets[2].data.splice"),
+  "1.16.6 (runtime fix, negative guard): the direct Float64Array splice — the exact line the live stack pointed at — is GONE from the update path"
+);
 
 // ---------------------------------------------------------------------------
 // Report
