@@ -118,6 +118,172 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.7 — 2026-10-28 (patch: UI polish round — modal motion, timeline badge noise, header/map chrome, search distance, one-accent modals)
+
+### Bump rationale
+
+Patch bump 1.16.6 → 1.16.7 (user-directed *"check for possible UI
+improvement"* — the third polish round; 1.16.5 covered a11y/safety, 1.16.6
+data-viz correctness, this one visual/UX feel). Audit method: two
+parallel exploration agents over the territories the prior rounds never
+touched (modals + timeline cards; header + map chrome + empty states +
+search), every candidate hand-verified against source and the
+live-proven ones re-proven on the chrome-devtools rig before the gate.
+~24 polish fixes landed across 6 surfaces. `sw.js` `APP_CACHE` `v28` →
+`v29`.
+
+### What shipped (all display/CSS-only — zero fetch/rotation surfaces)
+
+1. **Modal entrance animation (the feel headline)** — the three app modals
+   snapped in with a bare hidden-class toggle (no transition existed in
+   the modal path; the toast already had the app's best motion). A 160 ms
+   root fade + 200 ms panel scale-in now runs on every open (CSS
+   animations restart when an element leaves display:none — no JS
+   change), and the animations join the prefers-reduced-motion kill list.
+   LIVE-PROVEN BOTH DIRECTIONS: the chrome-devtools rig forces
+   prefers-reduced-motion: reduce by default, so the first probe showed
+   the kill rule active (computed animationName none, getAnimations
+   empty — the designed instant reveal); after emulating no-preference
+   the root runs _modalRootIn, the panel _modalPanelIn, animations
+   actively running. Exit animation deliberately deferred (needs an
+   animationend handoff + double-tap guard).
+2. **Timeline badge noise retired** — every upcoming route node carried an
+   identical gray LIVE•NOW badge (dozens per timeline), diluting the teal
+   one's meaning. The badge now marks ONLY the nearest upcoming node;
+   others are identified by their node id (already in the right column).
+   The card shell also drops the dead transition-all (the timeline is
+   wholesale-replaced each render — it never ran) and the mb-1 double
+   spacing (the track's gap owns the rhythm).
+3. **Header polish** — the three header buttons (install/purge/sonar) now
+   meet the app's own 48px tap floor (they were the only frequently
+   tapped controls at 44px; desktop unchanged via the min-* geometry);
+   SONAR gains the sibling hover fill + the spacing parity it lacked
+   (was 4px wider, no hover, no shadow); the version badge drops the
+   mt-1 baseline nudge and matches the footer twin's opacity affordance
+   (the 1.16.5 pin accidentally captured the nudge — consciously revised
+   per §1.6 to the aligned form).
+4. **GPS accuracy state is a chip** — the live GNSS readout was orphaned
+   bare text beside the full STANDBY chip; all four accuracy variants
+   (ACQUIRING/HIGH/MED/LOW) + the markup base now carry the same chip
+   shell, and the two-row left side reads as one system. Live-proven:
+   computed 2px border + chip classes on the HIGH state.
+5. **Search upgrades** — result rows now carry DISTANCE-TO-USER
+   (right-aligned, the primary discriminator between same-named places in
+   a driving app; live-proven: Manila PH 47 km vs Manila Utah 11,956 km
+   vs Manila Arkansas 13,547 km), a hover accent, the input joins the
+   cluster's radius duality, and the SEARCHING/NO MATCHES states carry
+   icons (they were the only iconless states). The mobile toolbar grid
+   goes 5→6 columns so the Nav button un-hiding mid-drive fills column 6
+   instead of wrapping the cluster to a third row (guard consciously
+   revised per §1.6).
+6. **One accent per modal** — the Pit Stop accordion wore a 4-color
+   section rainbow (orange/green/blue/purple headers + mismatched control
+   accents: green amenity marks beside orange EV/H2 marks, blue focus
+   ring on the Hours select) with no semantic mapping inside one
+   orange-branded panel. All section headers, open-tints, check marks,
+   focus accents and the Download All button now share the modal's
+   orange; the per-brand download buttons keep their STATUS colors.
+   Amenities also become a 2-col grid (was a 7-row single-column stack in
+   a max-w-sm modal) with the leading-icon convention.
+7. **Consistency batch** — Purge All's hover:bg-red-500 was a NO-OP
+   (brand-red IS red-500; negative-guarded) → the opacity hover pattern;
+   the emoji status glyphs (❌✅⚠️) in the offline rows → Font Awesome
+   icons + larger buttons; the MagCal status pill truncates long
+   verdicts (REJECTED — magnetic interference previously crushed against
+   the sample counter); the route-status chip no longer changes geometry
+   when transient errors fire (all 8 writers unified to the compact
+   nav-chip shape — negative-guarded); the telemetry section header joins
+   the teal-sm grammar of its Intel/Aero siblings; the desc chip wraps
+   long GPS-denial copy; the speed pill's Max micro-label matches its
+   km/h sibling; the toast gains role=status (screen readers never heard
+   it), a leading kind icon (color was the only kind signal), and the
+   notch safe-area inset; Escape now exits section fullscreen (modals and
+   Aero focus had it — sec-telemetry/map/intel trapped keyboard users
+   behind a 44px icon; modals win when both are open); the U+2026/ASCII
+   ellipsis mix (byte-verified 10 sites) normalizes to ASCII.
+
+### Changes
+
+- `index.html` — all fixes above (CSS animation block + reduced-motion
+  rider; header/map/modal markup; timeline/geo/offline/amenity/toast/
+  Escape/status writers).
+- `sw.js` — APP_CACHE v29.
+- `tests/sanity.test.js` — **+40 guards (517 → 557; incl. 6 negative
+  guards: gray badge, px-4 chip shape, hover:bg-red-500, emoji glyphs,
+  section-accent rainbow, U+2026)**; 3 guards consciously REVISED per
+  §1.6: APP_CACHE v28 → v29 ×2, the 1.16.5 badge pin retargeted to the
+  mt-1-free alignment.
+- `VERSION` → 1.16.7, `package.json` synced, `AGENTS.md` §11 synced,
+  `HISTORY.md` — this chapter.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **557/557** + unit **47/47** ·
+  `npm run audit` **10/10 PASS** (extract+parse OK module 965..11501 /
+  730980 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps — no new
+  origins, domnull 0, visual PASS — no transform contract touched (the
+  modal scale animation lives on modal panels, not map layers), shell
+  PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps
+  0 vulns) · `npm run audit:verify` **30/30** · `npm run precheck` green
+  · **10/10 new utilities byte-verified present post-build** (hover
+  surface-700/40, grid-cols-6, px-2.5, min-w-0, truncate, shrink-0,
+  max-w-95, leading-relaxed, opacity-90, sm:rounded-lg) ·
+  `node tests/audit-unified.mjs` **39 checks PASS** + **Perfection PASS**
+  · `node tests/ui-fluidity.test.js` Perfection PASS ·
+  `npx playwright test` **3 passed — axe: 0 violations, pin stays EMPTY**.
+- **Live runtime pass (chrome-devtools rig, GPS-stubbed boot at the
+  user's pin, 390×844, daytime):** GPS chip computed 2px border + chip
+  classes on the HIGH state; header buttons computed min-height 48px;
+  modal animation running under no-preference (_modalRootIn +
+  _modalPanelIn, getAnimations live) and none under the rig's forced
+  reduce (the kill rule proven in the wild); fuel modal: 5/5 summary
+  hovers, amenity grid-cols-2, orange Hours focus, 4 enlarged offline
+  buttons with FA glyphs (0 emoji), orange Download All, Purge hover
+  opacity; geo-search live: distance column on every row (47 km /
+  11956 km / 13547 km) + hover accent; AQI 38 GOOD renders in the
+  success tone; **0 red console errors**.
+
+### Blind spots considered (§8)
+
+Races: none added — the animation is declarative CSS (restarts on
+display toggle are the browser's own semantics); the Escape handler
+early-returns when a modal is open (modal wins, single-threaded chain).
+Leaks: one toast icon element per toast (the toast already recreated
+nothing — same singleton). Coercion: the distance gate is
+Number.isFinite-checked on both coordinates + result. Off-by-one: the
+badge count guard (=== 1) pins the retirement both ways. Unhandled
+rejections: none added (display paths synchronous; the search path was
+already caught). Perf: one 160-200ms CSS animation per modal open (zero
+rAF work); the distance column is one haversine per search render (5
+rows, user-initiated — negligible); no 60 Hz surface touched (fluidity
+Perfection PASS). A11y: only ADDS signal (toast role, Escape parity,
+48px targets, icons on empty states); axe pin stays EMPTY (rig-proven).
+Visual compositing: modal scale transforms live on modal panels — the
+visual-audit inventory (map panes/popups/rotation writers) is
+byte-stable, scanner-proven. Deferred with rationale: modal EXIT
+animation (needs an animationend handoff before the hidden toggle + a
+double-tap guard — an async close path touches the purge flow's
+disabled-button semantics; not worth the risk in a polish round), the
+elevation sparkline de-nest (screenshot showed it reading fine), the
+map button-stack border-weight tiers (1px glass vs 2px controls vs 4px
+mode button is a coherent deliberate hierarchy), '--' placeholder
+dimming (full-weight placeholders persist only at boot — data always
+arrives; a cross-cutting writer change for a seconds-long state).
+
+### PENDING (user / next session)
+
+- User device pass: modal open feel on the phone (entrance animation),
+  timeline with a route (single LIVE•NOW badge), search distance on a
+  real query, Escape on a desktop keyboard, toast with icon, second-boot
+  v29 update path on installed clients.
+- Standing: AC-3 ETA product decision, GITHUB_TOKEN, osm v0.6.0
+  Nominatim re-probe, Lighthouse PWA + device checks, content-CLS slot
+  reservation, night-mode dimming contrast tradeoff, Aero token polish
+  round, backdrop-blur ETA bar (needs device GPU trace), modal exit
+  animation (see deferral above).
+
+---
+
 ## 1.16.6 — 2026-10-27 (patch: data-visualization correctness round — night-dim restoration, radar legend, readable chart, honest ETA/units + a runtime-found Chart.js typed-array landmine)
 
 ### Bump rationale

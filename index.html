@@ -402,7 +402,26 @@ them for instant render on every later boot. -->
                0.01ms. Users: low-conf dot, recenter chip icon, install
                button; the color/glow state cues all survive without motion. */
             .animate-bounce, .animate-pulse { animation-duration: 0.01ms; animation-iteration-count: 1; }
+            /* 1.16.7 (modal entrance animation): the one-shot open animation
+               joins the kill list — reduced-motion users get the instant
+               reveal the app shipped with before this round. */
+            #custom-modal, #fuel-settings-modal, #magcal-modal,
+            #custom-modal > div, #fuel-settings-modal > div, #magcal-modal > div {
+                animation: none !important;
+            }
         }
+        /* 1.16.7 (modal entrance): the three app modals previously snapped in
+           with a bare hidden-class toggle (showAppModal only removed 'hidden'
+           — no transition existed anywhere in the modal path). A 160ms root
+           fade + 200ms panel scale-in runs on every unhide (CSS animations
+           restart when an element leaves display:none), no JS change needed.
+           The toast already proves the pattern in-app; exit animation is
+           deliberately deferred (needs an animationend handoff before the
+           hidden toggle + double-tap guard). */
+        @keyframes _modalRootIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes _modalPanelIn { from { opacity: 0; transform: scale(0.96) translateY(10px); } to { opacity: 1; transform: none; } }
+        #custom-modal:not(.hidden), #fuel-settings-modal:not(.hidden), #magcal-modal:not(.hidden) { animation: _modalRootIn 0.16s ease-out; }
+        #custom-modal:not(.hidden) > div, #fuel-settings-modal:not(.hidden) > div, #magcal-modal:not(.hidden) > div { animation: _modalPanelIn 0.2s ease-out; }
         /* AERO-VECTOR: the radar card is DOM-nested inside main-grid but owns an
          INDEPENDENT focus mode (radar-expand-btn). Excluded from Local-Telemetry
          fullscreen unless it is itself fullscreen — focusing telemetry no longer
@@ -418,17 +437,17 @@ them for instant render on every later boot. -->
             <h1 class="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white flex items-center gap-2 sm:gap-3">
                 <i class="fa-solid fa-satellite-dish text-brand-teal text-2xl sm:text-3xl"></i>
             METEONEXUS <span class="font-bold text-gray-400 tracking-widest text-sm hidden sm:inline">HUD</span>
-            <span class="text-[10px] font-mono font-bold text-surface-400 tracking-widest ml-1 mt-1" title="Deployed version" data-version-badge></span>
+            <span class="text-[10px] font-mono font-bold text-surface-400 tracking-widest ml-1 opacity-80 hover:opacity-100 transition-opacity" title="Deployed version" data-version-badge></span>
         </h1>
 
         <div class="flex items-center gap-2">
-            <button id="pwa-install-btn" aria-label="Install App" class="hidden w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 items-center gap-2 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
+            <button id="pwa-install-btn" aria-label="Install App" class="hidden tap-48 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 items-center gap-2 rounded-xl border-4 border-brand-blue/40 bg-brand-blue/10 text-brand-blue text-xs md:text-sm font-bold tracking-widest hover:bg-brand-blue hover:text-white transition-all shadow-sm">
                 <i class="fa-solid fa-cloud-arrow-down animate-bounce"></i><span class="hidden md:block">INSTALL</span>
             </button>
-            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm select-none" title="Purge caches and storage + retry GPS (confirm)">
+            <button onclick="purgeSystem()" aria-label="Purge System Storage" class="tap-48 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-brand-red/40 bg-brand-red/10 text-brand-red text-xs md:text-sm font-bold tracking-widest hover:bg-brand-red hover:text-white transition-all shadow-sm select-none" title="Purge caches and storage + retry GPS (confirm)">
                 <i class="fa-solid fa-skull"></i><span class="hidden md:block">PURGE</span>
             </button>
-            <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="w-11 h-11 justify-center p-0 md:w-auto md:h-auto md:px-6 md:py-3 flex items-center gap-3 rounded-xl border-4 border-surface-700 bg-surface-900 text-surface-400 hover:text-white transition-all" title="Sonar audio alerts">
+            <button id="audio-btn" onclick="toggleAudio()" aria-label="Toggle Sonar" class="tap-48 justify-center p-0 md:w-auto md:h-auto md:px-5 md:py-3 flex items-center gap-2 rounded-xl border-4 border-surface-700 bg-surface-900 text-surface-400 hover:text-white hover:bg-surface-700 transition-all" title="Sonar audio alerts">
                 <i class="fa-solid fa-volume-xmark text-xl" id="audio-icon"></i>
                 <span id="audio-text" class="hidden sm:block">SONAR OFF</span>
             </button>
@@ -444,7 +463,7 @@ grid inside #sec-telemetry, not the page landmark. -->
 <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div onclick="toggleFocus('sec-telemetry')" class="flex justify-center -mb-1 cursor-pointer" title="Tap to expand diagnostics"><div id="focus-drag-handle" class="w-10 h-1 bg-surface-600 rounded-full hover:bg-brand-teal transition-colors"></div></div>
         <div class="flex justify-between items-center px-2">
-            <span class="text-xs font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
+                <span class="text-sm font-bold text-brand-teal uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing</span>
             <button onclick="toggleFocus('sec-telemetry')" aria-label="Focus Telemetry" class="tap-48 w-11 h-11 flex items-center justify-center text-brand-teal hover:text-white transition-colors"><i class="fa-solid fa-expand text-lg" id="icon-sec-telemetry"></i></button>
         </div>
         <div id="main-grid" class="grid grid-cols-1 gap-4">
@@ -474,7 +493,7 @@ grid inside #sec-telemetry, not the page landmark. -->
 
                         <i id="status-icon" class="text-6xl md:text-7xl mb-2 fa-solid fa-circle-notch fa-spin text-gray-400"></i>
                         <span id="status-text" class="text-3xl md:text-4xl font-black tracking-tight text-gray-400 uppercase">WAITING</span>
-                        <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase">AWAITING SATELLITE</div>
+                        <div id="weather-desc" class="mt-2 text-gray-300 font-mono text-xs md:text-sm font-bold bg-black/50 px-4 py-1.5 rounded-xl border-2 border-surface-700 uppercase max-w-[95%] leading-relaxed">AWAITING SATELLITE</div>
                         <div id="code-agreement-badge" class="mt-1 text-[10px] font-mono font-bold text-gray-400 uppercase tracking-widest"></div>
                     </div>
 
@@ -598,10 +617,10 @@ grid inside #sec-telemetry, not the page landmark. -->
     <div id="sec-map" class="w-full bg-surface-900 border-4 border-surface-800 rounded-2xl p-4 md:p-6 flex flex-col mt-2 transition-all duration-300">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2 w-full">
             <div class="flex flex-row flex-wrap items-center gap-2">
-                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap"><i class="fa-solid fa-crosshairs text-brand-teal"></i> <span id="gps-acc-text">Tracking</span></span>
+                <span id="gps-acc-ui" class="text-xs md:text-sm font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700"><i class="fa-solid fa-crosshairs text-brand-teal"></i> <span id="gps-acc-text">Tracking</span></span>
                 <span id="route-status" class="text-xs md:text-sm font-bold text-gray-400 uppercase tracking-widest bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700 whitespace-nowrap">STANDBY</span>
             </div>
-            <div class="grid grid-cols-5 justify-items-center gap-2 sm:flex sm:flex-row sm:items-center shrink-0">
+            <div class="grid grid-cols-6 justify-items-center gap-2 sm:flex sm:flex-row sm:items-center shrink-0">
                     <button id="fuel-trigger-btn" aria-label="Trigger Pit Stop Search" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-brand-orange text-brand-orange font-bold w-11 h-11 sm:w-auto sm:h-auto justify-center p-0 sm:px-3 sm:py-1.5 rounded-xl sm:rounded-lg text-xs md:text-sm uppercase tracking-widest transition-all hover:scale-[1.03] active:scale-[0.97] hover:shadow-[0_0_15px_rgba(245,158,11,0.4)] flex items-center gap-0 sm:gap-2 shadow-[0_0_10px_rgba(245,158,11,0.2)] will-change-transform">
                     <i class="fa-solid fa-gas-pump text-base sm:text-sm"></i> <span class="hidden sm:inline">Pit Stop</span>
                 </button>
@@ -612,7 +631,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                     <i class="fa-solid fa-bolt text-base sm:text-sm"></i> <span class="hidden sm:inline">Paste Target</span>
                 </button>
                 <div class="relative col-span-5 order-first sm:order-none sm:col-span-1 flex items-center gap-2 w-full sm:w-auto">
-                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place…" aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl px-3 text-base md:text-sm font-bold text-white placeholder-gray-400 flex-1 min-w-0 sm:flex-none sm:w-44 focus:border-brand-teal" />
+                    <input id="geo-search-input" onkeydown="if(event.key==='Enter'){event.preventDefault();handleGeoSearch();}" placeholder="Search place..." aria-label="Search place by name" class="tap-48 bg-surface-800 border-2 border-surface-700 rounded-xl sm:rounded-lg px-3 text-base md:text-sm font-bold text-white placeholder-gray-400 flex-1 min-w-0 sm:flex-none sm:w-44 focus:border-brand-teal" />
                     <button id="geo-search-btn" onclick="handleGeoSearch()" aria-label="Search place" class="tap-48 bg-surface-800 hover:bg-surface-700 border-2 border-surface-700 text-brand-teal font-bold w-11 h-11 flex items-center justify-center rounded-xl text-xs md:text-sm transition-all shadow-sm shrink-0">
                         <i class="fa-solid fa-magnifying-glass text-base sm:text-sm"></i>
                     </button>
@@ -642,7 +661,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                     </div>
                     <div class="h-4 w-px bg-surface-700 mx-1"></div>
                     <div class="flex items-center gap-1" title="Session Max Speed">
-                        <span class="text-[8px] font-bold text-brand-orange uppercase">Max</span>
+                        <span class="text-[9px] font-bold text-brand-orange uppercase">Max</span>
                         <span id="max-speed" class="font-mono text-sm font-black text-brand-orange leading-none">000</span>
                     </div>
                 </div>
@@ -758,7 +777,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             <div class="space-y-3 font-mono" id="fuel-modal-accordion">
                 <!-- FUELS SECTION -->
                 <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-orange/50" open>
-                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none hover:bg-surface-700/40 transition-colors">
                         <span class="flex items-center gap-2 text-sm font-bold text-brand-orange uppercase tracking-widest">
                             <i class="fa-solid fa-gas-pump"></i> Fuels
                         </span>
@@ -791,35 +810,38 @@ grid inside #sec-telemetry, not the page landmark. -->
                     </div>
                 </details>
 
-                <!-- AMENITIES SECTION -->
-                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-green/50">
-                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
-                        <span class="flex items-center gap-2 text-sm font-bold text-brand-green uppercase tracking-widest">
+                <!-- AMENITIES SECTION — 1.16.7: section accents unified to the modal
+                     brand (orange). The previous 4-color rainbow (green/blue/purple
+                     headers) carried no semantic mapping inside one orange-branded
+                     panel; per-brand download buttons keep their STATUS colors. -->
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-orange/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none hover:bg-surface-700/40 transition-colors">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-orange uppercase tracking-widest">
                             <i class="fa-solid fa-concierge-bell"></i> Amenities
                         </span>
                         <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
                     </summary>
-                    <div class="px-3 pb-3 space-y-2 border-t border-surface-700" id="pref-amenities-list"></div>
+                    <div class="px-3 pb-3 grid grid-cols-2 gap-2 border-t border-surface-700" id="pref-amenities-list"></div>
                 </details>
 
                 <!-- HOURS SECTION -->
-                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-blue/50">
-                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
-                        <span class="flex items-center gap-2 text-sm font-bold text-brand-blue uppercase tracking-widest">
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-orange/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none hover:bg-surface-700/40 transition-colors">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-orange uppercase tracking-widest">
                             <i class="fa-solid fa-clock"></i> Hours
                         </span>
                         <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
                     </summary>
                     <div class="px-3 pb-3 space-y-3 border-t border-surface-700">
                         <label for="pref-opening-mode" class="block text-xs text-gray-400 mb-1 uppercase tracking-widest">Search Mode</label>
-                        <select id="pref-opening-mode" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-blue outline-none transition-colors"></select>
+                        <select id="pref-opening-mode" class="w-full bg-surface-800 border-2 border-surface-700 rounded-lg p-2 text-sm text-white focus:border-brand-orange outline-none transition-colors"></select>
                     </div>
                 </details>
 
                 <!-- OFFLINE SECTION -->
-                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-purple/50">
-                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
-                        <span class="flex items-center gap-2 text-sm font-bold text-brand-purple uppercase tracking-widest">
+                <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-brand-orange/50">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none hover:bg-surface-700/40 transition-colors">
+                        <span class="flex items-center gap-2 text-sm font-bold text-brand-orange uppercase tracking-widest">
                             <i class="fa-solid fa-download"></i> Offline
                         </span>
                         <i class="fa-solid fa-chevron-down text-gray-400 transition-transform group-open:rotate-180"></i>
@@ -827,7 +849,7 @@ grid inside #sec-telemetry, not the page landmark. -->
                     <div class="px-3 pb-3 space-y-3 border-t border-surface-700" id="pref-offline-content">
                         <div class="space-y-2" id="offline-brand-list"></div>
                         <div class="pt-2">
-                            <button id="download-all-btn" class="w-full bg-brand-purple/20 text-brand-purple hover:bg-brand-purple hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center justify-center gap-2">
+                            <button id="download-all-btn" class="w-full bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-colors shadow-sm flex items-center justify-center gap-2">
                                 <i class="fa-solid fa-download"></i> Download All Brands
                             </button>
                         </div>
@@ -836,7 +858,7 @@ grid inside #sec-telemetry, not the page landmark. -->
 
                 <!-- ROUTING SECTION -->
                 <details class="group border border-surface-700 rounded-lg bg-surface-800/50 open:border-surface-600/50">
-                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none">
+                    <summary class="flex items-center justify-between p-3 cursor-pointer select-none list-none hover:bg-surface-700/40 transition-colors">
                         <span class="flex items-center gap-2 text-sm font-bold text-gray-300 uppercase tracking-widest">
                             <i class="fa-solid fa-route"></i> Routing
                         </span>
@@ -895,7 +917,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             <p id="purge-gps-hint" class="hidden"></p>
             <div class="flex flex-col sm:flex-row gap-3 sm:justify-end">
                 <button id="purge-cancel-btn" onclick="closeModal('custom-modal')" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-surface-800 text-gray-300 font-bold rounded-lg hover:bg-surface-700 transition-colors uppercase tracking-widest text-sm">Cancel</button>
-                <button id="purge-confirm-btn" onclick="executePurge()" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-red text-black font-black rounded-lg hover:bg-red-500 transition-colors uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
+                <button id="purge-confirm-btn" onclick="executePurge()" class="w-full sm:w-auto px-4 py-3 sm:py-2 bg-brand-red text-black font-black rounded-lg hover:opacity-90 transition-all uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">Purge All</button>
             </div>
         </div>
     </div>
@@ -916,9 +938,9 @@ grid inside #sec-telemetry, not the page landmark. -->
 
             <div class="relative w-full h-48 bg-black/40 rounded-xl border-2 border-surface-700 overflow-hidden">
                 <canvas id="magcal-canvas" class="absolute inset-0 w-full h-full"></canvas>
-                <div id="magcal-status" class="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
-                    <span class="text-[10px] font-mono font-black uppercase tracking-widest text-brand-purple bg-black/60 px-2 py-1 rounded">READY</span>
-                    <span id="magcal-count" class="text-[10px] font-mono font-black uppercase tracking-widest text-gray-400 bg-black/60 px-2 py-1 rounded">0 samples</span>
+                <div id="magcal-status" class="absolute top-2 left-2 right-2 flex justify-between items-center gap-2 pointer-events-none">
+                    <span id="magcal-status-text" class="text-[10px] font-mono font-black uppercase tracking-widest text-brand-purple bg-black/60 px-2 py-1 rounded min-w-0 truncate">READY</span>
+                    <span id="magcal-count" class="text-[10px] font-mono font-black uppercase tracking-widest text-gray-400 bg-black/60 px-2 py-1 rounded shrink-0">0 samples</span>
                 </div>
             </div>
 
@@ -2903,8 +2925,12 @@ grid inside #sec-telemetry, not the page landmark. -->
         function showMeteoToast(message, kind = 'info', durationMs = 4000) {
             if (!_toastEl) {
                 _toastEl = document.createElement('div');
+                // 1.16.7: role="status" (implicit aria-live=polite) — the toast
+                // previously never reached screen readers; top honors the notch
+                // inset in landscape (env()=0 on desktop is a no-op).
+                _toastEl.setAttribute('role', 'status');
                 _toastEl.style.cssText = [
-                    'position:fixed','top:1rem','left:50%','transform:translateX(-50%)',
+                    'position:fixed','top:max(1rem, env(safe-area-inset-top))','left:50%','transform:translateX(-50%)',
                     'z-index:10001','padding:0.75rem 1rem','border-radius:0.75rem',
                     'border:2px solid','background:rgba(15,15,15,0.95)','backdrop-filter:blur(8px)',
                     'max-width:90vw','font:bold 12px JetBrains Mono, monospace',
@@ -2915,16 +2941,23 @@ grid inside #sec-telemetry, not the page landmark. -->
                 document.body.appendChild(_toastEl);
             }
             const palette = {
-                warning: { color:'#f59e0b', border:'#f59e0b', shadow:'rgba(245,158,11,0.4)' },
-                error:   { color:'#ef4444', border:'#ef4444', shadow:'rgba(239,68,68,0.4)' },
-                success: { color:'#22c55e', border:'#22c55e', shadow:'rgba(34,197,94,0.4)' },
-                info:    { color:'#38bdf8', border:'#38bdf8', shadow:'rgba(56,189,248,0.4)' }
+                warning: { color:'#f59e0b', border:'#f59e0b', shadow:'rgba(245,158,11,0.4)', icon:'fa-triangle-exclamation' },
+                error:   { color:'#ef4444', border:'#ef4444', shadow:'rgba(239,68,68,0.4)', icon:'fa-circle-exclamation' },
+                success: { color:'#22c55e', border:'#22c55e', shadow:'rgba(34,197,94,0.4)', icon:'fa-circle-check' },
+                info:    { color:'#38bdf8', border:'#38bdf8', shadow:'rgba(56,189,248,0.4)', icon:'fa-circle-info' }
             };
             const p = palette[kind] || palette.info;
             _toastEl.style.color = p.color;
             _toastEl.style.borderColor = p.border;
             _toastEl.style.boxShadow = `0 8px 32px ${p.shadow}`;
-            _toastEl.textContent = message;
+            // 1.16.7: leading kind icon — color was the only kind signal on a
+            // color-vision-dependent surface. Icon element + text node (never
+            // innerHTML with the message — the textContent safety contract holds).
+            _toastEl.textContent = '';
+            const _ti = document.createElement('i');
+            _ti.className = 'fa-solid ' + (p.icon || 'fa-circle-info') + ' mr-2';
+            _toastEl.appendChild(_ti);
+            _toastEl.appendChild(document.createTextNode(message));
             // Reset transform synchronously so a mid-fade previous toast doesn't
             // carry its translateY(-8px) into the new one's initial frame.
             _toastEl.style.transition = 'none';
@@ -3949,7 +3982,7 @@ let delta = heading - state.lastHeading;
             const statusEl = magCalState._statusEl;
             if (statusEl) {
                 const span = statusEl.querySelector('span');
-                if (span) span.textContent = magCalState.capturing ? 'CAPTURING…' : (magCalState.quality >= 0.8 ? 'READY' : 'NEEDS CAL');
+                if (span) span.textContent = magCalState.capturing ? 'CAPTURING...' : (magCalState.quality >= 0.8 ? 'READY' : 'NEEDS CAL');
             }
             const goBtn = magCalState._goBtnEl;
             if (goBtn) {
@@ -4909,19 +4942,19 @@ let delta = heading - state.lastHeading;
                     // HIGH (0m) — a false-positive "pinpoint" status.
                     if (!Number.isFinite(accuracy)) {
                         state.renderAccText = `Tracking | GNSS: ACQUIRING`;
-                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap";
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700";
                     } else if (accuracy <= 15) {
                         state.renderAccText = `Tracking | GNSS: HIGH (${Math.round(accuracy)}m)`;
-                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap";
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-success whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700";
                     } else if (accuracy <= 60) {
                         state.renderAccText = `Tracking | GNSS: MED (${Math.round(accuracy)}m)`;
-                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap";
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-warning whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700";
                     } else {
                         // Honest label: a degraded fix is still a GPS fix, not
                         // necessarily cellular positioning (enableHighAccuracy asks
                         // for GPS; >60m is typically urban-canyon / multi-path).
                         state.renderAccText = `Tracking | GNSS: LOW (${Math.round(accuracy)}m)`;
-                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap";
+                        state.renderAccClass = "text-xs md:text-sm font-bold uppercase tracking-widest text-brand-orange whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700";
                     }
 
                     // FIX (see above): stamp only accepted fixes; publish to
@@ -5527,7 +5560,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
         function handleRouteError(e) {
             console.warn("Routing error intercepted at top level:", e);
             updateText(DOM.statusEl, "ROUTING SERVER UNAVAILABLE");
-            updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30");
         }
 
         function initRoute(existingWaypoints = null) {
@@ -5611,12 +5644,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     DOM.gmapsPasteBtn.classList.remove('animate-pulse');
                 } else if (clipText) {
                     updateText(DOM.statusEl, "INVALID LINK FORMAT");
-                    updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30");
+                    updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-warning/30");
                 }
             } catch (err) {
                 console.warn("Link parsing pipeline failed:", err);
                 updateText(DOM.statusEl, "SYSTEM ERROR: PASTE FAILED");
-                updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30");
             }
         };
 
@@ -5631,7 +5664,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             if (!input || !box) return;
             const q = (input.value || '').trim();
             if (q.length < 2) { box.classList.add('hidden'); return; }
-            updateHTML(box, `<div class="px-3 py-2 text-gray-400 text-xs font-bold uppercase tracking-widest">SEARCHING…</div>`);
+            updateHTML(box, `<div class="px-3 py-2 text-gray-400 text-xs font-bold uppercase tracking-widest"><i class="fa-solid fa-spinner fa-spin mr-2"></i>SEARCHING...</div>`);
             box.classList.remove('hidden');
             const j = await fetchSiblingJSON('geo', `${CONFIG.geoApi}?name=${encodeURIComponent(q)}&count=5&language=en&format=json`);
             if (mySeq !== _geoSeq) return; // stale response loses to the newer search
@@ -5639,12 +5672,21 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 .filter(r => typeof r.latitude === 'number' && typeof r.longitude === 'number')
                 .slice(0, 5);
             if (!list.length) {
-                updateHTML(box, `<div class="px-3 py-2 text-brand-warning text-xs font-bold uppercase tracking-widest">NO MATCHES</div>`);
+                updateHTML(box, `<div class="px-3 py-2 text-brand-warning text-xs font-bold uppercase tracking-widest"><i class="fa-solid fa-circle-xmark mr-2"></i>NO MATCHES</div>`);
                 return;
             }
+            // 1.16.7: distance-to-user on each row — for a driving app the "how
+            // far" is the primary discriminator between same-named places (the
+            // geocoder returns worldwide matches). Right-aligned, gray; hidden
+            // when the position is unknown.
             updateHTML(box, list.map((r, i) => {
                 const label = sanitizeHTML([r.name, r.admin1, r.country].filter(Boolean).join(', '));
-                return `<button data-geo-i="${i}" class="block w-full text-left px-3 py-2 text-xs font-bold text-gray-200 uppercase tracking-widest hover:bg-surface-800 border-b border-surface-800 last:border-0">${label}</button>`;
+                let distHtml = '';
+                if (state.autoCoords && Number.isFinite(state.autoCoords.lat) && Number.isFinite(state.autoCoords.lon)) {
+                    const dKm = fastDistance(state.autoCoords.lat, state.autoCoords.lon, r.latitude, r.longitude) / 1000;
+                    if (Number.isFinite(dKm)) distHtml = `<span class="text-gray-400 font-mono shrink-0">${dKm < 10 ? dKm.toFixed(1) : Math.round(dKm)} km</span>`;
+                }
+                return `<button data-geo-i="${i}" class="flex items-center justify-between gap-3 w-full text-left px-3 py-2 text-xs font-bold text-gray-200 uppercase tracking-widest hover:bg-surface-800 hover:text-white border-b border-surface-800 last:border-0"><span class="min-w-0 truncate">${label}</span>${distHtml}</button>`;
             }).join(''));
             box.querySelectorAll('[data-geo-i]').forEach(b => b.addEventListener('click', () => {
                 const r = list[Number(b.getAttribute('data-geo-i'))];
@@ -5666,7 +5708,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
         async function processGMapLink(url) {
             updateText(DOM.statusEl, "DECRYPTING TARGET...");
-            updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
+            updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-blue/30 animate-pulse");
             try {
                 const res = await fetchWithRetry(`${CONFIG.edgeProxy}?url=${encodeURIComponent(url)}`, { priority: 'high', timeout: 20000 }, 2, 500);
                 const payloadData = await res.json();
@@ -5768,10 +5810,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 for (let c of candidates) { if (isValid(c.lat, c.lon)) { lat = c.lat; lon = c.lon; break; } }
                 if (lat === null && originLat !== null && originLon !== null) { lat = originLat; lon = originLon; }
                 if (lat !== null && lon !== null) { window.activateLiveNavigation(lat, lon); }
-                else { updateText(DOM.statusEl, "ERR: PIN NOT FOUND"); updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30"); }
+                else { updateText(DOM.statusEl, "ERR: PIN NOT FOUND"); updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30"); }
             } catch(e) {
                 updateText(DOM.statusEl, "ERR: DECRYPTION FAILED");
-                updateClass(DOM.statusEl, "text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-4 py-2 rounded-lg border-2 border-brand-red/30");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-red uppercase tracking-widest bg-brand-red/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-red/30");
             }
         }
 
@@ -5843,12 +5885,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             DOM.navBtn.classList.remove('hidden');
             if (state.autoCoords) {
                 updateText(DOM.statusEl, "CALCULATING TACTICAL INTERCEPT...");
-                updateClass(DOM.statusEl, "text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-4 py-2 rounded-lg border-2 border-brand-blue/30 animate-pulse");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-blue uppercase tracking-widest bg-brand-blue/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-blue/30 animate-pulse");
                 if (state.routeCtrl) { state.mapObj.removeControl(state.routeCtrl); state.routeCtrl = null; }
                 initRoute();
             } else {
                 updateText(DOM.statusEl, "AWAITING SATELLITE LOCK...");
-                updateClass(DOM.statusEl, "text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-4 py-2 rounded-lg border-2 border-brand-warning/30 animate-pulse");
+                updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-warning uppercase tracking-widest bg-brand-warning/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-warning/30 animate-pulse");
             }
         };
 
@@ -6417,11 +6459,14 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                     borderLeft = "border-brand-teal";
                     displayPrimary = `N-${wp.id}`;
                     displayLabel   = `<span id="node-dist-${wp.id}">${wp.distKm} KM</span>`;
+                    // 1.16.7: the teal LIVE•NOW badge now marks ONLY the nearest
+                    // upcoming node — every card previously carried an identical
+                    // gray badge (dozens per timeline), which diluted the "live"
+                    // meaning and added a badge row of noise per card. The node id
+                    // (right column) already identifies the others.
                     if (idx === 1 || (idx === 0 && !state.autoCoords)) {
                         titleBadge = `<span class="bg-brand-teal text-black text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-broadcast-tower mr-1"></i>LIVE • NOW</span>`;
                         glow = "ring-1 ring-brand-teal/30 shadow-[0_0_20px_rgba(20,184,166,0.15)] scale-[1.01]";
-                    } else {
-                        titleBadge = `<span class="bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase tracking-widest mb-1 self-start"><i class="fa-solid fa-broadcast-tower mr-1"></i>LIVE • NOW</span>`;
                     }
                     if (status === 'RAIN_NOW') {
                         const isWarn = _nodeWmo && _nodeWmo.tone === 'warning' && !_nodeWmo.isTrace;
@@ -6458,7 +6503,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 }
 
                 htmlBuffer += `
-                    <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl rounded-l-md shadow-xl transition-all ${glow} z-10 p-4 flex flex-col justify-between gap-4 relative mb-1 shrink-0">
+                    <div class="w-full ${bgClass} border-l-[8px] ${borderLeft} rounded-r-2xl rounded-l-md shadow-xl ${glow} z-10 p-4 flex flex-col justify-between gap-4 relative shrink-0">
                         <div class="flex items-start justify-between w-full gap-3">
                             <div class="flex items-center gap-3 shrink-0">
                                 <div class="w-16 h-16 md:w-[72px] md:h-[72px] rounded-full bg-surface-900 flex items-center justify-center border-2 border-surface-700 shrink-0 shadow-inner">
@@ -6597,7 +6642,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 updateText(hint, ''); updateClass(hint, 'hidden');
                 return;
             }
-            updateText(hint, 'GPS: CHECKING PERMISSION…');
+            updateText(hint, 'GPS: CHECKING PERMISSION...');
             updateClass(hint, 'text-xs font-mono font-bold mt-1 mb-2 text-gray-400');
             navigator.permissions.query({ name: 'geolocation' }).then(p => {
                 if (p.state === 'granted') {
@@ -6685,6 +6730,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             }
         };
         document.addEventListener('keydown', e => {
+            // 1.16.7 (focus-mode parity): Escape exits section fullscreen too —
+            // the three app modals and the Aero focus mode had Escape exits, but
+            // sec-telemetry/sec-map/sec-intel fullscreen trapped keyboard users
+            // behind a 44px icon. Mirrors toggleFocus's own toggle semantics
+            // (calling it on the focused section closes it). Modals win when
+            // both are open.
+            if (e.key === 'Escape' && !APP_MODAL_IDS.some(_appModalVisible) && state.focusedSection) {
+                e.preventDefault();
+                window.toggleFocus(state.focusedSection);
+                return;
+            }
             const openId = APP_MODAL_IDS.find(_appModalVisible);
             if (!openId) return;
             const el = MODAL_BY_ID[openId] || document.getElementById(openId);
@@ -6754,10 +6810,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const _pConfirm = document.getElementById('purge-confirm-btn');
             if (_pText) updateText(_pText, 'PURGING LOCAL DATA — THE APP WILL RESTART SHORTLY.');
             if (_pCancel) { _pCancel.disabled = true; _pCancel.style.opacity = '0.4'; _pCancel.style.pointerEvents = 'none'; }
-            if (_pConfirm) { _pConfirm.disabled = true; _pConfirm.style.opacity = '0.6'; _pConfirm.textContent = 'PURGING…'; }
+            if (_pConfirm) { _pConfirm.disabled = true; _pConfirm.style.opacity = '0.6'; _pConfirm.textContent = 'PURGING...'; }
             if (_pHint) {
                 updateClass(_pHint, 'text-xs font-mono font-bold mt-1 mb-2 text-brand-warning');
-                updateText(_pHint, 'STOPPING BACKGROUND TASKS…');
+                updateText(_pHint, 'STOPPING BACKGROUND TASKS...');
             }
             // Freeze writers BEFORE the wipe: the background tile prefetcher
             // holds OPEN Cache handles (caches.open survives caches.delete —
@@ -6788,10 +6844,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 }
             } catch (e) { console.debug('Pre-purge permission query failed:', e && e.message); }
             if (permState === 'prompt') {
-                if (_pHint) updateText(_pHint, 'RE-ASKING BROWSER FOR GPS — TAP ALLOW IF PROMPTED…');
+                if (_pHint) updateText(_pHint, 'RE-ASKING BROWSER FOR GPS — TAP ALLOW IF PROMPTED...');
                 try { await requestGpsFixOnce(6000); } catch (e) { console.debug('Pre-purge GPS re-request failed:', e && e.message); }
             }
-            if (_pHint) updateText(_pHint, 'WIPING CACHES + STORAGE…');
+            if (_pHint) updateText(_pHint, 'WIPING CACHES + STORAGE...');
             // 1.14.1: watchdog. Every THROW path reloads via the finally, but a
             // HUNG await (pathological IDB / locked-db browser state) parked the
             // modal disabled forever — no Escape handler covers this modal. Race
@@ -9324,19 +9380,19 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 let statusHtml, btnHtml;
                 
                 if (freshness.status === 'never') {
-                    statusHtml = `<span class="text-brand-red">❌ Never downloaded</span>`;
-                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-download mr-1"></i>${brandName} (${sizeMB} MB)</button>`;
+                    statusHtml = `<span class="text-brand-red"><i class="fa-solid fa-circle-xmark mr-1"></i>Never downloaded</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-orange/20 text-brand-orange hover:bg-brand-orange hover:text-black px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-download mr-1"></i>${brandName} (${sizeMB} MB)</button>`;
                 } else if (freshness.status === 'fresh') {
                     const hoursAgo = (freshness.ageMs / (1000 * 60 * 60)).toFixed(1);
-                    statusHtml = `<span class="text-brand-success">✅ Cached ${hoursAgo}h ago</span>`;
-                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-teal/20 text-brand-teal hover:bg-brand-teal hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-sync mr-1"></i>Refresh ${brandName}</button>`;
+                    statusHtml = `<span class="text-brand-success"><i class="fa-solid fa-circle-check mr-1"></i>Cached ${hoursAgo}h ago</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-teal/20 text-brand-teal hover:bg-brand-teal hover:text-black px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-sync mr-1"></i>Refresh ${brandName}</button>`;
                 } else if (freshness.status === 'stale') {
                     const daysAgo = (freshness.ageMs / (1000 * 60 * 60 * 24)).toFixed(1);
-                    statusHtml = `<span class="text-brand-warning">⚠️ ${daysAgo}d old</span>`;
-                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-warning/20 text-brand-warning hover:bg-brand-warning hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-sync mr-1"></i>Update ${brandName}</button>`;
+                    statusHtml = `<span class="text-brand-warning"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${daysAgo}d old</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-warning/20 text-brand-warning hover:bg-brand-warning hover:text-black px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-sync mr-1"></i>Update ${brandName}</button>`;
                 } else {
-                    statusHtml = `<span class="text-brand-red">❌ Error</span>`;
-                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-red/20 text-brand-red hover:bg-brand-red hover:text-black px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-retry mr-1"></i>Retry ${brandName}</button>`;
+                    statusHtml = `<span class="text-brand-red"><i class="fa-solid fa-circle-exclamation mr-1"></i>Error</span>`;
+                    btnHtml = `<button data-brand="${brand}" class="download-brand-btn bg-brand-red/20 text-brand-red hover:bg-brand-red hover:text-black px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"><i class="fa-solid fa-retry mr-1"></i>Retry ${brandName}</button>`;
                 }
                 
                 const item = document.createElement('div');
@@ -9725,10 +9781,10 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         label.className = 'relative flex items-center gap-2 cursor-pointer group' + (disabled ? ' opacity-40 pointer-events-none' : '');
                         label.innerHTML = `
                             <input type="checkbox" data-amenity="${key}" class="peer sr-only" ${disabled ? 'disabled' : ''}>
-                            <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-green peer-checked:bg-brand-green peer-checked:border-brand-green flex items-center justify-center"></div>
+                            <div class="w-6 h-6 bg-surface-800 rounded border-2 border-surface-600 transition-colors group-hover:border-brand-orange peer-checked:bg-brand-orange peer-checked:border-brand-orange flex items-center justify-center"></div>
                             <div class="absolute left-1.5 top-1.5 w-3 h-3 bg-black rounded transition-opacity peer-checked:opacity-100 opacity-0"></div>
+                            <i class="fa-solid ${meta.icon} text-[10px] text-gray-400"></i>
                             <span class="text-xs font-bold text-gray-300 uppercase tracking-widest">${meta.label}</span>
-                            <i class="fa-solid ${meta.icon} text-[10px] text-gray-400 ml-1"></i>
                         `;
                         list.appendChild(label);
                     });
@@ -9990,7 +10046,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                             // last resort (a rough location beats a dead app).
                             const acc = p.coords.accuracy;
                             if ((!Number.isFinite(acc) || acc > 3000) && attempt <= GPS_BOOT_RETRIES) {
-                                updateText(DOM.statusText, "ACQUIRING GPS…");
+                                updateText(DOM.statusText, "ACQUIRING GPS...");
                                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-teal uppercase');
                                 setTimeout(() => attemptGpsFix(attempt + 1), 3000);
                                 return;
@@ -10013,7 +10069,7 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                                 return;
                             }
                             if (attempt <= GPS_BOOT_RETRIES) {
-                                updateText(DOM.statusText, "ACQUIRING GPS…");
+                                updateText(DOM.statusText, "ACQUIRING GPS...");
                                 updateClass(DOM.statusText, 'text-3xl md:text-4xl font-black tracking-tight text-brand-teal uppercase');
                                 setTimeout(() => attemptGpsFix(attempt + 1), 3000);
                                 return;

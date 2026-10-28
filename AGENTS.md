@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.14.2, 2026-10-04)
 
- - sanity.test.js - 517 substring assertions / 0 failing (incl. 4 negative-pair
+ - sanity.test.js - 557 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -401,7 +401,20 @@ From HISTORY.md "How to bump version in a new session":
       the Chart.js typed-array splice landmine (writer helper, plain-splice
       + reference-swap lines, direct-splice negative); incl. 3 guards
       consciously REVISED per §1.6: APP_CACHE v27 → v28 ×2, CLIMB + → the
-      new elevation grammar)
+      new elevation grammar),
+    +40 from the 1.16.7 UI polish round (modal entrance animation ×3 +
+      reduced-motion kill, header tap-48 ×3 + sonar hover + badge
+      alignment, teal section header, GPS chip ×2, search radius +
+      distance + hover + icons ×2, Max label, desc-chip wrap, purge
+      hover no-op negative + opacity positive, accordion hover count ×5,
+      section-accent negatives ×3 + offline orange, amenity orange
+      count ×3 + 2-col grid, emoji negatives ×3 + FA glyphs + button
+      count ×4, magcal truncate ×2, gray-badge negative + LIVE•NOW
+      count, card-shell cleanup, px-4 chip negative + compact count,
+      toast role + safe-area + text-node + icon, Escape fullscreen,
+      U+2026 negative + ACQUIRING count; incl. 2 guards consciously
+      REVISED per §1.6: APP_CACHE v28 → v29 ×2 + the 1.16.5 badge pin
+      retargeted to the mt-1-free alignment)
 - tests/unit/ - 47 executable fixtures / 0 failing (worker kernel, fuel
    search funnel + Caltex id-table proven against live JSON, WGS84 distance
    arcs, fastDistance mirror parity + 10 skill-adaptation fixtures executing
@@ -420,7 +433,7 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
- - index.html - ~11469 lines / ~790 KB; inline module lines 943-11445 (~728 KB)
+ - index.html - ~11525 lines / ~795 KB; inline module lines 965-11501 (~731 KB)
 - worker.js - 276 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)

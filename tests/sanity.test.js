@@ -144,7 +144,7 @@ assertIncludes(html, "geocoding-api.open-meteo.com/v1/search", "Geocoding siblin
 assertIncludes(html, 'id="metric-aq"', "telemetry card renders the Air Quality row");
 assertIncludes(html, 'id="sec-sea"', "telemetry card renders the Sea State section (hidden over land)");
 assertIncludes(html, 'id="geo-search-input"', "map header has a place-name search box");
-assertIncludes(html, "grid-cols-5", "map toolbar lays buttons in an even portrait grid (search takes its own full row)");
+assertIncludes(html, "grid-cols-6", "map toolbar lays buttons in an even portrait grid (search takes its own full row) — 1.16.7 consciously REVISED per §1.6: grid-cols-5 → grid-cols-6 so the Nav button un-hiding mid-drive fills column 6 instead of wrapping the cluster to a third row");
 assertIncludes(html, "enableHighAccuracy: false", "boot takes a fast coarse fix first instead of waiting on GNSS TTFF");
 assertIncludes(html, "_bootVersion", "update-available detector baselines the boot version");
 assertIncludes(html, "TAP TO RELOAD", "deploys surface a one-tap reload pill instead of sitting stale");
@@ -672,7 +672,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v28'", "sw.js APP_CACHE v28 — 1.16.6 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v29'", "sw.js APP_CACHE v29 — 1.16.7 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -827,7 +827,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v28", "sw.js 1.16.6: APP_CACHE v28 (index.html + sw.js changed)");
+assertIncludes(swSrc, "meteonexus-app-v29", "sw.js 1.16.7: APP_CACHE v29 (index.html + sw.js changed)");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
@@ -944,7 +944,7 @@ const twSrc = readFileSync(join(repoRoot, "src", "tailwind.css"), "utf8");
 // precedent and keeps the effective badge ≥ 4.5:1).
 assertIncludes(twSrc, "--color-surface-600: #3a3a3a", "src/tailwind.css 1.16.5: surface-600 token DEFINED — the ~20 dead class usages (handle bg, separators, checkbox borders, hover states) resolve at last");
 assertIncludes(twSrc, "--color-surface-400: #9ca3af", "src/tailwind.css 1.16.5: surface-400 token DEFINED (SONAR OFF dim state, version badges)");
-assertIncludes(html, "text-surface-400 tracking-widest ml-1 mt-1", "index.html 1.16.5: header version badge reads surface-400, not the dead surface-600 (was rendering inherited WHITE at 21:1 — loud, not dim)");
+assertIncludes(html, "text-surface-400 tracking-widest ml-1 opacity-80", "index.html 1.16.7 consciously REVISED per §1.6: header version badge keeps the surface-400 token (1.16.5 contract: loud-but-dim, not inherited white) — the mt-1 baseline nudge the old pin accidentally captured was the defect; the badge now aligns to the title baseline with the footer twin's opacity affordance");
 assertIncludes(html, "text-surface-400 tracking-widest uppercase opacity-80", "index.html 1.16.5: footer version badge surface-400 + opacity-80 (effective ~5:1 — the 1.15.0 badge-contrast decision preserved, now via a token that exists)");
 // F2 — keyboard focus reveal for sr-only custom controls (real CSS, GEOMETRY-PIN: survives a stale precompiled stylesheet).
 assertIncludes(html, "input.sr-only:focus-visible + div { box-shadow: 0 0 0 2px #14b8a6; }", "index.html 1.16.5: sr-only focus ring lands on the VISUAL control (the input's own ring is clip-path-clipped away — live-proven on #pref-toll)");
@@ -1074,6 +1074,108 @@ assertIncludes(html, "else ds.data = arr;", "1.16.6 (runtime fix): typed-array d
 assert(
   !html.includes("datasets[2].data.splice"),
   "1.16.6 (runtime fix, negative guard): the direct Float64Array splice — the exact line the live stack pointed at — is GONE from the update path"
+);
+
+// ---------------------------------------------------------------------------
+// 1.16.7 — UI polish round (visual/UX: modals, timeline, header, map chrome)
+// ---------------------------------------------------------------------------
+// Modal entrance animation — the three app modals previously snapped in via a
+// bare hidden-class toggle (no transition existed in the modal path).
+assertIncludes(html, "@keyframes _modalPanelIn", "1.16.7: modal entrance animation exists (root fade + panel scale-in, restarts on every unhide, no JS change)");
+assertIncludes(html, "#custom-modal:not(.hidden), #fuel-settings-modal:not(.hidden), #magcal-modal:not(.hidden) { animation: _modalRootIn 0.16s ease-out; }", "1.16.7: modal roots carry the entrance animation");
+assertIncludes(html, "#custom-modal, #fuel-settings-modal, #magcal-modal,", "1.16.7: the modal animations join the prefers-reduced-motion kill list (reduced-motion users keep the instant reveal)");
+// Header — tap-48 floor + sonar hover parity + badge alignment.
+assert(
+  (html.match(/tap-48 justify-center p-0 md:w-auto md:h-auto md:px-5/g) || []).length === 3,
+  "1.16.7: all three header buttons (install/purge/sonar) meet the app's own 48px touch floor (were the only frequently-tapped controls at 44px)"
+);
+assertIncludes(html, 'hover:text-white hover:bg-surface-700 transition-all" title="Sonar audio alerts"', "1.16.7: SONAR button gains the sibling hover treatment + spacing parity (was the only header button with no hover fill, 4px wider than its siblings)");
+assertIncludes(html, 'ml-1 opacity-80 hover:opacity-100 transition-opacity" title="Deployed version"', "1.16.7: header version badge drops the mt-1 baseline nudge + matches the footer twin's opacity affordance");
+// Section header grammar — teal-sm joins its Intel/Aero siblings.
+assertIncludes(html, 'text-sm font-bold text-brand-teal uppercase tracking-widest"><i class="fa-solid fa-microchip mr-2"></i> Environment Processing', "1.16.7: telemetry section header joins the teal-sm grammar (was gray text-xs — the odd one among three section labels)");
+// GPS accuracy pill → chip (the STANDBY chip shape).
+assertIncludes(html, 'whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-surface-700"><i class="fa-solid fa-crosshairs', "1.16.7: GNSS accuracy state renders as a chip matching the STANDBY chip (was orphaned bare text next to a full chip)");
+assert(
+  (html.match(/whitespace-nowrap bg-surface-800 px-2 py-1 md:px-3 md:py-1\.5 rounded-lg border-2 border-surface-700"/g) || []).length === 5,
+  "1.16.7: all four GPS-accuracy class variants (ACQUIRING/HIGH/MED/LOW) + the markup base carry the chip shell — every writer agrees"
+);
+// Search: radius duality, distance column, icons.
+assertIncludes(html, "rounded-xl sm:rounded-lg px-3 text-base md:text-sm font-bold text-white placeholder-gray-400", "1.16.7: search input joins the cluster's radius duality (12px mobile / 8px desktop — was 12px beside an 8px button)");
+assertIncludes(html, "dKm < 10 ? dKm.toFixed(1) : Math.round(dKm)} km</span>", "1.16.7: geo-search results carry distance-to-user (the primary discriminator between same-named places in a driving app)");
+assertIncludes(html, "hover:bg-surface-800 hover:text-white border-b border-surface-800", "1.16.7: search result rows gain a hover accent (bg-only before)");
+assertIncludes(html, 'fa-spinner fa-spin mr-2"></i>SEARCHING...', "1.16.7: SEARCHING state carries an icon + normalized ellipsis (was bare text — the only iconless busy state)");
+assertIncludes(html, 'fa-circle-xmark mr-2"></i>NO MATCHES', "1.16.7: NO MATCHES state carries an icon");
+// Speed pill micro-label unification.
+assertIncludes(html, 'text-[9px] font-bold text-brand-orange uppercase">Max', "1.16.7: Max micro-label matches its km/h sibling (8px vs 9px inside one pill for no hierarchy reason)");
+// GPS-down desc chip sizing.
+assertIncludes(html, "uppercase max-w-[95%] leading-relaxed", "1.16.7: the desc chip wraps long denial copy without overflowing (the 90-char LOCATION BLOCKED string rendered in a chip sized for AWAITING SATELLITE)");
+// Purge hover no-op.
+assert(
+  !html.includes("hover:bg-red-500"),
+  "1.16.7 (negative guard): Purge All's hover:bg-red-500 is GONE — brand-red IS red-500, the hover changed nothing"
+);
+assertIncludes(html, "hover:opacity-90 transition-all uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]", "1.16.7: Purge All uses the opacity hover pattern (a visible state change)");
+// Accordion: hover affordance + one accent per modal.
+assert(
+  (html.match(/hover:bg-surface-700\/40 transition-colors">/g) || []).length === 5,
+  "1.16.7: all five accordion summaries carry a hover affordance (tappable headers previously had none)"
+);
+assert(
+  !html.includes("open:border-brand-green") && !html.includes("open:border-brand-purple") && !html.includes("open:border-brand-blue/50"),
+  "1.16.7 (negative guard): the green/blue/purple section accents are GONE from the Pit Stop accordion — one accent (the modal's orange) per modal; the 4-color rainbow carried no semantic mapping"
+);
+assertIncludes(html, "text-brand-orange uppercase tracking-widest", "1.16.7: section headers + Download All join the orange accent");
+assert(
+  (html.match(/peer-checked:bg-brand-orange peer-checked:border-brand-orange flex items-center justify-center/g) || []).length === 3,
+  "1.16.7: amenity check marks unified to the orange accent (EV + H2 + amenity template — was green marks beside orange ones in one modal); icon leads the label like every other icon in the modal"
+);
+assertIncludes(html, 'grid grid-cols-2 gap-2 border-t border-surface-700" id="pref-amenities-list"', "1.16.7: amenities render as a 2-col grid (was a 7-row single-column stack in a max-w-sm modal)");
+assert(
+  !html.includes("❌") && !html.includes("✅") && !html.includes("⚠️"),
+  "1.16.7 (negative guard): the emoji status glyphs are GONE from the offline download rows (raw emoji clashing with the app's Font Awesome icon language)"
+);
+assertIncludes(html, 'fa-circle-xmark mr-1"></i>Never downloaded', "1.16.7: offline status glyphs are Font Awesome (icon-language consistency)");
+assert(
+  (html.match(/px-2\.5 py-1\.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors/g) || []).length === 4,
+  "1.16.7: the four offline download buttons enlarged toward the tap floor (were ~24px tall at 10px text)"
+);
+// MagCal status pill constraint.
+assertIncludes(html, 'min-w-0 truncate">READY', "1.16.7: MagCal status pill truncates long verdicts (REJECTED — magnetic interference previously crushed against the sample counter)");
+assertIncludes(html, 'shrink-0">0 samples', "1.16.7: MagCal sample counter never squeezes (shrink-0)");
+// Timeline: badge noise retired + shell cleanup.
+assert(
+  !html.includes('bg-surface-700 text-gray-300 text-[10px] font-black px-2 py-0.5'),
+  "1.16.7 (negative guard): the gray LIVE•NOW badge repeated on EVERY upcoming node is GONE — dozens of identical badges diluted the teal one and added a noise row per card"
+);
+assert(
+  (html.match(/LIVE • NOW<\/span>/g) || []).length === 1,
+  "1.16.7: exactly ONE LIVE•NOW badge remains (the nearest upcoming node's teal one)"
+);
+assertIncludes(html, "shadow-xl ${glow} z-10 p-4 flex flex-col justify-between gap-4 relative shrink-0", "1.16.7: timeline card shell drops the dead transition-all (the element is wholesale-replaced each render — it never ran) + the mb-1 double spacing (the track's gap owns the rhythm)");
+// Route-status chip geometry unification.
+assert(
+  !html.includes("px-4 py-2 rounded-lg"),
+  "1.16.7 (negative guard): the oversized transient chip shape (text-sm px-4 py-2, no nowrap) is GONE — the same element previously resized and wrapped whenever a paste/routing error fired"
+);
+assert(
+  (html.match(/px-2 py-1 md:px-3 md:py-1\.5 rounded-lg border-2 border-brand-blue\/30 animate-pulse/g) || []).length === 2,
+  "1.16.7: transient status messages use the compact nav-chip geometry (color carries severity, geometry never changes)"
+);
+// Toast: a11y + icon + safe-area.
+assertIncludes(html, "_toastEl.setAttribute('role', 'status');", "1.16.7: toast carries role=status (implicit aria-live=polite — screen readers never announced it)");
+assertIncludes(html, "'top:max(1rem, env(safe-area-inset-top))'", "1.16.7: toast honors the notch inset in landscape (env()=0 on desktop is a no-op)");
+assertIncludes(html, "_toastEl.appendChild(document.createTextNode(message));", "1.16.7: toast icon is an element + text node (the textContent safety contract holds — never innerHTML with the message)");
+assertIncludes(html, "p.icon || 'fa-circle-info'", "1.16.7: leading kind icon — color was the only kind signal on a color-vision-dependent surface");
+// Fullscreen Escape parity.
+assertIncludes(html, "!APP_MODAL_IDS.some(_appModalVisible) && state.focusedSection", "1.16.7: Escape exits section fullscreen (modals + Aero focus had it; sec-telemetry/map/intel trapped keyboard users behind a 44px icon; modals win when both are open)");
+// Ellipsis normalization.
+assert(
+  !html.includes("ACQUIRING GPS…"),
+  "1.16.7 (negative guard): the U+2026 ellipsis is retired from status strings (byte-verified 10-site mix with ASCII '...' — one glyph now)"
+);
+assert(
+  (html.match(/"ACQUIRING GPS\.\.\."/g) || []).length === 2,
+  "1.16.7: both boot-retry sites use the normalized ASCII ellipsis"
 );
 
 // ---------------------------------------------------------------------------
