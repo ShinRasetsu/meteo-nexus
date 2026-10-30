@@ -96,8 +96,26 @@ function decodeValhallaPolyline(str) {
 function calculateRouteNodes(totalDistance, coords, intervalDist) {
     if (!coords || coords.length === 0) return [];
 
-    const totalFutureNodesCount = Math.floor(totalDistance / intervalDist);
-    const nodes = new Array(totalFutureNodesCount);
+    // 1.16.9: short-route ladder. Below the first fixed stride this planner
+    // emitted ZERO nodes — no check-ahead weather point, no radar sample, no
+    // timeline row, no progress on exactly the pit-stop hops the fuel
+    // intercept targets (a 3 km route: floor(3000/5000) === 0). When the
+    // fixed grid yields nothing: <3 km -> 1 node at the destination, 3-5 km ->
+    // 2 nodes (midpoint + destination). The adaptive stride (total/count) is
+    // never denser than 1500 m, and every route with at least one fixed-grid
+    // node is byte-identical to the pre-1.16.9 output (same ids, same stride).
+    // MIRROR CONTRACT (AGENTS.md sec 10 style): the tracking card re-derives
+    // the true stride as total/nodes.length whenever
+    // floor(total/intervalDist) === 0 (index.html tracking-ETA block) and the
+    // INTERCEPT chip re-derives the count with the same ladder — keep those
+    // predicates and thresholds identical to the ones below.
+    let nodeCount = Math.floor(totalDistance / intervalDist);
+    let stride = intervalDist;
+    if (nodeCount === 0 && totalDistance > 0) {
+        nodeCount = totalDistance < 3000 ? 1 : 2;
+        stride = totalDistance / nodeCount;
+    }
+    const nodes = new Array(nodeCount);
 
     // Float64 is best for cumulative sums — avoids catastrophic cancellation
     // that the Float32 path could produce on very long (>5000 km) routes.
@@ -112,8 +130,8 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
     let searchIdx = 1;
     let validNodeCount = 0;
 
-    for (let i = 1; i <= totalFutureNodesCount; i++) {
-        const targetDist = i * intervalDist;
+    for (let i = 1; i <= nodeCount; i++) {
+        const targetDist = i * stride;
 
         // Tight inner-scan loop
         while (searchIdx < coords.length && cumulativeDistances[searchIdx] < targetDist) {
@@ -141,6 +159,17 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
 
     // Truncate to valid count (preserved existing behaviour — avoids .filter).
     nodes.length = validNodeCount;
+    // 1.16.9: destination floor. A degenerate route (total <= 0, or geometry
+    // too short to reach even the adaptive stride) still gets ONE node at the
+    // destination, so the tracking card always has a NEXT anchor and a
+    // progress denominator instead of falling back to the straight-line DEST
+    // label (which exists only for the pre-compute window).
+    if (validNodeCount === 0 && coords.length > 0) {
+        const last = coords[coords.length - 1];
+        const lastLon = last.lng !== undefined ? last.lng : last.lon;
+        nodes.length = 1;
+        nodes[0] = { lat: last.lat, lon: lastLon, id: 1, passed: false };
+    }
     return nodes;
 }
 

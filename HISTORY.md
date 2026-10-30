@@ -118,6 +118,53 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.9 — 2026-10-30 (patch: tracking-card round — stopped-ETA freeze key, progress on the driving surface, sub-5 km node ladder)
+
+### Bump rationale
+
+Patch bump 1.16.7 → 1.16.9 (user-directed: *"can we focus now on improving the tracking card?"*, then *"implement 1st then let's check through audit if it cause new or returning problems"*). Two rounds landed in one release: the tracking-card round (1.16.8 numbering skipped — the whole session is one coherent patch against one surface) and the short-route node ladder the audit surfaced. All fixes are correctness or glanceability on the driving surface; no fetch origins, no transform/rotation surfaces, no ensemble math. `sw.js` `APP_CACHE` `v29` → `v30`.
+
+### Round 1 — tracking card (all live-proven on the 390×844 rig, stubbed GPS, real OSRM routes)
+
+1. **Stopped-ETA freeze broke on GPS wander (the round's correctness headline).** The 1.16.6 A3 freeze was keyed on `etaLiveRkm === _rKmQ` — remaining distance quantized to 100 m — so ordinary wander while parked dropped the frozen wall clock to the honest `--:--`. A frozen clock means frozen: the validity key moved to **route identity** (route total + destination + node cursor), so only a genuine route change (new route, re-route, destination swap) invalidates it. Live proof: `07:17 · STOP` frozen across DIST wandering 9.5 → 9.6 KM; under the old key that flip would have dropped the bar to `--:--`.
+2. **Route progress never reached the driving surface.** `#tracking-progress-bar` lives in the telemetry card header, which scrolls off-screen while navigating (measured on 390×844: the map's top never rises above y≈355, the card header sits above it) — the "how far along am I" signal never reached the driver. The fixed ETA bar now carries the same keyed value as a 3px bottom edge (`#tracking-eta-prog` / `-fill`), written from the same `prog`/`progKey` computation as the card tape (one value, one writer — the two surfaces cannot drift). Geometry pinned in inline style + one new utility (`.bottom-0`), rebuilt into `tailwind.min.css` by precheck; byte-verified present. Both surfaces now hide + cache-reset on route clear (the tape kept a stale visible state — pre-existing).
+3. **"NEXT" lied before the node grid existed.** With `routeCtrl` set but `routeNodes` still null (worker computing) the bar printed the straight-line *destination* distance under a node-relative word; that branch now reads `DEST`. This is the pre-compute window only — round 2 below makes nodes exist on exactly those routes.
+4. **Two self-inflicted bugs the live pass caught (static green, runtime red — the 1.3.3 lesson, twice in one round).** (a) `shouldShowBar is not defined` ×943 — the progress-edge writer referenced a `const` declared inside the `if (bar && fill)` guard; TDZ scanners model same-scope use-before-declare, not cross-block scope, and ESLint skips index.html, so every gate passed while the whole frame body past the edge write died. (b) The route-clear `else` was attached to `if (bar && fill)` (never false) instead of `if (shouldShow)` — proven by a live probe showing both tapes still visible after `resetToAuto`, then fixed and re-proven (`hidden`).
+
+### Round 2 — sub-5 km routes got zero check-ahead nodes (the gap the round-1 audit surfaced)
+
+`calculateRouteNodes` drops a point every `CONFIG.routingIntervalNodeDist` (5000 m); a route shorter than one stride produced **zero** nodes — no check-ahead weather point, no radar sample, no timeline row, no progress, on exactly the pit-stop hops the fuel intercept targets (rig-measured: a 3.3 km route → `0 NODES`, DEST fallback). User-directed ladder: **<3 km → 1 node at the destination; 3–5 km → 2 nodes (midpoint + destination); ≥5 km byte-identical**. The adaptive stride (total/count) is never denser than 1500 m. Plus a destination-node floor: a degenerate (~0 km) route still yields one node so the card always has a NEXT anchor and a progress denominator.
+
+Two main-thread mirrors keep the display honest (both pinned by sanity guards, both live-proven):
+- **The card's stride** (tracking-ETA block): derived as `total / nodes.length` whenever `floor(total/5000) === 0` — exact by construction, no count mirror needed, so the 1.16.4 tail math (`leg + (N−cursor−1)×stride + tail`) stays correct.
+- **The INTERCEPT chip**: re-derives the count with the same ladder so it can no longer print `0 NODES` while the timeline shows the nodes the worker just built for the same route.
+- **1-node honesty follow-up** (audit-surfaced regression, fixed in-round): with a single node the node *is* the destination, and the straight-line leg (`nav.distKm`, index.html:5165) understated a winding road — a 2.2 km road read `0.9 KM` (pre-ladder it read the route-true 2.2). The leg branch now declines for a single adaptive node with nothing covered (cursor 0), falling to the route-true total; the arrived branch owns the last straight-line metres. Re-proven: `2.2 KM`.
+
+### Changes
+
+- `index.html` — route-identity freeze key; progress edge element + writer + hide/reset path; `DEST` honesty label; card stride mirror; chip ladder mirror; 1-node DIST honesty branch. +111/−13 (11629 lines; inline module 974..11595).
+- `worker.js` — adaptive node ladder + destination-node floor, with the mirror contract documented in-file. +33/−4 (305 lines).
+- `tests/unit/worker.test.mjs` — **+6 fixtures** (53 total): 1-node destination, 2-node midpoint+destination, the 3 km boundary (below-3 is exclusive), fixed-stride regression, degenerate floor, and a parity fixture proving the worker and the card mirror agree on count + stride over {500, 2500, 2999, 3000, 4999, 5000, 5001, 12000}.
+- `tests/sanity.test.js` — **+4 guards** (562 → 566): worker ladder, destination floor, card stride mirror, chip ladder mirror.
+- `tests/audit-unified.mjs` — fixture-count pin 47 → 53 (per its own bump rule).
+- `sw.js` — APP_CACHE v30. `VERSION` → 1.16.9, `package.json` synced.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **566/566** + unit **53/53** · `npm run audit` **10/10 PASS** (extract+parse OK module 974..11595 / 737418 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — no transform/rotation surface touched (the progress edge is a static child of the fixed bar), shell PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** · `npm run precheck` green (Tailwind v4.3.3 rebuild; the one new utility byte-verified present — legit drift from the new element, not the 1.16.2 prose-leak class) · `node tests/audit-unified.mjs` **39 checks PASS + Perfection PASS (0 stairs, 0 janks)** · `node tests/ui-fluidity.test.js` Perfection PASS.
+- **Live runtime pass (E5, chrome-devtools rig, 390×844, stubbed GPS at the user's pin, real OSRM routes):** four-state tracking sweep (routed → `N-1 3.4 KM` / both progress surfaces visible / honest `--:--` with no live ETA yet; driving → `06:09 · 5M`; parked with ±100 m wander → **`06:25 · STOP` frozen** while DIST wandered; cleared → bar + both tapes hidden) · short-route ladder on three real routes (2.2 km → chip `1 NODES` / `N-1 890 M` / DIST **2.2 KM** route-true / edge 0%; 4.9 km → `2 NODES` / `N-2 1.6 KM` / 1.6 KM / edge 50%; 5.1 km → `1 NODES` / `N-1 3.0 KM` / 3.1 KM = leg 3.0 + tail 0.1 / edge 0%) · intel batched call gained the node coordinates with no new request shape (same URLs, +≤2 coords) · **0 red console errors** across every probe.
+- Fetch Gate §6 re-triggered by §2 (intel batch payload shape changed on short routes): runtime evidence above — telemetry/radar/METAR/AQ/marine all 200, verdict + timeline live, 0 red errors. Visual runtime §7 not triggered (no transform/rotation surfaces — visual-audit inventory unchanged).
+
+### Blind spots considered (§8)
+
+Races: the freeze key and stride mirror read single-writer fields on the same synchronous frame; the progress-edge write is key-gated identical to the long-shipping tape writer. Leaks: one new static element + two cache keys, no listeners/timers. Coercion: every new numeric gate is `Number.isFinite`-checked by construction (the `rKm2 !== null` guards upstream unchanged); `Math.floor` on NaN yields NaN → false predicate → fixed-stride path, same as pre-change. Off-by-one: the ladder boundary is exclusive at 3 km (fixture-pinned); the 1-node honesty branch declines only at cursor 0, so the countdown resumes once nodes are passed. Perf: +≤2 nodes on sub-5 km routes only (batched call, shared radar tiles, +1-2 timeline rows/markers); long routes byte-identical; the edge write is one style write per cursor change. A11y: `aria-live` on the bar unchanged in shape. Visual compositing: edge is a static screen-locked child — visual-audit inventory byte-stable. Known residual (documented, not hidden): a 2-node route's first leg is straight-line to the on-road midpoint — the same approximation the fixed grid has always used; a single adaptive node's remaining reads the route-true total until arrival, then counts down straight-line via the arrived branch.
+
+### PENDING (user device)
+
+Real-drive pass of the STOP freeze at traffic lights (frozen clock must survive GPS wander, no `--:--` flicker) · progress edge sightline while navigating on the phone (the tape it mirrors sits off-screen in the card) · a genuine sub-5 km pit-stop route on device (nodes, timeline, chip coherence) · ETA bar content fit on 360–414 px viewports with long node ids · second-boot v30 update path on installed clients · `git tag v1.16.9` when deploying.
+
+---
+
 ## 1.16.7 — 2026-10-28 (patch: UI polish round — modal motion, timeline badge noise, header/map chrome, search distance, one-accent modals)
 
 ### Bump rationale

@@ -297,9 +297,9 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.14.2, 2026-10-04)
+## 11. Reference numbers (verified v1.16.9, 2026-10-30)
 
- - sanity.test.js - 557 substring assertions / 0 failing (incl. 4 negative-pair
+ - sanity.test.js - 566 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -413,9 +413,13 @@ From HISTORY.md "How to bump version in a new session":
       count, card-shell cleanup, px-4 chip negative + compact count,
       toast role + safe-area + text-node + icon, Escape fullscreen,
       U+2026 negative + ACQUIRING count; incl. 2 guards consciously
-      REVISED per §1.6: APP_CACHE v28 → v29 ×2 + the 1.16.5 badge pin
-      retargeted to the mt-1-free alignment)
-- tests/unit/ - 47 executable fixtures / 0 failing (worker kernel, fuel
+       REVISED per §1.6: APP_CACHE v28 → v29 ×2 + the 1.16.5 badge pin
+       retargeted to the mt-1-free alignment)
+    +4 from the 1.16.9 tracking-card round (worker short-route node ladder,
+       destination-node floor, card stride mirror, INTERCEPT chip ladder
+       mirror; the 1.16.8 progress-edge + DEST-label + freeze-key guards
+       ride the same tree — see the 1.16.9 HISTORY chapter for both rounds)
+ - tests/unit/ - 53 executable fixtures / 0 failing (worker kernel, fuel
    search funnel + Caltex id-table proven against live JSON, WGS84 distance
    arcs, fastDistance mirror parity + 10 skill-adaptation fixtures executing
    the shipped adaptWeightsBySkill bytes via vm slicing, incl. the live-log
@@ -433,8 +437,8 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
- - index.html - ~11525 lines / ~795 KB; inline module lines 965-11501 (~731 KB)
-- worker.js - 276 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
+ - index.html - ~11629 lines / ~797 KB; inline module lines 974-11595 (~737 KB)
+ - worker.js - 305 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.

@@ -679,6 +679,15 @@ grid inside #sec-telemetry, not the page landmark. -->
                 <span id="tracking-eta-eta" class="text-white">ETA --:--</span>
                 <span class="text-surface-600">|</span>
                 <span id="tracking-eta-dist" class="text-gray-300">-- KM</span>
+                <!-- 1.16.8: route progress ON THE DRIVING SURFACE. The
+                     telemetry-card tape (#tracking-progress-bar) scrolls
+                     off-screen while navigating (measured 390x844: the map
+                     never rises above y≈355, card header above it), so the
+                     always-visible fixed bar carries the same keyed value as
+                     a 3px bottom edge — one value, one writer, no drift.
+                     Geometry pinned in inline style (no new utilities, the
+                     1.9.0 tailwind-skew doctrine). -->
+                <div id="tracking-eta-prog" class="absolute left-2 right-2 bottom-0 overflow-hidden hidden" style="height:3px"><div id="tracking-eta-prog-fill" class="h-full bg-brand-teal" style="width:0%; will-change:width; contain:layout; transition:none"></div></div>
             </div>
             <div id="tracking-recenter-chip" class="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 z-[1000] hidden bg-brand-warning/90 text-black px-4 md:px-3 py-2 md:py-1 rounded-full text-xs md:text-[10px] font-black uppercase tracking-widest shadow-lg pointer-events-auto flex items-center gap-2">
                 <i class="fa-solid fa-location-crosshairs animate-pulse"></i>
@@ -3165,7 +3174,11 @@ let delta = heading - state.lastHeading;
         // last lat/lon we actually panned to, so stationary frames skip panTo.
         let _lastPanLat = 0, _lastPanLon = 0;
         let _trackingEtaKeys = { eta: null, dist: null, next: null, locked: null, countdown: null, prog: null,
-            distKey: null, minsQ: -1, etaRkm: -1, progKey: null, progCached: null, nextCached: null, etaCached: null, distQ: null, distCached: null };
+            distKey: null, minsQ: -1, etaRkm: -1, progKey: null, progCached: null, nextCached: null, etaCached: null, distQ: null, distCached: null,
+            // 1.16.8: route-identity key for the stopped-ETA freeze (GPS wander
+            // must not invalidate a frozen clock — only a route change may) and
+            // the bar's bottom progress edge (visibility + width keys).
+            etaLiveRoute: null, edgeShow: null, edgeProg: null };
 
         // PERF-P2: single-write rotation. One custom property drives ALL map
         // rotation transforms (see the stylesheet rules next to the
@@ -3420,7 +3433,9 @@ let delta = heading - state.lastHeading;
                     rtxt: document.getElementById('tracking-recenter-text'),
                     next: document.getElementById('tracking-eta-next'),
                     dist: document.getElementById('tracking-eta-dist'),
-                    eta: document.getElementById('tracking-eta-eta')
+                    eta: document.getElementById('tracking-eta-eta'),
+                    progEdge: document.getElementById('tracking-eta-prog'),
+                    progEdgeFill: document.getElementById('tracking-eta-prog-fill')
                 });
                 const etaBar = _te.bar;
                 const recenterChip = _te.chip;
@@ -3462,7 +3477,13 @@ let delta = heading - state.lastHeading;
                                 const displayLat2 = state.visual.lat ?? state.autoCoords.lat;
                                 const displayLon2 = state.visual.lon ?? state.autoCoords.lon;
                                 const displayDistance2 = Math.sqrt(fastDistanceSqMeters(displayLat2, displayLon2, state.targetCoords.lat, state.targetCoords.lon));
-                                if (Number.isFinite(displayDistance2)) nextTxt = displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+' KM' : Math.round(displayDistance2/10)*10+' M';
+                                // 1.16.8: honesty — the node grid does not exist
+                                // yet (worker still computing, or it failed), so
+                                // this is the straight-line distance to the
+                                // DESTINATION. The old code printed it under the
+                                // "NEXT" label: a node-relative word describing
+                                // a destination-relative number.
+                                if (Number.isFinite(displayDistance2)) nextTxt = 'DEST ' + (displayDistance2 >= 1000 ? (displayDistance2/1000).toFixed(1)+' KM' : Math.round(displayDistance2/10)*10+' M');
                             }
                             _trackingEtaKeys.nextCached = nextTxt;
                         } else {
@@ -3484,7 +3505,17 @@ let delta = heading - state.lastHeading;
                             const _navRem = window.__METEO_CORE_STATE ? window.__METEO_CORE_STATE.nav : null;
                             const _totalN = (state.routeNodes && state.routeNodes.length) ? state.routeNodes.length : 0;
                             const _cur2 = state.routeNodesCursor || 0;
-                            const _intervalKm = (CONFIG.routingIntervalNodeDist || 5000) / 1000;
+                            // 1.16.9: mirror of the worker's short-route ladder
+                            // (worker.js calculateRouteNodes). When the fixed
+                            // grid would emit zero nodes the worker re-strides
+                            // at total/count (1 node below 3 km, 2 below 5 km),
+                            // so this tail math must use the ACTUAL stride or
+                            // DIST lies. Derived as total/nodes.length — exact
+                            // by construction, no count mirror needed; the only
+                            // shared predicate is floor(total/interval) === 0.
+                            const _intervalKm = (_totalN > 0 && Math.floor(rKm2 * 1000 / (CONFIG.routingIntervalNodeDist || 5000)) === 0)
+                                ? rKm2 / _totalN
+                                : (CONFIG.routingIntervalNodeDist || 5000) / 1000;
                             // 1.16.4: the worker grid ends at N×interval — the un-gridded
                             // tail (total − N×interval, up to 5 km short of the
                             // destination) was dropped from the leg branch, so DIST
@@ -3503,7 +3534,17 @@ let delta = heading - state.lastHeading;
                                     ? Math.max(0, fastDistance(state.autoCoords.lat, state.autoCoords.lon, state.targetCoords.lat, state.targetCoords.lon) / 1000)
                                     : 0;
                             }
-                            else if (_navRem && Number.isFinite(_navRem.distKm) && _totalN > 0) {
+                            // 1.16.9 follow-up: single adaptive node. When the
+                            // ladder emits exactly ONE node (sub-3 km route),
+                            // that node IS the destination, and the straight-line
+                            // leg (nav.distKm) understates a winding road — a
+                            // 2.2 km road read as 0.9 KM (regression vs the
+                            // pre-ladder route-true total). With nothing covered
+                            // yet (cursor 0), the departure total is the honest
+                            // remaining; the arrived branch owns the last
+                            // straight-line metres once the node is passed.
+                            else if (_navRem && Number.isFinite(_navRem.distKm) && _totalN > 0 &&
+                                     !(_totalN === 1 && _cur2 === 0 && Math.floor(rKm2 * 1000 / (CONFIG.routingIntervalNodeDist || 5000)) === 0)) {
                                 rKm2 = Math.max(0, _navRem.distKm + Math.max(0, _totalN - _cur2 - 1) * _intervalKm + _tailKm);
                             } else if (_totalN > 0) {
                                 rKm2 = Math.max(0, state.driveRouteKm - _cur2 * _intervalKm);
@@ -3523,6 +3564,18 @@ let delta = heading - state.lastHeading;
                         // 1x/min, then discarded it in the key compare below.
                         const _minsQ = (rKm2 !== null && state.currentSpeed >= 5) ? Math.max(1, Math.round((rKm2 / state.currentSpeed) * 60)) : -1;
                         const _rKmQ = rKm2 !== null ? Math.round(rKm2 * 10) : -1;
+                        // 1.16.8: the freeze validity key is ROUTE IDENTITY
+                        // (route total + destination + node cursor), not the live
+                        // remaining distance. The 1.16.6 signature compared
+                        // etaLiveRkm === _rKmQ — remaining quantized to 100 m —
+                        // so ordinary GPS wander while parked >100 m dropped the
+                        // frozen clock to '--:--'. A frozen clock means frozen:
+                        // only a genuine route change (new route, re-route,
+                        // destination swap) or real node-cursor progress may
+                        // invalidate it.
+                        const _routeSigKey = (state.driveRouteKm != null ? state.driveRouteKm : -1) + '|' +
+                            (state.targetCoords ? Math.round(state.targetCoords.lat * 10000) + ',' + Math.round(state.targetCoords.lon * 10000) : '') + '|' +
+                            (state.routeNodesCursor || 0);
                         let etaTxt2 = '--:--';
                         if (_minsQ >= 0 && (_minsQ !== _trackingEtaKeys.minsQ || _rKmQ !== _trackingEtaKeys.etaRkm)) {
                             _trackingEtaKeys.minsQ = _minsQ;
@@ -3530,7 +3583,7 @@ let delta = heading - state.lastHeading;
                             const etaDate = new Date(Date.now() + _minsQ * 60000);
                             _trackingEtaKeys.etaCached = etaDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) + ' · ' + (_minsQ>=60 ? Math.floor(_minsQ/60)+'H '+Math.round(_minsQ%60)+'M' : _minsQ+'M');
                             _trackingEtaKeys.etaLiveTxt = _trackingEtaKeys.etaCached;
-                            _trackingEtaKeys.etaLiveRkm = _rKmQ;
+                            _trackingEtaKeys.etaLiveRoute = _routeSigKey;
                         }
                         if (_minsQ < 0) {
                             _trackingEtaKeys.minsQ = -1;
@@ -3540,9 +3593,9 @@ let delta = heading - state.lastHeading;
                             // DIST counts down while ETA jumped to a departure-time
                             // total, re-jumping at every stop light). Now the last
                             // live wall clock freezes with a STOP qualifier; a route
-                            // swap while stopped (remaining-distance change) or no
+                            // swap while stopped (route-identity change) or no
                             // live ETA yet falls back to the honest '--:--'.
-                            if (rKm2 !== null && _trackingEtaKeys.etaLiveTxt && _trackingEtaKeys.etaLiveRkm === _rKmQ) {
+                            if (rKm2 !== null && _trackingEtaKeys.etaLiveTxt && _trackingEtaKeys.etaLiveRoute === _routeSigKey) {
                                 etaTxt2 = String(_trackingEtaKeys.etaLiveTxt).split(' · ')[0] + ' · STOP';
                             }
                         } else {
@@ -3562,10 +3615,17 @@ let delta = heading - state.lastHeading;
                         } else {
                             prog = _trackingEtaKeys.progCached || 0;
                         }
+                        // 1.16.8: hoisted OUT of the `if (bar && fill)` guard —
+                        // the first draft declared shouldShowBar inside that
+                        // block and referenced it in the progress-edge writer
+                        // below (outside it): ReferenceError every frame, the
+                        // whole frame body past the edge write dead, caught only
+                        // by the live runtime pass (TDZ scanner models
+                        // same-scope use-before-declare, not cross-block scope).
+                        const shouldShowBar = shouldShow && totalNodes > 0;
                         const bar = _te.pbar;
                         const fill = _te.pfill;
                         if (bar && fill) {
-                            const shouldShowBar = shouldShow && totalNodes>0;
                             // 1.16.4: gate the visibility toggle too — the fill write
                             // below was key-gated but this classList.toggle ran (a
                             // DOMTokenList contains-check) every frame while a route
@@ -3576,6 +3636,40 @@ let delta = heading - state.lastHeading;
                             }
                             if (shouldShowBar && _trackingEtaKeys.prog !== prog) { _trackingEtaKeys.prog = prog; if (fill) fill.style.width = prog+'%'; }
                         }
+                        // 1.16.8: the same keyed value as a bottom edge on the
+                        // fixed ETA bar — the driving surface's progress signal
+                        // (the card tape above is off-screen while navigating).
+                        const progEdge = _te.progEdge;
+                        const progEdgeFill = _te.progEdgeFill;
+                        if (progEdge && progEdgeFill) {
+                            if (_trackingEtaKeys.edgeShow !== shouldShowBar) {
+                                _trackingEtaKeys.edgeShow = shouldShowBar;
+                                progEdge.classList.toggle('hidden', !shouldShowBar);
+                            }
+                            if (shouldShowBar && _trackingEtaKeys.edgeProg !== prog) { _trackingEtaKeys.edgeProg = prog; progEdgeFill.style.width = prog+'%'; }
+                        }
+                    }
+                    // 1.16.8: hide + reset the two progress surfaces when the
+                    // route is gone. Everything above is gated behind
+                    // shouldShow, so without this else both kept their last
+                    // visibility + width after Clear (a stale tape sitting in
+                    // the card header — pre-existing since the bar-gating was
+                    // added; the edge behind a hidden bar — this release). The
+                    // first draft put this else on `if (bar && fill)` (never
+                    // false) so it never fired — caught by the live pass again.
+                    // Width/prog caches reset so a stale percentage can never
+                    // satisfy the next route's first key compare.
+                    else {
+                        if (_trackingEtaKeys.pshow !== false) {
+                            _trackingEtaKeys.pshow = false;
+                            if (_te.pbar) _te.pbar.classList.add('hidden');
+                        }
+                        if (_trackingEtaKeys.edgeShow !== false) {
+                            _trackingEtaKeys.edgeShow = false;
+                            if (_te.progEdge) _te.progEdge.classList.add('hidden');
+                        }
+                        _trackingEtaKeys.prog = null; _trackingEtaKeys.edgeProg = null;
+                        _trackingEtaKeys.progKey = null; _trackingEtaKeys.progCached = null;
                     }
                 }
                 // Re-center countdown — Google Maps "Re-center in 5s" chip
@@ -5905,7 +5999,17 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             const timeHr = Math.floor(totalSec / 3600);
             const timeMin = Math.floor((totalSec % 3600) / 60);
             let timeStr = timeHr > 0 ? `${timeHr}H ${timeMin}M` : `${timeMin}M`;
-            const totalNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
+            // 1.16.9: mirror the worker's short-route ladder (worker.js
+            // calculateRouteNodes) so the chip can no longer print "0 NODES"
+            // while the timeline + markers show the adaptive 1-2 check-ahead
+            // nodes the worker just built for this same route. Below the first
+            // fixed stride: <3 km -> 1 node, 3-5 km -> 2 nodes. routesfound
+            // fires BEFORE the node compute, so this uses the rule itself
+            // rather than routeNodes.length (still empty here).
+            const _gridNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
+            const totalNodes = (_gridNodes === 0 && summary.totalDistance > 0)
+                ? (summary.totalDistance < 3000 ? 1 : 2)
+                : _gridNodes;
             const engineTag = window.lastWinningEngine ? `[${window.lastWinningEngine}] ` : '';
             // U2: Drive Mode consumes these instead of recomputing totals per frame.
             state.driveRouteKm = parseFloat(distKm);

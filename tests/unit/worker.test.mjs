@@ -185,6 +185,88 @@ test('calculateRouteNodes: empty coords return empty array', () => {
   assert.deepEqual(host(w.calculateRouteNodes(1000, null, 100)), []);
 });
 
+// ---------- 1.16.9: short-route adaptive ladder ----------
+// Below the first fixed stride (5 km) the planner emitted ZERO nodes — no
+// check-ahead point on the pit-stop hops the fuel intercept targets.
+// Ladder: <3 km -> 1 node at the destination; 3-5 km -> 2 nodes
+// (midpoint + destination). Stride is total/count, never denser than
+// 1500 m; routes with at least one fixed-grid node are unchanged.
+
+// Coords spanning at least `metres` along the equator: cumulative distance
+// is exactly i*EQ_STEP_M (constant step at lat 0), so a node placed at
+// `target` metres sits at lon = target/EQ_STEP_M*EQ_STEP_DEG.
+function lineOfAtLeast(metres) {
+  return straightLineCoords(Math.ceil(metres / EQ_STEP_M) + 2);
+}
+
+test('calculateRouteNodes: sub-3 km route emits exactly 1 node at the destination', () => {
+  const total = 2500;
+  const nodes = w.calculateRouteNodes(total, lineOfAtLeast(total), 5000);
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].id, 1);
+  assert.equal(nodes[0].passed, false);
+  const destLon = total / EQ_STEP_M * EQ_STEP_DEG;
+  assert.ok(Math.abs(nodes[0].lon - destLon) < 1e-6, 'node lands on the destination');
+});
+
+test('calculateRouteNodes: 3-5 km route emits exactly 2 nodes (midpoint + destination)', () => {
+  const total = 4990;
+  const nodes = w.calculateRouteNodes(total, lineOfAtLeast(total), 5000);
+  assert.equal(nodes.length, 2);
+  assert.equal(nodes[0].id, 1);
+  assert.equal(nodes[1].id, 2);
+  const midLon = total / 2 / EQ_STEP_M * EQ_STEP_DEG;
+  const destLon = total / EQ_STEP_M * EQ_STEP_DEG;
+  assert.ok(Math.abs(nodes[0].lon - midLon) < 1e-6, 'first node at the midpoint');
+  assert.ok(Math.abs(nodes[1].lon - destLon) < 1e-6, 'second node at the destination');
+  assert.ok(nodes[0].lon < nodes[1].lon, 'nodes advance monotonically');
+});
+
+test('calculateRouteNodes: exactly 3 km takes the 2-node branch (below-3 is exclusive)', () => {
+  const total = 3000;
+  const nodes = w.calculateRouteNodes(total, lineOfAtLeast(total), 5000);
+  assert.equal(nodes.length, 2);
+});
+
+test('calculateRouteNodes: routes at/above the fixed stride are byte-identical to pre-1.16.9', () => {
+  const total = 99 * EQ_STEP_M; // ~11119 m
+  const nodes = w.calculateRouteNodes(total, straightLineCoords(100), 5000);
+  assert.equal(nodes.length, Math.floor(total / 5000));
+  nodes.forEach((n, i) => assert.equal(n.id, i + 1));
+  // 12 km: two full-stride nodes (5000, 10000), no adaptive interference
+  const t12 = 12000;
+  const n12 = w.calculateRouteNodes(t12, lineOfAtLeast(t12), 5000);
+  assert.equal(n12.length, 2);
+  assert.ok(Math.abs(n12[0].lon - 5000 / EQ_STEP_M * EQ_STEP_DEG) < 1e-6, 'first node at the 5 km stride');
+  assert.ok(Math.abs(n12[1].lon - 10000 / EQ_STEP_M * EQ_STEP_DEG) < 1e-6, 'second node at 10 km');
+});
+
+test('calculateRouteNodes: degenerate (~0 km) route still yields the destination node', () => {
+  const coords = [{ lat: 10, lng: 10 }, { lat: 10.001, lng: 10.001 }];
+  const nodes = w.calculateRouteNodes(0, coords, 5000);
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].id, 1);
+  assert.equal(nodes[0].lat, 10.001);
+  assert.equal(nodes[0].lon, 10.001);
+});
+
+test('calculateRouteNodes: adaptive stride parity with the tracking-card mirror (total/nodes.length)', () => {
+  // index.html tracking-ETA block: adaptive iff floor(total/5000) === 0 &&
+  // nodes.length > 0, then stride = total / nodes.length. This fixture proves
+  // the worker and that mirror can never disagree.
+  for (const t of [500, 2500, 2999, 3000, 4999, 5000, 5001, 12000]) {
+    const nodes = w.calculateRouteNodes(t, lineOfAtLeast(t), 5000);
+    const expectedN = Math.floor(t / 5000) === 0 && t > 0 ? (t < 3000 ? 1 : 2) : Math.floor(t / 5000);
+    assert.equal(nodes.length, expectedN, `node count at T=${t}`);
+    const adaptive = Math.floor(t / 5000) === 0 && nodes.length > 0;
+    const stride = adaptive ? t / nodes.length : 5000;
+    for (let i = 1; i < nodes.length; i++) {
+      const d = (nodes[i].lon - nodes[i - 1].lon) / EQ_STEP_DEG * EQ_STEP_M;
+      assert.ok(Math.abs(d - stride) < 1, `stride ${d} != ${stride} at T=${t}`);
+    }
+  }
+});
+
 // ---------- processOverpassPayload ----------
 
 const CENTER = { lat: 52.5, lon: 13.4 };

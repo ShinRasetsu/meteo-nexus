@@ -580,7 +580,7 @@ async function main() {
   const testCombined = sanityRes.out + sanityRes.err
   const testOk = sanityRes.code === 0
   addResult('E3', 'sanity.test.js', 'E3 Shape — feature substrings survive edits (presence)', testOk && /sanity OK/.test(testCombined), { exit: sanityRes.code, out: (testCombined.match(/150 passed|146 passed/) || [''])[0] || testCombined.slice(0, 500), err: testOk ? '' : testCombined.slice(0, 500), ms: 0 })
-  addResult('E5', 'unit suite', 'E5 Behaviour — worker kernel, codec, route-node, overpass, brand adapters + fastDistance parity + skill adaptation (47 fixtures)', testOk && /(?:pass 47|tests 47|47 passed)/.test(testCombined), { exit: sanityRes.code, out: (testCombined.match(/(?:pass 47|tests 47|47 passed)/) || [''])[0] || testCombined.slice(0, 500), err: testOk ? '' : testCombined.slice(0, 500), ms: 0 })
+  addResult('E5', 'unit suite', 'E5 Behaviour — worker kernel, codec, route-node, overpass, brand adapters + fastDistance parity + skill adaptation (53 fixtures)', testOk && /(?:pass 53|tests 53|53 passed)/.test(testCombined), { exit: sanityRes.code, out: (testCombined.match(/(?:pass 53|tests 53|53 passed)/) || [''])[0] || testCombined.slice(0, 500), err: testOk ? '' : testCombined.slice(0, 500), ms: 0 })
 
   // Map scanner results to tier
   const tierMap = {

@@ -672,7 +672,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v29'", "sw.js APP_CACHE v29 — 1.16.7 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v30'", "sw.js APP_CACHE v30 — 1.16.9 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -827,7 +827,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v29", "sw.js 1.16.7: APP_CACHE v29 (index.html + sw.js changed)");
+assertIncludes(swSrc, "meteonexus-app-v30", "sw.js 1.16.9: APP_CACHE v30 (index.html + worker.js + sw.js changed)");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
@@ -912,6 +912,17 @@ assertIncludes(html, "state.lastHeading !== null && !isNaN(state.lastHeading)", 
 assertIncludes(html, "Math.min(cursor + 4, nodesToProcess.length)", "index.html 1.16.4: processNodes bypass lookahead checks 3 future nodes as its comment (and the intel mirror) always claimed");
 assertIncludes(html, "_trackingEtaKeys.pshow !== shouldShowBar", "index.html 1.16.4: tracking progress-bar visibility toggle is key-gated (was an un-gated DOMTokenList op 60×/s)");
 assertIncludes(html, "_trackingEtaKeys.recSecs !== secs", "index.html 1.16.4: RECENTER countdown template builds only when the integer second flips (was 60 strings/s)");
+
+// 1.16.9 — short-route node ladder. Below the first 5 km stride the worker
+// planner emitted ZERO nodes: no check-ahead weather point, no radar sample,
+// no timeline row, no progress — on exactly the pit-stop hops the fuel
+// intercept targets. Ladder: <3 km → 1 node (destination), 3–5 km → 2 nodes
+// (midpoint + destination). Long routes unchanged. The card and the INTERCEPT
+// chip both mirror the rule; this block pins all three sides.
+assertIncludes(workerSrc, "nodeCount = totalDistance < 3000 ? 1 : 2;", "worker.js 1.16.9: sub-5 km routes emit check-ahead nodes (1 below 3 km, 2 below 5 km) instead of zero");
+assertIncludes(workerSrc, "if (validNodeCount === 0 && coords.length > 0) {", "worker.js 1.16.9: destination-node floor — a degenerate (~0 km) route still yields one node so the card always has a NEXT anchor");
+assertIncludes(html, "Math.floor(rKm2 * 1000 / (CONFIG.routingIntervalNodeDist || 5000)) === 0)", "index.html 1.16.9: the tracking card re-derives the ACTUAL node stride (total/nodes.length) on adaptive routes — the 1.16.4 tail math stays exact");
+assertIncludes(html, "summary.totalDistance < 3000 ? 1 : 2", "index.html 1.16.9: the INTERCEPT chip mirrors the ladder — it can no longer print '0 NODES' while the timeline shows the adaptive nodes");
 
 // ---------------------------------------------------------------------------
 // 1.16.5 UI improvement audit round (live-proven at the pin, 390x844, night
@@ -1016,7 +1027,28 @@ assertIncludes(html, "getWindDirection(_wdVal) + (_wdVal !== null ? ` <i class=\
 // wall-clock+remaining countdown to the static TOTAL-trip minutes
 // (driveRouteMin) at <5 km/h — mixed semantics, re-jumping at every stop light.
 assertIncludes(html, "String(_trackingEtaKeys.etaLiveTxt).split(' · ')[0] + ' · STOP'", "1.16.6 (A3): stopped ETA freezes the last live wall clock with a STOP qualifier (no more total-trip flip)");
-assertIncludes(html, "_trackingEtaKeys.etaLiveRkm = _rKmQ;", "1.16.6 (A3): the frozen ETA carries the remaining-distance signature (a route swap while stopped invalidates it → honest '--:--')");
+// 1.16.8: the freeze-validity signature was consciously REVISED per §1.6 —
+// the 1.16.6 remaining-distance key (etaLiveRkm === _rKmQ, 100 m quantised)
+// let ordinary GPS wander while parked drop the frozen clock to '--:--'. The
+// contract is unchanged (a frozen clock survives a stop, only a route change
+// invalidates it); the signature moved to route identity so the contract
+// actually holds. Contract revision, not a weakening — the negative case
+// (genuine route swap while stopped → honest '--:--') is still enforced.
+assertIncludes(html, "_trackingEtaKeys.etaLiveRoute = _routeSigKey;", "1.16.8: the frozen ETA carries a ROUTE-IDENTITY signature (route total + destination + node cursor) — GPS wander while parked no longer invalidates it (revised from the 1.16.6 remaining-distance key per §1.6)");
+assertIncludes(html, "_trackingEtaKeys.etaLiveRoute === _routeSigKey", "1.16.8: the STOP freeze is gated on route identity, not live remaining distance");
+// 1.16.8: route progress on the driving surface. The telemetry-card tape
+// (#tracking-progress-bar, in the card header) scrolls off-screen while
+// navigating (measured 390x844: map top never rises above y≈355), so the
+// fixed ETA bar carries the same keyed value as a 3px bottom edge. One
+// value, one writer — the edge is written from the same prog/progKey
+// computation, so the two surfaces can never drift apart.
+assertIncludes(html, 'id="tracking-eta-prog"', "1.16.8: the fixed ETA bar carries a route-progress edge element (progress on the driving surface)");
+assertIncludes(html, 'id="tracking-eta-prog-fill"', "1.16.8: the progress edge has its own fill (width-keyed writer)");
+assertIncludes(html, "_trackingEtaKeys.edgeProg !== prog", "1.16.8: the bar's progress edge width is key-gated (no per-frame style write)");
+// 1.16.8: honesty — before the node grid exists (worker computing / failed)
+// the NEXT field printed the straight-line DESTINATION distance under a
+// node-relative word. It now says DEST.
+assertIncludes(html, "nextTxt = 'DEST ' + (displayDistance2 >= 1000", "1.16.8: the nodes-absent fallback labels the destination distance 'DEST' — 'NEXT' described a node-relative number");
 // A4 — RAIN_LIKELY node chip: the bottom status row was BLUE while the top
 // block of the SAME chip was RED — two severity colors for one verdict.
 assertIncludes(html, "status === 'RAIN_LIKELY'    ? 'text-brand-red font-black drop-shadow-md'", "1.16.6 (A4): RAIN_LIKELY chip status row unified to red (matches the top block + the main card's alert tier)");
