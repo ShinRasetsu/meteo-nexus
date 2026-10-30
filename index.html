@@ -5473,7 +5473,11 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            state.mapObj = L.map('hud-map', { zoomControl: false }).setView([lat, lon], 14);
+            // 1.16.10: zoomAnimation off — the map already does all of its own
+            // easing (animate:false panTo + the per-frame follow loop), and the
+            // zoom animation was the window in which the gesture-anchored
+            // drift stayed on screen (see the zoom re-anchor below).
+            state.mapObj = L.map('hud-map', { zoomControl: false, zoomAnimation: false }).setView([lat, lon], 14);
             state.lastSetViewLat = lat; state.lastSetViewLon = lon; state._lastSetViewTS = performance.now();
             // FIX: custom pane for markers that must stay screen-upright while
             // tactical mode rotates the map (fuel-pitstop icons, route waypoint
@@ -5617,13 +5621,29 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                         state.lastCssHeading = targetR;
                     }
                     // Re-center while locked: keep the user anchored through zooms.
-                    if (state.isMapLocked && state.autoCoords) {
-                        const clat = state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat;
-                        const clon = state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon;
-                        state.mapObj.panTo([clat, clon], { animate: false, duration: 0 });
-                    }
+                    reAnchorZoomToUser();
                 }
             });
+            // 1.16.10: re-anchor on EVERY zoom step, not just the end. Leaflet
+            // zooms around the gesture point (wheel position / pinch midpoint),
+            // so an anchor away from the pin slides the whole map laterally
+            // while the gesture runs; the 1.13.1 zoomend re-center corrected
+            // only the END state — with the zoom animation enabled that landed
+            // up to ~1.4s AFTER the last gesture event, so the map sat visibly
+            // sideways for the entire zoom and then snapped back (user report
+            // 2026-10-30: "when zooming out why it's moving side ways"). With
+            // zoomAnimation off, each step is instant and this correction lands
+            // in the same tick as the step — nothing accumulates. Map Mode
+            // (tacticalMode 0) and drag-unlocked browsing keep the free-map
+            // semantics: the gate below declines, zoom stays gesture-anchored.
+            state.mapObj.on('zoom', () => { reAnchorZoomToUser(); });
+            function reAnchorZoomToUser() {
+                if (state.tacticalMode > 0 && state.isMapLocked && state.autoCoords && state.mapObj) {
+                    const clat = state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat;
+                    const clon = state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon;
+                    state.mapObj.panTo([clat, clon], { animate: false, duration: 0 });
+                }
+            }
             // Restore the radar-overlay preference from last session and apply
             // as soon as a frame is available (frames cache fills on the first
             // radar fetch; refreshRadarOverlay is a cheap no-op until then).

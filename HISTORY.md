@@ -118,6 +118,59 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
+## 1.16.10 — 2026-10-30 (patch: zoom re-anchor — the map no longer slides sideways while zooming out)
+
+### Bump rationale
+
+Patch bump 1.16.9 → 1.16.10, same session, user-reported immediately after the 1.16.9 release: *"when zooming out why its moving side ways?"*. Per the charter's user-report doctrine the report was treated as app truth, reproduced on the rig, root-caused by measurement, fixed, and re-proven before the release gate — the report was NOT dismissed as expected behavior. The tree above (1.16.9) was already green-stable and uncommitted-by-design; this release is the smallest possible delta against one surface (map zoom anchoring). `sw.js` `APP_CACHE` `v30` → `v31`.
+
+### Root cause (proven by measurement, not by reading)
+
+Reproduced on the 390×844 rig (stubbed GPS + synthetic `deviceorientationabsolute` so the map ran heading-up at `--hud-rot: 199.5deg`): an off-center wheel zoom-out dragged the user dot from the map center to **671px off-center** — a ~200px sideways slide — where it sat for the whole gesture and then snapped back **~1.35s later**. Three stacked causes:
+
+1. **Leaflet zooms around the gesture point** (wheel position / pinch midpoint). An anchor away from the pin translates the whole map laterally while the gesture runs — inherent Leaflet behavior.
+2. **The app's correction (1.13.1) fired only on `zoomend`**, which with the zoom animation enabled lands up to ~1.4s AFTER the last gesture event (each wheel step restarts the animation). The map therefore sat visibly sideways for the entire zoom, then snapped. The 1.13.1 fix guaranteed the end state but never the motion.
+3. **The zoom animation itself** held the drifted frame on screen for several hundred ms per step.
+
+Ruled out by probe before fixing: Leaflet's pointer math breaking on the app's CSS-rotated 150% container (the rotation is about the container center, so a gesture centered on the pin maps to the container center exactly — measured 0px displacement at 199.5°). The lateral slide is purely the off-center anchor translate; rotation only ever reads as the map turning.
+
+### The fix (index.html, 2 changes)
+
+- **`zoomAnimation: false`** on the map (`initMap`). The app already does all of its own easing — `animate:false` panTo + the per-frame follow loop — so the zoom animation bought nothing and was the window in which the drifted frame stayed on screen.
+- **The re-anchor now runs on EVERY `zoom` step**, not just the end. The correction moved into a shared `reAnchorZoomToUser()` helper fired from both a new `map.on('zoom')` listener and the existing `zoomend` listener (kept as the safety net: the rotation re-sync must still work when the rAF follow loop is dormant — the 1.12.0 lesson). The helper is gated on `tacticalMode > 0 && isMapLocked && autoCoords`: **Map Mode and drag-unlocked browsing keep the free, gesture-anchored zoom by design** — only the GPS-locked driving state gets the Google-navigation "your dot stays centered" behavior.
+
+### Live runtime proof (same rig, same probes, before/after)
+
+| Probe | Before | After |
+|---|---|---|
+| 8 off-center wheel zoom-out steps, heading-up map | dot slid to 671px off, snapped back ~1.35s late | **max drift 1px**, no snap |
+| Pin-centered zoom step | 0px | 0px |
+| Zoom below z15 (overview north-up ease) | slide during ease | 1px |
+| Rotation state | 199.5° and 0° both drifty | both ≤1px |
+
+Console: 0 red errors across every probe.
+
+### Changes
+
+- `index.html` — `zoomAnimation: false`; `map.on('zoom')` re-anchor + the `reAnchorZoomToUser()` helper (the 1.13.1 zoomend panTo line is preserved verbatim inside it — its guard survived untouched).
+- `tests/sanity.test.js` — **+3 guards** (566 → 569): the animation flag, the per-step `zoom` listener, the Drive-Mode + lock gate (so a future "just re-center everywhere" edit fails the suite).
+- `sw.js` — APP_CACHE v31. `VERSION` → 1.16.10, `package.json` synced.
+
+### Gates run + evidence
+
+- `npm run lint` 0 · `npm test` sanity **569/569** + unit **53/53** · `npm run audit` **10/10 PASS** (extract+parse OK module 974..11625 / 739777 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — no transform contract touched (the zoom re-anchor is map-center bookkeeping, not a rotation writer; the single `--hud-rot` writer is preserved), shell PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** · `node tests/audit-unified.mjs` **39 checks PASS + Perfection PASS (0 stairs, 0 janks)** · `node tests/ui-fluidity.test.js` Perfection PASS · `npm run precheck` green (Tailwind v4.3.3; no CSS drift — no new utilities this round).
+- Fetch Gate §6 not re-triggered by §2 (no fetch URLs/triggers/math touched — zoom anchoring only). Visual runtime §7 **was** exercised by the live probes above (rotation + zoom states, per §2's rotation surfaces row).
+
+### Blind spots considered (§8)
+
+Races: the re-anchor reads the same single-writer fields (`state.visual.lat/lon`, `autoCoords`) the follow loop writes, on the same synchronous frame; `panTo` fires `move`/`moveend`, never `zoom`, so the new listener cannot self-trigger. Leaks: one listener added at `initMap` beside the existing zoomend listener, no new timers/state. Coercion: the helper's `state.visual.lat !== null` guard mirrors the long-shipping pattern; `autoCoords` truthiness is required. Off-by-one: none — the helper replaces the zoomend body verbatim and adds a second caller. Perf: with the animation off, a zoom step is one synchronous zoom + one panTo (no per-step animation cost); the wheel-zoom path is user-cadence, not 60 Hz. A11y: untouched surfaces. Visual compositing: zoom anchoring changes the map CENTER, never a transform contract — the single-writer `--hud-rot` contract is scanner-proven intact. Known residual (documented, not hidden): a pinch whose midpoint is far from the pin still scales around the fingers for the duration of the gesture (the per-step re-center snaps it back within the same tick); fully re-anchoring the pinch midpoint itself would require disabling Leaflet's TouchZoom and driving pinch ourselves — declined for this patch as invasive with no measured benefit (a driver pinches near the pin, and the end state is already correct).
+
+### PENDING (user device)
+
+Real pinch-zoom on the phone in Drive Mode (wheel vs pinch feel; the anchor-midpoint case above) · zoom feel with the animation off on a mid-range device GPU (instant vs the previous ~300ms ease — if it reads as harsh, the follow-up is `zoomAround`-driven zooming about the pin rather than animation) · second-boot v31 update path on installed clients · `git tag v1.16.10` when deploying.
+
+---
+
 ## 1.16.9 — 2026-10-30 (patch: tracking-card round — stopped-ETA freeze key, progress on the driving surface, sub-5 km node ladder)
 
 ### Bump rationale

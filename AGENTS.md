@@ -297,9 +297,9 @@ From HISTORY.md "How to bump version in a new session":
 - No new fetch/Worker/URL origin without a CSP meta entry - let audit:csp
   confirm, but manual review beats the scanner catching it last.
 
-## 11. Reference numbers (verified v1.16.9, 2026-10-30)
+## 11. Reference numbers (verified v1.16.10, 2026-10-30)
 
- - sanity.test.js - 566 substring assertions / 0 failing (incl. 4 negative-pair
+ - sanity.test.js - 569 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -415,6 +415,9 @@ From HISTORY.md "How to bump version in a new session":
       U+2026 negative + ACQUIRING count; incl. 2 guards consciously
        REVISED per §1.6: APP_CACHE v28 → v29 ×2 + the 1.16.5 badge pin
        retargeted to the mt-1-free alignment)
+    +3 from the 1.16.10 zoom re-anchor round (zoomAnimation flag, the
+      per-step `zoom` listener, the Drive-Mode + lock gate; incl. 2 guards
+      consciously REVISED per §1.6: APP_CACHE v30 → v31 ×2)
     +4 from the 1.16.9 tracking-card round (worker short-route node ladder,
        destination-node floor, card stride mirror, INTERCEPT chip ladder
        mirror; the 1.16.8 progress-edge + DEST-label + freeze-key guards
@@ -437,7 +440,7 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
- - index.html - ~11629 lines / ~797 KB; inline module lines 974-11595 (~737 KB)
+ - index.html - ~11629 lines / ~797 KB; inline module lines 974-11625 (~740 KB)
  - worker.js - 305 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)

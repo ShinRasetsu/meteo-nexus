@@ -380,6 +380,14 @@ assertIncludes(html, "const measuredClear = radarClear && metarFresh && !rainByM
 assertIncludes(html, "const rainByMinutelyEff = rainByMinutely && !measuredClear;", "index.html ensemble triggers are measurement-gated — a clear radar + clear METAR refutes the nowcast/consensus claims");
 assertIncludes(html, "'models claim rain — measurements clear'", "index.html suppressed model claims stay visible in the desc — the card never hides WHY");
 assertIncludes(html, "state.mapObj.panTo([clat, clon], { animate: false, duration: 0 });", "index.html Drive Mode re-centers on the user after every zoom (Leaflet zooms around the gesture point — the drift report)");
+// 1.16.10 — user report: "when zooming out why it's moving side ways".
+// The 1.13.1 guard above corrected only the zoomEND state; with the zoom
+// animation enabled that landed up to ~1.4s after the last gesture event,
+// so the map sat visibly sideways for the whole gesture and then snapped.
+// Fix: zoom animation off + the re-anchor runs on EVERY zoom step.
+assertIncludes(html, "zoomControl: false, zoomAnimation: false", "index.html 1.16.10: zoom animation disabled — the app eases everything itself; the animation was the window in which the gesture-anchored drift stayed on screen");
+assertIncludes(html, "state.mapObj.on('zoom', () => { reAnchorZoomToUser(); });", "index.html 1.16.10: the pin re-anchor runs on EVERY zoom step while locked (not just zoomend) — no accumulated lateral slide during a gesture (rig-proven: max drift 1px over 8 off-center steps)");
+assertIncludes(html, "if (state.tacticalMode > 0 && state.isMapLocked && state.autoCoords && state.mapObj) {", "index.html 1.16.10: the re-anchor is Drive-Mode + lock gated — Map Mode and drag-unlocked browsing keep the free gesture-anchored zoom by design");
 // 1.13.2 — four-agent audit round: radar sampler window, recenter chain, METAR
 // freshness recompute, offline restore ordering, payloadSig fingerprint.
 assertIncludes(html, "for (let i = 0; i < 36; i += 4)", "index.html radar window scans ALL 9 pixels — the i<12 loop read only the top row (sample offset ~1.2km north of the pin)");
@@ -672,7 +680,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v30'", "sw.js APP_CACHE v30 — 1.16.9 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v31'", "sw.js APP_CACHE v31 — 1.16.10 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -827,7 +835,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v30", "sw.js 1.16.9: APP_CACHE v30 (index.html + worker.js + sw.js changed)");
+assertIncludes(swSrc, "meteonexus-app-v31", "sw.js 1.16.10: APP_CACHE v31 (index.html + sw.js changed)");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
