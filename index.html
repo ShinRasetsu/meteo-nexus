@@ -5477,14 +5477,15 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // easing (animate:false panTo + the per-frame follow loop), and the
             // zoom animation was the window in which the gesture-anchored
             // drift stayed on screen (see the zoom re-anchor below).
-            // 1.16.10 (rev): scrollWheelZoom off - we drive the wheel ourselves
-            // below so the zoom can be anchored ON THE PIN while GPS-locked.
+            // 1.16.10 (rev): scrollWheelZoom + touchZoom off - we drive both
+            // wheel and pinch ourselves below so the zoom can be anchored ON
+            // THE PIN while GPS-locked.
             // zoomAnimation stays ON (Leaflet default): the animation is the
             // fallback frame that keeps the previous tiles on screen while the
             // new zoom level's tiles load. Disabling it (first-draft 1.16.10)
             // made every zoom-out go BLANK for the duration of the tile fetch
             // (rig-measured: loaded tiles 30 -> 1 mid-gesture).
-            state.mapObj = L.map('hud-map', { zoomControl: false, scrollWheelZoom: false }).setView([lat, lon], 14);
+            state.mapObj = L.map('hud-map', { zoomControl: false, scrollWheelZoom: false, touchZoom: false }).setView([lat, lon], 14);
             state.lastSetViewLat = lat; state.lastSetViewLon = lon; state._lastSetViewTS = performance.now();
             // 1.16.10 (rev): wheel zoom anchored ON THE PIN while GPS-locked.
             // Leaflet's own ScrollZoom zooms around the gesture point, so an
@@ -5509,6 +5510,75 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
                 state.mapObj.setZoomAround(anchor, next, { animate: true });
             };
             state.mapObj.getContainer().addEventListener('wheel', _zoomWheel, { passive: false });
+// 1.16.10 (rev): pinch zoom is PIN-ANCHORED and COMMIT-ONLY. The wheel handler
+// above fixed the desktop path; on the phone the zoom gesture is a PINCH, and
+// Leaflet's own TouchZoom (disabled via touchZoom:false) scales around the
+// touch MIDPOINT — a pinch away from the pin slides the map laterally
+// ("zooming out moves my location sideways") and re-renders tiles at the
+// gesture zoom, which shows as blank patches at uncached levels.
+// Ours: nothing happens during the gesture (the map is frozen — there is
+// nothing to slide and nothing to blank), and on gesture end ONE animated,
+// pin-anchored setZoomAround commits the level, with Leaflet's animation
+// holding the previous frame while the new level's tiles load.
+// A live CSS-scale preview was tried first and rig-rejected: Leaflet owns the
+// tile-pane transform (its panPositions/setPosition fight any preview scale —
+// measured: 28-121px dot drift + coverage still dipping). Commit-only is the
+// stable, honest trade: the zoom lands as a discrete animated step instead of
+// a live finger-scaled zoom. If live-scale feel is ever wanted, it needs a
+// gesture-owned pane layer, not Leaflet's.
+const _pinch = { pts: new Map(), startDist: 0, startZoom: 0, lockedAtStart: false };
+const _pinchLocked = () => state.tacticalMode > 0 && state.isMapLocked && !!state.autoCoords;
+state.mapObj.getContainer().addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return; // mouse zoom is the wheel path above
+    if (_pinch.pts.size === 0) _pinch.lockedAtStart = _pinchLocked(); // snapshot before any drag can clear the lock
+    _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (_pinch.pts.size === 2 && state.mapObj) {
+        const p = Array.from(_pinch.pts.values());
+        _pinch.startDist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+        _pinch.startZoom = state.mapObj.getZoom();
+        // Freeze Leaflet's Drag — it grabs the FIRST pointer and would drag
+        // the map for the whole two-finger gesture (that drag IS the sideways
+        // slide). One-finger pan is restored at gesture end. The GPS follow
+        // keeps running on purpose: it is what holds the dot on the pin while
+        // the car moves, and there is no preview transform for it to clobber.
+        if (state.mapObj.dragging) state.mapObj.dragging.disable();        e.preventDefault(); // swallow the browser's native pinch-zoom
+    }
+}, { passive: false });
+state.mapObj.getContainer().addEventListener('pointermove', (e) => {
+    if (!_pinch.pts.has(e.pointerId) || _pinch.pts.size < 2) return;
+    _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    e.preventDefault(); // no visual change by design — commit-only
+}, { passive: false });
+const _pinchEnd = (e) => {
+    if (!_pinch.pts.has(e.pointerId)) return;
+    _pinch.pts.delete(e.pointerId);
+    if (_pinch.pts.size < 2 && state.mapObj) {
+        // Final span: the still-down pointer's last position vs the lifted
+        // pointer's position at release.
+        const p = Array.from(_pinch.pts.values());
+        const dist = (p.length === 1 && _pinch.startDist > 0) ? Math.hypot(p[0].x - e.clientX, p[0].y - e.clientY) : 0;
+        const startDist = _pinch.startDist;
+        _pinch.startDist = 0;
+        if (state.mapObj.dragging) state.mapObj.dragging.enable();  // one-finger pan restored
+        if (dist > 8 && startDist > 0) {
+            const target = Math.round(_pinch.startZoom + Math.log2(dist / startDist));
+            if (target !== _pinch.startZoom) {
+                // Locked at gesture START: anchor on the pin (the dot never
+                // moves). Free states: anchor on the touch midpoint (Google's
+                // normal-mode pinch). The snapshot matters — a pre-engage
+                // single-finger drag can clear isMapLocked mid-gesture.
+                const anchor = _pinch.lockedAtStart
+                    ? [state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat,
+                       state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon]
+                    : state.mapObj.containerPointToLatLng(
+                        state.mapObj.containerPoint(Math.round((p[0].x + e.clientX) / 2), Math.round((p[0].y + e.clientY) / 2)));
+                state.mapObj.setZoomAround(anchor, target, { animate: true });
+            }
+        }
+    }
+};
+state.mapObj.getContainer().addEventListener('pointerup', _pinchEnd);
+state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // FIX: custom pane for markers that must stay screen-upright while
             // tactical mode rotates the map (fuel-pitstop icons, route waypoint
             // dots, intercept node labels). z=590 sits below markerPane (600) so

@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.16.10, 2026-10-30)
 
- - sanity.test.js - 569 substring assertions / 0 failing (incl. 4 negative-pair
+ - sanity.test.js - 577 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -415,9 +415,12 @@ From HISTORY.md "How to bump version in a new session":
       U+2026 negative + ACQUIRING count; incl. 2 guards consciously
        REVISED per §1.6: APP_CACHE v28 → v29 ×2 + the 1.16.5 badge pin
        retargeted to the mt-1-free alignment)
-    +3 from the 1.16.10 zoom re-anchor round (zoomAnimation flag, the
-      per-step `zoom` listener, the Drive-Mode + lock gate; incl. 2 guards
-      consciously REVISED per §1.6: APP_CACHE v30 → v31 ×2)
+    +11 from the 1.16.10 zoom re-anchor round (wheel + pinch path: the
+      scrollWheelZoom/touchZoom options, the setZoomAround lines, the
+      non-passive listeners, the mouse-guard, the Drive-Mode + lock gate,
+      the drag disable/enable pair, and two guards pinning the REMOVED
+      approaches — per-step re-anchor and CSS-scale preview; incl. 2 guards
+      consciously REVISED per §1.6: APP_CACHE v31 → v32 ×2)
     +4 from the 1.16.9 tracking-card round (worker short-route node ladder,
        destination-node floor, card stride mirror, INTERCEPT chip ladder
        mirror; the 1.16.8 progress-edge + DEST-label + freeze-key guards

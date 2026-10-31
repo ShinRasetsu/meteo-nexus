@@ -390,7 +390,13 @@ assertIncludes(html, "state.mapObj.panTo([clat, clon], { animate: false, duratio
 // Fix (rev): zoom ABOUT THE PIN — no anchor translate ever happens, so there
 // is nothing to correct; the animation stays on. The zoomend re-center
 // remains as the pinch-path safety net.
-assertIncludes(html, "zoomControl: false, scrollWheelZoom: false", "index.html 1.16.10 (rev): Leaflet's gesture-anchored wheel zoom is replaced by the app's own pin-anchored handler (scrollWheelZoom off) — the sideways slide never happens because the anchor IS the pin");
+assertIncludes(html, "zoomControl: false, scrollWheelZoom: false, touchZoom: false", "index.html 1.16.10 (rev): BOTH gesture zooms (wheel + pinch) are replaced by the app's own pin-anchored handlers — the sideways slide never happens because the anchor IS the pin (wheel fixed the desktop path; the phone pinches, so pinch needed the same treatment)");
+assertIncludes(html, "const target = Math.round(_pinch.startZoom + Math.log2(dist / startDist));", "index.html 1.16.10 (rev): the pinch commits ONE discrete zoom level at gesture end — no per-move re-zoom, so no tile discard and no blank patches at uncached levels");
+assertIncludes(html, "state.mapObj.setZoomAround(anchor, target, { animate: true });", "index.html 1.16.10 (rev): the pinch commit is pin-anchored (locked) / midpoint-anchored (free) with the zoom animation on — the animation's fallback frame holds the previous tiles while the new level loads");
+assertIncludes(html, "e.preventDefault(); // no visual change by design — commit-only", "index.html 1.16.10 (rev): the pinch is COMMIT-ONLY — the map stays frozen during the gesture (nothing slides, nothing blanks); the live CSS-scale preview was rig-rejected (Leaflet owns the tile-pane transform) and is recorded so it is never re-added");
+assertIncludes(html, "if (state.mapObj.dragging) state.mapObj.dragging.disable();", "index.html 1.16.10 (rev): Leaflet's Drag is disabled for the pinch duration — it grabs the FIRST pointer and would drag the map for the whole two-finger gesture (that drag IS the sideways slide); one-finger pan is restored at gesture end");
+assertIncludes(html, "if (state.mapObj.dragging) state.mapObj.dragging.enable();", "index.html 1.16.10 (rev): one-finger pan is restored when the pinch ends");
+assertIncludes(html, "if (e.pointerType === 'mouse') return;", "index.html 1.16.10 (rev): the pinch handlers ignore mouse input — the wheel path owns the desktop gesture");
 assertIncludes(html, "state.mapObj.setZoomAround(anchor, next, { animate: true });", "index.html 1.16.10 (rev): the wheel handler zooms around the pin while locked and around the pointer's own point otherwise (Leaflet parity); animate:true keeps the fallback frame so zooming never goes blank");
 assertIncludes(html, "state.mapObj.getContainer().addEventListener('wheel', _zoomWheel, { passive: false });", "index.html 1.16.10 (rev): the wheel listener is non-passive (preventDefault) and registered on the map container");
 assertIncludes(html, "if (state.tacticalMode > 0 && state.isMapLocked && state.autoCoords && state.mapObj) {", "index.html 1.16.10: the zoomend re-anchor is Drive-Mode + lock gated — Map Mode and drag-unlocked browsing keep the free gesture-anchored zoom by design");
@@ -687,7 +693,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v32'", "sw.js APP_CACHE v32 — 1.16.10 post-release revision (consciously revised per §1.6: the first-draft 1.16.10 shipped v31 with the blank-zoom regression; installed clients need a NEW cache key to fetch the corrected shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v33'", "sw.js APP_CACHE v33 — 1.16.10 post-release revision 2 (consciously revised per §1.6: the pinch fix shipped in rev-1's v32 is already on deployed clients (d044f3a), so the pinch-path fix needs a NEW cache key to reach them)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -842,7 +848,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v32", "sw.js 1.16.10 (rev): APP_CACHE v32 — the blank-zoom revision needs a new cache key or the deployed v31 shell never updates");
+assertIncludes(swSrc, "meteonexus-app-v33", "sw.js 1.16.10 (rev2): APP_CACHE v33 — the pinch-path fix needs a new cache key or the deployed v32 shell never updates");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +

@@ -118,7 +118,7 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
-## 1.16.10 — 2026-10-30 (patch: zoom re-anchor — the map no longer slides sideways, and no longer goes blank, while zooming)
+## 1.16.10 — 2026-10-30 (patch: zoom re-anchor — the map no longer slides sideways, and no longer goes blank, while zooming (wheel + pinch))
 
 ### Bump rationale
 
@@ -159,7 +159,7 @@ Console: 0 red errors across every probe.
 ### Changes
 
 - `index.html` — `scrollWheelZoom: false` + the app's own wheel handler (`initMap`); the per-step `zoom` re-anchor listener removed; `reAnchorZoomToUser()` retained for the `zoomend` safety net (its 1.13.1 panTo line preserved verbatim — its guard survived untouched).
-- `tests/sanity.test.js` — **+5 guards net** (566 → 571): the `scrollWheelZoom: false` option, the `setZoomAround(pin, …, animate:true)` line, the non-passive wheel listener, the Drive-Mode + lock gate (so a future "just re-center everywhere" edit fails the suite), and a guard pinning the REMOVAL rationale of the per-step listener (the first-draft blank regression is pinned so it can never be re-added).
+- `tests/sanity.test.js` — (+5 guards in the first revision, +6 more in revision 2; the per-release chapter section below carries the net count).
 - `sw.js` — APP_CACHE v31 (revised to **v32** in the post-release revision below, so installed clients actually receive the corrected shell). `VERSION` → 1.16.10, `package.json` synced.
 
 ### Gates run + evidence
@@ -178,6 +178,26 @@ Real pinch-zoom on the phone in Drive Mode (wheel vs pinch feel; the anchor-midp
 ### 1.16.10 post-release revision (same tree, uncommitted — user report *"when zooming map goes blank"*)
 
 The first-draft fix blanked the map on every zoom-out (rig-measured: loaded tiles 30 → 1 mid-gesture, recovering ~1.5s later) — the zoom animation is the fallback frame that holds the previous tiles while the new level's tiles load, not a luxury. Revised in-round: **zoom about the pin** (`scrollWheelZoom: false` + the app's wheel handler calling `setZoomAround(pin, …, {animate:true})` while GPS-locked; pointer-anchored in every other state for Leaflet parity), **animation restored**, and the per-step re-anchor removed (a `panTo` mid-animation cancels the fallback frame — the same blanking class). Re-proven live on the same rig: **max drift 1px across 8 off-center steps AND tiles never below the 30 baseline**; Map Mode free-zoom preserved; 0 red console errors. Sanity +2 guards pin the removal rationale so the per-step listener can never be re-added. APP_CACHE **v31 → v32** — the first draft had already been deployed (auto-commit `1d4a486`, 2026-10-30 22:16) with the blank regression, so installed clients needed a NEW cache key to fetch the corrected shell. The chapter's fix/proof/changes sections above already describe the shipped (revised) state; this note records the revision history for the audit trail.
+
+### 1.16.10 post-release revision 2 (same tree, uncommitted — user report: *"zooming out moves the center/my location side ways … map goes blank while zooming"* against the rev build `d044f3a`)
+
+The revised (wheel-only) fix was deployed and the user reported BOTH symptoms back. Cause: the phone's zoom gesture is a **pinch**, and the revision only replaced Leaflet's `ScrollZoom` — its `TouchZoom` was still active. Two hand-offs inside Leaflet's own pinch: it scales around the touch **midpoint** (a pinch away from the pin slides the map laterally), it re-renders tiles at the gesture zoom (blank patches at uncached levels), and its `Drag` grabs the **first** pointer and drags the map for the whole two-finger gesture.
+
+Three iterations, all rig-measured on the heading-up map (stubbed GPS + synthetic `deviceorientationabsolute` at 199.5deg), recorded so none is re-tried blindly:
+
+1. **Continuous pin-anchored `setZoomAround` per `pointermove`** — drift fixed (1px) but visible tile coverage still dipped 21 → 10 mid-gesture: each move discards the old level's tiles while the new level fetches.
+2. **CSS-scale preview of Leaflet's tile pane** — rig-**rejected**: Leaflet owns that pane's transform (its own `setPosition`/panPositions overwrite any preview scale; measured 28–121px dot drift and coverage still dipping). A follow-freeze added a visual-convergence wobble. Recorded in-code so the approach is never re-added.
+3. **Shipped: COMMIT-ONLY pinch** — nothing happens during the gesture (there is nothing to slide and nothing to blank), `Drag` is disabled for its duration (that drag IS the slide; restored at gesture end), the lock state is snapshotted at first touch (a pre-engage single-finger drag can clear `isMapLocked` mid-gesture), and on release **one animated, pin-anchored `setZoomAround`** commits the level — the animation's fallback frame covers the tile load.
+
+Live proof (same rig): pinch-out and pinch-in, steady state — **max drift 1px, visible coverage never below baseline in either direction (19→19, 7→7), dot centered after each commit**; the wheel path unchanged (1px, tiles ≥ baseline); Map Mode and one-finger pan untouched by construction; 0 red console errors. One-finger *drag* panning itself cannot be rig-driven (synthetic pointer events never reach Leaflet's Drag — the recenter chip never arms even pre-change) — **owed a device pass**.
+
+Tradeoff recorded, not hidden: the pinch no longer scales live under the fingers; it lands as one discrete animated step at release. Live-scale feel needs a gesture-owned pane layer rather than Leaflet's — declined as invasive for a patch. APP_CACHE **v32 → v33** — rev-1 (v32) had already been deployed (auto-commit `d044f3a`, 2026-10-31 12:10) and is the build the user tested, so deployed clients needed a NEW cache key to fetch the pinch fix.
+
+### Changes (both revisions)
+
+- `index.html` — `scrollWheelZoom: false` + the app's own wheel handler; `touchZoom: false` + the commit-only pinch handler (drag gating, lock snapshot, `setZoomAround` commit); the per-step `zoom` re-anchor earlier added and then removed (its removal rationale pinned so it cannot return).
+- `tests/sanity.test.js` — **+11 guards net** (566 → 577): the `scrollWheelZoom`/`touchZoom` options, the wheel + pinch `setZoomAround` lines, the non-passive listeners, the mouse-guard, the Drive-Mode + lock gate, the drag disable/enable pair, and two guards pinning the REMOVED approaches (per-step re-anchor, CSS-scale preview) so neither can silently return.
+- `sw.js` — APP_CACHE v32. `VERSION` → 1.16.10, `package.json` synced.
 
 ---
 
