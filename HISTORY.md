@@ -199,6 +199,10 @@ All three reports trace to ONE bug in the rev-2 pinch commit: the final span was
 
 Fix: the span is now measured from **both fingers' last known positions** (stored on every `pointermove`), never from the release event. Re-proven on the same rig: pinch-in commits a zoom-**out** (tile width 128→32, URL set 13/14→12/13), pinch-out commits a zoom-**in** (URL set 12/13→13/14), the dot stays centered in both, and the zoom-out floor is genuine — 14 consecutive wheel-out steps descend 17→13 and keep going (no artificial limit; the perceived limit was the direction bug pinning the map at max). APP_CACHE **v33 → v34** — rev-2 (v33) had already been deployed (auto-commit `82c2bf6`, 2026-10-31 15:26) and is the build the user tested, so deployed clients needed a NEW cache key to fetch the direction fix.
 
+### 1.16.10 post-release revision 3b (same tree, uncommitted — user report: *"its the map that should zoom in and out not the browser UI"*)
+
+With v34 live (`d68dcf4`, 15:53) the map zoom direction was fixed, but the **browser's own pinch-zoom** (page zoom) now fired over the map instead: disabling Leaflet's `TouchZoom` (rev-2) also removed the gesture suppression it had been providing, and `preventDefault` in our pointer handlers alone does not reliably stop native pinch on touch devices. Fix: `touch-action: none` on `#hud-map` (real CSS, the mechanism browsers actually read) — the map owns its gestures: one-finger pan stays Leaflet Drag, pinch stays our pin-anchored handler, taps/popups keep working (touch-action does not affect click synthesis). Rig-verified: the declaration computes (`touchAction: "none"`) and the app pinch still commits with it on (tiles 18→16, dot centered). APP_CACHE **v34 → v35** — v34 is what installed clients run, so they need the new key to fetch this.
+
 ### Changes (both revisions)
 
 - `index.html` — `scrollWheelZoom: false` + the app's own wheel handler; `touchZoom: false` + the commit-only pinch handler (drag gating, lock snapshot, `setZoomAround` commit); the per-step `zoom` re-anchor earlier added and then removed (its removal rationale pinned so it cannot return).

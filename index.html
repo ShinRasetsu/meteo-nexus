@@ -148,6 +148,15 @@ them for instant render on every later boot. -->
         #hud-map {
             background-color: #111111 !important;
             --user-heading: 0deg;
+            /* 1.16.10 (rev3): the map owns its gestures. The browser's native
+               pinch-zoom/page-pan must never fire over it — with Leaflet's own
+               TouchZoom disabled (we drive pinch ourselves) nothing else was
+               suppressing it, so finger gestures zoomed the BROWSER UI instead
+               of the map (user report 2026-10-31). touch-action:none hands all
+               touch behavior to our handlers: one-finger pan = Leaflet Drag,
+               pinch = our pin-anchored handler, taps = marker/popup clicks
+               (touch-action does not affect click synthesis). */
+            touch-action: none;
         }
         /* Smear the rotation unlock/relock over 250ms so the map doesn't snap
            130°+ in a single rAF frame when the user drags the map mid-tactical-
