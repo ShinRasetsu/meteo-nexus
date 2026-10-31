@@ -118,7 +118,7 @@ If any of these fails, the change is broken — regardless of what `npm test` or
 
 ---
 
-## 1.16.10 — 2026-10-30 (patch: zoom re-anchor — the map no longer slides sideways while zooming out)
+## 1.16.10 — 2026-10-30 (patch: zoom re-anchor — the map no longer slides sideways, and no longer goes blank, while zooming)
 
 ### Bump rationale
 
@@ -126,7 +126,7 @@ Patch bump 1.16.9 → 1.16.10, same session, user-reported immediately after the
 
 ### Root cause (proven by measurement, not by reading)
 
-Reproduced on the 390×844 rig (stubbed GPS + synthetic `deviceorientationabsolute` so the map ran heading-up at `--hud-rot: 199.5deg`): an off-center wheel zoom-out dragged the user dot from the map center to **671px off-center** — a ~200px sideways slide — where it sat for the whole gesture and then snapped back **~1.35s later**. Three stacked causes:
+Reproduced on the 390×844 rig (stubbed GPS + synthetic `deviceorientationabsolute` so the map ran heading-up at `--hud-rot: 199.5deg`): an off-center wheel zoom-out dragged the user dot from the map center to **671px off-center** — a ~200px sideways slide — where it sat for the whole gesture and then snapped back **~1.35s later**. The first-draft fix introduced its own regression (blank map, tiles 30 → 1 mid-gesture), also caught by a user report and rig-measured. Three stacked causes of the original slide:
 
 1. **Leaflet zooms around the gesture point** (wheel position / pinch midpoint). An anchor away from the pin translates the whole map laterally while the gesture runs — inherent Leaflet behavior.
 2. **The app's correction (1.13.1) fired only on `zoomend`**, which with the zoom animation enabled lands up to ~1.4s AFTER the last gesture event (each wheel step restarts the animation). The map therefore sat visibly sideways for the entire zoom, then snapped. The 1.13.1 fix guaranteed the end state but never the motion.
@@ -134,10 +134,15 @@ Reproduced on the 390×844 rig (stubbed GPS + synthetic `deviceorientationabsolu
 
 Ruled out by probe before fixing: Leaflet's pointer math breaking on the app's CSS-rotated 150% container (the rotation is about the container center, so a gesture centered on the pin maps to the container center exactly — measured 0px displacement at 199.5°). The lateral slide is purely the off-center anchor translate; rotation only ever reads as the map turning.
 
-### The fix (index.html, 2 changes)
+### The fix (index.html) — revised in-round after the first draft blanked the map
 
-- **`zoomAnimation: false`** on the map (`initMap`). The app already does all of its own easing — `animate:false` panTo + the per-frame follow loop — so the zoom animation bought nothing and was the window in which the drifted frame stayed on screen.
-- **The re-anchor now runs on EVERY `zoom` step**, not just the end. The correction moved into a shared `reAnchorZoomToUser()` helper fired from both a new `map.on('zoom')` listener and the existing `zoomend` listener (kept as the safety net: the rotation re-sync must still work when the rAF follow loop is dormant — the 1.12.0 lesson). The helper is gated on `tacticalMode > 0 && isMapLocked && autoCoords`: **Map Mode and drag-unlocked browsing keep the free, gesture-anchored zoom by design** — only the GPS-locked driving state gets the Google-navigation "your dot stays centered" behavior.
+**First draft (superseded):** `zoomAnimation: false` + re-anchor on every `zoom` step. It fixed the slide (max drift 1px) but the very next user report caught the regression it introduced: *"when zooming map goes blank"* — rig-measured, the loaded tile count collapsed **30 → 1 mid-gesture** and recovered ~1.5s later. The zoom animation is not a luxury: it is the **fallback frame** that holds the previous tiles on screen while the new zoom level's tiles load. Disabling it exposes the tile-fetch gap as a blank map. The per-step `zoom` listener was also removed — a `panTo` mid-animation cancels that fallback frame.
+
+**Shipped fix:** *zoom about the pin, so the anchor translate never happens at all* — nothing to correct afterwards, and the animation stays on:
+
+- **`scrollWheelZoom: false` + the app's own wheel handler** (`initMap`). While GPS-locked (Drive Mode + lock) the handler calls `map.setZoomAround(pin, …)` — the anchor IS the pin, so Leaflet's gesture-point translate never happens and the sideways slide is gone by construction. Every other state (Map Mode, drag-unlocked browse) replicates Leaflet's own behaviour exactly by zooming around the pointer's own container point.
+- **`zoomAnimation` stays on** (Leaflet default) — the fallback frame that keeps the map from going blank while tiles load.
+- **The existing `zoomend` re-center stays as the pinch-path safety net** (Leaflet's TouchZoom still anchors at the touch midpoint; the correction lands when the gesture ends) plus the rotation re-sync for when the rAF follow loop is dormant — the 1.12.0 lesson.
 
 ### Live runtime proof (same rig, same probes, before/after)
 
@@ -147,18 +152,19 @@ Ruled out by probe before fixing: Leaflet's pointer math breaking on the app's C
 | Pin-centered zoom step | 0px | 0px |
 | Zoom below z15 (overview north-up ease) | slide during ease | 1px |
 | Rotation state | 199.5° and 0° both drifty | both ≤1px |
+| Loaded tiles during an 8-step zoom-out (regression check) | first draft: 30 → **1** mid-gesture | **never below 30** (old frame held, new tiles stream in) |
 
 Console: 0 red errors across every probe.
 
 ### Changes
 
-- `index.html` — `zoomAnimation: false`; `map.on('zoom')` re-anchor + the `reAnchorZoomToUser()` helper (the 1.13.1 zoomend panTo line is preserved verbatim inside it — its guard survived untouched).
-- `tests/sanity.test.js` — **+3 guards** (566 → 569): the animation flag, the per-step `zoom` listener, the Drive-Mode + lock gate (so a future "just re-center everywhere" edit fails the suite).
-- `sw.js` — APP_CACHE v31. `VERSION` → 1.16.10, `package.json` synced.
+- `index.html` — `scrollWheelZoom: false` + the app's own wheel handler (`initMap`); the per-step `zoom` re-anchor listener removed; `reAnchorZoomToUser()` retained for the `zoomend` safety net (its 1.13.1 panTo line preserved verbatim — its guard survived untouched).
+- `tests/sanity.test.js` — **+5 guards net** (566 → 571): the `scrollWheelZoom: false` option, the `setZoomAround(pin, …, animate:true)` line, the non-passive wheel listener, the Drive-Mode + lock gate (so a future "just re-center everywhere" edit fails the suite), and a guard pinning the REMOVAL rationale of the per-step listener (the first-draft blank regression is pinned so it can never be re-added).
+- `sw.js` — APP_CACHE v31 (revised to **v32** in the post-release revision below, so installed clients actually receive the corrected shell). `VERSION` → 1.16.10, `package.json` synced.
 
 ### Gates run + evidence
 
-- `npm run lint` 0 · `npm test` sanity **569/569** + unit **53/53** · `npm run audit` **10/10 PASS** (extract+parse OK module 974..11625 / 739777 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — no transform contract touched (the zoom re-anchor is map-center bookkeeping, not a rotation writer; the single `--hud-rot` writer is preserved), shell PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** · `node tests/audit-unified.mjs` **39 checks PASS + Perfection PASS (0 stairs, 0 janks)** · `node tests/ui-fluidity.test.js` Perfection PASS · `npm run precheck` green (Tailwind v4.3.3; no CSS drift — no new utilities this round).
+- `npm run lint` 0 · `npm test` sanity **571/571** + unit **53/53** · `npm run audit` **10/10 PASS** (extract+parse OK module 974..11634 / 740322 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — no transform contract touched (the zoom re-anchor is map-center bookkeeping, not a rotation writer; the single `--hud-rot` writer is preserved), shell PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** · `node tests/audit-unified.mjs` **39 checks PASS + Perfection PASS (0 stairs, 0 janks)** · `node tests/ui-fluidity.test.js` Perfection PASS · `npm run precheck` green (Tailwind v4.3.3; no CSS drift — no new utilities this round).
 - Fetch Gate §6 not re-triggered by §2 (no fetch URLs/triggers/math touched — zoom anchoring only). Visual runtime §7 **was** exercised by the live probes above (rotation + zoom states, per §2's rotation surfaces row).
 
 ### Blind spots considered (§8)
@@ -167,7 +173,11 @@ Races: the re-anchor reads the same single-writer fields (`state.visual.lat/lon`
 
 ### PENDING (user device)
 
-Real pinch-zoom on the phone in Drive Mode (wheel vs pinch feel; the anchor-midpoint case above) · zoom feel with the animation off on a mid-range device GPU (instant vs the previous ~300ms ease — if it reads as harsh, the follow-up is `zoomAround`-driven zooming about the pin rather than animation) · second-boot v31 update path on installed clients · `git tag v1.16.10` when deploying.
+Real pinch-zoom on the phone in Drive Mode (wheel vs pinch feel; the anchor-midpoint case above) · second-boot v32 update path on installed clients · `git tag v1.16.10` when deploying.
+
+### 1.16.10 post-release revision (same tree, uncommitted — user report *"when zooming map goes blank"*)
+
+The first-draft fix blanked the map on every zoom-out (rig-measured: loaded tiles 30 → 1 mid-gesture, recovering ~1.5s later) — the zoom animation is the fallback frame that holds the previous tiles while the new level's tiles load, not a luxury. Revised in-round: **zoom about the pin** (`scrollWheelZoom: false` + the app's wheel handler calling `setZoomAround(pin, …, {animate:true})` while GPS-locked; pointer-anchored in every other state for Leaflet parity), **animation restored**, and the per-step re-anchor removed (a `panTo` mid-animation cancels the fallback frame — the same blanking class). Re-proven live on the same rig: **max drift 1px across 8 off-center steps AND tiles never below the 30 baseline**; Map Mode free-zoom preserved; 0 red console errors. Sanity +2 guards pin the removal rationale so the per-step listener can never be re-added. APP_CACHE **v31 → v32** — the first draft had already been deployed (auto-commit `1d4a486`, 2026-10-30 22:16) with the blank regression, so installed clients needed a NEW cache key to fetch the corrected shell. The chapter's fix/proof/changes sections above already describe the shipped (revised) state; this note records the revision history for the audit trail.
 
 ---
 

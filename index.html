@@ -5477,8 +5477,38 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // easing (animate:false panTo + the per-frame follow loop), and the
             // zoom animation was the window in which the gesture-anchored
             // drift stayed on screen (see the zoom re-anchor below).
-            state.mapObj = L.map('hud-map', { zoomControl: false, zoomAnimation: false }).setView([lat, lon], 14);
+            // 1.16.10 (rev): scrollWheelZoom off - we drive the wheel ourselves
+            // below so the zoom can be anchored ON THE PIN while GPS-locked.
+            // zoomAnimation stays ON (Leaflet default): the animation is the
+            // fallback frame that keeps the previous tiles on screen while the
+            // new zoom level's tiles load. Disabling it (first-draft 1.16.10)
+            // made every zoom-out go BLANK for the duration of the tile fetch
+            // (rig-measured: loaded tiles 30 -> 1 mid-gesture).
+            state.mapObj = L.map('hud-map', { zoomControl: false, scrollWheelZoom: false }).setView([lat, lon], 14);
             state.lastSetViewLat = lat; state.lastSetViewLon = lon; state._lastSetViewTS = performance.now();
+            // 1.16.10 (rev): wheel zoom anchored ON THE PIN while GPS-locked.
+            // Leaflet's own ScrollZoom zooms around the gesture point, so an
+            // anchor away from the pin translates the whole map laterally for
+            // the duration of the gesture ("when zooming out why it's moving
+            // side ways" - user report 2026-10-30). Zooming around the PIN
+            // means the anchor IS the pin: the slide never happens, so there is
+            // nothing to correct afterwards (the zoomend re-center below stays
+            // as the pinch-path safety net). Every other state (Map Mode,
+            // drag-unlocked browse) replicates Leaflet's own gesture-anchored
+            // behaviour by zooming around the pointer's own container point.
+            const _zoomWheel = (e) => {
+                if (!state.mapObj || e.ctrlKey) return; // ctrl+wheel = browser page zoom
+                e.preventDefault();
+                const dir = e.deltaY < 0 ? 1 : -1;
+                const next = state.mapObj.getZoom() + dir;
+                const locked = state.tacticalMode > 0 && state.isMapLocked && !!state.autoCoords;
+                const anchor = locked
+                    ? [state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat,
+                       state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon]
+                    : state.mapObj.containerPointToLatLng(state.mapObj.mouseEventToContainerPoint(e));
+                state.mapObj.setZoomAround(anchor, next, { animate: true });
+            };
+            state.mapObj.getContainer().addEventListener('wheel', _zoomWheel, { passive: false });
             // FIX: custom pane for markers that must stay screen-upright while
             // tactical mode rotates the map (fuel-pitstop icons, route waypoint
             // dots, intercept node labels). z=590 sits below markerPane (600) so
@@ -5636,7 +5666,13 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // in the same tick as the step — nothing accumulates. Map Mode
             // (tacticalMode 0) and drag-unlocked browsing keep the free-map
             // semantics: the gate below declines, zoom stays gesture-anchored.
-            state.mapObj.on('zoom', () => { reAnchorZoomToUser(); });
+            // 1.16.10 (rev): the per-step 'zoom' listener was REMOVED — with
+            // the animation restored it would fight the zoom animation (a
+            // panTo mid-animation cancels the fallback frame and blanks the
+            // map). The wheel path no longer needs any correction (it zooms
+            // about the pin, see initMap); this helper now serves only the
+            // zoomend safety net for the pinch path and the dormant-loop
+            // rotation re-sync.
             function reAnchorZoomToUser() {
                 if (state.tacticalMode > 0 && state.isMapLocked && state.autoCoords && state.mapObj) {
                     const clat = state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat;

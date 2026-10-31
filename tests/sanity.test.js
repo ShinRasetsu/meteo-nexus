@@ -384,10 +384,17 @@ assertIncludes(html, "state.mapObj.panTo([clat, clon], { animate: false, duratio
 // The 1.13.1 guard above corrected only the zoomEND state; with the zoom
 // animation enabled that landed up to ~1.4s after the last gesture event,
 // so the map sat visibly sideways for the whole gesture and then snapped.
-// Fix: zoom animation off + the re-anchor runs on EVERY zoom step.
-assertIncludes(html, "zoomControl: false, zoomAnimation: false", "index.html 1.16.10: zoom animation disabled — the app eases everything itself; the animation was the window in which the gesture-anchored drift stayed on screen");
-assertIncludes(html, "state.mapObj.on('zoom', () => { reAnchorZoomToUser(); });", "index.html 1.16.10: the pin re-anchor runs on EVERY zoom step while locked (not just zoomend) — no accumulated lateral slide during a gesture (rig-proven: max drift 1px over 8 off-center steps)");
-assertIncludes(html, "if (state.tacticalMode > 0 && state.isMapLocked && state.autoCoords && state.mapObj) {", "index.html 1.16.10: the re-anchor is Drive-Mode + lock gated — Map Mode and drag-unlocked browsing keep the free gesture-anchored zoom by design");
+// Fix (first draft): zoom animation off + re-anchor on every zoom step — that
+// blanked the map on every zoom (rig-measured: loaded tiles 30 -> 1
+// mid-gesture; the animation is the fallback frame while new tiles load).
+// Fix (rev): zoom ABOUT THE PIN — no anchor translate ever happens, so there
+// is nothing to correct; the animation stays on. The zoomend re-center
+// remains as the pinch-path safety net.
+assertIncludes(html, "zoomControl: false, scrollWheelZoom: false", "index.html 1.16.10 (rev): Leaflet's gesture-anchored wheel zoom is replaced by the app's own pin-anchored handler (scrollWheelZoom off) — the sideways slide never happens because the anchor IS the pin");
+assertIncludes(html, "state.mapObj.setZoomAround(anchor, next, { animate: true });", "index.html 1.16.10 (rev): the wheel handler zooms around the pin while locked and around the pointer's own point otherwise (Leaflet parity); animate:true keeps the fallback frame so zooming never goes blank");
+assertIncludes(html, "state.mapObj.getContainer().addEventListener('wheel', _zoomWheel, { passive: false });", "index.html 1.16.10 (rev): the wheel listener is non-passive (preventDefault) and registered on the map container");
+assertIncludes(html, "if (state.tacticalMode > 0 && state.isMapLocked && state.autoCoords && state.mapObj) {", "index.html 1.16.10: the zoomend re-anchor is Drive-Mode + lock gated — Map Mode and drag-unlocked browsing keep the free gesture-anchored zoom by design");
+assertIncludes(html, "animation restored it would fight the zoom animation", "index.html 1.16.10 (rev): the per-step 'zoom' re-anchor was REMOVED — a panTo mid-animation cancels the fallback frame and blanks the map (the first-draft regression, recorded so it is never re-added)");
 // 1.13.2 — four-agent audit round: radar sampler window, recenter chain, METAR
 // freshness recompute, offline restore ordering, payloadSig fingerprint.
 assertIncludes(html, "for (let i = 0; i < 36; i += 4)", "index.html radar window scans ALL 9 pixels — the i<12 loop read only the top row (sample offset ~1.2km north of the pin)");
@@ -680,7 +687,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v31'", "sw.js APP_CACHE v31 — 1.16.10 release gate step 6 (consciously revised per §1.6: index.html changed, so the SW update detector must fire or installed clients never fetch the new shell)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v32'", "sw.js APP_CACHE v32 — 1.16.10 post-release revision (consciously revised per §1.6: the first-draft 1.16.10 shipped v31 with the blank-zoom regression; installed clients need a NEW cache key to fetch the corrected shell)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -835,7 +842,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v31", "sw.js 1.16.10: APP_CACHE v31 (index.html + sw.js changed)");
+assertIncludes(swSrc, "meteonexus-app-v32", "sw.js 1.16.10 (rev): APP_CACHE v32 — the blank-zoom revision needs a new cache key or the deployed v31 shell never updates");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +
