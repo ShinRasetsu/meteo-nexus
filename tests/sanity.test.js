@@ -395,7 +395,8 @@ assertIncludes(html, "const target = Math.round(_pinch.startZoom + Math.log2(dis
 assertIncludes(html, "state.mapObj.setZoomAround(anchor, target, { animate: true });", "index.html 1.16.10 (rev): the pinch commit is pin-anchored (locked) / midpoint-anchored (free) with the zoom animation on — the animation's fallback frame holds the previous tiles while the new level loads");
 assertIncludes(html, "e.preventDefault(); // no visual change by design — commit-only", "index.html 1.16.10 (rev): the pinch is COMMIT-ONLY — the map stays frozen during the gesture (nothing slides, nothing blanks); the live CSS-scale preview was rig-rejected (Leaflet owns the tile-pane transform) and is recorded so it is never re-added");
 assertIncludes(html, "if (state.mapObj.dragging) state.mapObj.dragging.disable();", "index.html 1.16.10 (rev): Leaflet's Drag is disabled for the pinch duration — it grabs the FIRST pointer and would drag the map for the whole two-finger gesture (that drag IS the sideways slide); one-finger pan is restored at gesture end");
-assertIncludes(html, "if (state.mapObj.dragging) state.mapObj.dragging.enable();", "index.html 1.16.10 (rev): one-finger pan is restored when the pinch ends");
+assertIncludes(html, "const both = Array.from(_pinch.pts.values());", "index.html 1.16.10 (rev2): the pinch commit measures the span from BOTH fingers' LAST KNOWN positions — the pointerup event's own clientX/Y can be zeroed by the browser for a released touch pointer, which made a pinch-IN (zoom out) commit as a zoom-IN (user report 2026-10-31)");
+assertIncludes(html, "const dist = Math.hypot(both[0].x - both[1].x, both[0].y - both[1].y);", "index.html 1.16.10 (rev2): the final span comes from the two stored positions, never from the release event");
 assertIncludes(html, "if (e.pointerType === 'mouse') return;", "index.html 1.16.10 (rev): the pinch handlers ignore mouse input — the wheel path owns the desktop gesture");
 assertIncludes(html, "state.mapObj.setZoomAround(anchor, next, { animate: true });", "index.html 1.16.10 (rev): the wheel handler zooms around the pin while locked and around the pointer's own point otherwise (Leaflet parity); animate:true keeps the fallback frame so zooming never goes blank");
 assertIncludes(html, "state.mapObj.getContainer().addEventListener('wheel', _zoomWheel, { passive: false });", "index.html 1.16.10 (rev): the wheel listener is non-passive (preventDefault) and registered on the map container");
@@ -693,7 +694,7 @@ assertIncludes(html, "self-null on fire (hygiene", "index.html 1.14.1: the 5s re
 assertIncludes(html, "_verdictLat: null, _verdictLon: null,", "index.html 1.14.1: verdict-coord scratch fields pre-declared in the state literal (hidden-class doctrine)");
 
 // sw.js — release-gate bump + tile eviction order (swSrc declared at line 543).
-assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v33'", "sw.js APP_CACHE v33 — 1.16.10 post-release revision 2 (consciously revised per §1.6: the pinch fix shipped in rev-1's v32 is already on deployed clients (d044f3a), so the pinch-path fix needs a NEW cache key to reach them)");
+assertIncludes(swSrc, "const APP_CACHE = 'meteonexus-app-v34'", "sw.js APP_CACHE v33 — 1.16.10 post-release revision 2 (consciously revised per §1.6: the pinch fix shipped in rev-1's v32 is already on deployed clients (d044f3a), so the pinch-path fix needs a NEW cache key to reach them)");
 assertIncludes(swSrc, "keys.sort((a, b) => zoomOf(a) - zoomOf(b));", "sw.js 1.14.1: tile eviction sorts by NUMERIC zoom (coarse first) — the string sort evicted the z14-17 driving tiles before the coarse overviews, eating freshly prefetched route corridors");
 
 // ---------------------------------------------------------------------------
@@ -848,7 +849,7 @@ assertIncludes(html, "second prefetch fence", "index.html 1.16.1: purge re-abort
 assertIncludes(html, "clear the race timer on settle", "index.html 1.16.1: readBodyOrNull clears its timer + debugs catches");
 assertIncludes(swSrc, "batched size collection first", "sw.js 1.16.1: tile eviction batches size collection (PF-2 class)");
 assertIncludes(swSrc, "bounded-batch match (PF-2 class)", "sw.js 1.16.1: API eviction batches matches (PF-2 class)");
-assertIncludes(swSrc, "meteonexus-app-v33", "sw.js 1.16.10 (rev2): APP_CACHE v33 — the pinch-path fix needs a new cache key or the deployed v32 shell never updates");
+assertIncludes(swSrc, "meteonexus-app-v34", "sw.js 1.16.10 (rev3): APP_CACHE v34 — the pinch-path fix needs a new cache key or the deployed v32 shell never updates");
 
 // ---------------------------------------------------------------------------
 // 1.16.3 first-real-use UI polish pass (Basecoat design-reference +

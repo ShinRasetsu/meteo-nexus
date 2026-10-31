@@ -5551,12 +5551,15 @@ state.mapObj.getContainer().addEventListener('pointermove', (e) => {
 }, { passive: false });
 const _pinchEnd = (e) => {
     if (!_pinch.pts.has(e.pointerId)) return;
+    // Final span from BOTH fingers' LAST KNOWN positions (stored on every
+    // pointermove). The pointerup event's own clientX/Y must NOT be used:
+    // browsers can zero or stale them for a released touch pointer — that
+    // made a pinch-IN (zoom out) compute a huge span and commit as a zoom-IN
+    // (user report 2026-10-31: "when i zoom out its still zooming in").
+    const both = Array.from(_pinch.pts.values());
     _pinch.pts.delete(e.pointerId);
-    if (_pinch.pts.size < 2 && state.mapObj) {
-        // Final span: the still-down pointer's last position vs the lifted
-        // pointer's position at release.
-        const p = Array.from(_pinch.pts.values());
-        const dist = (p.length === 1 && _pinch.startDist > 0) ? Math.hypot(p[0].x - e.clientX, p[0].y - e.clientY) : 0;
+    if (both.length === 2 && state.mapObj) {
+        const dist = Math.hypot(both[0].x - both[1].x, both[0].y - both[1].y);
         const startDist = _pinch.startDist;
         _pinch.startDist = 0;
         if (state.mapObj.dragging) state.mapObj.dragging.enable();  // one-finger pan restored
@@ -5571,7 +5574,7 @@ const _pinchEnd = (e) => {
                     ? [state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat,
                        state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon]
                     : state.mapObj.containerPointToLatLng(
-                        state.mapObj.containerPoint(Math.round((p[0].x + e.clientX) / 2), Math.round((p[0].y + e.clientY) / 2)));
+                        state.mapObj.containerPoint(Math.round((both[0].x + both[1].x) / 2), Math.round((both[0].y + both[1].y) / 2)));
                 state.mapObj.setZoomAround(anchor, target, { animate: true });
             }
         }
