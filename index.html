@@ -5535,8 +5535,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 // stable, honest trade: the zoom lands as a discrete animated step instead of
 // a live finger-scaled zoom. If live-scale feel is ever wanted, it needs a
 // gesture-owned pane layer, not Leaflet's.
-const _pinch = { pts: new Map(), startDist: 0, startZoom: 0, lockedAtStart: false };
+const _pinch = { pts: new Map(), startDist: 0, startZoom: 0, lockedAtStart: false, lastZoom: 0, snap: 1 };
 const _pinchLocked = () => state.tacticalMode > 0 && state.isMapLocked && !!state.autoCoords;
+const _pinchAnchorLatLng = () => (_pinch.lockedAtStart && state.autoCoords)
+    ? [state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat,
+       state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon]
+    : null;
 state.mapObj.getContainer().addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') return; // mouse zoom is the wheel path above
     if (_pinch.pts.size === 0) _pinch.lockedAtStart = _pinchLocked(); // snapshot before any drag can clear the lock
@@ -5544,14 +5548,37 @@ state.mapObj.getContainer().addEventListener('pointerdown', (e) => {
     if (_pinch.pts.size === 2 && state.mapObj) {
         const p = Array.from(_pinch.pts.values());
         _pinch.startDist = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
-        _pinch.startZoom = state.mapObj.getZoom();
+        _pinch.startZoom = _pinch.lastZoom = state.mapObj.getZoom();
+        // Fractional zoom during the gesture (what Leaflet's own TouchZoom
+        // does by zeroing zoomSnap): the map responds continuously under the
+        // fingers instead of waiting for the release, so the gesture never
+        // reads as disconnected. Restored at gesture end.
+        _pinch.snap = state.mapObj.options.zoomSnap;
+        state.mapObj.options.zoomSnap = 0;
         // Freeze Leaflet's Drag — it grabs the FIRST pointer and would drag
         // the map for the whole two-finger gesture (that drag IS the sideways
-        // slide). One-finger pan is restored at gesture end. The GPS follow
-        // keeps running on purpose: it is what holds the dot on the pin while
-        // the car moves, and there is no preview transform for it to clobber.
-        if (state.mapObj.dragging) state.mapObj.dragging.disable();        e.preventDefault(); // swallow the browser's native pinch-zoom
+        // slide). One-finger pan is restored at gesture end.
+        if (state.mapObj.dragging) state.mapObj.dragging.disable();
+        e.preventDefault(); // swallow the browser's native pinch-zoom
     }
+}, { passive: false });
+state.mapObj.getContainer().addEventListener('pointermove', (e) => {
+    if (!_pinch.pts.has(e.pointerId) || !state.mapObj || _pinch.pts.size < 2 || _pinch.startDist <= 0) return;
+    _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    e.preventDefault();
+    const p = Array.from(_pinch.pts.values());
+    const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+    if (d <= 8) return;
+    // Live, pin-anchored zoom, re-targeted on every move — the same cadence
+    // Leaflet's own TouchZoom uses. animate:true is load-bearing: the zoom
+    // transition holds the previous frame while the new level's tiles load,
+    // so a continuous pinch never blanks (animate:false re-rendered the level
+    // per move and the visible coverage cratered 19 -> 10 mid-gesture).
+    const target = _pinch.startZoom + Math.log2(d / _pinch.startDist);
+    _pinch.lastZoom = target;
+    const anchor = _pinchAnchorLatLng();
+    if (anchor) state.mapObj.setZoomAround(anchor, target, { animate: true });
+    else state.mapObj.setZoom(target, { animate: true });
 }, { passive: false });
 state.mapObj.getContainer().addEventListener('pointermove', (e) => {
     if (!_pinch.pts.has(e.pointerId) || _pinch.pts.size < 2) return;
@@ -5572,9 +5599,12 @@ const _pinchEnd = (e) => {
         const startDist = _pinch.startDist;
         _pinch.startDist = 0;
         if (state.mapObj.dragging) state.mapObj.dragging.enable();  // one-finger pan restored
+        if (state.mapObj.options.zoomSnap !== _pinch.snap) state.mapObj.options.zoomSnap = _pinch.snap;
         if (dist > 8 && startDist > 0) {
+            // Snap the fractional level to a clean integer at release — the
+            // tiles for it are already streaming from the live updates.
             const target = Math.round(_pinch.startZoom + Math.log2(dist / startDist));
-            if (target !== _pinch.startZoom) {
+            if (target !== Math.round(_pinch.lastZoom)) {
                 // Locked at gesture START: anchor on the pin (the dot never
                 // moves). Free states: anchor on the touch midpoint (Google's
                 // normal-mode pinch). The snapshot matters — a pre-engage
