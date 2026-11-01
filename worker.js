@@ -154,6 +154,17 @@ function calculateRouteNodes(totalDistance, coords, intervalDist) {
                 id: i,
                 passed: false
             };
+        } else if (i === nodeCount) {
+            // 1.16.10 (rev3e hunt round): the decoded geometry can measure
+            // slightly shorter than summary.totalDistance (engine polyline vs
+            // total mismatch), making the final target unreachable — the
+            // destination node was then silently dropped and a 2-node route
+            // degraded to the midpoint alone. Clamp the final node to the last
+            // coordinate instead (the fixed grid had interval-margin slack;
+            // the adaptive stride ends exactly at the total).
+            const last = coords[coords.length - 1];
+            const lastLon = last.lng !== undefined ? last.lng : last.lon;
+            nodes[validNodeCount++] = { lat: last.lat, lon: lastLon, id: i, passed: false };
         }
     }
 

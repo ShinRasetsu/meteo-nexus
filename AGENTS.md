@@ -299,7 +299,7 @@ From HISTORY.md "How to bump version in a new session":
 
 ## 11. Reference numbers (verified v1.16.10, 2026-10-30)
 
- - sanity.test.js - 577 substring assertions / 0 failing (incl. 4 negative-pair
+ - sanity.test.js - 598 substring assertions / 0 failing (incl. 4 negative-pair
   removals: sec-plot, altimeter+rel-angle, CRS/TAL, Regime/Spread/Brier+NO ROUTE;
   +9 from the 1.10.2 audit round, +5 from GPS-denial recovery, +4 from the
   1.10.3 headline-consensus overhaul, +2 from the 2026-09-25 corroboration gate
@@ -415,17 +415,28 @@ From HISTORY.md "How to bump version in a new session":
       U+2026 negative + ACQUIRING count; incl. 2 guards consciously
        REVISED per §1.6: APP_CACHE v28 → v29 ×2 + the 1.16.5 badge pin
        retargeted to the mt-1-free alignment)
-    +11 from the 1.16.10 zoom re-anchor round (wheel + pinch path: the
-      scrollWheelZoom/touchZoom options, the setZoomAround lines, the
+    +15 from the 1.16.10 rev3e bug-hunt round (free-state anchor crash fix,
+      midpoint anchors, release-always-commit, ghost/third-pointer hygiene,
+      wheel accumulator, pinch cooldown, zoomAnimationThreshold, raw-metre
+      stride mirror, route-generation token, hideTrackingSurfaces, chip floor,
+      geometry clamp, boot SW update check, purge fence, magcal close-cancel,
+      geo body budget; incl. 2 guards consciously REVISED per §1.6: the
+      rounded-total mirror → raw metres, the chip ladder → +floor, and the
+      APP_CACHE pins through the v36 → v37 chain)
+    +17 from the 1.16.10 zoom re-anchor round (wheel + pinch path across the
+      five revisions: the scrollWheelZoom/touchZoom options, the wheel +
+      per-move pinch setZoomAround lines, the direction-span source, the
       non-passive listeners, the mouse-guard, the Drive-Mode + lock gate,
-      the drag disable/enable pair, and two guards pinning the REMOVED
-      approaches — per-step re-anchor and CSS-scale preview; incl. 2 guards
-      consciously REVISED per §1.6: APP_CACHE v31 → v32 ×2)
+      the drag disable/enable pair, touch-action, the 0.12s zoom-easing
+      override, the updateInterval, and guards pinning the REMOVED
+      approaches — per-step re-anchor, CSS-scale preview, commit-only pinch;
+      incl. the APP_CACHE pins consciously REVISED per §1.6 through the
+      v31 → v36 revision chain)
     +4 from the 1.16.9 tracking-card round (worker short-route node ladder,
        destination-node floor, card stride mirror, INTERCEPT chip ladder
        mirror; the 1.16.8 progress-edge + DEST-label + freeze-key guards
        ride the same tree — see the 1.16.9 HISTORY chapter for both rounds)
- - tests/unit/ - 53 executable fixtures / 0 failing (worker kernel, fuel
+ - tests/unit/ - 54 executable fixtures / 0 failing (worker kernel, fuel
    search funnel + Caltex id-table proven against live JSON, WGS84 distance
    arcs, fastDistance mirror parity + 10 skill-adaptation fixtures executing
    the shipped adaptWeightsBySkill bytes via vm slicing, incl. the live-log
@@ -443,8 +454,8 @@ From HISTORY.md "How to bump version in a new session":
   when the same block applies a hard rate cap ≤ CONFIG.maxPlantedRateDegS
   — the 1.14.0 planted-feel contract) plus meta-verifier
   + unified audit-unified.mjs (single-extract, 39 checks, E1-E6)
- - index.html - ~11629 lines / ~797 KB; inline module lines 974-11625 (~740 KB)
- - worker.js - 305 lines; sw.js - 528 lines; fuel-stations.js - 358 lines
+ - index.html - ~11968 lines / ~819 KB; inline module lines 995-11944 (~761 KB)
+ - worker.js - 316 lines; sw.js - 528 lines; fuel-stations.js - 368 lines
 - ESLint - ecmaVersion 2022 (eslint.config.js:32,46); no-empty with
   allowEmptyCatch:false (eslint.config.js:19)
 - TypeScript - not used. Bundler - none; @tailwindcss/cli for CSS only.

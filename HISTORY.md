@@ -156,15 +156,51 @@ Ruled out by probe before fixing: Leaflet's pointer math breaking on the app's C
 
 Console: 0 red errors across every probe.
 
-### Changes
+### 1.16.10 post-release revision 3e (same tree, uncommitted — user-directed four-territory bug hunt: "hunt for Bugs, check for Accuracy and Performance Improvement")
+
+Four parallel read-only hunters (zoom/gesture; tracking-card/node; fetch/verdict/lifecycle; perf/fluidity) produced 30+ candidates; every one was hand-verified against source before applying (§0 E6). **22 fixes landed** (2 HIGH, 7 MED, 13 LOW/cheap). `worker.js` and `fuel-stations.js` also changed. APP_CACHE **v36 → v37**.
+
+**HIGH**
+1. **Free-state pinch release CRASHED** — the release anchor called `state.mapObj.containerPoint(x, y)`, which is NOT a Leaflet method (the factory is `L.point`; the map exposes no such instance method). Every free-state commit (Map Mode / drag-unlocked) threw a TypeError before zooming, leaving the map at the last fractional live level. Every prior rig proof ran in locked Drive Mode, taking the pin branch — that's why it shipped. Fixed: both live and release anchors now convert through `mouseEventToContainerPoint({clientX, clientY})` (which also fixes the client-vs-container offset the old line got wrong).
+2. **Adaptive-stride mirror classified on the ROUNDED total** — the card tested `floor(rKm2*1000/5000)` where `rKm2 = driveRouteKm` is the 0.1-km-rounded display value; the worker classifies on RAW metres. A 4960 m route (raw) rounds to 5.0 km → the card took the fixed-grid path while the worker built 2 adaptive nodes → DIST stretched to ~7.5 KM on a 4.96 km route (executed numerics). Fixed: `state.driveRouteMeters = summary.totalDistance` persists the raw total; the mirror predicate and `_tailKm` use it.
+
+**MED**
+3. **Release left the map at a FRACTIONAL zoom** — the commit was skipped when `Math.round(lastZoom)` already equaled the target (the normal stationary release), so the integer snap never ran. Now the release ALWAYS commits the rounded level (idempotent when already integer) — which also made the crash line reachable, hence fix 1's importance.
+4. **`_pinch.pts` ghost entries corrupted the NEXT gesture** — a missed pointerup/cancel (tab switch, OS gesture) left an orphan that made the next first-finger touch look like a second finger: bogus startDist, drag left disabled, zoomSnap stuck, panning dead until reload. Fixed: a primary pointerdown prunes stale entries and restores drag/zoomSnap; a third finger is now ignored entirely.
+5. **Recenter chain could fire mid-pinch** — the drag-armed 5 s timer panTo'd + relocked + re-seeded rotation under the fingers if the user started a pinch within the window. Fixed: an active pinch (2 pointers) holds the deadline off until gesture end (re-arms if still unlocked).
+6. **Free-state pinch was CENTER-anchored** — the live move fell back to `setZoom(target)` (zooms around the screen centre), sliding the content under the fingers. Now the free-state anchor is the touch MIDPOINT (Google parity) via the same conversion as fix 1.
+7. **Fuel-config Save re-route kept the stale node grid** — toggling "avoid tolls" and saving re-routed but never nulled `routeNodes`, so timeline/radar/NEXT/progress described the pre-change path for the session (the pitstop/activate paths always reset; this branch missed it). Fixed: full node reset + intel abort.
+8. **Purge could not stop an in-flight fuel-dataset download** — the one persist path outside `_purging` (fuel-stations.js) re-landed 2.8 MB+ datasets after `localforage.clear()`. Fixed: an exported purge fence; index.html sets it at wipe start.
+9. **Chart sig stamped BEFORE `renderChart`** — the 1.4.1 `_lastPayloadSig` twin: a throw inside renderChart froze the chart for that content window (skipped forever). Fixed: stamp after the call; a failed render retries.
+
+**LOW / perf / accuracy**
+10. Wheel deltas accumulate to ~60px per step (one full level per EVENT railed touchpad zoom and mapped deltaY===0 to a phantom zoom-out).
+11. Per-move pinch commits have a ~110 ms cooldown — Leaflet drops setZoomAround while animating; ~90% of calls paid the prelude for nothing.
+12. `zoomAnimationThreshold: 6` (default 4) — a fast pinch spread past 4 levels routed through `_resetView` (instant, blank) instead of the animated fallback frame.
+13. Route-generation token (`state._routeGen`, bumped in activate/clear) feeds the STOP-freeze and live-ETA keys — a re-activated IDENTICAL route can no longer resurrect the previous session's frozen clock, and the ETA cache can't serve a time-stale wall clock for the same value pair.
+14. `hideTrackingSurfaces()` force-hide helper + resetToAuto call — the stationary pre-exit could skip the loop's hide path after a CLEAR while parked.
+15. INTERCEPT chip gained the worker's destination-node FLOOR (degenerate 0 m route → 1 node; the chip no longer prints "0 NODES" while the card shows N-1).
+16. `_routeSigKey` memoized on its inputs (was a per-frame 4-concat string); the STOP branch caches its split/compose (ran per frame at every stop light).
+17. `_pinchAnchor` reuses a hoisted buffer (`_PAN_TO_LATLON` precedent); the duplicate commit-only `pointermove` listener and two stale comment blocks were removed.
+18. worker.js: the final adaptive node clamps to the last coordinate when the decoded geometry measures shorter than `summary.totalDistance` (the destination node used to vanish on the adaptive stride's zero-margin final target).
+19. Boot-time `registration.update()` — the update pill only fires on a VERSION diff, but the cache-key-only revisions ship under ONE released VERSION; a waiting SW could strand until a full relaunch. Rides the existing SKIP_WAITING → controllerchange single-reload chain (no loop when nothing is new).
+20. MagCal: closing the modal now CANCELS a running capture (it kept sampling invisibly up to 12 s, then saved — even after a purge wiped the row); `saveMagCalibration` is purge-fenced.
+21. Reverse-geocode body read budgeted (`readBodyOrNull`, 12 s) — the last unbudgeted `.json()` in the telemetry chain.
+22. Guards: +15 sanity pins (598 total), +1 unit fixture (54: the worker clamp), unified fixture pin 54.
+
+**Rig-rejected / documented-not-hidden** (from the hunters, verified but NOT applied): the `_routeGen`-based fuel-Save vs `updateRouteStatus` geometry-clear alternative (the explicit reset is simpler); wheel debounce parity beyond the accumulator; hoisted anchor buffers for the wheel path (trivial, deferred); fluidity `liveIds` + `tracking-eta-prog-fill` (would need gate re-validation — noted as a coverage gap).
+
+Live rig proof of the round's critical paths (Playwright, 390×844, documented headless re-nav): **0 page errors** across locked pinch (18→16, dot centered 0,-1), free-state pinch (18→17 committed — the previously-crashing path), and a 20-event small-delta wheel burst (1 step, not 20).
+
+### Changes (all revisions)
 
 - `index.html` — `scrollWheelZoom: false` + the app's own wheel handler (`initMap`); the per-step `zoom` re-anchor listener removed; `reAnchorZoomToUser()` retained for the `zoomend` safety net (its 1.13.1 panTo line preserved verbatim — its guard survived untouched).
-- `tests/sanity.test.js` — (+5 guards in the first revision, +6 more in revision 2; the per-release chapter section below carries the net count).
-- `sw.js` — APP_CACHE v31 (revised to **v32** in the post-release revision below, so installed clients actually receive the corrected shell). `VERSION` → 1.16.10, `package.json` synced.
+- `tests/sanity.test.js` — **+17 guards net** (566 → 583): the wheel + pinch paths, the direction-span source, the commit cadence (live per-move with animate:true), touch-action, the zoom-easing override and the tile updateInterval — plus two guards pinning the REMOVED approaches (per-step re-anchor, CSS-scale preview) and the commit-only rejection so none can silently return (the per-release chapter sections carry each revision's rationale).
+- `sw.js` — APP_CACHE v31 (revised to **v36** across the post-release revisions below, so installed clients actually receive the corrected shell). `VERSION` → 1.16.10, `package.json` synced.
 
 ### Gates run + evidence
 
-- `npm run lint` 0 · `npm test` sanity **571/571** + unit **53/53** · `npm run audit` **10/10 PASS** (extract+parse OK module 974..11634 / 740322 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — no transform contract touched (the zoom re-anchor is map-center bookkeeping, not a rotation writer; the single `--hud-rot` writer is preserved), shell PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** · `node tests/audit-unified.mjs` **39 checks PASS + Perfection PASS (0 stairs, 0 janks)** · `node tests/ui-fluidity.test.js` Perfection PASS · `npm run precheck` green (Tailwind v4.3.3; no CSS drift — no new utilities this round).
+- Final (all revisions): `npm run lint` 0 · `npm test` sanity **583/583** + unit **53/53** · `npm run audit` **10/10 PASS** (extract+parse OK module 995..11783 / 749055 B, TDZ 0, fp 0, brace depth=0/max=12, CSP 0 gaps, domnull 0, visual PASS — no transform contract touched (the zoom re-anchor is map-center bookkeeping, not a rotation writer; the single `--hud-rot` writer is preserved), shell PASS, csp-evaluator 4 documented + 2 advisory + 0 blocking, osv 9 deps 0 vulns) · `npm run audit:verify` **30/30** · `node tests/audit-unified.mjs` **39 checks PASS + Perfection PASS (0 stairs, 0 janks)** · `node tests/ui-fluidity.test.js` Perfection PASS · `npm run precheck` green (Tailwind v4.3.3; no CSS drift — no new utilities this round).
 - Fetch Gate §6 not re-triggered by §2 (no fetch URLs/triggers/math touched — zoom anchoring only). Visual runtime §7 **was** exercised by the live probes above (rotation + zoom states, per §2's rotation surfaces row).
 
 ### Blind spots considered (§8)
@@ -207,7 +243,9 @@ The commit-only design (rev-2) had the right guarantees but the wrong feel: the 
 
 With v34 live (`d68dcf4`, 15:53) the map zoom direction was fixed, but the **browser's own pinch-zoom** (page zoom) now fired over the map instead: disabling Leaflet's `TouchZoom` (rev-2) also removed the gesture suppression it had been providing, and `preventDefault` in our pointer handlers alone does not reliably stop native pinch on touch devices. Fix: `touch-action: none` on `#hud-map` (real CSS, the mechanism browsers actually read) — the map owns its gestures: one-finger pan stays Leaflet Drag, pinch stays our pin-anchored handler, taps/popups keep working (touch-action does not affect click synthesis). Rig-verified: the declaration computes (`touchAction: "none"`) and the app pinch still commits with it on (tiles 18→16, dot centered). APP_CACHE **v34 → v35** — v34 is what installed clients run, so they need the new key to fetch this.
 
-### Changes (both revisions)
+### 1.16.10 post-release revision 3d (same tree, uncommitted — user report: the pinch delay is back, *"why you need that delay?"*)
+
+The honest answer: no deliberate delay remains — the map zooms per finger move since rev-3c. What the user still felt was three measured costs of NOT blanking: Leaflet's zoom transition (0.25s — the map geometry trails the fingers by up to a quarter second), the tile layer's refresh pace (`updateInterval: 100` — new-level tiles could not even start for up to 100ms), and raw fetch time at uncached zoom levels (the "ping"; the held previous frame during that fetch IS the blank-prevention mechanism). This revision tunes the first two knobs: the zoom transition is overridden to **0.12s** (same cubic-bezier curve, shorter — still long enough to cover a typical fetch; removing the transition entirely is what blanked the map in the first draft) and `updateInterval` drops **100 → 25** so tiles start streaming 4× sooner mid-gesture. Also cleaned two stale first-draft comments that still claimed "zoomAnimation off" (the shipped state is the opposite — leaving them would mislead the next session). The residual 100–500ms at cold zoom levels is raster physics, documented as such. APP_CACHE **v35 → v36** — v35 is what installed clients run (`352e0d2`). Re-proven on the rig: the override computes (0.12s) and the live pinch still tracks with no sustained blank, dot centered, 0 red console errors.
 
 - `index.html` — `scrollWheelZoom: false` + the app's own wheel handler; `touchZoom: false` + the commit-only pinch handler (drag gating, lock snapshot, `setZoomAround` commit); the per-step `zoom` re-anchor earlier added and then removed (its removal rationale pinned so it cannot return).
 - `tests/sanity.test.js` — **+12 guards net** (566 → 578): the `scrollWheelZoom`/`touchZoom` options, the wheel + pinch `setZoomAround` lines, the non-passive listeners, the mouse-guard, the Drive-Mode + lock gate, the drag disable/enable pair, the last-known-positions span (the rev-3 direction fix), and two guards pinning the REMOVED approaches (per-step re-anchor, CSS-scale preview) so neither can silently return.

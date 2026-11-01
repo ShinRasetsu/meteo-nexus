@@ -43,6 +43,14 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 // first route search). The latch collapses concurrent loads of the same brand
 // into one network/disk pass — losers await the winner's promise.
 const _loadInFlight = new Map(); // brandKey -> Promise<raw>
+// 1.16.10 (rev3e hunt round): purge fence. A "Download All Brands" left
+// in-flight when PURGE starts could resolve AFTER localforage.clear() and
+// re-land the datasets the user asked to delete (the fetch-chain persist
+// sites are all fenced in index.html; this module had no fence). index.html
+// sets this true at purge start and reloads the page afterwards, so no
+// unset path is needed.
+let _purgeFence = false;
+export function setPurgeFence(v) { _purgeFence = !!v; }
 export const StationLoader = {
   // opts.force: skip the mem + IndexedDB TTL early-returns (the Offline tab's
   // Refresh button must actually hit the network — without this a tap on
@@ -76,8 +84,10 @@ export const StationLoader = {
       // size is computed once and shared by the data row and the meta row.
       const size = JSON.stringify(data).length;
       try {
-        await localforage.setItem(key, { data, ts, size });
-        await localforage.setItem(`${key}_meta`, { ts, size });
+        if (!_purgeFence) {
+          await localforage.setItem(key, { data, ts, size });
+          await localforage.setItem(`${key}_meta`, { ts, size });
+        }
       } catch { /* ignore write errors */ }
       _stationCache.set(brand.toLowerCase(), { raw: data, adapted: null, ts: Date.now() });
       return data;

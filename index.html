@@ -158,6 +158,18 @@ them for instant render on every later boot. -->
                (touch-action does not affect click synthesis). */
             touch-action: none;
         }
+        /* 1.16.10 (rev3): snappier zoom easing. Leaflet's own transition is
+           0.25s cubic-bezier(0,0,0.25,1) — with our per-move pinch re-targeting
+           that cadence, the map geometry trailed the fingers by up to a quarter
+           second ("feels like high ping" - user report). 0.12s keeps the glide
+           character while tracking the fingers tightly; it still covers typical
+           tile fetches, which is the one job the transition has (holding the
+           previous frame so a zoom never blanks). Same curve, shorter duration.
+           Leaflet's rule is matched selector-for-selector and loses on document
+           order (this block follows the leaflet.css <link>). */
+        .leaflet-zoom-anim .leaflet-zoom-animated {
+            transition: transform 0.12s cubic-bezier(0, 0, 0.25, 1) !important;
+        }
         /* Smear the rotation unlock/relock over 250ms so the map doesn't snap
            130°+ in a single rAF frame when the user drags the map mid-tactical-
            mode. Only applied transiently: dragstart adds it for the unlock-to-0,
@@ -2672,7 +2684,7 @@ grid inside #sec-telemetry, not the page landmark. -->
             lastHeading: 0, currentSpeed: 0, smoothedSpeed: null, sensorHeading: null, rawSensorHeading: null, maxSpeed: 0, _speedGlitchStreak: 0,
             routeNodes: null, originalRouteNodes: null, targetTimezone: null, chart: null, audioEnabled: false,
             appliedHudRot: 0,  // rotation actually written to the map (predrag compensation base)
-            driveRouteKm: null, driveRouteMin: null, lastAutoCacheSig: null,
+            driveRouteKm: null, driveRouteMin: null, driveRouteMeters: null, _routeGen: 0, lastAutoCacheSig: null,
             lastPing: 0, mapObj: null, routeCtrl: null, gpsWatchId: null,
             userMarker: null, interceptMarkers: [], userAuth: null, lastIntelFetch: 0, intelFetchAbortController: null,
             tacticalMode: 1, scaleCtrl: null, radarOverlayOn: false, routeNodesRadar: null, currentRouteCoords: null, focusedSection: null,
@@ -3187,7 +3199,32 @@ let delta = heading - state.lastHeading;
             // 1.16.8: route-identity key for the stopped-ETA freeze (GPS wander
             // must not invalidate a frozen clock — only a route change may) and
             // the bar's bottom progress edge (visibility + width keys).
-            etaLiveRoute: null, edgeShow: null, edgeProg: null };
+            etaLiveRoute: null, edgeShow: null, edgeProg: null,
+            // 1.16.10 (rev3e hunt round): route-sig memo inputs + outputs, the
+            // route-generation tie-in for the live-ETA key, and the cached STOP
+            // composition (all pre-declared per the hidden-class doctrine).
+            sigKm: null, sigCur: null, sigTLat: null, sigTLon: null, sigGen: null, routeSig: null,
+            etaGen: null, stopSrc: null, stopTxt: null };
+
+        // 1.16.10 (rev3e hunt round): force-hide the tracking surfaces outside
+        // the rAF loop. The loop's own hide path lives inside the shouldShow
+        // gate, which the stationary pre-exit can skip for the whole parked
+        // window (speed < 2, no sensor event, heading converged) — so a CLEAR
+        // while parked could leave the bar + tapes visible with stale text
+        // until the next heading change. Called from resetToAuto.
+        function hideTrackingSurfaces() {
+            const te = state._trackingEls;
+            if (te) {
+                if (te.bar) { te.bar.classList.add('hidden'); te.bar.classList.remove('flex'); }
+                if (te.pbar) te.pbar.classList.add('hidden');
+                if (te.progEdge) te.progEdge.classList.add('hidden');
+            }
+            _trackingEtaKeys.locked = 0;   // sentinel: the loop re-evaluates visibility on the next route
+            _trackingEtaKeys.pshow = false;
+            _trackingEtaKeys.edgeShow = false;
+            _trackingEtaKeys.prog = null; _trackingEtaKeys.edgeProg = null;
+            _trackingEtaKeys.progKey = null; _trackingEtaKeys.progCached = null;
+        }
 
         // PERF-P2: single-write rotation. One custom property drives ALL map
         // rotation transforms (see the stylesheet rules next to the
@@ -3522,8 +3559,12 @@ let delta = heading - state.lastHeading;
                             // DIST lies. Derived as total/nodes.length — exact
                             // by construction, no count mirror needed; the only
                             // shared predicate is floor(total/interval) === 0.
-                            const _intervalKm = (_totalN > 0 && Math.floor(rKm2 * 1000 / (CONFIG.routingIntervalNodeDist || 5000)) === 0)
-                                ? rKm2 / _totalN
+                            // Raw metres when available (the worker's input);
+                            // the rounded display total only as a fallback.
+                            const _totalM = (typeof state.driveRouteMeters === 'number' && state.driveRouteMeters > 0)
+                                ? state.driveRouteMeters : rKm2 * 1000;
+                            const _intervalKm = (_totalN > 0 && Math.floor(_totalM / (CONFIG.routingIntervalNodeDist || 5000)) === 0)
+                                ? (_totalM / 1000) / _totalN
                                 : (CONFIG.routingIntervalNodeDist || 5000) / 1000;
                             // 1.16.4: the worker grid ends at N×interval — the un-gridded
                             // tail (total − N×interval, up to 5 km short of the
@@ -3531,7 +3572,7 @@ let delta = heading - state.lastHeading;
                             // visibly DROPPED the moment nodes+nav populated (pre-nav
                             // frames showed the true total) and the arrived branch
                             // pinned 0.0 KM / "1M" up to ~5 km early.
-                            const _tailKm = Math.max(0, rKm2 - _totalN * _intervalKm);
+                            const _tailKm = Math.max(0, _totalM / 1000 - _totalN * _intervalKm);
                             if (_navRem && _navRem.arrived) {
                                 // Past the last node: remaining = straight-line to the
                                 // destination itself (the grid never covered this leg;
@@ -3582,13 +3623,31 @@ let delta = heading - state.lastHeading;
                         // only a genuine route change (new route, re-route,
                         // destination swap) or real node-cursor progress may
                         // invalidate it.
-                        const _routeSigKey = (state.driveRouteKm != null ? state.driveRouteKm : -1) + '|' +
-                            (state.targetCoords ? Math.round(state.targetCoords.lat * 10000) + ',' + Math.round(state.targetCoords.lon * 10000) : '') + '|' +
-                            (state.routeNodesCursor || 0);
+                        // Memoized on its inputs — rebuilt per frame otherwise
+                        // (the 1.13.2 per-frame-string class). Includes the
+                        // route-generation token so a RE-ACTIVATED identical
+                        // route (same total + destination, cursor 0) can never
+                        // resurrect the previous session's frozen STOP clock.
+                        const _tC = state.targetCoords;
+                        const _sigKm = state.driveRouteKm, _sigCur = state.routeNodesCursor || 0;
+                        const _sigTLat = _tC ? Math.round(_tC.lat * 10000) : 0;
+                        const _sigTLon = _tC ? Math.round(_tC.lon * 10000) : 0;
+                        const _sigGen = state._routeGen || 0;
+                        if (_trackingEtaKeys.sigKm !== _sigKm || _trackingEtaKeys.sigCur !== _sigCur ||
+                            _trackingEtaKeys.sigTLat !== _sigTLat || _trackingEtaKeys.sigTLon !== _sigTLon ||
+                            _trackingEtaKeys.sigGen !== _sigGen) {
+                            _trackingEtaKeys.sigKm = _sigKm; _trackingEtaKeys.sigCur = _sigCur;
+                            _trackingEtaKeys.sigTLat = _sigTLat; _trackingEtaKeys.sigTLon = _sigTLon;
+                            _trackingEtaKeys.sigGen = _sigGen;
+                            _trackingEtaKeys.routeSig = (_sigKm != null ? _sigKm : -1) + '|' +
+                                (_tC ? _sigTLat + ',' + _sigTLon : '') + '|' + _sigCur + '|' + _sigGen;
+                        }
+                        const _routeSigKey = _trackingEtaKeys.routeSig;
                         let etaTxt2 = '--:--';
-                        if (_minsQ >= 0 && (_minsQ !== _trackingEtaKeys.minsQ || _rKmQ !== _trackingEtaKeys.etaRkm)) {
+                        if (_minsQ >= 0 && (_minsQ !== _trackingEtaKeys.minsQ || _rKmQ !== _trackingEtaKeys.etaRkm || _trackingEtaKeys.etaGen !== _sigGen)) {
                             _trackingEtaKeys.minsQ = _minsQ;
                             _trackingEtaKeys.etaRkm = _rKmQ;
+                            _trackingEtaKeys.etaGen = _sigGen;
                             const etaDate = new Date(Date.now() + _minsQ * 60000);
                             _trackingEtaKeys.etaCached = etaDate.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false}) + ' · ' + (_minsQ>=60 ? Math.floor(_minsQ/60)+'H '+Math.round(_minsQ%60)+'M' : _minsQ+'M');
                             _trackingEtaKeys.etaLiveTxt = _trackingEtaKeys.etaCached;
@@ -3605,7 +3664,13 @@ let delta = heading - state.lastHeading;
                             // swap while stopped (route-identity change) or no
                             // live ETA yet falls back to the honest '--:--'.
                             if (rKm2 !== null && _trackingEtaKeys.etaLiveTxt && _trackingEtaKeys.etaLiveRoute === _routeSigKey) {
-                                etaTxt2 = String(_trackingEtaKeys.etaLiveTxt).split(' · ')[0] + ' · STOP';
+                                // Split/compose only when the frozen source string
+                                // changes — this ran per frame at every stop light.
+                                if (_trackingEtaKeys.stopSrc !== _trackingEtaKeys.etaLiveTxt) {
+                                    _trackingEtaKeys.stopSrc = _trackingEtaKeys.etaLiveTxt;
+                                    _trackingEtaKeys.stopTxt = String(_trackingEtaKeys.etaLiveTxt).split(' · ')[0] + ' · STOP';
+                                }
+                                etaTxt2 = _trackingEtaKeys.stopTxt;
                             }
                         } else {
                             etaTxt2 = _trackingEtaKeys.etaCached;
@@ -4013,6 +4078,11 @@ let delta = heading - state.lastHeading;
         async function saveMagCalibration() {
             try {
                 if (!window.localforage) return;
+                // 1.16.10 (rev3e hunt round): a capture started before PURGE can
+                // auto-stop AFTER the wipe (the 12s timer kept running while the
+                // modal was closed) and re-land the calibration row — fence it
+                // like every fetch-chain persist site.
+                if (state._purging) return;
                 await localforage.setItem(MAGCAL_KEY, {
                     bias: magCalState.bias, scale: magCalState.scale,
                     quality: magCalState.quality, timestamp: magCalState.timestamp
@@ -5482,10 +5552,6 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 
         function initMap(lat = 0, lon = 0) {
             if(state.mapObj) return;
-            // 1.16.10: zoomAnimation off — the map already does all of its own
-            // easing (animate:false panTo + the per-frame follow loop), and the
-            // zoom animation was the window in which the gesture-anchored
-            // drift stayed on screen (see the zoom re-anchor below).
             // 1.16.10 (rev): scrollWheelZoom + touchZoom off - we drive both
             // wheel and pinch ourselves below so the zoom can be anchored ON
             // THE PIN while GPS-locked.
@@ -5494,7 +5560,12 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // new zoom level's tiles load. Disabling it (first-draft 1.16.10)
             // made every zoom-out go BLANK for the duration of the tile fetch
             // (rig-measured: loaded tiles 30 -> 1 mid-gesture).
-            state.mapObj = L.map('hud-map', { zoomControl: false, scrollWheelZoom: false, touchZoom: false }).setView([lat, lon], 14);
+            // zoomAnimationThreshold 6 (Leaflet default 4): a fast pinch spread
+            // can jump past 4 levels between processed moves, and Leaflet then
+            // routes the step through _resetView — instant, discarding the old
+            // frame (exactly the blanking class animate:true prevents). 6 keeps
+            // the animation on for every realistic gesture.
+            state.mapObj = L.map('hud-map', { zoomControl: false, scrollWheelZoom: false, touchZoom: false, zoomAnimationThreshold: 6 }).setView([lat, lon], 14);
             state.lastSetViewLat = lat; state.lastSetViewLon = lon; state._lastSetViewTS = performance.now();
             // 1.16.10 (rev): wheel zoom anchored ON THE PIN while GPS-locked.
             // Leaflet's own ScrollZoom zooms around the gesture point, so an
@@ -5506,10 +5577,20 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
             // as the pinch-path safety net). Every other state (Map Mode,
             // drag-unlocked browse) replicates Leaflet's own gesture-anchored
             // behaviour by zooming around the pointer's own container point.
+            // Wheel deltas accumulate to ~60px per step (Leaflet's
+            // wheelPxPerZoomLevel parity): the first version stepped one full
+            // level per EVENT, so a precision touchpad (60-120 events/s at
+            // 1-4px) railed the zoom to max in ~1s, and deltaY === 0
+            // (shift+wheel) mapped to a phantom zoom-out.
+            let _wheelAcc = 0;
             const _zoomWheel = (e) => {
                 if (!state.mapObj || e.ctrlKey) return; // ctrl+wheel = browser page zoom
                 e.preventDefault();
-                const dir = e.deltaY < 0 ? 1 : -1;
+                const px = e.deltaY * (e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? 100 : 1);
+                _wheelAcc += px;
+                if (Math.abs(_wheelAcc) < 60) return;
+                const dir = _wheelAcc < 0 ? 1 : -1;
+                _wheelAcc = 0;
                 const next = state.mapObj.getZoom() + dir;
                 const locked = state.tacticalMode > 0 && state.isMapLocked && !!state.autoCoords;
                 const anchor = locked
@@ -5535,15 +5616,39 @@ state.routeNodesCursor = state.routeNodesCursor || 0;
 // stable, honest trade: the zoom lands as a discrete animated step instead of
 // a live finger-scaled zoom. If live-scale feel is ever wanted, it needs a
 // gesture-owned pane layer, not Leaflet's.
-const _pinch = { pts: new Map(), startDist: 0, startZoom: 0, lockedAtStart: false, lastZoom: 0, snap: 1 };
+const _pinch = { pts: new Map(), startDist: 0, startZoom: 0, lockedAtStart: false, lastZoom: 0, snap: 1, commitAt: 0 };
+const _PINCH_ANCHOR = [0, 0]; // reused anchor buffer (Leaflet converts synchronously - _PAN_TO_LATLON precedent)
 const _pinchLocked = () => state.tacticalMode > 0 && state.isMapLocked && !!state.autoCoords;
-const _pinchAnchorLatLng = () => (_pinch.lockedAtStart && state.autoCoords)
-    ? [state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat,
-       state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon]
-    : null;
+// The zoom anchor for a move: the pin while GPS-locked; otherwise the touch
+// MIDPOINT so the point between the fingers stays put (the first live version
+// fell back to setZoom(), which zooms around the SCREEN CENTRE - the content
+// slid under the fingers in Map Mode). Mouse events are synthesised from the
+// stored midpoints: mouseEventToContainerPoint reads only clientX/clientY and
+// performs the container-offset conversion containerPointToLatLng alone misses.
+const _pinchAnchor = (cxp, cyp) => {
+    if (_pinch.lockedAtStart && state.autoCoords) {
+        _PINCH_ANCHOR[0] = state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat;
+        _PINCH_ANCHOR[1] = state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon;
+        return _PINCH_ANCHOR;
+    }
+    return state.mapObj.containerPointToLatLng(state.mapObj.mouseEventToContainerPoint({ clientX: cxp, clientY: cyp }));
+};
 state.mapObj.getContainer().addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse') return; // mouse zoom is the wheel path above
+    if (e.isPrimary && _pinch.pts.size > 0) {
+        // A primary pointerdown starts a NEW gesture: prune any entries a
+        // missed pointerup/pointercancel left behind (a ghost entry made the
+        // next first-finger touch look like the second finger of the old
+        // gesture — bogus startDist, drag left disabled, stale lock snapshot —
+        // and nothing ever pruned it) and restore the gesture-scope state
+        // those orphans skipped.
+        _pinch.pts.clear();
+        _pinch.startDist = 0;
+        if (state.mapObj.dragging) state.mapObj.dragging.enable();
+        if (state.mapObj.options.zoomSnap !== _pinch.snap) state.mapObj.options.zoomSnap = _pinch.snap;
+    }
     if (_pinch.pts.size === 0) _pinch.lockedAtStart = _pinchLocked(); // snapshot before any drag can clear the lock
+    if (_pinch.pts.size >= 2) return; // track at most two pointers — a third finger must not re-baseline the gesture
     _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (_pinch.pts.size === 2 && state.mapObj) {
         const p = Array.from(_pinch.pts.values());
@@ -5563,27 +5668,26 @@ state.mapObj.getContainer().addEventListener('pointerdown', (e) => {
     }
 }, { passive: false });
 state.mapObj.getContainer().addEventListener('pointermove', (e) => {
-    if (!_pinch.pts.has(e.pointerId) || !state.mapObj || _pinch.pts.size < 2 || _pinch.startDist <= 0) return;
-    _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!_pinch.pts.has(e.pointerId)) return;
+    _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); // always track (positions feed the release span)
+    if (!state.mapObj || _pinch.pts.size < 2 || _pinch.startDist <= 0) return;
     e.preventDefault();
     const p = Array.from(_pinch.pts.values());
     const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
     if (d <= 8) return;
-    // Live, pin-anchored zoom, re-targeted on every move — the same cadence
-    // Leaflet's own TouchZoom uses. animate:true is load-bearing: the zoom
-    // transition holds the previous frame while the new level's tiles load,
-    // so a continuous pinch never blanks (animate:false re-rendered the level
-    // per move and the visible coverage cratered 19 -> 10 mid-gesture).
+    // Live, anchored zoom. animate:true is load-bearing: the transition holds
+    // the previous frame while the new level's tiles load, so a continuous
+    // pinch never blanks. The ~110ms cooldown matches the 0.12s zoom
+    // transition — Leaflet silently drops setZoomAround while a zoom
+    // animation is in flight, so without it ~90% of the calls pay the full
+    // prelude (projections + allocations) only to be discarded.
+    const nowMs = performance.now();
+    if (nowMs - _pinch.commitAt < 110) return;
+    _pinch.commitAt = nowMs;
     const target = _pinch.startZoom + Math.log2(d / _pinch.startDist);
     _pinch.lastZoom = target;
-    const anchor = _pinchAnchorLatLng();
-    if (anchor) state.mapObj.setZoomAround(anchor, target, { animate: true });
-    else state.mapObj.setZoom(target, { animate: true });
-}, { passive: false });
-state.mapObj.getContainer().addEventListener('pointermove', (e) => {
-    if (!_pinch.pts.has(e.pointerId) || _pinch.pts.size < 2) return;
-    _pinch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    e.preventDefault(); // no visual change by design — commit-only
+    const mid = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+    state.mapObj.setZoomAround(_pinchAnchor(mid.x, mid.y), target, { animate: true });
 }, { passive: false });
 const _pinchEnd = (e) => {
     if (!_pinch.pts.has(e.pointerId)) return;
@@ -5601,21 +5705,17 @@ const _pinchEnd = (e) => {
         if (state.mapObj.dragging) state.mapObj.dragging.enable();  // one-finger pan restored
         if (state.mapObj.options.zoomSnap !== _pinch.snap) state.mapObj.options.zoomSnap = _pinch.snap;
         if (dist > 8 && startDist > 0) {
-            // Snap the fractional level to a clean integer at release — the
-            // tiles for it are already streaming from the live updates.
+            // Always end on a clean INTEGER level (the tiles for it are
+            // already streaming from the live updates). The first version
+            // skipped the commit when the last live target already rounded to
+            // the same integer — which could leave the map at a FRACTIONAL
+            // zoom forever — and its free-state anchor called
+            // mapObj.containerPoint(), which is NOT a Leaflet method: every
+            // free-state commit threw a TypeError before zooming. Both fixed
+            // here; the commit is a near no-op when the levels already match.
             const target = Math.round(_pinch.startZoom + Math.log2(dist / startDist));
-            if (target !== Math.round(_pinch.lastZoom)) {
-                // Locked at gesture START: anchor on the pin (the dot never
-                // moves). Free states: anchor on the touch midpoint (Google's
-                // normal-mode pinch). The snapshot matters — a pre-engage
-                // single-finger drag can clear isMapLocked mid-gesture.
-                const anchor = _pinch.lockedAtStart
-                    ? [state.visual.lat !== null ? state.visual.lat : state.autoCoords.lat,
-                       state.visual.lon !== null ? state.visual.lon : state.autoCoords.lon]
-                    : state.mapObj.containerPointToLatLng(
-                        state.mapObj.containerPoint(Math.round((both[0].x + both[1].x) / 2), Math.round((both[0].y + both[1].y) / 2)));
-                state.mapObj.setZoomAround(anchor, target, { animate: true });
-            }
+            const mid = { x: (both[0].x + both[1].x) / 2, y: (both[0].y + both[1].y) / 2 };
+            state.mapObj.setZoomAround(_pinchAnchor(mid.x, mid.y), target, { animate: true });
         }
     }
 };
@@ -5630,7 +5730,11 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             uprightPane.style.zIndex = 590;
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OSM', maxZoom: 22, maxNativeZoom: 18,
-                detectRetina: true, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 100
+                detectRetina: true, keepBuffer: 8, updateWhenIdle: false, updateWhenZooming: true, updateInterval: 25
+                // 1.16.10 (rev3): was 100. The tile layer paces its refresh
+                // during a zoom; at 100ms a live pinch waited up to a tenth of a
+                // second per level before new tiles even started (the "high
+                // ping" feeling). 25ms starts the fetch 4x sooner mid-gesture.
             }).addTo(state.mapObj);
             state.scaleCtrl = L.control.scale({position: 'bottomleft', metric: true, imperial: false});
             state.mapObj.on('dragstart', () => {
@@ -5773,9 +5877,7 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // only the END state — with the zoom animation enabled that landed
             // up to ~1.4s AFTER the last gesture event, so the map sat visibly
             // sideways for the entire zoom and then snapped back (user report
-            // 2026-10-30: "when zooming out why it's moving side ways"). With
-            // zoomAnimation off, each step is instant and this correction lands
-            // in the same tick as the step — nothing accumulates. Map Mode
+            // 2026-10-30: "when zooming out why it's moving side ways"). Map Mode
             // (tacticalMode 0) and drag-unlocked browsing keep the free-map
             // semantics: the gate below declines, zoom stays gesture-anchored.
             // 1.16.10 (rev): the per-step 'zoom' listener was REMOVED — with
@@ -6120,6 +6222,10 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
         window.activateLiveNavigation = function(destLat, destLon, isFuelOnly = false, customWaypoints = null) {
             state.targetCoords = { lat: destLat, lon: destLon };
             state.customRouteWaypoints = customWaypoints;
+            // 1.16.10 (rev3e hunt round): new route session — bump the
+            // generation token so the STOP-freeze / ETA caches cannot resurrect
+            // a re-activated identical route's previous frozen clock.
+            state._routeGen = (state._routeGen || 0) + 1;
             // 1.13.2 audit fix: the 1.12.0 chapter claimed navigation enters
             // Drive Mode — the code never did. Starting navigation from Map
             // Mode left the user on a free-panning north-up map with no GPS
@@ -6175,13 +6281,24 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // fires BEFORE the node compute, so this uses the rule itself
             // rather than routeNodes.length (still empty here).
             const _gridNodes = Math.floor(summary.totalDistance / CONFIG.routingIntervalNodeDist);
-            const totalNodes = (_gridNodes === 0 && summary.totalDistance > 0)
-                ? (summary.totalDistance < 3000 ? 1 : 2)
-                : _gridNodes;
+            // 1.16.10 (rev3e hunt round): the floor branch now mirrors the
+            // worker's DESTINATION-NODE FLOOR too — a degenerate (0 m) route
+            // still yields one node, so the chip can no longer print "0 NODES"
+            // while the card shows N-1 and the timeline renders a node.
+            const totalNodes = (_gridNodes > 0) ? _gridNodes
+                : (summary.totalDistance > 0 && summary.totalDistance < 3000) ? 1
+                : (summary.totalDistance > 0) ? 2
+                : 1;
             const engineTag = window.lastWinningEngine ? `[${window.lastWinningEngine}] ` : '';
             // U2: Drive Mode consumes these instead of recomputing totals per frame.
             state.driveRouteKm = parseFloat(distKm);
             state.driveRouteMin = totalSec / 60;
+            // 1.16.10 (rev3e): RAW metres alongside the 0.1-km-rounded display
+            // value — the card's adaptive-stride mirror must classify with the
+            // same input the worker used (floor(raw/5000)); classifying with
+            // the rounded 5.0 km read a 4960 m route as fixed-grid and stretched
+            // DIST to ~7.5 KM on a 4.96 km route (hunt finding, verified).
+            state.driveRouteMeters = summary.totalDistance;
             // N5: automatic offline tile prefetch. Gated per route signature so a
             // NEW route (re-route, waypoint swap, pitstop insert) re-caches while
             // telemetry-refresh re-fires of the same route skip. 5s debounce lets
@@ -6939,6 +7056,18 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             const el = MODAL_BY_ID[modalId] || document.getElementById(modalId);
             if (!el || el.classList.contains('hidden')) return;
             el.classList.add('hidden');
+            // 1.16.10 (rev3e hunt round): closing the magcal modal CANCELS a
+            // running capture. It previously kept sampling for up to 12 s after
+            // the close (invisible), then auto-stopped and SAVED — which could
+            // even re-land the calibration row after a PURGE wiped it.
+            if (modalId === 'magcal-modal' && magCalState.capturing) {
+                magCalState.capturing = false;
+                if (magCalState.magSensor) { try { magCalState.magSensor.stop(); } catch (e) { console.debug('magSensor.stop failed (intentional silencer):', e && e.message); } magCalState.magSensor = null; }
+                window.removeEventListener('deviceorientation', magCalDevOrientHandler, true);
+                if (magCalState.autoStopTimer) { clearTimeout(magCalState.autoStopTimer); magCalState.autoStopTimer = null; }
+                if (magCalState.rafId) { cancelAnimationFrame(magCalState.rafId); magCalState.rafId = null; }
+                updateMagCalUI();
+            }
             // 1.16.5 modal-a11y close half (UI audit F3): unlock body scroll
             // once no app modal is open, and return focus to the opener.
             // Return ONLY while focus is still inside the just-closed modal
@@ -7065,6 +7194,13 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // trigger source entirely (requestGpsFixOnce is a one-shot and
             // needs no watch; the reload re-arms everything).
             state._purging = true;
+            // 1.16.10 (rev3e hunt round): fence the fuel-dataset writer too —
+            // an in-flight "Download All Brands" resolving after the wipe used
+            // to re-land the datasets via fuel-stations.js (the one persist
+            // path outside this module's _purging gates).
+            void getFuelStationsModule()
+                .then(m => { try { m.setPurgeFence && m.setPurgeFence(true); } catch (e) { console.debug('purge fence set failed (intentional silencer):', e && e.message); } })
+                .catch(() => {});
             if (state.gpsWatchId !== null && state.gpsWatchId !== undefined && navigator.geolocation) {
                 try { navigator.geolocation.clearWatch(state.gpsWatchId); } catch (_) { /* already dead */ }
                 state.gpsWatchId = null;
@@ -9075,8 +9211,13 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // renderChart, so a skipped rebuild keeps refs that still match the
             // unchanged window.
             if (chartSig !== _lastChartSig) {
-                _lastChartSig = chartSig;
+                // 1.16.10 (rev3e hunt round): stamp AFTER the render — the twin
+                // of the 1.4.1 `_lastPayloadSig` fix. A throw inside renderChart
+                // previously left the sig stamped, so the chart was skipped
+                // FOREVER for that content window (silent freeze until the next
+                // hour bucket); now a failed render retries on the next fetch.
                 renderChart(data.times, data.timesUnix, data.rainData, data.solarData, data.uvData, data.hourlyAgreement, data.tempBand);
+                _lastChartSig = chartSig;
             }
             // 1.16.4: the per-render CACHE_STATS query is REMOVED — its only
             // consumer (#cache-gauge) was retired at 1.8.0, so the SW ran an
@@ -9135,8 +9276,12 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
                             // and causing a redundant refetch). Stale loses.
                             const myGeoSeq = (state._revGeoSeq = (state._revGeoSeq || 0) + 1);
                             fetchWithRetry(`${CONFIG.reverseGeoApi}?latitude=${lat}&longitude=${lon}&localityLanguage=en`, { priority: 'high', timeout: 10000 }, 2, 500)
-                                .then(r => r.json())
+                                // 1.16.10 (rev3e hunt round): the last unbudgeted
+                                // body read — a headers-then-stall kept this
+                                // promise (and the socket) alive indefinitely.
+                                .then(r => readBodyOrNull(r, 12000, x => x.json()))
                                 .then(d => {
+                                    if (!d) return;
                                     if (myGeoSeq !== state._revGeoSeq) return;
                                     const city = d.city || d.locality || d.principalSubdivision || 'Unknown';
                                     _lastGeoLat = lat; _lastGeoLon = lon; _lastGeoName = city;
@@ -9617,7 +9762,13 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             state.lastIntelFetch = 0; state.currentRouteCoords = null; state.isFuelOnlyRoute = false;
             state._lastRoute = null;
             // U2: clear the Drive Mode route snapshot with the route itself.
-            state.driveRouteKm = null; state.driveRouteMin = null;
+            state.driveRouteKm = null; state.driveRouteMin = null; state.driveRouteMeters = null;
+            // 1.16.10 (rev3e hunt round): every route lifecycle change bumps the
+            // generation token so the STOP-freeze / ETA caches can never survive
+            // into a re-created route, and the tracking surfaces are force-hidden
+            // (the parked pre-exit can skip the loop's own hide path).
+            state._routeGen = (state._routeGen || 0) + 1;
+            hideTrackingSurfaces();
             updateHTML(DOM.statusEl, `<i class="fa-solid fa-satellite fa-fade mr-2"></i> GPS ACTIVE`);
             updateClass(DOM.statusEl, "text-xs md:text-sm font-bold text-brand-success uppercase tracking-widest bg-brand-success/10 px-2 py-1 md:px-3 md:py-1.5 rounded-lg border-2 border-brand-success/50 whitespace-nowrap");
             DOM.navBtn.classList.add('hidden');
@@ -10152,7 +10303,18 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
                     if (state.routeCtrl) { 
                         const wps = state.routeCtrl.getWaypoints(); 
                         state.mapObj.removeControl(state.routeCtrl); 
-                        state.routeCtrl = null; 
+                        state.routeCtrl = null;
+                        // 1.16.10 (rev3e hunt round): a config change (avoid
+                        // toggles etc.) re-routes to possibly different
+                        // geometry — reset the node grid so the check-ahead
+                        // nodes, timeline, radar samples and progress are
+                        // recomputed for the NEW path instead of describing the
+                        // old one for the rest of the session (the pitstop /
+                        // activate paths always did this; this branch missed it).
+                        state.routeNodes = null; state.originalRouteNodes = null;
+                        state.routeNodesCursor = 0; state.originalRouteNodesCursor = 0;
+                        state.lastIntelFetch = 0; state._lastRoute = null;
+                        if (state.intelFetchAbortController) { state.intelFetchAbortController.abort(); state.intelFetchAbortController = null; }
                         initRoute(wps); 
                     }
                     else if (state.targetCoords && state.autoCoords) window.activateLiveNavigation(state.targetCoords.lat, state.targetCoords.lon, state.isFuelOnlyRoute);
@@ -10393,6 +10555,15 @@ function checkDependenciesAndRun() {
                                     if (newWorker.state === 'installed' && navigator.serviceWorker.controller) newWorker.postMessage({ type: 'SKIP_WAITING' });
                                 });
                             });
+                            // 1.16.10 (rev3e hunt round): check for a new SW at
+                            // boot. The update PILL only fires on a VERSION
+                            // string diff — but the cache-key-only revisions
+                            // (v34->v36) ship under ONE released VERSION, so a
+                            // waiting SW could sit unactivated until a full app
+                            // relaunch. update() rides the same
+                            // updatefound->SKIP_WAITING->controllerchange chain
+                            // (one reload, none when nothing is new — no loop).
+                            registration.update().catch(e => console.debug('SW update check failed (intentional silencer):', e && e.message));
                         })
                         .catch(err => console.warn('ServiceWorker registration failed: ', err));
                 });

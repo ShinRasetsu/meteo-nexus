@@ -267,6 +267,20 @@ test('calculateRouteNodes: adaptive stride parity with the tracking-card mirror 
   }
 });
 
+test('calculateRouteNodes: 1.16.10 rev3e — final node clamps to the last coord when geometry < summary total', () => {
+  // Engine polyline can measure shorter than summary.totalDistance; the
+  // adaptive stride ends exactly at the total, so the final target used to be
+  // unreachable and the destination node was silently dropped (2 -> 1 nodes).
+  const coords = straightLineCoords(37); // ~4003 m of geometry
+  const total = 4990;                    // summary claims more than the polyline covers
+  const nodes = w.calculateRouteNodes(total, coords, 5000);
+  assert.equal(nodes.length, 2);
+  assert.equal(nodes[0].id, 1);
+  assert.equal(nodes[1].id, 2);
+  assert.ok(Math.abs(nodes[1].lon - 36 * EQ_STEP_DEG) < 1e-9, 'destination node clamps to the last coordinate');
+  assert.ok(nodes[0].lon < nodes[1].lon, 'nodes stay monotonic through the clamp');
+});
+
 // ---------- processOverpassPayload ----------
 
 const CENTER = { lat: 52.5, lon: 13.4 };
