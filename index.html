@@ -182,6 +182,27 @@ them for instant render on every later boot. -->
         .hud-idle .user-arrow { opacity: 0 !important; transform: scale(0.5) !important; }
 
         .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        /* Modern Web Guidance (interactions-in-complex-layouts): the telemetry
+           card is the project's main isolated dashboard widget — scope
+           containment so internal mutations cannot trigger page-wide reflows. */
+        #main-status-card { contain: layout style; }
+
+        /* Modern Web Guidance (accessibility, visually-hidden utility, §3):
+           keeps content in the a11y tree while visually hiding it; the
+           :focus-within/:active exception lets focusable targets (skip link,
+           sr-only form controls) become visible. */
+        .visually-hidden:where(:not(:focus-within, :active)) {
+            position: absolute !important;
+            clip-path: inset(50%) !important;
+            overflow: hidden !important;
+            width: 1px !important;
+            height: 1px !important;
+            margin: -1px !important;
+            padding: 0 !important;
+            border: 0 !important;
+            white-space: nowrap !important;
+        }
         .leaflet-tile-pane { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(105%); }
         .smooth-glide { will-change: transform; transform: translateZ(0); }
 
@@ -480,6 +501,10 @@ display:contents keeps the sections participating in the body flex exactly
 as before — DOM containment, not layout, is what satisfies the landmark
 rules. The nested #main-grid stays a plain div: it is an inner U2-MERGE
 grid inside #sec-telemetry, not the page landmark. -->
+<!-- Modern Web Guidance (accessibility §1 skip links): one link to bypass the
+     full-page telemetry UI; the .visually-hidden utility (added with this)
+     keeps it out of the visual layout. -->
+<a href="#app-main" class="visually-hidden" id="skip-to-main">Skip to main content</a>
 <main id="app-main" class="contents">
 <div id="sec-telemetry" class="w-full flex flex-col gap-2 relative transition-all duration-300">
         <div onclick="toggleFocus('sec-telemetry')" class="flex justify-center -mb-1 cursor-pointer" title="Tap to expand diagnostics"><div id="focus-drag-handle" class="w-10 h-1 bg-surface-600 rounded-full hover:bg-brand-teal transition-colors"></div></div>
@@ -7625,7 +7650,17 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
         //   • Accurate low-confidence flag: if global model weight contribution drops
         //     below ACK baseline, curr is tagged lowConfidence and UI can show a more
         //     conservative rounded value (e.g. "+" half-degree uncertainty badge).
-        function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null, needsChart = true) {
+        // Modern Web Guidance (js guide, "Do break up long tasks"): anything
+        // above the ~50ms INP rule is sliced with scheduler.yield() so pending
+        // user input is never starved between heavy synchronous phases.
+        async function yieldToMain() {
+            if (typeof scheduler !== 'undefined' && scheduler && typeof scheduler.yield === 'function') {
+                try { return await scheduler.yield(); } catch (_) { /* fall through to the setTimeout path */ }
+            }
+            return await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        async function normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp = null, needsChart = true) {
             // 1.16.4: degenerate-payload guard — a 200 response whose hourly
             // block is missing/empty previously threw a raw TypeError at
             // `dFore.hourly.time` deep inside the normalize with half-executed
@@ -7683,6 +7718,9 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             const precipProbModels = _allModels.precipitation_probability;
 
             const totalLen = h.time.length;
+            // Modern Web Guidance (js guide): yield after the bulk pass so the
+            // model-ensemble consensus work below starts on a free main thread.
+            await yieldToMain();
             const maxSlice = Math.min(nowIndex + 24, totalLen);
             const sliceLen = maxSlice - nowIndex;
 
@@ -7773,6 +7811,7 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // so the renormalisation excludes it entirely. Without this, dead models
             // were counted as fully-healthy 0 mm votes, which would push the consensus
             // silently toward "STABLE" even when the actually-live models agreed on rain.
+            await yieldToMain();
             for (const _m of WeatherEnsemble.models) {
                 const a = precipModels[_m];
                 // OPT-1.4.1: isSentinelDead is the exact sentinelDead probe extracted
@@ -8284,7 +8323,11 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
         // --- RENDER TELEMETRY UI ---
         // CHANGED: 3-tier health badges, ensemble-driven agree color, temp spread, code badge,
         // status branches on classifyWetness() string instead of raw vote count.
-        function renderTelemetryUI(data, isOffline) {
+        async function renderTelemetryUI(data, isOffline) {
+            // Modern Web Guidance (js guide, "Do break up long tasks"): the health-badge
+            // loop + metric writes below are the largest synchronous spans on the
+            // telemetry path — yield once so a user tap is never delayed mid-render.
+            await yieldToMain();
             const { curr, currentAgreement, currentStatus, isRainingNow, wmoDetail, rainSourcesNote, unconfirmedClaim, unconfirmedNote, metarNote, suppressedModelClaim, incomingRain, lowConfidence, uvData, times, nodeHealth, codeAgreement, tempBand, precipBreakdown, cloudCover, pressure, visibility, temperatureTrend, precipModels, nowIdx } = data;
 
             // Health badges: healthy (green) / degraded (yellow) / down (red)
@@ -9107,7 +9150,7 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
             // unchanged. Mirrors the post-render gate below exactly (nothing
             // mutates _lastChartSig between here and there).
             const needsChart = chartSig !== _lastChartSig;
-            const data = normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp, needsChart);
+            const data = await normalizeTelemetryData(dCurr, dFore, dSolar, isOffline, cachedTimestamp, needsChart);
 
             // FIX: Aero-Vector HUD wind/gust previously sourced from single best_match (dCurr.current).
             // Now uses the weighted 4-model ensemble. Nothing in initActiveAeroTelemetry changes —
@@ -9200,7 +9243,7 @@ state.mapObj.getContainer().addEventListener('pointercancel', _pinchEnd);
                 ? nextSunPair(dDaily.daily, Date.now(), (dCurr && typeof dCurr.utc_offset_seconds === 'number') ? dCurr.utc_offset_seconds : 0)
                 : null;
 
-            renderTelemetryUI(data, isOffline);
+            await renderTelemetryUI(data, isOffline);
             // PERF: chart-level signature gate — the payload gate above passes on a
             // 15-min observation roll even when the hourly chart content is
             // byte-identical; renderChart rebuilds 8 datasets + forces a full
