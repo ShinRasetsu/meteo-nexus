@@ -9,6 +9,10 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://api.open-meteo.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://gmaps-proxy.strikefreedomnine.workers.dev; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com https://unpkg.com; script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://www.gstatic.com https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com https://marine-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.rainviewer.com https://tilecache.rainviewer.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://api.bigdatacloud.net https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://router.project-osrm.org https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://gmaps-proxy.strikefreedomnine.workers.dev; worker-src 'self' blob:; base-uri 'self'; form-action 'self'">
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#000000">
+    <!-- Modern Web Guidance (dark-mode): declare supported schemes in HTML
+         (MANDATORY per guide) so the browser themes native UI pre-paint;
+         :root { color-scheme: dark; } carries the page-level contract. -->
+    <meta name="color-scheme" content="dark">
     <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
     
     <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
@@ -181,7 +185,24 @@ them for instant render on every later boot. -->
         .hud-idle .user-dot { opacity: 1 !important; transform: scale(1) !important; }
         .hud-idle .user-arrow { opacity: 0 !important; transform: scale(0.5) !important; }
 
-        .hud-card { transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+        /* Modern Web Guidance (motion guide): no `transition-all`; list exactly
+           what changes. Keeps non-motion + visual transitions; `filter` retained
+           for night-mode dimming (body.night swaps brightness/saturate). */
+        .hud-card {
+            transition-property: background-color, border-color, color, filter, opacity, transform, box-shadow;
+            transition-duration: 0.5s;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ─── Modern Web Guidance HUD polish (additive; current dark style preserved) ─── */
+        /* dark-mode guide: accent-color aligns native controls with brand teal;
+           progressive enhancement, no effect on the custom sr-only checkboxes. */
+        html { accent-color: var(--color-brand-teal, #14b8a6); }
+        /* typography guide: balanced headings on a dense dark HUD. */
+        h1 { text-wrap: balance; }
+        /* css guide §9 shapes: squircle corners; progressive enhancement
+           over existing border-radius; ignored by unsupported browsers. */
+        .hud-card { corner-shape: squircle; }
 
         /* Modern Web Guidance (interactions-in-complex-layouts): the telemetry
            card is the project's main isolated dashboard widget — scope
